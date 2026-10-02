@@ -1,0 +1,45 @@
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+IDENT_BEFORE_TIMING_MS=3.348 RAW=STI\rSTN1130 v5.10.1\r\r>
+ECHO_OFF_MS=1.283 RAW=ATE0\rOK\r\r>
+UART_SWITCH_ACK baud=2000000 RAW=OK\r
+UART_SWITCH_STI baud=2000000 ms=1.495 RAW=STN1130 v5.10.1\r\r>
+OPEN_PROTOCOL_MS=1.595 RAW=OK\r\r>
+HEADERS_OFF_MS=1.692 RAW=OK\r\r>
+FUNCTIONAL_HEADER_MS=2.294 RAW=OK\r\r>
+TIMING_CONFIG label=atat1_default_r1_t250 ATAT=1 STPTO=102 ATAT_MS=2.448 STPTO_MS=1.391
+QUERY_RESULT label=atat1_default_r1_t250 command="STPX D:010C, R:1, T:250" total_s=0.606 rate=33.00/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.85 latency_p95_ms=34.81
+TIMING_CONFIG label=atat1_r1_t100 ATAT=1 STPTO=102 ATAT_MS=1.982 STPTO_MS=1.802
+QUERY_RESULT label=atat1_r1_t100 command="STPX D:010C, R:1, T:100" total_s=0.590 rate=33.90/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.37 latency_p95_ms=34.30
+TIMING_CONFIG label=atat1_r1_t50 ATAT=1 STPTO=102 ATAT_MS=2.082 STPTO_MS=1.693
+QUERY_RESULT label=atat1_r1_t50 command="STPX D:010C, R:1, T:50" total_s=0.601 rate=33.27/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.79 latency_p95_ms=34.01
+TIMING_CONFIG label=atat1_r1_t35 ATAT=1 STPTO=102 ATAT_MS=2.342 STPTO_MS=1.422
+QUERY_RESULT label=atat1_r1_t35 command="STPX D:010C, R:1, T:35" total_s=0.592 rate=33.80/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.33 latency_p95_ms=35.85
+TIMING_CONFIG label=atat1_r1_t30 ATAT=1 STPTO=102 ATAT_MS=1.133 STPTO_MS=1.930
+QUERY_BAD label=atat1_r1_t30 index=2 RAW=NO DATA\r\r>
+QUERY_BAD label=atat1_r1_t30 index=3 RAW=NO DATA\r\r>
+QUERY_BAD label=atat1_r1_t30 index=4 RAW=NO DATA\r\r>
+QUERY_BAD label=atat1_r1_t30 index=10 RAW=NO DATA\r\r>
+QUERY_BAD label=atat1_r1_t30 index=11 RAW=NO DATA\r\r>
+QUERY_BAD label=atat1_r1_t30 index=12 RAW=NO DATA\r\r>
+QUERY_RESULT label=atat1_r1_t30 command="STPX D:010C, R:1, T:30" total_s=0.568 rate=24.67/s valid=14/20 multiple_response_samples=0 latency_p50_ms=30.51 latency_p95_ms=32.15
+TIMING_CONFIG label=atat1_no_r_t250 ATAT=1 STPTO=102 ATAT_MS=1.358 STPTO_MS=1.507
+QUERY_RESULT label=atat1_no_r_t250 command="STPX D:010C, T:250" total_s=1.204 rate=16.61/s valid=20/20 multiple_response_samples=0 latency_p50_ms=59.41 latency_p95_ms=79.14
+TIMING_CONFIG label=atat1_no_r_t100 ATAT=1 STPTO=102 ATAT_MS=1.958 STPTO_MS=2.014
+QUERY_RESULT label=atat1_no_r_t100 command="STPX D:010C, T:100" total_s=1.200 rate=16.66/s valid=20/20 multiple_response_samples=0 latency_p50_ms=59.56 latency_p95_ms=79.98
+TIMING_CONFIG label=atat1_no_r_t50 ATAT=1 STPTO=102 ATAT_MS=1.734 STPTO_MS=1.887
+QUERY_RESULT label=atat1_no_r_t50 command="STPX D:010C, T:50" total_s=1.203 rate=16.63/s valid=20/20 multiple_response_samples=0 latency_p50_ms=59.75 latency_p95_ms=81.92
+TIMING_CONFIG label=atat1_no_r_t35 ATAT=1 STPTO=102 ATAT_MS=1.839 STPTO_MS=1.423
+QUERY_RESULT label=atat1_no_r_t35 command="STPX D:010C, T:35" total_s=1.182 rate=16.92/s valid=20/20 multiple_response_samples=0 latency_p50_ms=59.99 latency_p95_ms=64.87
+TIMING_CONFIG label=atat0_no_r_t50 ATAT=0 STPTO=102 ATAT_MS=2.055 STPTO_MS=1.513
+QUERY_RESULT label=atat0_no_r_t50 command="STPX D:010C, T:50" total_s=1.212 rate=16.50/s valid=20/20 multiple_response_samples=0 latency_p50_ms=59.73 latency_p95_ms=75.18
+TIMING_CONFIG label=atat2_no_r_t50 ATAT=2 STPTO=102 ATAT_MS=1.545 STPTO_MS=1.345
+QUERY_RESULT label=atat2_no_r_t50 command="STPX D:010C, T:50" total_s=1.043 rate=19.18/s valid=20/20 multiple_response_samples=0 latency_p50_ms=60.27 latency_p95_ms=77.79
+TIMING_CONFIG label=pcmhammer_style_atat1 ATAT=1 STPTO=1000 ATAT_MS=1.576 STPTO_MS=2.141
+QUERY_RESULT label=pcmhammer_style_atat1 command="STPX D:010C, R:1" total_s=0.578 rate=34.61/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.21 latency_p95_ms=32.85
+TIMING_CONFIG label=pcmhammer_style_atat0 ATAT=0 STPTO=1000 ATAT_MS=1.500 STPTO_MS=1.982
+QUERY_RESULT label=pcmhammer_style_atat0 command="STPX D:010C, R:1" total_s=0.598 rate=33.46/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.44 latency_p95_ms=34.70
+TIMING_CONFIG label=pcmhammer_style_atat2 ATAT=2 STPTO=1000 ATAT_MS=1.509 STPTO_MS=1.779
+QUERY_RESULT label=pcmhammer_style_atat2 command="STPX D:010C, R:1" total_s=0.596 rate=33.54/s valid=20/20 multiple_response_samples=0 latency_p50_ms=30.26 latency_p95_ms=33.81
+UART_SWITCH_ACK baud=115200 RAW=OK\r
+UART_SWITCH_STI baud=115200 ms=2.622 RAW=STN1130 v5.10.1\r\r>

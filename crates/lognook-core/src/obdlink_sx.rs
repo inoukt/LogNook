@@ -6,7 +6,9 @@ mod tests;
 use crate::{
     ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError, Sample, SampleOrigin,
     SampleQuality, SignalDefinition,
-    obdlink_sx_protocol::{decode_signal, parse_mode01_responses, parse_supported_pids},
+    obdlink_sx_protocol::{
+        decode_signal, mode01_pid_data_width, parse_mode01_responses, parse_supported_pids,
+    },
     standard_obd_signals,
 };
 use serial::SerialTransport;
@@ -18,6 +20,8 @@ pub struct ObdLinkSxAdapter {
     serial_number: Option<String>,
     supported_pids: Vec<u8>,
     ecu_id: Option<String>,
+    fast_tx_header: Option<String>,
+    restore_adapter_settings: bool,
     started: Option<Instant>,
 }
 
@@ -28,6 +32,8 @@ impl ObdLinkSxAdapter {
             serial_number: None,
             supported_pids: Vec::new(),
             ecu_id: None,
+            fast_tx_header: None,
+            restore_adapter_settings: false,
             started: None,
         }
     }
@@ -55,7 +61,14 @@ impl ObdLinkSxAdapter {
     fn connect_inner(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         self.open()?;
         let device = self.read_identity()?;
-        let (supported_pids, ecu_id) = self.discover_supported_pids()?;
+        let (mut supported_pids, mut ecu_id) = self.discover_supported_pids()?;
+        let protocol = self.command("STPRS")?;
+        let mut fast_tx_header = None;
+        if protocol.contains("ISO 15765-4 (CAN 11/500)") {
+            self.configure_can_headers()?;
+            (supported_pids, ecu_id) = self.discover_supported_pids()?;
+            fast_tx_header = ecu_id.as_deref().and_then(physical_request_header);
+        }
         let supported_signals: Vec<_> = standard_obd_signals()
             .into_iter()
             .filter(|signal| supported_pids.contains(&signal.pid))
@@ -67,6 +80,7 @@ impl ObdLinkSxAdapter {
         }
 
         self.ecu_id = ecu_id;
+        self.fast_tx_header = fast_tx_header;
         self.serial_number = Some(device.stable_id.clone());
         self.supported_pids = supported_pids;
         self.started = Some(Instant::now());
@@ -143,6 +157,30 @@ impl ObdLinkSxAdapter {
         self.open()?;
         self.read_identity()
     }
+
+    fn configure_can_headers(&mut self) -> Result<(), LogNookError> {
+        self.restore_adapter_settings = true;
+        for command in ["ATE0", "AT H1", "AT SH 7DF"] {
+            let response = self.command(command)?;
+            if !response.contains("OK") {
+                return Err(LogNookError::new(format!(
+                    "OBDLink SX did not acknowledge {command}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn restore_adapter_settings(&mut self) {
+        if !self.restore_adapter_settings {
+            return;
+        }
+        for command in ["AT H0", "AT SH 7DF", "ATE1"] {
+            let _ = self.command(command);
+        }
+        self.restore_adapter_settings = false;
+        self.fast_tx_header = None;
+    }
 }
 
 pub fn identify_obdlink_sx(port_name: impl Into<String>) -> Result<DeviceDescriptor, LogNookError> {
@@ -172,19 +210,72 @@ impl HardwareAdapter for ObdLinkSxAdapter {
             .serial_number
             .clone()
             .ok_or_else(|| LogNookError::new("OBDLink SX identity is unavailable"))?;
-        let mut samples = Vec::with_capacity(signals.len());
+        let catalog = standard_obd_signals();
 
         for signal in signals {
-            if !standard_obd_signals()
-                .iter()
-                .any(|candidate| candidate == signal)
-                || !self.supported_pids.contains(&signal.pid)
-            {
+            if !catalog.contains(signal) || !self.supported_pids.contains(&signal.pid) {
                 return Err(LogNookError::new(format!(
                     "Unsupported read-only Mode 01 signal: {}",
                     signal.id
                 )));
             }
+        }
+
+        if let Some(header) = self.fast_tx_header.clone() {
+            let groups = group_signal_indices(signals).map_err(LogNookError::new)?;
+            let mut samples: Vec<Option<Sample>> = vec![None; signals.len()];
+            for group in groups {
+                let group_signals: Vec<_> = group.iter().map(|index| &signals[*index]).collect();
+                let data = format!(
+                    "01{}",
+                    group_signals
+                        .iter()
+                        .map(|signal| format!("{:02X}", signal.pid))
+                        .collect::<String>()
+                );
+                let mut payload_length = 1;
+                for signal in &group_signals {
+                    let width = mode01_pid_data_width(signal.pid).ok_or_else(|| {
+                        LogNookError::new(format!(
+                            "No data width is defined for PID {:02X}",
+                            signal.pid
+                        ))
+                    })?;
+                    payload_length += 1 + width;
+                }
+                let frames = isotp_frame_count(payload_length);
+                let response_text =
+                    self.command(&format!("STPX H:{header}, D:{data}, R:{frames}, T:250"))?;
+                for index in group {
+                    let signal = &signals[index];
+                    let mut responses =
+                        parse_mode01_responses(&response_text, signal.service, signal.pid)
+                            .map_err(LogNookError::new)?;
+                    if responses.len() != 1 {
+                        return Err(LogNookError::new(
+                            "Multiple ECU responders are not supported by this SX adapter",
+                        ));
+                    }
+                    let response = responses.pop().expect("one response was checked");
+                    samples[index] = Some(sample_from_response(
+                        signal,
+                        &response,
+                        &serial_number,
+                        started,
+                        self.ecu_id.as_deref(),
+                    )?);
+                }
+            }
+            return samples
+                .into_iter()
+                .map(|sample| {
+                    sample.ok_or_else(|| LogNookError::new("SX omitted a selected PID sample"))
+                })
+                .collect();
+        }
+
+        let mut samples = Vec::with_capacity(signals.len());
+        for signal in signals {
             let command = format!("01{:02X}", signal.pid);
             let response_text = self.command(&command)?;
             let responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
@@ -195,37 +286,110 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                 ));
             }
             let response = &responses[0];
-            if let (Some(connected_ecu), Some(sample_ecu)) = (&self.ecu_id, &response.ecu_id)
-                && connected_ecu != sample_ecu
-            {
-                return Err(LogNookError::new(
-                    "ECU identity changed during the SX session",
-                ));
-            }
-            let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-            samples.push(Sample {
-                elapsed_ns,
-                wall_time_unix_ns: now_unix_ns(),
-                source_id: format!("obdlink-sx:{serial_number}"),
-                ecu_id: response.ecu_id.clone().or_else(|| self.ecu_id.clone()),
-                signal_id: signal.id.clone(),
-                value: decode_signal(signal, response).map_err(LogNookError::new)?,
-                unit: signal.unit.clone(),
-                quality: SampleQuality::Valid,
-                origin: SampleOrigin::Live,
-                raw_bytes: Some(response.raw_bytes.clone()),
-            });
+            samples.push(sample_from_response(
+                signal,
+                response,
+                &serial_number,
+                started,
+                self.ecu_id.as_deref(),
+            )?);
         }
         Ok(samples)
     }
 
     fn disconnect(&mut self) {
+        self.restore_adapter_settings();
         self.transport.close();
         self.serial_number = None;
         self.supported_pids.clear();
         self.ecu_id = None;
+        self.fast_tx_header = None;
         self.started = None;
     }
+}
+
+fn physical_request_header(response_header: &str) -> Option<String> {
+    if response_header.len() != 3 || !response_header.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let response_id = u16::from_str_radix(response_header, 16).ok()?;
+    (0x7E8..=0x7EF)
+        .contains(&response_id)
+        .then(|| format!("{:03X}", response_id - 8))
+}
+
+fn group_signal_indices(signals: &[SignalDefinition]) -> Result<Vec<Vec<usize>>, String> {
+    let mut order: Vec<_> = (0..signals.len()).collect();
+    order.sort_by_key(|index| (mode01_pid_data_width(signals[*index].pid), *index));
+
+    let mut groups = Vec::new();
+    let mut group = Vec::new();
+    let mut response_length = 1usize;
+    for index in order {
+        let width = mode01_pid_data_width(signals[index].pid).ok_or_else(|| {
+            format!(
+                "No data width is defined for PID {:02X}",
+                signals[index].pid
+            )
+        })?;
+        let addition = 1 + width;
+        if !group.is_empty() && response_length + addition > 13 {
+            groups.push(std::mem::take(&mut group));
+            response_length = 1;
+        }
+        if response_length + addition > 13 {
+            return Err(format!(
+                "PID {:02X} cannot fit in the read-only STPX response group",
+                signals[index].pid
+            ));
+        }
+        group.push(index);
+        response_length += addition;
+    }
+    if !group.is_empty() {
+        groups.push(group);
+    }
+    Ok(groups)
+}
+
+fn isotp_frame_count(payload_length: usize) -> usize {
+    if payload_length <= 7 {
+        1
+    } else {
+        1 + (payload_length - 6).div_ceil(7)
+    }
+}
+
+fn sample_from_response(
+    signal: &SignalDefinition,
+    response: &crate::obdlink_sx_protocol::Mode01Response,
+    serial_number: &str,
+    started: Instant,
+    connected_ecu: Option<&str>,
+) -> Result<Sample, LogNookError> {
+    if let (Some(connected_ecu), Some(sample_ecu)) = (connected_ecu, response.ecu_id.as_deref())
+        && connected_ecu != sample_ecu
+    {
+        return Err(LogNookError::new(
+            "ECU identity changed during the SX session",
+        ));
+    }
+    let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
+    Ok(Sample {
+        elapsed_ns,
+        wall_time_unix_ns: now_unix_ns(),
+        source_id: format!("obdlink-sx:{serial_number}"),
+        ecu_id: response
+            .ecu_id
+            .clone()
+            .or_else(|| connected_ecu.map(str::to_owned)),
+        signal_id: signal.id.clone(),
+        value: decode_signal(signal, response).map_err(LogNookError::new)?,
+        unit: signal.unit.clone(),
+        quality: SampleQuality::Valid,
+        origin: SampleOrigin::Live,
+        raw_bytes: Some(response.raw_bytes.clone()),
+    })
 }
 
 fn is_startup_frame(response: &str) -> bool {

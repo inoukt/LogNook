@@ -1,0 +1,32 @@
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+IDENT_BEFORE_PERIODIC_MS=3.680 RAW=STI\rSTN1130 v5.10.1\r\r>
+ECHO_OFF_MS=3.103 RAW=ATE0\rOK\r\r>
+UART_SWITCH_ACK baud=2000000 RAW=OK\r
+UART_SWITCH_STI baud=2000000 ms=1.778 RAW=STN1130 v5.10.1\r\r>
+VEHICLE_PROTOCOL_MS=1.781 RAW=ISO 15765-4 (CAN 11/500) [AT]\r\r>
+PERIODIC_ADD label=rpm_100ms pid=0C period_ms=100 handle=1 ms=1.485 RAW=1\r\r>
+PERIODIC_RESULT label=rpm_100ms duration_s=3.0 total_responses=0 aggregate_per_s=0.00 per_pid=[(12, 0)] RAW=
+PERIODIC_REMOVE label=rpm_100ms pid=0C handle=1 ms=1.655 RAW=OK\r\r>
+PERIODIC_CLEAR label=rpm_100ms ms=1.951 RAW=OK\r\r>
+PERIODIC_AFTER_CLEAR label=rpm_100ms residual_pid_responses=0 RAW=
+PERIODIC_ADD label=rpm_20ms pid=0C period_ms=20 handle=2 ms=1.865 RAW=2\r\r>
+PERIODIC_RESULT label=rpm_20ms duration_s=3.0 total_responses=0 aggregate_per_s=0.00 per_pid=[(12, 0)] RAW=
+PERIODIC_REMOVE label=rpm_20ms pid=0C handle=2 ms=1.498 RAW=OK\r\r>
+PERIODIC_CLEAR label=rpm_20ms ms=1.415 RAW=OK\r\r>
+PERIODIC_AFTER_CLEAR label=rpm_20ms residual_pid_responses=0 RAW=
+PERIODIC_ADD label=five_pids_100ms_each pid=0C period_ms=100 handle=3 ms=1.602 RAW=3\r\r>
+PERIODIC_ADD label=five_pids_100ms_each pid=0D period_ms=100 handle=4 ms=1.369 RAW=4\r\r>
+PERIODIC_ADD label=five_pids_100ms_each pid=05 period_ms=100 handle=5 ms=1.615 RAW=5\r\r>
+PERIODIC_ADD label=five_pids_100ms_each pid=0F period_ms=100 handle=6 ms=1.356 RAW=6\r\r>
+PERIODIC_ADD label=five_pids_100ms_each pid=11 period_ms=100 handle=7 ms=1.354 RAW=7\r\r>
+PERIODIC_RESULT label=five_pids_100ms_each duration_s=3.0 total_responses=0 aggregate_per_s=0.00 per_pid=[(12, 0), (13, 0), (5, 0), (15, 0), (17, 0)] RAW=
+PERIODIC_REMOVE label=five_pids_100ms_each pid=11 handle=7 ms=1.242 RAW=OK\r\r>
+PERIODIC_REMOVE label=five_pids_100ms_each pid=0F handle=6 ms=1.239 RAW=OK\r\r>
+PERIODIC_REMOVE label=five_pids_100ms_each pid=05 handle=5 ms=1.360 RAW=OK\r\r>
+PERIODIC_REMOVE label=five_pids_100ms_each pid=0D handle=4 ms=1.317 RAW=OK\r\r>
+PERIODIC_REMOVE label=five_pids_100ms_each pid=0C handle=3 ms=1.201 RAW=OK\r\r>
+PERIODIC_CLEAR label=five_pids_100ms_each ms=1.904 RAW=OK\r\r>
+PERIODIC_AFTER_CLEAR label=five_pids_100ms_each residual_pid_responses=0 RAW=
+UART_SWITCH_ACK baud=115200 RAW=OK\r
+UART_SWITCH_STI baud=115200 ms=3.400 RAW=STN1130 v5.10.1\r\r>

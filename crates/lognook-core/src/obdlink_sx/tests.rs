@@ -1,10 +1,14 @@
 use super::serial::{is_selected_sx_port, is_sx_usb};
-use super::{ObdLinkSxAdapter, serial::MAX_RESPONSE_BYTES};
+use super::{
+    ObdLinkSxAdapter, group_signal_indices, isotp_frame_count, serial::MAX_RESPONSE_BYTES,
+};
+use crate::obdlink_sx_protocol::mode01_pid_data_width;
 use crate::{HardwareAdapter, standard_obd_signals};
 use serialport::{SerialPortInfo, SerialPortType, UsbPortInfo};
 use std::{
     io::{Cursor, Read, Write},
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 struct FixturePort {
@@ -40,7 +44,7 @@ fn adapter_for(transcript: String) -> (ObdLinkSxAdapter, Arc<Mutex<Vec<u8>>>) {
 
 fn identity_transcript() -> String {
     format!(
-        "{}{}{}{}",
+        "{}{}{}{}STPRS\rISO 9141-2 [AT]\r\r>",
         include_str!("../../tests/fixtures/obdlink_sx/startup.txt"),
         include_str!("../../tests/fixtures/obdlink_sx/identity.txt"),
         include_str!("../../tests/fixtures/obdlink_sx/mode01_supported.txt"),
@@ -51,7 +55,7 @@ fn identity_transcript() -> String {
 #[test]
 fn connects_to_idle_sx_without_unsolicited_startup_banner() {
     let transcript = format!(
-        "{}{}{}",
+        "{}{}{}STPRS\rISO 9141-2 [AT]\r\r>",
         include_str!("../../tests/fixtures/obdlink_sx/physical_ford_identity.txt"),
         include_str!("../../tests/fixtures/obdlink_sx/physical_ford_supported.txt"),
         include_str!("../../tests/fixtures/obdlink_sx/mode01_supported_20.txt"),
@@ -63,8 +67,11 @@ fn connects_to_idle_sx_without_unsolicited_startup_banner() {
         capabilities.device.firmware.as_deref(),
         Some("STN1130 v5.10.1")
     );
-    assert_eq!(capabilities.supported_signals.len(), 5);
-    assert_eq!(&*written.lock().unwrap(), b"STI\rSTDI\rSTSN\r0100\r0120\r");
+    assert_eq!(capabilities.supported_signals.len(), 17);
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STI\rSTDI\rSTSN\r0100\r0120\rSTPRS\r"
+    );
 }
 
 #[test]
@@ -80,7 +87,7 @@ fn identity_only_physical_fixture_sends_no_vehicle_query() {
 #[test]
 fn empty_startup_prompt_is_tolerated_before_firmware_reply() {
     let transcript = format!(
-        ">{}{}{}",
+        ">{}{}{}STPRS\rISO 9141-2 [AT]\r\r>",
         include_str!("../../tests/fixtures/obdlink_sx/physical_ford_identity.txt"),
         include_str!("../../tests/fixtures/obdlink_sx/physical_ford_supported.txt"),
         include_str!("../../tests/fixtures/obdlink_sx/mode01_supported_20.txt"),
@@ -128,10 +135,23 @@ fn startup_banner_is_optional_and_reply_prompts_sequence_queries() {
             "coolant_temp",
             "intake_temp",
             "throttle_pos",
-            "vehicle_speed"
+            "vehicle_speed",
+            "fuel_system_status",
+            "engine_load",
+            "fuel_trim_short_b1",
+            "fuel_trim_long_b1",
+            "intake_manifold_pressure",
+            "timing_advance",
+            "o2_sensors_present_1_2",
+            "obd_standard_supported",
+            "engine_runtime",
+            "distance_with_mil"
         ],
     );
-    assert_eq!(&*written.lock().unwrap(), b"STI\rSTDI\rSTSN\r0100\r0120\r");
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STI\rSTDI\rSTSN\r0100\r0120\rSTPRS\r"
+    );
 }
 
 #[test]
@@ -203,7 +223,98 @@ fn read_samples_sends_only_selected_supported_pid_and_keeps_raw_response() {
     );
     assert_eq!(
         &*written.lock().unwrap(),
-        b"STI\rSTDI\rSTSN\r0100\r0120\r010C\r"
+        b"STI\rSTDI\rSTSN\r0100\r0120\rSTPRS\r010C\r"
+    );
+}
+
+#[test]
+fn read_samples_stuffs_five_supported_pids_into_one_complete_can_response() {
+    let transcript =
+        include_str!("../../tests/fixtures/obdlink_sx/mode01_stuffed_five_sorted.txt").repeat(5);
+    let (mut adapter, written) = adapter_for(transcript);
+    let signals: Vec<_> = standard_obd_signals()
+        .into_iter()
+        .filter(|signal| [0x0C, 0x05, 0x0F, 0x11, 0x0D].contains(&signal.pid))
+        .collect();
+    adapter.serial_number = Some("113011166292".into());
+    adapter.supported_pids = signals.iter().map(|signal| signal.pid).collect();
+    adapter.ecu_id = Some("7E8".into());
+    adapter.fast_tx_header = Some("7E0".into());
+    adapter.started = Some(Instant::now());
+    adapter.open().unwrap();
+
+    let samples = adapter.read_samples(&signals).unwrap();
+
+    assert_eq!(samples.len(), 5);
+    assert_eq!(
+        samples
+            .iter()
+            .map(|sample| sample.value)
+            .collect::<Vec<_>>(),
+        vec![597.0, 100.0, 59.0, 30.0 * 100.0 / 255.0, 0.0,]
+    );
+    assert!(
+        samples
+            .iter()
+            .all(|sample| sample.ecu_id.as_deref() == Some("7E8"))
+    );
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STPX H:7E0, D:01050F110D0C, R:2, T:250\r"
+    );
+}
+
+#[test]
+fn all_35_seeded_signals_pack_into_seven_two_frame_response_groups() {
+    let signals = standard_obd_signals();
+    let groups = group_signal_indices(&signals).unwrap();
+
+    assert_eq!(groups.len(), 7);
+    let mut grouped_indices: Vec<_> = groups.iter().flatten().copied().collect();
+    grouped_indices.sort_unstable();
+    assert_eq!(grouped_indices, (0..signals.len()).collect::<Vec<_>>());
+    for group in groups {
+        let payload_length = 1 + group
+            .iter()
+            .map(|index| 1 + mode01_pid_data_width(signals[*index].pid).unwrap())
+            .sum::<usize>();
+        assert!(payload_length <= 13);
+        assert!(isotp_frame_count(payload_length) <= 2);
+    }
+}
+
+#[test]
+fn can_connection_uses_stpx_stuffing_and_restores_volatile_adapter_settings() {
+    let transcript = format!(
+        "{}{}{}STPRS\rISO 15765-4 (CAN 11/500) [AT]\r\r>ATE0\rOK\r\r>OK\r\r>OK\r\r>{}{}{}{}{}{}",
+        include_str!("../../tests/fixtures/obdlink_sx/physical_ford_identity.txt"),
+        include_str!("../../tests/fixtures/obdlink_sx/physical_ford_supported.txt"),
+        include_str!("../../tests/fixtures/obdlink_sx/mode01_supported_20.txt"),
+        "0100\r7E8 06 41 00 BF BE A8 93\r\r>",
+        "0120\r7E8 06 41 20 80 00 00 00\r\r>",
+        include_str!("../../tests/fixtures/obdlink_sx/mode01_stuffed_five_sorted.txt"),
+        "OK\r\r>",
+        "OK\r\r>",
+        "OK\r\r>"
+    );
+    let (mut adapter, written) = adapter_for(transcript);
+    let capabilities = adapter.connect().unwrap();
+    let signals: Vec<_> = capabilities
+        .supported_signals
+        .into_iter()
+        .filter(|signal| [0x0C, 0x05, 0x0F, 0x11, 0x0D].contains(&signal.pid))
+        .collect();
+
+    let samples = adapter.read_samples(&signals).unwrap();
+
+    assert_eq!(samples.len(), 5);
+    assert_eq!(samples[0].value, 597.0);
+    assert_eq!(samples[1].value, 100.0);
+    assert_eq!(samples[2].value, 59.0);
+    adapter.disconnect();
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STI\rSTDI\rSTSN\r0100\r0120\rSTPRS\rATE0\rAT H1\rAT SH 7DF\r0100\r0120\rSTPX H:7E0, D:01050F110D0C, R:2, T:250\rAT H0\rAT SH 7DF\rATE1\r"
     );
 }
 
@@ -219,7 +330,10 @@ fn unsupported_pid_is_rejected_before_any_vehicle_request() {
     unsupported.pid = 0x12;
 
     assert!(adapter.read_samples(&[unsupported]).is_err());
-    assert_eq!(&*written.lock().unwrap(), b"STI\rSTDI\rSTSN\r0100\r0120\r");
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STI\rSTDI\rSTSN\r0100\r0120\rSTPRS\r"
+    );
 }
 
 #[test]

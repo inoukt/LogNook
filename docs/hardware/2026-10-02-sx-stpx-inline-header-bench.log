@@ -1,0 +1,6 @@
+IDENT_BEFORE_HEADER_TEST_MS=2.597 RAW=STI\rSTN1130 v5.10.1\r\r>
+HEADERS_ON_MS=1.621 RAW=AT H1\rOK\r\r>
+OPEN_PROTOCOL_MS=1.824 RAW=STPO\rOK\r\r>
+HEADER_DISCOVERY_RPM_MS=116.267 RAW=010C\r7E8 04 41 0C 09 67 \r\r>
+QUERY_RESULT label=stpx_inline_functional_7df command="STPX H:7DF, D:010C, R:1, T:250" total_s=0.596 rate=33.58/s valid=20/20 latency_p50_ms=30.11 latency_p95_ms=34.10
+QUERY_RESULT label=stpx_inline_physical_7e0 command="STPX H:7E0, D:010C, R:1, T:250" total_s=0.593 rate=33.72/s valid=20/20 latency_p50_ms=30.00 latency_p95_ms=33.15

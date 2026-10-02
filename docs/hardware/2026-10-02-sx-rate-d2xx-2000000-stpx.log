@@ -1,0 +1,124 @@
+MODE=d2xx-switch BAUD=2000000 LATENCY_ARG=None
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+IDENT_BEFORE_SWITCH_MS=2.982 RAW=STI\rSTN1130 v5.10.1\r\r>
+ECHO_OFF_MS=2.731 RAW=ATE0\rOK\r\r>
+UART_SWITCH_ACK baud=2000000 RAW=OK\r
+UART_SWITCH_STI baud=2000000 ms=1.408 RAW=STN1130 v5.10.1\r\r>
+IDENT_STI_MS=1.447 RAW=STN1130 v5.10.1\r\r>
+IDENT_STDI_MS=2.089 RAW=OBDLink SX r4.3.1\r\r>
+IDENT_STSN_MS=1.622 RAW=113011166292\r\r>
+IDENT_STPRS_MS=1.270 RAW=ISO 15765-4 (CAN 11/500) [AT]\r\r>
+STPX_OPEN_PROTOCOL_MS=1.407 RAW=OK\r\r>
+STPX_HEADERS_OFF_MS=3.206 RAW=OK\r\r>
+STPX_FUNCTIONAL_HEADER_MS=2.080 RAW=OK\r\r>
+STPX_ATAT1_MS=0.998 RAW=OK\r\r>
+BITMAP_00_MS=4.558 PIDS=[01, 03, 04, 05, 06, 07, 08, 09, 0B, 0C, 0D, 0E, 0F, 11, 13, 15, 19, 1C, 1F] MORE=true RAW=41 00 BF BE A8 93 \r\r>
+BITMAP_20_MS=24.431 PIDS=[21, 23, 2E, 2F, 30, 31, 32, 33, 34, 38, 3C, 3D] MORE=true RAW=41 20 A0 07 F1 19 \r\r>
+BITMAP_40_MS=31.059 PIDS=[41, 42, 43, 44, 45, 46, 47, 49, 4A, 4C] MORE=false RAW=41 40 FE D0 00 00 \r\r>
+SUPPORTED_PID_COUNT=41 SUPPORTED=[01, 03, 04, 05, 06, 07, 08, 09, 0B, 0C, 0D, 0E, 0F, 11, 13, 15, 19, 1C, 1F, 21, 23, 2E, 2F, 30, 31, 32, 33, 34, 38, 3C, 3D, 41, 42, 43, 44, 45, 46, 47, 49, 4A, 4C]
+STANDARD_PUBLIC_CANDIDATES=0C:Engine speed | 0D:Vehicle speed | 05:Engine coolant temperature | 0F:Intake air temperature | 11:Throttle position | 04:Calculated engine load | 06:Short term fuel trim bank 1 | 07:Long term fuel trim bank 1 | 08:Short term fuel trim bank 2 | 09:Long term fuel trim bank 2 | 0B:Intake manifold absolute pressure | 0E:Timing advance | 1F:Runtime since engine start | 03:Fuel system status | 13:O2 sensors present banks 1-2 | 1C:OBD standard supported | 21:Distance driven with MIL | 23:Fuel rail gauge pressure | 2E:Commanded evaporative purge | 2F:Fuel tank level | 30:Warm-ups since DTCs cleared | 31:Distance since DTCs cleared | 32:Evap vapor pressure | 33:Absolute barometric pressure | 3C:Catalyst temp bank 1 sensor 1 | 3D:Catalyst temp bank 2 sensor 1 | 42:Control module voltage | 43:Absolute engine load | 44:Commanded equivalence ratio lambda | 45:Relative throttle position | 46:Ambient air temperature | 47:Absolute throttle position B | 49:Accelerator pedal position D | 4A:Accelerator pedal position E | 4C:Commanded throttle actuator
+PROBE_PID_0C_MS=19.116 DATA=Some([09, 7C]) EXPECT_BYTES=2 DECODER=numeric RAW=41 0C 09 7C \r\r>
+PROBE_PID_0D_MS=29.155 DATA=Some([00]) EXPECT_BYTES=1 DECODER=numeric RAW=41 0D 00 \r\r>
+PROBE_PID_05_MS=29.652 DATA=Some([66]) EXPECT_BYTES=1 DECODER=numeric RAW=41 05 66 \r\r>
+PROBE_PID_0F_MS=31.148 DATA=Some([47]) EXPECT_BYTES=1 DECODER=numeric RAW=41 0F 47 \r\r>
+PROBE_PID_11_MS=31.656 DATA=Some([1F]) EXPECT_BYTES=1 DECODER=numeric RAW=41 11 1F \r\r>
+PROBE_PID_04_MS=31.953 DATA=Some([27]) EXPECT_BYTES=1 DECODER=numeric RAW=41 04 27 \r\r>
+PROBE_PID_06_MS=25.873 DATA=Some([80]) EXPECT_BYTES=1 DECODER=numeric RAW=41 06 80 \r\r>
+PROBE_PID_07_MS=28.959 DATA=Some([88]) EXPECT_BYTES=1 DECODER=numeric RAW=41 07 88 \r\r>
+PROBE_PID_08_MS=30.636 DATA=Some([84]) EXPECT_BYTES=1 DECODER=numeric RAW=41 08 84 \r\r>
+PROBE_PID_09_MS=29.063 DATA=Some([84]) EXPECT_BYTES=1 DECODER=numeric RAW=41 09 84 \r\r>
+PROBE_PID_0B_MS=30.351 DATA=Some([26]) EXPECT_BYTES=1 DECODER=numeric RAW=41 0B 26 \r\r>
+PROBE_PID_0E_MS=31.192 DATA=Some([9D]) EXPECT_BYTES=1 DECODER=numeric RAW=41 0E 9D \r\r>
+PROBE_PID_1F_MS=32.859 DATA=Some([00, 9E]) EXPECT_BYTES=2 DECODER=numeric RAW=41 1F 00 9E \r\r>
+PROBE_PID_03_MS=31.162 DATA=Some([02, 00]) EXPECT_BYTES=2 DECODER=enum RAW=41 03 02 00 \r\r>
+PROBE_PID_13_MS=23.175 DATA=Some([33]) EXPECT_BYTES=1 DECODER=bitfield RAW=41 13 33 \r\r>
+PROBE_PID_1C_MS=31.966 DATA=Some([02]) EXPECT_BYTES=1 DECODER=enum RAW=41 1C 02 \r\r>
+PROBE_PID_21_MS=28.271 DATA=Some([00, 02]) EXPECT_BYTES=2 DECODER=numeric RAW=41 21 00 02 \r\r>
+PROBE_PID_23_MS=30.338 DATA=Some([00, A1]) EXPECT_BYTES=2 DECODER=numeric RAW=41 23 00 A1 \r\r>
+PROBE_PID_2E_MS=29.766 DATA=Some([B1]) EXPECT_BYTES=1 DECODER=numeric RAW=41 2E B1 \r\r>
+PROBE_PID_2F_MS=32.171 DATA=Some([A0]) EXPECT_BYTES=1 DECODER=numeric RAW=41 2F A0 \r\r>
+PROBE_PID_30_MS=32.471 DATA=Some([01]) EXPECT_BYTES=1 DECODER=numeric RAW=41 30 01 \r\r>
+PROBE_PID_31_MS=30.913 DATA=Some([00, 02]) EXPECT_BYTES=2 DECODER=numeric RAW=41 31 00 02 \r\r>
+PROBE_PID_32_MS=23.825 DATA=Some([F9, 8E]) EXPECT_BYTES=2 DECODER=numeric RAW=41 32 F9 8E \r\r>
+PROBE_PID_33_MS=31.600 DATA=Some([63]) EXPECT_BYTES=1 DECODER=numeric RAW=41 33 63 \r\r>
+PROBE_PID_3C_MS=28.605 DATA=Some([0F, 1A]) EXPECT_BYTES=2 DECODER=numeric RAW=41 3C 0F 1A \r\r>
+PROBE_PID_3D_MS=29.773 DATA=Some([0F, 1A]) EXPECT_BYTES=2 DECODER=numeric RAW=41 3D 0F 1A \r\r>
+PROBE_PID_42_MS=29.087 DATA=Some([36, BF]) EXPECT_BYTES=2 DECODER=numeric RAW=41 42 36 BF \r\r>
+PROBE_PID_43_MS=33.702 DATA=Some([00, 3A]) EXPECT_BYTES=2 DECODER=numeric RAW=41 43 00 3A \r\r>
+PROBE_PID_44_MS=32.190 DATA=Some([7D, 61]) EXPECT_BYTES=2 DECODER=numeric RAW=41 44 7D 61 \r\r>
+PROBE_PID_45_MS=29.901 DATA=Some([04]) EXPECT_BYTES=1 DECODER=numeric RAW=41 45 04 \r\r>
+PROBE_PID_46_MS=25.078 DATA=Some([39]) EXPECT_BYTES=1 DECODER=numeric RAW=41 46 39 \r\r>
+PROBE_PID_47_MS=30.506 DATA=Some([25]) EXPECT_BYTES=1 DECODER=numeric RAW=41 47 25 \r\r>
+PROBE_PID_49_MS=28.515 DATA=Some([26]) EXPECT_BYTES=1 DECODER=numeric RAW=41 49 26 \r\r>
+PROBE_PID_4A_MS=30.200 DATA=Some([13]) EXPECT_BYTES=1 DECODER=numeric RAW=41 4A 13 \r\r>
+PROBE_PID_4C_MS=29.492 DATA=Some([06]) EXPECT_BYTES=1 DECODER=numeric RAW=41 4C 06 \r\r>
+MIX_BEGIN requested=1 actual=1 rounds=20 PIDS=[0C]
+MIX_RESULT requested=1 actual=1 total_s=0.601 aggregate_pid_responses_per_s=33.28 cycle_p50_ms=30.78 cycle_p95_ms=32.81 valid=20 attempted=20
+MIX_PID=0C Engine speed samples=20 failed=0 rate_hz=33.28 latency_p50_ms=30.73 latency_p95_ms=32.75 sample=41 0C 09 69 \r\r>
+MIX_BEGIN requested=5 actual=5 rounds=8 PIDS=[0C, 0D, 05, 0F, 11]
+MIX_RESULT requested=5 actual=5 total_s=1.200 aggregate_pid_responses_per_s=33.34 cycle_p50_ms=151.21 cycle_p95_ms=155.62 valid=40 attempted=40
+MIX_PID=0C Engine speed samples=8 failed=0 rate_hz=6.67 latency_p50_ms=30.86 latency_p95_ms=33.16 sample=41 0C 09 72 \r\r>
+MIX_PID=0D Vehicle speed samples=8 failed=0 rate_hz=6.67 latency_p50_ms=30.24 latency_p95_ms=32.56 sample=41 0D 00 \r\r>
+MIX_PID=05 Engine coolant temperature samples=8 failed=0 rate_hz=6.67 latency_p50_ms=30.26 latency_p95_ms=35.09 sample=41 05 66 \r\r>
+MIX_PID=0F Intake air temperature samples=8 failed=0 rate_hz=6.67 latency_p50_ms=30.43 latency_p95_ms=32.25 sample=41 0F 47 \r\r>
+MIX_PID=11 Throttle position samples=8 failed=0 rate_hz=6.67 latency_p50_ms=30.62 latency_p95_ms=32.65 sample=41 11 1F \r\r>
+MIX_BEGIN requested=8 actual=8 rounds=8 PIDS=[0C, 0D, 05, 0F, 11, 04, 06, 07]
+MIX_RESULT requested=8 actual=8 total_s=1.920 aggregate_pid_responses_per_s=33.33 cycle_p50_ms=240.23 cycle_p95_ms=240.80 valid=64 attempted=64
+MIX_PID=0C Engine speed samples=8 failed=0 rate_hz=4.17 latency_p50_ms=30.34 latency_p95_ms=31.09 sample=41 0C 09 8B \r\r>
+MIX_PID=0D Vehicle speed samples=8 failed=0 rate_hz=4.17 latency_p50_ms=30.14 latency_p95_ms=30.43 sample=41 0D 00 \r\r>
+MIX_PID=05 Engine coolant temperature samples=8 failed=0 rate_hz=4.17 latency_p50_ms=29.74 latency_p95_ms=30.54 sample=41 05 67 \r\r>
+MIX_PID=0F Intake air temperature samples=8 failed=0 rate_hz=4.17 latency_p50_ms=30.24 latency_p95_ms=30.69 sample=41 0F 47 \r\r>
+MIX_PID=11 Throttle position samples=8 failed=0 rate_hz=4.17 latency_p50_ms=31.97 latency_p95_ms=34.08 sample=41 11 1F \r\r>
+MIX_PID=04 Calculated engine load samples=8 failed=0 rate_hz=4.17 latency_p50_ms=32.24 latency_p95_ms=33.54 sample=41 04 28 \r\r>
+MIX_PID=06 Short term fuel trim bank 1 samples=8 failed=0 rate_hz=4.17 latency_p50_ms=32.20 latency_p95_ms=32.78 sample=41 06 80 \r\r>
+MIX_PID=07 Long term fuel trim bank 1 samples=8 failed=0 rate_hz=4.17 latency_p50_ms=25.01 latency_p95_ms=27.13 sample=41 07 88 \r\r>
+MIX_BEGIN requested=16 actual=16 rounds=8 PIDS=[0C, 0D, 05, 0F, 11, 04, 06, 07, 08, 09, 0B, 0E, 1F, 03, 13, 1C]
+MIX_RESULT requested=16 actual=16 total_s=3.838 aggregate_pid_responses_per_s=33.35 cycle_p50_ms=479.80 cycle_p95_ms=481.00 valid=128 attempted=128
+MIX_PID=0C Engine speed samples=8 failed=0 rate_hz=2.08 latency_p50_ms=30.44 latency_p95_ms=31.21 sample=41 0C 09 5C \r\r>
+MIX_PID=0D Vehicle speed samples=8 failed=0 rate_hz=2.08 latency_p50_ms=28.85 latency_p95_ms=30.84 sample=41 0D 00 \r\r>
+MIX_PID=05 Engine coolant temperature samples=8 failed=0 rate_hz=2.08 latency_p50_ms=30.08 latency_p95_ms=32.09 sample=41 05 67 \r\r>
+MIX_PID=0F Intake air temperature samples=8 failed=0 rate_hz=2.08 latency_p50_ms=29.96 latency_p95_ms=32.18 sample=41 0F 47 \r\r>
+MIX_PID=11 Throttle position samples=8 failed=0 rate_hz=2.08 latency_p50_ms=31.15 latency_p95_ms=34.33 sample=41 11 20 \r\r>
+MIX_PID=04 Calculated engine load samples=8 failed=0 rate_hz=2.08 latency_p50_ms=32.72 latency_p95_ms=33.16 sample=41 04 29 \r\r>
+MIX_PID=06 Short term fuel trim bank 1 samples=8 failed=0 rate_hz=2.08 latency_p50_ms=30.93 latency_p95_ms=34.84 sample=41 06 7F \r\r>
+MIX_PID=07 Long term fuel trim bank 1 samples=8 failed=0 rate_hz=2.08 latency_p50_ms=25.23 latency_p95_ms=25.69 sample=41 07 88 \r\r>
+MIX_PID=08 Short term fuel trim bank 2 samples=8 failed=0 rate_hz=2.08 latency_p50_ms=30.60 latency_p95_ms=32.43 sample=41 08 84 \r\r>
+MIX_PID=09 Long term fuel trim bank 2 samples=8 failed=0 rate_hz=2.08 latency_p50_ms=28.80 latency_p95_ms=30.92 sample=41 09 84 \r\r>
+MIX_PID=0B Intake manifold absolute pressure samples=8 failed=0 rate_hz=2.08 latency_p50_ms=30.11 latency_p95_ms=31.97 sample=41 0B 28 \r\r>
+MIX_PID=0E Timing advance samples=8 failed=0 rate_hz=2.08 latency_p50_ms=30.22 latency_p95_ms=31.08 sample=41 0E 96 \r\r>
+MIX_PID=1F Runtime since engine start samples=8 failed=0 rate_hz=2.08 latency_p50_ms=31.36 latency_p95_ms=32.41 sample=41 1F 00 A3 \r\r>
+MIX_PID=03 Fuel system status samples=8 failed=0 rate_hz=2.08 latency_p50_ms=32.96 latency_p95_ms=34.34 sample=41 03 02 00 \r\r>
+MIX_PID=13 O2 sensors present banks 1-2 samples=8 failed=0 rate_hz=2.08 latency_p50_ms=31.08 latency_p95_ms=33.34 sample=41 13 33 \r\r>
+MIX_PID=1C OBD standard supported samples=8 failed=0 rate_hz=2.08 latency_p50_ms=25.31 latency_p95_ms=26.33 sample=41 1C 02 \r\r>
+MIX_BEGIN requested=24 actual=24 rounds=8 PIDS=[0C, 0D, 05, 0F, 11, 04, 06, 07, 08, 09, 0B, 0E, 1F, 03, 13, 1C, 21, 23, 2E, 2F, 30, 31, 32, 33]
+MIX_RESULT requested=24 actual=24 total_s=5.760 aggregate_pid_responses_per_s=33.33 cycle_p50_ms=719.86 cycle_p95_ms=722.15 valid=192 attempted=192
+MIX_PID=0C Engine speed samples=8 failed=0 rate_hz=1.39 latency_p50_ms=29.89 latency_p95_ms=31.81 sample=41 0C 09 81 \r\r>
+MIX_PID=0D Vehicle speed samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.02 latency_p95_ms=32.66 sample=41 0D 00 \r\r>
+MIX_PID=05 Engine coolant temperature samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.17 latency_p95_ms=31.63 sample=41 05 67 \r\r>
+MIX_PID=0F Intake air temperature samples=8 failed=0 rate_hz=1.39 latency_p50_ms=29.94 latency_p95_ms=32.11 sample=41 0F 47 \r\r>
+MIX_PID=11 Throttle position samples=8 failed=0 rate_hz=1.39 latency_p50_ms=31.98 latency_p95_ms=33.02 sample=41 11 20 \r\r>
+MIX_PID=04 Calculated engine load samples=8 failed=0 rate_hz=1.39 latency_p50_ms=33.27 latency_p95_ms=33.50 sample=41 04 2A \r\r>
+MIX_PID=06 Short term fuel trim bank 1 samples=8 failed=0 rate_hz=1.39 latency_p50_ms=31.57 latency_p95_ms=32.55 sample=41 06 80 \r\r>
+MIX_PID=07 Long term fuel trim bank 1 samples=8 failed=0 rate_hz=1.39 latency_p50_ms=24.16 latency_p95_ms=25.96 sample=41 07 88 \r\r>
+MIX_PID=08 Short term fuel trim bank 2 samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.64 latency_p95_ms=32.98 sample=41 08 83 \r\r>
+MIX_PID=09 Long term fuel trim bank 2 samples=8 failed=0 rate_hz=1.39 latency_p50_ms=29.66 latency_p95_ms=30.86 sample=41 09 85 \r\r>
+MIX_PID=0B Intake manifold absolute pressure samples=8 failed=0 rate_hz=1.39 latency_p50_ms=29.54 latency_p95_ms=31.06 sample=41 0B 29 \r\r>
+MIX_PID=0E Timing advance samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.58 latency_p95_ms=31.20 sample=41 0E 8C \r\r>
+MIX_PID=1F Runtime since engine start samples=8 failed=0 rate_hz=1.39 latency_p50_ms=32.22 latency_p95_ms=32.84 sample=41 1F 00 A7 \r\r>
+MIX_PID=03 Fuel system status samples=8 failed=0 rate_hz=1.39 latency_p50_ms=32.60 latency_p95_ms=34.04 sample=41 03 02 00 \r\r>
+MIX_PID=13 O2 sensors present banks 1-2 samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.96 latency_p95_ms=31.95 sample=41 13 33 \r\r>
+MIX_PID=1C OBD standard supported samples=8 failed=0 rate_hz=1.39 latency_p50_ms=24.71 latency_p95_ms=25.31 sample=41 1C 02 \r\r>
+MIX_PID=21 Distance driven with MIL samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.45 latency_p95_ms=31.78 sample=41 21 00 02 \r\r>
+MIX_PID=23 Fuel rail gauge pressure samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.28 latency_p95_ms=32.45 sample=41 23 00 A7 \r\r>
+MIX_PID=2E Commanded evaporative purge samples=8 failed=0 rate_hz=1.39 latency_p50_ms=29.31 latency_p95_ms=31.26 sample=41 2E B4 \r\r>
+MIX_PID=2F Fuel tank level samples=8 failed=0 rate_hz=1.39 latency_p50_ms=30.68 latency_p95_ms=32.14 sample=41 2F A0 \r\r>
+MIX_PID=30 Warm-ups since DTCs cleared samples=8 failed=0 rate_hz=1.39 latency_p50_ms=31.56 latency_p95_ms=33.71 sample=41 30 01 \r\r>
+MIX_PID=31 Distance since DTCs cleared samples=8 failed=0 rate_hz=1.39 latency_p50_ms=32.18 latency_p95_ms=34.05 sample=41 31 00 02 \r\r>
+MIX_PID=32 Evap vapor pressure samples=8 failed=0 rate_hz=1.39 latency_p50_ms=31.25 latency_p95_ms=33.19 sample=41 32 F9 B1 \r\r>
+MIX_PID=33 Absolute barometric pressure samples=8 failed=0 rate_hz=1.39 latency_p50_ms=24.65 latency_p95_ms=25.79 sample=41 33 63 \r\r>
+BENCH_COMPLETE_DISCONNECT_BY_HANDLE_DROP
+UART_SWITCH_ACK baud=115200 RAW=OK\r
+UART_SWITCH_STI baud=115200 ms=3.279 RAW=STN1130 v5.10.1\r\r>
+UART_RESTORED_115200_STI_VERIFIED
+ECHO_RESTORED_MS=2.213 RAW=OK\r\r>

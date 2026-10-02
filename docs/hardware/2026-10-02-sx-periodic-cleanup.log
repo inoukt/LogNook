@@ -1,0 +1,7 @@
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+RECOVERY_STI_MS=4.675 RAW=STI\rSTN1130 v5.10.1\r\r>
+RECOVERY_STPPMC attempt=1 ms=2.971 RAW=STPPMC\rOK\r\r>
+RECOVERY_ATE1_MS=3.368 RAW=ATE1\rOK\r\r>
+RECOVERY_IDLE_STREAM RAW=
+RECOVERY_RPM_MS=61.781 RAW=010C\r41 0C 00 00 \r\r>

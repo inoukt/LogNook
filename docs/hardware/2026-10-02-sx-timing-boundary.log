@@ -1,0 +1,41 @@
+OBDLink SX timing boundary probe — 2026-10-02
+
+Hardware: OBDLink SX, USB VCP COM4 at 115200, Ford connected, ignition on,
+engine off. OBDWiz and FORScan were closed. Device identity: STN1130 v5.10.1.
+Protocol: ISO 15765-4 CAN 11/500. This used only generic Mode 01 RPM reads;
+no ECU writes, DTC operations, OEM requests, or NVM commands were sent.
+
+Commands sent, in order:
+  STI
+  ATE0
+  STPRS
+  STPO
+  AT H0
+  AT SH 7DF
+  STPTO 102
+  ATAT 1
+  30 x STPX D:010C, R:1, T:34
+  30 x STPX D:010C, R:1, T:33
+  ATAT 2
+  30 x STPX D:010C, R:1, T:34
+  30 x STPX D:010C, R:1, T:33
+
+Results from the COM4 serial polling loop:
+  ATAT1, T=34: 30/30 valid, 30.04 valid responses/s, 0.999 s batch
+  ATAT1, T=33: 30/30 valid, 33.58 valid responses/s, 0.893 s batch
+  ATAT2, T=34: 30/30 valid, 32.56 valid responses/s, 0.921 s batch
+  ATAT2, T=33: 30/30 valid, 32.86 valid responses/s, 0.913 s batch
+
+The final cleanup commands and replies were:
+  STPPMC -> OK
+  STPTO 102 -> OK
+  ATAT 1 -> OK
+  AT H0 -> OK
+  AT SH 7DF -> OK
+  ATE1 -> OK
+  STPX D:010C, R:1, T:250 -> 41 0C 09 70 (valid RPM response)
+
+The T=33 single-run sample did not show a loss, but its rate is consistent with
+the earlier ~33.3/s STPX plateau and is not a repeatable improvement claim.
+Earlier T=30 tests lost 4–6 of 20 responses. No baud or ATAT setting has
+produced the user's reported >=50 PID/s OBDWiz rate.

@@ -1,0 +1,116 @@
+OBDLink SX combined SAE PID (PID stuffing) probe — 2026-10-02
+
+Basis: OBDwiz 4.36.0 is installed. Its release notes say version 4.30.0 added
+“Combine SAE PID Requests” (PID stuffing), which can greatly increase SAE PID
+refresh on CAN when enabled. This probe uses only five individually verified
+generic Mode 01 PIDs. No DTC, OEM, actuator, control, or write request was sent.
+
+Adapter: OBDLink SX, STN1130 v5.10.1, COM4 at 115200, Ford ISO 15765-4 CAN 11/500.
+Ignition on, engine off. OBDWiz and FORScan were closed. UART echo was disabled
+during the probe; all changes were restored afterward.
+
+Commands sent for initial full-response discovery:
+  STI
+  ATE0
+  STPRS
+  STPO
+  AT H1
+  AT SH 7DF
+  ATAT 1
+  STPTO 102
+  STPX D:010C050F110D, T:250
+
+The uncapped STPX returned two ISO-TP frames from one ECU. Raw response:
+  7E8 10 0C 41 0C 09 54 05 8C
+  7E8 21 0F 63 11 1E 0D 00 00
+
+Reassembled 12-byte OBD payload:
+  41 0C 09 54 05 8C 0F 63 11 1E 0D 00
+
+This contains five values in one Mode 01 response: RPM 597, coolant 100 °C,
+intake air 59 °C, throttle 11.8%, and vehicle speed 0 km/h. The uncapped call took
+309.42 ms because it waited through the specified response timeout.
+
+Response-count check:
+  STPX D:010C050F110D, R:1, T:250
+returned only the first frame:
+  7E8 10 0C 41 0C 09 71 05 89
+Elapsed 30.92 ms. This is incomplete and must not be used for combined PID
+responses. It confirms that the response count applies to CAN frames in this
+multi-frame exchange.
+
+Cleanup succeeded:
+  STPPMC -> OK
+  STPTO 102 -> OK
+  ATAT 1 -> OK
+  AT H0 -> OK
+  AT SH 7DF -> OK
+  ATE1 -> OK
+  STPX D:010C, R:1, T:250 -> valid 41 0C 09 5C
+
+The documented `R:2` follow-up returned the complete two-frame response. One raw
+sample was:
+  7E8 10 0C 41 0C 00 00 05 8C
+  7E8 21 0F 67 11 2A 0D 00 00
+The payload parser stripped ISO-TP frame markers and trailing pad to recover the
+declared 12 bytes: `41 0C 00 00 05 8C 0F 67 11 2A 0D 00`.
+
+COM4/115200, echo off, headers on, ATAT1, functional header 7DF:
+  20 combined requests, R:2 T:250 -> 100/100 PID values, 80.51 values/s
+  100 individual STPX requests (20 cycles x 5 PIDs) -> 100/100 values, 32.63/s
+
+Physical request header `7E0` returned 100/100 in 78.74 values/s, effectively
+the same rate as the functional `7DF` request. Timing samples for the combined
+query, 20 requests each, were:
+  ATAT1 T=250: 100/100 values, 75.44/s
+  ATAT1 T=100: 100/100 values, 81.62/s
+  ATAT2 T=100: 100/100 values, 81.42/s
+  ATAT1 T=70: 100/100 values, 79.43/s
+
+The timing differences are small and based on short samples; keep the safer
+T=250 setting until longer tests confirm a repeatable advantage. ATAT2 did not
+improve the measured rate. Every bench run restored ATAT1, timeout 102, headers
+off, functional header 7DF, echo on; final RPM reads succeeded.
+
+Six-PID boundary check:
+  STPX D:010C050F110D04, R:3, T:250
+returned the expected 14-byte response over three CAN frames:
+  7E8 10 0E 41 0C 00 00 05 8C
+  7E8 21 0F 67 11 2A 0D 00 04
+  7E8 22 00 00 00 00 00 00 00
+Reassembled payload: `41 0C 00 00 05 8C 0F 67 11 2A 0D 00 04 00`.
+Twenty six-PID requests delivered 120/120 values at 63.60 values/s. The same
+six PIDs requested individually delivered 120/120 at 33.18 values/s. The six-PID
+group was slower than the five-PID group because it crossed into a third CAN
+frame.
+
+The FRPM's separate `STBC` batched-command parser was also checked with
+`STBC 0`; this firmware returned `?`, so host-command batching is unavailable on
+this SX as installed. This is distinct from OBDwiz's “Combine SAE PID Requests”
+feature, which combines multiple SAE PIDs inside one standard Mode 01 request.
+
+The 35 advertised public candidates were grouped by response width so each
+payload is at most 13 bytes (two CAN frames, `R:2`):
+  STPX D:01040506070809, R:2, T:250
+  STPX D:010B0D0E0F1113, R:2, T:250
+  STPX D:011C2E2F303345, R:2, T:250
+  STPX D:014647494A4C, R:2, T:250
+  STPX D:01030C1F21, R:2, T:250
+  STPX D:012331323C, R:2, T:250
+  STPX D:013D424344, R:2, T:250
+The 35 candidates were individually verified earlier. The bench then ran these
+seven groups for 10 cycles each, parsing each payload against requested PID order
+and the PIDs seed's byte widths:
+  70 grouped requests, 350/350 positive PID values, 4.299 s total
+  Aggregate rate: 81.42 PID values/s
+All seven groups returned complete positive responses from PCM `7E8`. Cleanup
+restored ATAT1, timeout 102, headers off, functional header 7DF, and echo on;
+final RPM verification succeeded. No DTC, OEM, actuator, control, or write
+request was included.
+
+All seven groups were then run for 10 cycles each using `R:2` and `T:250`:
+  70 grouped requests, 350/350 positive PID values, 4.299 s total
+  Aggregate rate: 81.42 PID values/s
+Every response had the expected PID order and byte widths. Cleanup restored
+ATAT1, timeout 102, headers off, header 7DF, and echo on; final RPM verification
+succeeded.

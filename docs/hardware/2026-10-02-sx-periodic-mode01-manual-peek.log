@@ -1,0 +1,20 @@
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+IDENT_BEFORE_PERIODIC_MS=2.960 RAW=STI\rSTN1130 v5.10.1\r\r>
+ECHO_OFF_MS=2.908 RAW=ATE0\rOK\r\r>
+UART_SWITCH_ACK baud=2000000 RAW=OK\r
+UART_SWITCH_STI baud=2000000 ms=1.621 RAW=STN1130 v5.10.1\r\r>
+VEHICLE_PROTOCOL_MS=1.413 RAW=ISO 15765-4 (CAN 11/500) [AT]\r\r>
+OPEN_PROTOCOL_MS=2.282 RAW=OK\r\r>
+BASELINE_RPM_MS=130.713 RAW=41 0C 00 00 \r\r>
+PERIODIC_ADD label=rpm_100ms pid=0C period_ms=100 handle=F ms=1.461 RAW=F\r\r>
+PERIODIC_RESULT label=rpm_100ms duration_s=3.0 total_responses=0 aggregate_per_s=0.00 per_pid=[(12, 0)] RAW=
+PERIODIC_MANUAL_PEEK label=rpm_100ms pid=0C ms=208.534 matching_frames=2 RAW=41 0C 00 00 \r41 0C 00 00 \r\r>
+PERIODIC_REMOVE label=rpm_100ms pid=0C handle=F ms=1.694 RAW=OK\r\r>
+PERIODIC_CLEAR label=rpm_100ms ms=1.796 RAW=OK\r\r>
+PERIODIC_AFTER_CLEAR label=rpm_100ms residual_pid_responses=0 RAW=
+PERIODIC_ADD label=rpm_20ms pid=0C period_ms=20 handle=10 ms=1.725 RAW=10\r\r>
+PERIODIC_RESULT label=rpm_20ms duration_s=3.0 total_responses=0 aggregate_per_s=0.00 per_pid=[(12, 0)] RAW=
+UART_SWITCH_ACK baud=115200 RAW=OK\r
+UART_SWITCH_STI baud=115200 ms=2.678 RAW=STN1130 v5.10.1\r\r>
+Error: "periodic probe result: Err(\"timeout waiting for > prompt\"); cleanup failed: STPPMC cleanup failed: \"STOPPED\\r\\r>\""

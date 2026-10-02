@@ -1,0 +1,2 @@
+MODE=vcp BAUD=921600 LATENCY_ARG=None
+Error: "timeout waiting for > prompt"

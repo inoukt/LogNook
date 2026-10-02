@@ -1,0 +1,92 @@
+    Updating crates.io index
+     Locking 63 packages to highest Rust 1.99.0 compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling serde v1.0.229
+   Compiling smallvec v1.16.2
+   Compiling bitflags v2.13.2
+   Compiling rusqlite v0.40.2
+   Compiling csv-core v0.1.13
+   Compiling syn v3.0.6
+   Compiling csv v1.4.0
+   Compiling serde_derive v1.0.229
+   Compiling lognook-core v0.1.0 (C:\Users\inouk\LogNook\crates\lognook-core)
+   Compiling lognook-sx-current-check v0.1.0 (C:\Users\inouk\AppData\Local\Temp\lognook-sx-current-check)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.31s
+     Running `target\debug\lognook-sx-current-check.exe`
+CONNECTED_READ_ONLY=true
+DEVICE=DeviceDescriptor {
+    stable_id: "113011166292",
+    hardware_family: "OBDLink SX",
+    firmware: Some(
+        "STN1130 v5.10.1",
+    ),
+    path: Some(
+        "COM4",
+    ),
+}
+SUPPORTED_SIGNAL_IDS=["engine_rpm", "coolant_temp", "intake_temp", "throttle_pos", "vehicle_speed"]
+SAMPLE coolant_temp: [
+    Sample {
+        elapsed_ns: 61916100,
+        wall_time_unix_ns: 1790970455010456100,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "coolant_temp",
+        value: 80.0,
+        unit: "°C",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                5,
+                120,
+            ],
+        ),
+    },
+]
+SAMPLE engine_rpm: [
+    Sample {
+        elapsed_ns: 123962000,
+        wall_time_unix_ns: 1790970455072502400,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "engine_rpm",
+        value: 0.0,
+        unit: "rpm",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                12,
+                0,
+                0,
+            ],
+        ),
+    },
+]
+SAMPLE intake_temp: [
+    Sample {
+        elapsed_ns: 186221800,
+        wall_time_unix_ns: 1790970455134763900,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "intake_temp",
+        value: 33.0,
+        unit: "°C",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                15,
+                73,
+            ],
+        ),
+    },
+]
+DISCONNECTED

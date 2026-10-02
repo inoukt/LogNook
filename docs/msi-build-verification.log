@@ -1,0 +1,542 @@
+**********************************************************************
+** Visual Studio 2022 Developer Command Prompt v17.14.41
+** Copyright (c) 2025 Microsoft Corporation
+**********************************************************************
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling windows-link v0.2.1
+   Compiling smallvec v1.16.2
+   Compiling cfg-if v1.0.5
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling siphasher v1.0.4
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling fastrand v2.5.0
+   Compiling utf8_iter v1.0.4
+   Compiling phf_shared v0.13.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling phf_generator v0.13.1
+   Compiling shlex v2.0.1
+   Compiling serde v1.0.229
+   Compiling find-msvc-tools v0.1.14
+   Compiling zmij v1.0.23
+   Compiling thiserror v2.0.21
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling parking_lot_core v0.9.12
+   Compiling time-core v0.1.9
+   Compiling num-conv v0.2.2
+   Compiling phf_codegen v0.13.1
+   Compiling deranged v0.5.8
+   Compiling winnow v1.0.4
+   Compiling cc v1.5.1
+   Compiling windows-targets v0.52.6
+   Compiling ident_case v1.0.1
+   Compiling typeid v1.0.3
+   Compiling strsim v0.11.1
+   Compiling powerfmt v0.2.0
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling log v0.4.34
+   Compiling erased-serde v0.4.10
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling fnv v1.0.7
+   Compiling new_debug_unreachable v1.0.6
+   Compiling version_check v0.9.5
+   Compiling web-time v1.1.0
+   Compiling foldhash v0.2.0
+   Compiling equivalent v1.0.2
+   Compiling scopeguard v1.2.0
+   Compiling string_cache_codegen v0.6.1
+   Compiling lock_api v0.4.14
+   Compiling hashbrown v0.17.1
+   Compiling bytes v1.12.1
+   Compiling alloc-no-stdlib v3.0.0
+   Compiling getrandom v0.4.3
+   Compiling serde_json v1.0.151
+   Compiling precomputed-hash v0.1.1
+   Compiling alloc-stdlib v0.3.0
+   Compiling parking_lot v0.12.5
+   Compiling web_atoms v0.2.6
+   Compiling quick-xml v0.42.0
+   Compiling semver v1.0.28
+   Compiling windows-sys v0.61.2
+   Compiling anyhow v1.0.104
+   Compiling base64 v0.23.1
+   Compiling dunce v1.0.5
+   Compiling libc v0.2.189
+   Compiling regex-automata v0.4.18
+   Compiling string_cache v0.9.0
+   Compiling brotli-decompressor v6.0.1
+   Compiling http v1.5.0
+   Compiling bitflags v2.13.2
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling dtoa v1.0.11
+   Compiling autocfg v1.5.1
+   Compiling percent-encoding v2.3.2
+   Compiling dtoa-short v0.3.5
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling brotli v9.0.0
+   Compiling uuid v1.26.1
+   Compiling form_urlencoded v1.2.2
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.21
+   Compiling zerofrom v0.1.8
+   Compiling phf_macros v0.13.1
+   Compiling indexmap v1.9.3
+   Compiling derive_more-impl v2.1.1
+   Compiling windows-interface v0.59.3
+   Compiling regex v1.13.1
+   Compiling phf v0.13.1
+   Compiling windows-implement v0.60.2
+   Compiling cssparser-macros v0.7.1
+   Compiling tendril v0.5.1
+   Compiling selectors v0.38.0
+   Compiling windows-strings v0.5.1
+   Compiling windows-result v0.4.1
+   Compiling glob v0.3.4
+   Compiling camino v1.2.6
+   Compiling ctor v1.0.13
+   Compiling derive_more v2.1.1
+   Compiling serde_derive_internals v0.29.1
+   Compiling windows-core v0.62.2
+   Compiling winapi-util v0.1.11
+   Compiling yoke v0.8.3
+   Compiling cssparser v0.37.0
+   Compiling vswhom-sys v0.1.3
+   Compiling darling_macro v0.24.1
+   Compiling servo_arc v0.4.3
+   Compiling darling v0.24.1
+   Compiling markup5ever v0.39.0
+   Compiling schemars v0.8.22
+   Compiling pkg-config v0.3.34
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling serde_with_macros v3.24.0
+   Compiling hashbrown v0.12.3
+   Compiling vcpkg v0.2.15
+   Compiling bit-vec v0.8.0
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling rustc-hash v2.1.3
+   Compiling schemars_derive v0.8.22
+   Compiling bit-set v0.8.0
+   Compiling indexmap v2.14.2
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling html5ever v0.39.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling same-file v1.0.6
+   Compiling cargo-platform v0.1.9
+   Compiling jsonptr v0.7.1
+   Compiling cfb v0.14.0
+   Compiling time v0.3.55
+   Compiling icu_provider v2.3.1
+   Compiling dyn-clone v1.0.20
+   Compiling option-ext v0.2.0
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling simd-adler32 v0.3.10
+   Compiling serde-untagged v0.1.9
+   Compiling json-patch v4.2.0
+   Compiling dom_query v0.28.0
+   Compiling cargo_metadata v0.19.2
+   Compiling idna_adapter v1.2.2
+   Compiling walkdir v2.5.0
+   Compiling serde_with v3.24.0
+   Compiling generic-array v0.14.7
+   Compiling infer v0.22.0
+   Compiling windows-sys v0.59.0
+   Compiling windows-threading v0.2.1
+   Compiling idna v1.1.0
+   Compiling adler2 v2.0.1
+   Compiling crc32fast v1.5.2
+   Compiling url v2.5.8
+   Compiling windows-future v0.3.2
+   Compiling plist v1.10.1
+   Compiling winreg v0.55.0
+   Compiling vswhom v0.1.0
+   Compiling windows-numerics v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling rustc_version v0.4.1
+   Compiling hashlink v0.12.2
+   Compiling urlpattern v0.6.0
+   Compiling time-macros v0.2.32
+   Compiling windows-sys v0.52.0
+   Compiling csv-core v0.1.13
+   Compiling typenum v1.20.1
+   Compiling ryu v1.0.23
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling windows v0.62.2
+   Compiling rusqlite v0.40.2
+   Compiling csv v1.4.0
+   Compiling embed-resource v3.0.11
+   Compiling serialport v4.10.1
+   Compiling miniz_oxide v0.9.1
+   Compiling dirs-sys v0.5.0
+   Compiling webview2-com-sys v0.39.1
+   Compiling raw-window-handle v0.6.2
+   Compiling heck v0.5.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling dirs v7.0.0
+   Compiling tauri-winres v0.3.6
+   Compiling flate2 v1.1.10
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling cargo_toml v1.0.1
+   Compiling dpi v0.1.2
+   Compiling cookie v0.18.2
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling lognook-core v0.1.0 (C:\Users\inouk\LogNook\crates\lognook-core)
+   Compiling webview2-com-macros v0.8.1
+   Compiling windows-version v0.1.7
+   Compiling pin-project-lite v0.2.17
+   Compiling bitflags v1.3.2
+   Compiling tauri-utils v2.10.1
+   Compiling png v0.17.16
+   Compiling digest v0.10.7
+   Compiling crossbeam-channel v0.5.17
+   Compiling byteorder v1.5.0
+   Compiling once_cell v1.21.4
+   Compiling wry v0.57.0
+   Compiling cpufeatures v0.2.17
+   Compiling tauri-runtime v2.12.1
+   Compiling tracing-core v0.1.36
+   Compiling sha2 v0.10.9
+   Compiling ico v0.5.0
+   Compiling png v0.18.1
+   Compiling getrandom v0.3.4
+   Compiling tauri-runtime-wry v2.12.1
+   Compiling muda v0.20.0
+   Compiling base64 v0.22.1
+   Compiling unicode-segmentation v1.13.3
+   Compiling keyboard-types v0.8.3
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling tracing v0.1.44
+   Compiling tokio v1.53.1
+   Compiling window-vibrancy v0.8.1
+   Compiling tauri-build v2.7.1
+   Compiling softbuffer v0.4.8
+   Compiling tauri-codegen v2.7.1
+   Compiling serialize-to-javascript v0.1.2
+   Compiling serde_repr v0.1.21
+   Compiling mime v0.3.17
+   Compiling tauri v2.12.1
+   Compiling lognook-desktop v0.1.0 (C:\Users\inouk\LogNook\apps\desktop\src-tauri)
+   Compiling tauri-macros v2.7.1
+   Compiling tao v0.37.1
+   Compiling webview2-com v0.39.1
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 35s
+     Running unittests src\lib.rs (target\debug\deps\lognook_core-a784a6d954ca12b3.exe)
+
+running 26 tests
+test obdlink_sx::tests::incomplete_initial_reply_stops_without_a_reset_or_vehicle_query ... ok
+test obdlink_sx::tests::silent_initial_reply_sends_only_read_only_firmware_query ... ok
+test obdlink_sx::tests::identity_only_physical_fixture_sends_no_vehicle_query ... ok
+test obdlink_sx::tests::connects_to_idle_sx_without_unsolicited_startup_banner ... ok
+test obdlink_sx::tests::empty_startup_prompt_is_tolerated_before_firmware_reply ... ok
+test obdlink_sx::tests::prompt_reader_rejects_a_buffer_larger_than_its_limit ... ok
+test obdlink_sx::tests::only_the_exact_sx_vid_pid_pair_is_enumerated ... ok
+test obdlink_sx::tests::read_samples_sends_only_selected_supported_pid_and_keeps_raw_response ... ok
+test engine::tests::selection_uses_only_the_signals_the_connected_ecu_supports ... ok
+test obdlink_sx::tests::selected_com_port_must_still_match_the_sx_usb_identity ... ok
+test obdlink_sx::tests::startup_banner_is_optional_and_reply_prompts_sequence_queries ... ok
+test obdlink_sx::tests::unexpected_initial_firmware_stops_before_other_queries ... ok
+test acquisition::tests::adapter_read_failure_reports_disconnected_and_clears_running_state ... ok
+test obdlink_sx::tests::unsupported_pid_is_rejected_before_any_vehicle_request ... ok
+test obdlink_sx::tests::usb_only_identity_probe_sends_no_vehicle_request ... ok
+test obdlink_sx::tests::wrong_device_identity_stops_before_serial_or_vehicle_queries ... ok
+test obdlink_sx_protocol::tests::multiple_ecu_responses_remain_separate ... ok
+test engine::tests::generic_adapter_connection_starts_the_shared_pipeline_and_disconnects_it ... ok
+test obdlink_sx_protocol::tests::multiple_ecu_responses_on_one_line_remain_separate ... ok
+test obdlink_sx_protocol::tests::malformed_or_missing_payload_is_rejected ... ok
+test obdlink_sx_protocol::tests::rpm_response_keeps_ecu_and_raw_bytes_and_decodes_to_1726_rpm ... ok
+test obdlink_sx_protocol::tests::standard_pid_values_use_the_existing_signal_formulas ... ok
+test obdlink_sx_protocol::tests::supported_bitmap_selects_only_the_reported_generic_pids ... ok
+test obdlink_sx_protocol::tests::supported_pid_continuation_bitmap_maps_the_next_range ... ok
+test obdlink_sx_protocol::tests::supported_pid_discovery_rejects_multiple_ecu_bitmaps ... ok
+test pipeline_worker::tests::invalid_sample_stops_recording_and_keeps_the_partial_session_readable ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\acquisition.rs (target\debug\deps\acquisition-85d9ccc2f0d0d8fd.exe)
+
+running 1 test
+test simulator_emits_monotonic_samples_for_selected_obd_signals ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests\csv_roundtrip.rs (target\debug\deps\csv_roundtrip-b4b8ce2f58a62fd5.exe)
+
+running 1 test
+test long_csv_round_trip_preserves_async_values_and_escapes_fields ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\pipeline.rs (target\debug\deps\pipeline-3c9ce0751b2b7285.exe)
+
+running 1 test
+test live_recording_and_replay_share_the_sample_event_pipeline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests\recording.rs (target\debug\deps\recording-04363bfd5936ac4e.exe)
+
+running 3 tests
+test csv_export_refuses_to_overwrite_the_source_recording ... ok
+test sqlite_recording_preserves_async_sample_times_and_markers ... ok
+test recording_csv_export_writes_markers_to_a_sidecar ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running unittests src\lib.rs (target\debug\deps\lognook_desktop_lib-ab82e01de3675dd0.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\lognook_desktop-bd873aec653209d3.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lognook_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lognook_desktop_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling cfg-if v1.0.5
+   Compiling siphasher v1.0.4
+    Checking windows-link v0.2.1
+   Compiling smallvec v1.16.2
+    Checking serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling time-core v0.1.9
+   Compiling num-conv v0.2.2
+   Compiling zerofrom v0.1.8
+    Checking stable_deref_trait v1.2.1
+   Compiling thiserror v2.0.21
+   Compiling itoa v1.0.18
+   Compiling litemap v0.8.3
+   Compiling phf_shared v0.13.1
+   Compiling yoke v0.8.3
+   Compiling writeable v0.6.4
+   Compiling utf8_iter v1.0.4
+   Compiling lock_api v0.4.14
+   Compiling parking_lot_core v0.9.12
+   Compiling phf_generator v0.13.1
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling phf_codegen v0.13.1
+   Compiling string_cache_codegen v0.6.1
+   Compiling parking_lot v0.12.5
+   Compiling phf_macros v0.13.1
+   Compiling windows-sys v0.61.2
+   Compiling zmij v1.0.23
+   Compiling winnow v1.0.4
+   Compiling getrandom v0.4.3
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling serde_json v1.0.151
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling string_cache v0.9.0
+   Compiling serde_spanned v1.1.1
+   Compiling web_atoms v0.2.6
+   Compiling log v0.4.34
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling form_urlencoded v1.2.2
+   Compiling phf v0.13.1
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling uuid v1.26.1
+   Compiling selectors v0.38.0
+   Compiling aho-corasick v1.1.5
+    Checking serde v1.0.229
+   Compiling icu_provider v2.3.1
+    Checking windows-strings v0.5.1
+    Checking windows-result v0.4.1
+   Compiling regex-syntax v0.8.11
+   Compiling alloc-no-stdlib v3.0.0
+   Compiling alloc-stdlib v0.3.0
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+    Checking windows-core v0.62.2
+   Compiling cssparser v0.37.0
+   Compiling winapi-util v0.1.11
+   Compiling markup5ever v0.39.0
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling typeid v1.0.3
+   Compiling deranged v0.5.8
+   Compiling powerfmt v0.2.0
+   Compiling web-time v1.1.0
+   Compiling equivalent v1.0.2
+   Compiling fnv v1.0.7
+   Compiling erased-serde v0.4.10
+   Compiling cfb v0.14.0
+   Compiling indexmap v2.14.2
+   Compiling html5ever v0.39.0
+   Compiling windows-targets v0.52.6
+   Compiling same-file v1.0.6
+   Compiling brotli-decompressor v6.0.1
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling jsonptr v0.7.1
+   Compiling regex-automata v0.4.18
+   Compiling time v0.3.55
+   Compiling libc v0.2.189
+   Compiling url v2.5.8
+   Compiling quick-xml v0.42.0
+    Checking foldhash v0.2.0
+   Compiling bytes v1.12.1
+   Compiling dunce v1.0.5
+   Compiling base64 v0.23.1
+    Checking hashbrown v0.17.1
+   Compiling dom_query v0.28.0
+   Compiling schemars v0.8.22
+   Compiling http v1.5.0
+   Compiling vswhom-sys v0.1.3
+   Compiling cargo_metadata v0.19.2
+   Compiling brotli v9.0.0
+   Compiling json-patch v4.2.0
+   Compiling infer v0.22.0
+   Compiling serde-untagged v0.1.9
+   Compiling walkdir v2.5.0
+   Compiling windows-sys v0.59.0
+   Compiling serde_with v3.24.0
+   Compiling anyhow v1.0.104
+    Checking windows-threading v0.2.1
+   Compiling glob v0.3.4
+   Compiling ctor v1.0.13
+   Compiling regex v1.13.1
+   Compiling plist v1.10.1
+    Checking windows-future v0.3.2
+   Compiling vswhom v0.1.0
+   Compiling urlpattern v0.6.0
+    Checking windows-collections v0.3.2
+    Checking windows-numerics v0.3.1
+   Compiling time-macros v0.2.32
+   Compiling option-ext v0.2.0
+    Checking percent-encoding v2.3.2
+    Checking windows v0.62.2
+   Compiling dirs-sys v0.5.0
+   Compiling crc32fast v1.5.2
+    Checking bitflags v2.13.2
+   Compiling webview2-com-sys v0.39.1
+    Checking scopeguard v1.2.0
+   Compiling heck v0.5.0
+    Checking raw-window-handle v0.6.2
+   Compiling tauri-utils v2.10.1
+   Compiling flate2 v1.1.10
+   Compiling dirs v7.0.0
+   Compiling cargo_toml v1.0.1
+    Checking dpi v0.1.2
+   Compiling winreg v0.55.0
+   Compiling embed-resource v3.0.11
+    Checking crossbeam-utils v0.8.23
+   Compiling tauri-winres v0.3.6
+    Checking windows-version v0.1.7
+    Checking pin-project-lite v0.2.17
+   Compiling png v0.17.16
+    Checking crossbeam-channel v0.5.17
+    Checking cookie v0.18.2
+    Checking tracing-core v0.1.36
+    Checking once_cell v1.21.4
+    Checking semver v1.0.28
+   Compiling sha2 v0.10.9
+   Compiling ico v0.5.0
+    Checking tracing v0.1.44
+   Compiling png v0.18.1
+    Checking unicode-segmentation v1.13.3
+    Checking softbuffer v0.4.8
+    Checking windows-sys v0.52.0
+    Checking libsqlite3-sys v0.38.2
+    Checking keyboard-types v0.8.3
+    Checking hashlink v0.12.2
+    Checking csv-core v0.1.13
+    Checking fallible-streaming-iterator v0.1.9
+    Checking fallible-iterator v0.3.0
+    Checking ryu v1.0.23
+    Checking serialize-to-javascript v0.1.2
+    Checking getrandom v0.3.4
+    Checking tokio v1.53.1
+    Checking csv v1.4.0
+    Checking window-vibrancy v0.8.1
+    Checking rusqlite v0.40.2
+    Checking mime v0.3.17
+    Checking muda v0.20.0
+    Checking serialport v4.10.1
+   Compiling tauri-build v2.7.1
+   Compiling tauri-codegen v2.7.1
+    Checking lognook-core v0.1.0 (C:\Users\inouk\LogNook\crates\lognook-core)
+   Compiling tauri v2.12.1
+   Compiling tauri-macros v2.7.1
+   Compiling lognook-desktop v0.1.0 (C:\Users\inouk\LogNook\apps\desktop\src-tauri)
+    Checking tao v0.37.1
+    Checking webview2-com v0.39.1
+    Checking tauri-runtime v2.12.1
+    Checking wry v0.57.0
+    Checking tauri-runtime-wry v2.12.1
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 47.57s
+✔ PID search matches names, descriptions, IDs, units, and decimal or hex PID (1.973ms)
+✔ drag reorders two graph positions without changing other selections (0.152ms)
+✔ multiple traces share elapsed-time X positions and scale values independently (0.2405ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 284.8252
+Loading svelte-check in workspace: c:\Users\inouk\LogNook\apps\desktop
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+vite v8.3.2 building client environment for production...
+transforming...
+✓ 117 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                  0.45 kB │ gzip:  0.29 kB
+dist/assets/index-C6OEthvo.css   8.49 kB │ gzip:  2.66 kB
+dist/assets/index-DJJlSEot.js   59.07 kB │ gzip: 22.80 kB
+
+✓ built in 4.66s
+[PLUGIN_TIMINGS] JavaScript callbacks ran for 3.2s of this 4.6s build (70%).
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin vite:css-post renderChunk (60%, 2.8s, 1 call)
+Additional callback time came from callbacks under 1s.
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+
+   Compiling tauri v2.12.1
+   Compiling tauri-macros v2.7.1
+   Compiling lognook-desktop v0.1.0 (C:\Users\inouk\LogNook\apps\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 35.74s

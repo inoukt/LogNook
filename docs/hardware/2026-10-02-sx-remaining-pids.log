@@ -1,0 +1,52 @@
+CONNECTED_READ_ONLY=true
+DEVICE=DeviceDescriptor {
+    stable_id: "113011166292",
+    hardware_family: "OBDLink SX",
+    firmware: Some(
+        "STN1130 v5.10.1",
+    ),
+    path: Some(
+        "COM4",
+    ),
+}
+SAMPLE throttle_pos: [
+    Sample {
+        elapsed_ns: 45100700,
+        wall_time_unix_ns: 1790971149184232200,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "throttle_pos",
+        value: 16.470588235294116,
+        unit: "%",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                17,
+                42,
+            ],
+        ),
+    },
+]
+SAMPLE vehicle_speed: [
+    Sample {
+        elapsed_ns: 124545200,
+        wall_time_unix_ns: 1790971149263677400,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "vehicle_speed",
+        value: 0.0,
+        unit: "km/h",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                13,
+                0,
+            ],
+        ),
+    },
+]
+DISCONNECTED

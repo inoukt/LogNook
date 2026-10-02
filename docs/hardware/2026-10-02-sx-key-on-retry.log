@@ -1,0 +1,74 @@
+CONNECTED_READ_ONLY=true
+DEVICE=DeviceDescriptor {
+    stable_id: "113011166292",
+    hardware_family: "OBDLink SX",
+    firmware: Some(
+        "STN1130 v5.10.1",
+    ),
+    path: Some(
+        "COM4",
+    ),
+}
+SUPPORTED_SIGNAL_IDS=["engine_rpm", "coolant_temp", "intake_temp", "throttle_pos", "vehicle_speed"]
+SAMPLE coolant_temp: [
+    Sample {
+        elapsed_ns: 60491300,
+        wall_time_unix_ns: 1790970941690904800,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "coolant_temp",
+        value: 77.0,
+        unit: "°C",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                5,
+                117,
+            ],
+        ),
+    },
+]
+SAMPLE engine_rpm: [
+    Sample {
+        elapsed_ns: 110743600,
+        wall_time_unix_ns: 1790970941741158600,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "engine_rpm",
+        value: 0.0,
+        unit: "rpm",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                12,
+                0,
+                0,
+            ],
+        ),
+    },
+]
+SAMPLE intake_temp: [
+    Sample {
+        elapsed_ns: 180917200,
+        wall_time_unix_ns: 1790970941811332300,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "intake_temp",
+        value: 37.0,
+        unit: "°C",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                15,
+                77,
+            ],
+        ),
+    },
+]
+DISCONNECTED

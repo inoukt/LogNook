@@ -1,0 +1,22 @@
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+IDENT_BEFORE_STPX_MS=3.166 RAW=STI\rSTN1130 v5.10.1\r\r>
+ECHO_OFF_MS=1.759 RAW=ATE0\rOK\r\r>
+UART_SWITCH_ACK baud=2000000 RAW=OK\r
+UART_SWITCH_STI baud=2000000 ms=1.540 RAW=STN1130 v5.10.1\r\r>
+VEHICLE_PROTOCOL_MS=1.882 RAW=ISO 15765-4 (CAN 11/500) [AT]\r\r>
+OPEN_PROTOCOL_MS=1.557 RAW=OK\r\r>
+HEADERS_ON_MS=2.080 RAW=OK\r\r>
+HEADER_DISCOVERY_RPM_MS=108.811 RAW=7E8 04 41 0C 0D 73 \r\r>
+HEADERS_OFF_MS=1.980 RAW=OK\r\r>
+ATAT1_MS=2.700 RAW=OK\r\r>
+QUERY_RESULT label=bare_functional_atat1 command="010C" total_s=1.306 rate=15.31/s valid=20/20 latency_p50_ms=61.86 latency_p95_ms=125.81
+QUERY_RESULT label=stpx_functional_atat1 command="STPX D:010C, R:1, T:250" total_s=0.592 rate=33.81/s valid=20/20 latency_p50_ms=30.01 latency_p95_ms=33.56
+PCM_PHYSICAL_HEADER_MS=1.491 RAW=OK\r\r>
+QUERY_RESULT label=stpx_pcm_physical_atat1 command="STPX D:010C, R:1, T:250" total_s=0.601 rate=33.26/s valid=20/20 latency_p50_ms=30.80 latency_p95_ms=32.23
+ATAT0_MS=1.447 RAW=OK\r\r>
+QUERY_RESULT label=stpx_pcm_physical_atat0 command="STPX D:010C, R:1, T:250" total_s=0.595 rate=33.62/s valid=20/20 latency_p50_ms=29.98 latency_p95_ms=34.73
+ATAT2_MS=1.622 RAW=OK\r\r>
+QUERY_RESULT label=stpx_pcm_physical_atat2 command="STPX D:010C, R:1, T:250" total_s=0.600 rate=33.34/s valid=20/20 latency_p50_ms=30.40 latency_p95_ms=33.66
+UART_SWITCH_ACK baud=115200 RAW=OK\r
+UART_SWITCH_STI baud=115200 ms=3.197 RAW=STN1130 v5.10.1\r\r>

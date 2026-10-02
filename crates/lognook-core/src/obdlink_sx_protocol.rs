@@ -14,6 +14,18 @@ pub(crate) struct SupportedPidRange {
     pub(crate) ecu_id: Option<String>,
 }
 
+pub(crate) fn mode01_pid_data_width(pid: u8) -> Option<usize> {
+    match pid {
+        0x00 | 0x20 | 0x40 => Some(4),
+        0x03 | 0x0C | 0x1F | 0x21 | 0x23 | 0x31 | 0x32 | 0x3C | 0x3D | 0x42 | 0x43 | 0x44 => {
+            Some(2)
+        }
+        0x04 | 0x05 | 0x06 | 0x07 | 0x08 | 0x09 | 0x0B | 0x0D | 0x0E | 0x0F | 0x11 | 0x13
+        | 0x1C | 0x2E | 0x2F | 0x30 | 0x33 | 0x45 | 0x46 | 0x47 | 0x49 | 0x4A | 0x4C => Some(1),
+        _ => None,
+    }
+}
+
 pub(crate) fn parse_mode01_responses(
     text: &str,
     service: u8,
@@ -21,6 +33,21 @@ pub(crate) fn parse_mode01_responses(
 ) -> Result<Vec<Mode01Response>, String> {
     let positive_service = service.wrapping_add(0x40);
     let mut responses = Vec::new();
+
+    if let Some(messages) = parse_isotp_messages(text)? {
+        for (ecu_id, payload) in messages {
+            responses.extend(parse_mode01_payload(
+                &payload,
+                Some(ecu_id),
+                positive_service,
+                pid,
+            )?);
+        }
+        if responses.is_empty() {
+            return Err(format!("No response for Mode {service:02X} PID {pid:02X}"));
+        }
+        return Ok(responses);
+    }
 
     for line in text.split(['\r', '\n']) {
         let mut ecu_id = None;
@@ -47,6 +74,123 @@ pub(crate) fn parse_mode01_responses(
         return Err(format!("No response for Mode {service:02X} PID {pid:02X}"));
     }
     Ok(responses)
+}
+
+fn parse_mode01_payload(
+    payload: &[u8],
+    ecu_id: Option<String>,
+    positive_service: u8,
+    requested_pid: u8,
+) -> Result<Vec<Mode01Response>, String> {
+    if payload.first() != Some(&positive_service) {
+        return Ok(Vec::new());
+    }
+
+    let mut responses = Vec::new();
+    let mut offset = 1;
+    while offset < payload.len() {
+        let pid = payload[offset];
+        let width = mode01_pid_data_width(pid)
+            .ok_or_else(|| format!("Unknown Mode 01 PID {pid:02X} in combined response"))?;
+        let data_start = offset + 1;
+        let data_end = data_start + width;
+        if data_end > payload.len() {
+            return Err(format!("Mode 01 PID {pid:02X} response is truncated"));
+        }
+        if pid == requested_pid {
+            let data = payload[data_start..data_end].to_vec();
+            let mut raw_bytes = vec![positive_service, pid];
+            raw_bytes.extend_from_slice(&data);
+            responses.push(Mode01Response {
+                ecu_id: ecu_id.clone(),
+                raw_bytes,
+                data,
+            });
+        }
+        offset = data_end;
+    }
+    Ok(responses)
+}
+
+fn parse_isotp_messages(text: &str) -> Result<Option<Vec<(String, Vec<u8>)>>, String> {
+    let mut frames = Vec::new();
+    for line in text.split(['\r', '\n']) {
+        let mut ecu_id = None;
+        let mut frame = Vec::new();
+        for token in line.split_whitespace() {
+            let token = token.trim_matches('>');
+            if matches!(token.len(), 3 | 8) && token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                if let Some(previous_id) = ecu_id.replace(token.to_ascii_uppercase())
+                    && !frame.is_empty()
+                {
+                    frames.push((previous_id, std::mem::take(&mut frame)));
+                }
+                continue;
+            }
+            if ecu_id.is_some()
+                && let Some(bytes) = parse_hex_token(token)
+            {
+                frame.extend(bytes);
+            }
+        }
+        if let Some(ecu_id) = ecu_id
+            && !frame.is_empty()
+        {
+            frames.push((ecu_id, frame));
+        }
+    }
+    if frames.is_empty() {
+        return Ok(None);
+    }
+
+    let mut messages = Vec::new();
+    let mut pending: Option<(String, usize, u8, Vec<u8>)> = None;
+    for (ecu_id, frame) in frames {
+        let pci = frame[0];
+        match pci >> 4 {
+            0 => {
+                if pending.is_some() {
+                    return Err("ISO-TP single frame interrupted an incomplete response".into());
+                }
+                let length = (pci & 0x0F) as usize;
+                if length == 0 || frame.len() < length + 1 {
+                    return Err("ISO-TP single frame is truncated".into());
+                }
+                messages.push((ecu_id, frame[1..=length].to_vec()));
+            }
+            1 => {
+                if pending.is_some() || frame.len() < 2 {
+                    return Err("Unexpected ISO-TP first frame".into());
+                }
+                let length = (((pci & 0x0F) as usize) << 8) | frame[1] as usize;
+                if length <= frame.len() - 2 {
+                    messages.push((ecu_id, frame[2..(2 + length)].to_vec()));
+                } else {
+                    pending = Some((ecu_id, length, 1, frame[2..].to_vec()));
+                }
+            }
+            2 => {
+                let Some((expected_ecu, length, sequence, payload)) = pending.as_mut() else {
+                    return Err("ISO-TP consecutive frame has no first frame".into());
+                };
+                if *expected_ecu != ecu_id || (pci & 0x0F) != *sequence {
+                    return Err("ISO-TP response ECU or sequence changed".into());
+                }
+                *sequence = (*sequence + 1) & 0x0F;
+                let remaining = *length - payload.len();
+                payload.extend(frame.iter().skip(1).take(remaining).copied());
+                if payload.len() == *length {
+                    let (ecu_id, _, _, payload) = pending.take().expect("pending frame exists");
+                    messages.push((ecu_id, payload));
+                }
+            }
+            _ => return Err("Unexpected ISO-TP frame type in OBD response".into()),
+        }
+    }
+    if pending.is_some() {
+        return Err("ISO-TP response ended before all declared bytes arrived".into());
+    }
+    Ok(Some(messages))
 }
 
 fn append_response(
@@ -111,21 +255,36 @@ pub(crate) fn decode_signal(
         return Err("Mode 01 response does not match the requested signal".into());
     }
 
-    let first = *response
-        .data
-        .first()
-        .ok_or_else(|| "Mode 01 response contains no signal data".to_owned())?;
+    let width = mode01_pid_data_width(signal.pid)
+        .ok_or_else(|| format!("Unsupported read-only Mode 01 PID {:02X}", signal.pid))?;
+    if response.data.len() < width {
+        return Err(format!(
+            "PID {:02X} response requires {width} data byte(s)",
+            signal.pid
+        ));
+    }
+    let first = response.data[0];
+    let word = || u16::from_be_bytes([response.data[0], response.data[1]]);
     let value = match signal.pid {
-        0x0C => {
-            let second = *response
-                .data
-                .get(1)
-                .ok_or_else(|| "RPM response requires two data bytes".to_owned())?;
-            (u16::from_be_bytes([first, second]) as f64) / 4.0
+        0x03 | 0x13 | 0x1C => match signal.pid {
+            0x03 => word() as f64,
+            _ => first as f64,
+        },
+        0x04 | 0x11 | 0x2E | 0x2F | 0x45 | 0x47 | 0x49 | 0x4A | 0x4C => {
+            first as f64 * 100.0 / 255.0
         }
-        0x05 | 0x0F => first as f64 - 40.0,
-        0x11 => first as f64 * 100.0 / 255.0,
-        0x0D => first as f64,
+        0x05 | 0x0F | 0x46 => first as f64 - 40.0,
+        0x06..=0x09 => (first as f64 - 128.0) * 100.0 / 128.0,
+        0x0B | 0x0D | 0x30 | 0x33 => first as f64,
+        0x0C => word() as f64 / 4.0,
+        0x0E => first as f64 / 2.0 - 64.0,
+        0x1F | 0x21 | 0x31 => word() as f64,
+        0x23 => word() as f64 * 10.0,
+        0x32 => i16::from_be_bytes([response.data[0], response.data[1]]) as f64 / 4.0,
+        0x3C | 0x3D => word() as f64 / 10.0 - 40.0,
+        0x42 => word() as f64 / 1_000.0,
+        0x43 => word() as f64 * 100.0 / 255.0,
+        0x44 => word() as f64 * 2.0 / 65_536.0,
         _ => {
             return Err(format!(
                 "Unsupported read-only Mode 01 PID {:02X}",

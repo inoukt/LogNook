@@ -1,0 +1,4 @@
+MODE=d2xx BAUD=1000000 LATENCY_ARG=None
+D2XX_DEVICE=DeviceInfo { port_open: false, speed: Some(FullSpeed), device_type: FT_X_SERIES, vendor_id: 0x0403, product_id: 0x6015, serial_number: 113011166292, description: OBDLink SX }
+D2XX_LATENCY_BEFORE=1ms D2XX_LATENCY_TEST=1ms
+Error: "timeout waiting for > prompt"
