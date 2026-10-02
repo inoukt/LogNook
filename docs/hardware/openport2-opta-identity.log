@@ -1,0 +1,9 @@
+openport2_identity.cpp
+DLL: OPTA opta_j2534_0404_tactrix.dll; process: x86
+PassThruOpen: 0x00000000
+PassThruReadVersion: 0x00000000
+Firmware: main code version : 1.17.4877
+DLL: 0.1.0
+API: 04.04
+PassThruClose: 0x00000000
+No vehicle channel opened; no vehicle message sent.

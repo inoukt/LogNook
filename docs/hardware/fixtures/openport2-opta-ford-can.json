@@ -1,0 +1,25 @@
+{
+  "provenance": "Physical OpenPort2/Ford passive capture, 2026-10-02; OPTA DLL 0.1.0; firmware 1.17.4877",
+  "source_log": "../openport2-opta-passive-wire.log",
+  "protocol": "CAN5",
+  "bitrate": 500000,
+  "requested_connect_flags": "0x10000800",
+  "observed_filter_wire": "atf5 1 64 4\r\n followed by eight zero mask/pattern bytes",
+  "first_complete_usb_receive_hex": "61 72 35 11 00 53 E5 C4 D7 00 00 01 69 41 00 00 00 00 00 00 00",
+  "first_driver_parsed_frame": {
+    "kind": "Normal",
+    "timestamp_us": 1407567063,
+    "can_id": "0x169",
+    "payload_hex": "41 00 00 00 00 00 00 00"
+  },
+  "next_driver_parsed_frame": {
+    "kind": "Normal",
+    "timestamp_us": 1407567303,
+    "can_id": "0x200",
+    "payload_hex": "2E 61 28 F8 28 F8 20 00"
+  },
+  "returned_j2534_message_prefix_hex": "00 00 01 69 41 00 00 00 00 00 00 00 2E 61 28 F8",
+  "returned_j2534_full_metadata": null,
+  "expected_future_regression": "Raw CAN must return these as distinct messages retaining each CAN ID and timestamp; do not split the aggregated ABI result by guessed lengths.",
+  "limits": "Parsed frame fields are transcribed from OPTA's trace; no signal meanings assigned. The bulk trace abbreviates large USB packets. Only the first complete small receive packet is a byte-exact USB fixture."
+}

@@ -1,0 +1,4 @@
+openport2_identity.cpp
+DLL: C:\Windows\SysWOW64\op20pt32.dll; process: x86
+TX_IOCTL_GET_DEVICE_INSTANCES: 0x00000008
+PassThruGetLastError: 0x00000000, 

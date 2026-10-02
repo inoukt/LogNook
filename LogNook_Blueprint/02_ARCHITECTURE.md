@@ -1,0 +1,104 @@
+# Engineering architecture and repository
+
+## Proposed stack
+- Tauri 2 desktop shell; Rust acquisition/storage/processing engine; Svelte + TypeScript UI; CSS variables/theme tokens.
+- Native Windows J2534 via vendor-installed DLL in isolated architecture-matched process (`lognook-j2534-x86.exe`; x64 only when a vendor supplies x64 DLL). IPC: versioned, bounded messages and worker watchdog, not DLL loaded into UI process.
+- Serial for OBDLink SX/ELM; native `gs_usb` USB for compatible candleLight devices using evaluated pure-Rust `nusb` or `rusb` and Windows WinUSB binding; SLCAN over serial. Linux backend later maps `gs_usb` to SocketCAN.
+- A small, controlled renderer interface: uPlot for very fast time-series and Apache ECharts for scatter/heatmap/bar. Their two roles are explicit; don't implement two competing graph data pipelines.
+- SQLite local state and per-session recording; migration-on-open with backup and schema-version checking. Credential secrets in OS credential storage, never in JSON config.
+
+## Pipeline
+`HardwareAdapter -> RawTransportEvent -> ProtocolSession -> DecodedSample -> EventBus -> Recorder / SchedulerFeedback / TriggerEngine / UIThrottler / AlertEngine`.
+Raw CAN monitoring takes a parallel path to the raw-frame recorder/DBC decoder. Derived signals subscribe to decoded sample events; formulas do not alter source measurements. Recorders never rely on the chart's selected signals if acquisition is configured to retain more.
+
+## Shared contracts
+`DeviceDescriptor {stable_id, hardware_family, firmware, path}`
+`ConnectionCapability {protocols, bus_types, supports_passive, max_channels, supported_rates, timestamp_capability, uncertainties}`
+`SignalKey {protocol, ecu_address, identifier, vehicle_profile_variant}`
+`SignalDefinition {key, name, meaning, dimensions, decode_spec, source_definition_version}`
+`Sample {key, t_monotonic_ns, t_wall_utc, raw_bytes_or_value, canonical_value, unit, quality, source_id}`
+`Event {timestamp, source, kind, payload}` / `Marker` / `TriggerRule` / `Session`.
+All domain models are defined in a single common crate and serialized through schema-versioned APIs. Adapter implementations depend on the common interfaces; the engine never imports vendor-specific types.
+
+## Ownership and concurrency
+- One writer/serialized command owner per physical hardware interface; bounded read and decode queues; bus/session scheduler controls requests and timeouts.
+- Separate high-priority ingest and recorder workers from low-priority graph refresh, screenshot, indexing, sharing and AI tasks. Slow consumers receive pressure metrics and drop optional UI previews, NEVER silently drop saved samples.
+- Explicit connection state machine: absent -> detected -> probing -> open -> bus-ready -> ECU-ready -> streaming -> degraded -> backoff -> recovering. Distinguish USB re-enumeration from ECU timeout. Resume only non-destructive session configuration; timestamps and gap markers expose each reconnect.
+
+## Suggested small repository
+```
+lognook/
+  Cargo.toml                    # workspace
+  apps/desktop/                 # Tauri shell and thin commands
+  ui/src/{routes,components,stores,charts,theme}/
+  crates/model/                 # canonical contracts and errors
+  crates/engine/                # scheduler, sessions, connection state
+  crates/protocols/             # OBD, ISO-TP, UDS foundations
+  crates/adapters/              # serial, gs_usb, slcan traits/impl
+  crates/recording/             # SQLite, CSV, import/export, replay
+  crates/analysis/              # triggers, formulas, comparison, alerts
+  workers/j2534-x86/           # separate Windows crash/bitness boundary
+  profiles/{generic,examples}/  # licensed/reviewed vehicle definitions
+  tests/{fixtures,simulators}/
+  docs/{decisions,protocols}/   # short ADRs only as decisions arise
+```
+Each module owns a single public contract. Avoid abstract 'plugin systems' and massive registries before at least two concrete implementations need an abstraction. Use a centralized typed settings registry with scoped overrides: global -> device -> vehicle -> workspace -> signal. Generic reusable components, not global variables.
+
+## Compact **code** files and centralized reuse (the size requirement applies to source, not `.md` docs)
+- Prefer cohesive, single-responsibility Rust/TypeScript source modules. Approximately **100–250 lines per hand-written source file is a review signal**, not a forced limit: split when responsibilities diverge, not simply when a line counter trips. Generated code, strict FFI definitions and mature algorithms may reasonably exceed this size.
+- Keep a few intentional domain crates instead of hundreds of tiny crates. Split internally by operation (`probe.rs`, `poll.rs`, `reconnect.rs`, `csv_export.rs`, `trigger_rules.rs`) only when those are real, separately testable responsibilities. No file should be a dumping ground for unrelated helpers.
+- The source of truth for **units, numeric transforms, timestamps, signal identifiers, device capabilities, errors, preferences and recording events** must be shared. Hardware implementations supply bytes/capabilities; they do not duplicate PID menus, trigger code, CSV encoding, conversion code or graph state.
+- Put customization behind explicit typed configuration and well-named pure functions. Do **not** use global mutable state or copy-and-paste feature variants. Add an adapter implementation to the shared trait and give it the common test suite.
+- Prefer one small public API per module with implementation helpers kept private. Add fixtures/property tests beside parser/decoder/scheduler functionality. Require formatting, lints, API-contract checks and regression tests in CI.
+- Documentation has **no artificial small-file requirement**: clear in-depth protocol notes and long research documents are preferable to hiding information across many fragments. Keep brief ADRs for individual decisions where useful.
+
+## Portability
+No Windows APIs outside Windows adapter/worker and distribution modules. No frontend direct COM/USB or filesystem device access. Linux effort should consist mainly of platform adapters/packaging, not a second engine. Build Windows x64, separate x86 J2534 helper; reserve continuous integration for Linux engine tests from day one.
+
+## Milestone 1 implementation
+
+- The Cargo workspace has one domain crate, `crates/lognook-core`, and one Tauri app at `apps/desktop/src-tauri`. Svelte 5, TypeScript, and Vite live under `apps/desktop`; no empty subsystem crates were created.
+- `HardwareAdapter` owns connect/read/disconnect. The simulator and SX use the same capability/signal/sample contracts. SX discovery and opening require exact USB VID/PID `0403:6015`; the selected COM port opens at 115200 8-N-1 with no flow control.
+- The SX handshake begins with the complete adapter-only query `STI\r`. Its firmware reply and `>` synchronize the connection. The adapter then queries STDI and STSN, waiting for each reply prompt. An already-powered device is not required to emit a fresh startup banner on port open; a queued startup banner or empty prompt is tolerated before the STI reply. Missing or unexpected replies stop before further commands.
+- Identify SX is a separate identity-only UI action. Live connection repeats identity, scans Mode 01 support ranges starting at `0100` and follows continuation flags (`0120`, etc.), then reads only selected supported signals from the shared catalog. Production code sends no wake/reset, saved-protocol configuration, DTC-clear, OEM/UDS, actuator, or ECU-write commands.
+- Tests include synthetic protocol fixtures and physical Ford/SX identity and first-range supported-PID captures. They cover continuation parsing, absent/optional startup frames, wrong firmware/device, silent replies, USB matching, malformed responses, multiple responders, PID capability filtering, and selected reads. The physical capture predates the new `0120` request; that follow-up range remains unverified on hardware.
+- Acquisition serializes adapter reads at a 100 ms target and submits timestamped samples to a bounded 256-item synchronous queue. A slow recorder applies backpressure. The UI consumes pipeline events rather than synthesizing measurements.
+- Samples retain monotonic elapsed time, UTC receive time, source/ECU, units, quality, origin, and optional raw OBD bytes. Missing ECU-address headers remain unknown; no ECU address is fabricated.
+- A recording is a new SQLite `.lognook` file with WAL during acquisition. Clean close checkpoints and verifies integrity. Original sample timestamps, raw bytes, quality, and separate markers are retained.
+- CSV is long-form with `raw_hex`; markers use a sibling `*-markers.csv`. Export refuses overwrites. Replay/export walk rows incrementally and replay feeds the same bounded pipeline with `origin=replay`.
+- Tauri owns app-local recording paths and bridges the engine to Svelte. The PID picker and combined/separate graphs share timestamped pipeline samples with recording and replay.
+
+## Physical validation and transport decision
+
+The corrected core adapter was verified on 2026-10-02 using SX r4.3.1, STN1130 v5.10.1,
+serial 113011166292, COM4/115200 on the user's 2011 Ford Flex EcoBoost. Identity, CAN
+11/500 protocol status, supported-PID bitmap `41 00 BF BE A8 93`, and a valid RPM
+sample (632 rpm, `41 0C 09 E0`) were received. The adapter disconnected cleanly.
+
+Both VCP and a temporary FTDI D2XX diagnostic program answered the same read-only
+queries at 115200. The existing VCP transport is retained; a new USB dependency is
+unnecessary for the corrected handshake. The user reports faster refresh in OBDwiz
+USB mode, and their FORScan screenshot shows COM4 at 2000000 bps. These are useful
+comparison points; they do not establish a measured LogNook rate or prove which
+API OBDwiz uses. D2XX reported a 16 ms latency timer; it was not changed.
+
+Earlier passive waits failed because no unsolicited banner was observed. Separate
+user-authorized UART BREAK wake tests also yielded no prompt. A temporary `ATSP 6`
+at 2000000 timed out; its NVM effect remains unknown. Production acquisition does
+not use those operations. The current protocol was later read successfully, but
+that does not establish whether the earlier setting was accepted. Exact commands,
+raw replies, provenance, and limits are in [the hardware record](../docs/hardware/2026-10-02-sx-ford.md).
+
+Sources: [OBDLink FRPM Rev F](https://www.scantool.net/scantool/downloads/682/obdlink_frpm_f.pdf),
+[OBDLink Windows setup](https://support.obdlink.com/support/solutions/articles/43000727094),
+[FTDI direct/VCP interfaces](https://www.ftdichip.com/Support/Knowledgebase/d2xxintroduction.htm).
+
+## Current POC boundaries
+
+- The OpenPort 2 inventory and probes are recorded in [the OpenPort 2 report](../docs/hardware/2026-10-02-openport2.md). At the user's choice, the current WinUSB/OPTA binding was retained for this bounded diagnostic. Its signed x86 DLL returned firmware `1.17.4877`, DLL `0.1.0`, API `04.04`, and accepted passive CAN5 at 500 kbit/s with requested sniff flags `0x10000800`. The first J2534 read was rejected after 109 ms because the returned message combined frame data; the logged capture lacks full rejected-message metadata. The wire trace also shows filter TxFlags `0x40` despite requested 0. All calls returned status 0 through disconnect/close. Physical traces and a fixture retain distinct CAN IDs/timestamps parsed from the USB log, not from the rejected aggregate. This diagnostic exception does not select or implement a production backend. Reliable raw frames, an architecture-matched worker, and shared-contract tests remain prerequisites. No vehicle transmit/diagnostic request, driver replacement, or firmware update occurred.
+
+- Physical validation covers one SX/Ford connection, supported-PID discovery, and one RPM measurement. Other advertised measurements, sustained rate/recording behavior, disconnect recovery, and Scion compatibility remain to be tested.
+- Multiple ECU responders are rejected until explicit selection is implemented. The current headerless physical replies do not identify the responding ECU address. Ford enhanced/MS-CAN support is not claimed.
+- The simulator supplies plausible values, timestamps, and response delays; scripted disconnects, malformed replies, and variable ECU sets are not implemented.
+- CSV import exists in the core and has round-trip coverage; no import wizard or session browser exists. The graph keeps a 180-point display window; persisted data remains un-decimated.
+- The updated SX controls were not exercised in a native Tauri window during the hardware follow-up. No installer or release package has been validated.

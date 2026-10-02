@@ -1,0 +1,15 @@
+DLL: OPTA opta_j2534_0404_tactrix.dll; process: x86
+PassThruOpen: 0x00000000
+PassThruReadVersion: 0x00000000
+Firmware: main code version : 1.17.4877
+DLL: 0.1.0
+API: 04.04
+CAN5; flags=0x10000800 (SNIFF_MODE | CAN_ID_BOTH); 500000 bit/s
+PassThruConnect: 0x00000000
+PassThruStartMsgFilter (PASS; TxFlags=0; no flow control): 0x00000000
+PassThruReadMsgs: 0x00000000
+Unexpected frame metadata: stopping
+Listen duration_ms=109; raw messages=0; empty/timeouts=0
+PassThruDisconnect: 0x00000000
+PassThruClose: 0x00000000
+Passive test ended; no transmit API loaded.

@@ -1,0 +1,93 @@
+**********************************************************************
+** Visual Studio 2022 Developer Command Prompt v17.14.41
+** Copyright (c) 2025 Microsoft Corporation
+**********************************************************************
+CORE_CONNECTED=ConnectionCapabilities {
+    device: DeviceDescriptor {
+        stable_id: "113011166292",
+        hardware_family: "OBDLink SX",
+        firmware: Some(
+            "STN1130 v5.10.1",
+        ),
+        path: Some(
+            "COM4",
+        ),
+    },
+    protocol: "SAE J1979 Mode 01",
+    read_only: true,
+    supported_signals: [
+        SignalDefinition {
+            id: "engine_rpm",
+            name: "Engine speed",
+            service: 1,
+            pid: 12,
+            unit: "rpm",
+            min: 0.0,
+            max: 8000.0,
+            description: "Engine crankshaft speed",
+        },
+        SignalDefinition {
+            id: "coolant_temp",
+            name: "Coolant temperature",
+            service: 1,
+            pid: 5,
+            unit: "°C",
+            min: -40.0,
+            max: 215.0,
+            description: "Engine coolant temperature",
+        },
+        SignalDefinition {
+            id: "intake_temp",
+            name: "Intake air temperature",
+            service: 1,
+            pid: 15,
+            unit: "°C",
+            min: -40.0,
+            max: 215.0,
+            description: "Intake manifold air temperature",
+        },
+        SignalDefinition {
+            id: "throttle_pos",
+            name: "Throttle position",
+            service: 1,
+            pid: 17,
+            unit: "%",
+            min: 0.0,
+            max: 100.0,
+            description: "Absolute throttle position",
+        },
+        SignalDefinition {
+            id: "vehicle_speed",
+            name: "Vehicle speed",
+            service: 1,
+            pid: 13,
+            unit: "km/h",
+            min: 0.0,
+            max: 255.0,
+            description: "Road speed reported by the ECU",
+        },
+    ],
+}
+CORE_RPM_SAMPLES=[
+    Sample {
+        elapsed_ns: 56926100,
+        wall_time_unix_ns: 1790958135363620400,
+        source_id: "obdlink-sx:113011166292",
+        ecu_id: None,
+        signal_id: "engine_rpm",
+        value: 632.0,
+        unit: "rpm",
+        quality: Valid,
+        origin: Live,
+        raw_bytes: Some(
+            [
+                65,
+                12,
+                9,
+                224,
+            ],
+        ),
+    },
+]
+SINGLE_READ_DURATION_MS=56.785
+CORE_DISCONNECTED

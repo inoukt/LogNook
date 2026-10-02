@@ -1,0 +1,6 @@
+Notepad in app (flying always on top, or separate window) save in CSV if possible
+Drawing over stopped graphs, save in CSV if possible, list of Saved SS with drawings?
+Remote Control with Phone
+Add phone sensors as PIDs (mic, gps, alt. etc)
+Add Synced Video from phone's camera
+Virtual Dyno (if possible)

@@ -1,0 +1,10 @@
+[tactrix] tactrix TX wire: 5 bytes [61 74 69 0D 0A]
+[tactrix] tactrix RX wire: 35 bytes [61 72 69 20 6D 61 69 6E 20 63 6F 64 65 20 76 65 72 73 69 6F 6E 20 3A 20 31 2E 31 37 2E 34 38 37 37 0D 0A]
+[tactrix] tactrix RX frame: Identify("main code version : 1.17.4877")
+[tactrix] tactrix TX wire: 5 bytes [61 74 61 0D 0A]
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[j2534] PassThruOpen OK id=1
+[tactrix] tactrix TX wire: 5 bytes [61 74 7A 0D 0A]
+[j2534] PassThruClose OK id=1
+
