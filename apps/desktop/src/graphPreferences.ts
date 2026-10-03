@@ -23,6 +23,7 @@ export type GraphPreferencesStorage = Pick<Storage, "getItem" | "setItem">;
 
 export const GRAPH_PREFERENCES_KEY = "lognook.graph-preferences.v1";
 export const MAX_GRAPH_SAMPLES = 180;
+export const LIVE_GRAPH_WINDOW_NS = 18_000_000_000;
 const MAX_REFERENCE_TRACES = 24;
 const DEFAULT_SIGNAL_PREFERENCE: GraphSignalPreference = {
   min: null,
@@ -164,6 +165,16 @@ export function graphCoordinates(
       y: Math.min(Math.max(y, 22), 146),
     };
   });
+}
+
+export function liveGraphTimeWindow(nowNs: number, spanNs = LIVE_GRAPH_WINDOW_NS): { startNs: number; endNs: number } {
+  const span = Number.isFinite(spanNs) && spanNs > 0 ? spanNs : LIVE_GRAPH_WINDOW_NS;
+  return { startNs: nowNs - span, endNs: nowNs };
+}
+
+export function holdLastPointAtRightEdge<T extends { x: number }>(points: T[]): T[] {
+  const last = points.at(-1);
+  return last && last.x < 720 ? [...points, { ...last, x: 720 }] : points;
 }
 
 export function mapReferenceSamples(samples: GraphValueSample[], timeStart: number, timeEnd: number): GraphValueSample[] {

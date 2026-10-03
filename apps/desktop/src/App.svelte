@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { liveCsvSamples } from "./liveCsv";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import DerivedSignalsPanel from "./DerivedSignalsPanel.svelte";
   import PlaybackPanel from "./PlaybackPanel.svelte";
@@ -110,6 +111,7 @@
     ...visibleSignals.flatMap((signal) => formulaSignalIds(signal.formula, signalCatalog)),
   ])];
   $: filteredSignals = filterSignals(availableSignals, signalSearch);
+  $: hasLiveCsvSamples = logSignalIds.some((id) => (series[id]?.length ?? 0) > 0);
   $: automaticTriggerSignals = session ? [] : availableSignals.filter((signal) => logSignalIds.includes(signal.id));
   $: currentDerivedValues = Object.fromEntries(derivedSignalDefinitions.map((definition) => [
     definition.id,
@@ -501,6 +503,34 @@
     return run(async () => { exportPath = await invoke<string>("export_csv"); });
   }
 
+  function exportLiveCsv() {
+    return run(async () => {
+      const samples = liveCsvSamples(series, logSignalIds);
+      const path = await invoke<string | null>("export_live_csv", { samples });
+      if (path) {
+        exportPath = path;
+        status = `Saved ${samples.length.toLocaleString()} buffered samples`;
+      }
+    });
+  }
+
+  function shareRecording(path: string) {
+    return run(async () => {
+      const destination = await invoke<string | null>("share_recording_csv", { path });
+      if (destination) {
+        exportPath = destination;
+        status = "Shareable CSV saved";
+      }
+    });
+  }
+
+  function saveRecordingAs(path: string) {
+    return run(async () => {
+      const destination = await invoke<string | null>("save_recording_as", { path });
+      if (destination) status = "Session copy saved";
+    });
+  }
+
   function openCsv() {
     return run(async () => {
       const info = await invoke<RecordingInfo | null>("open_csv");
@@ -815,6 +845,8 @@
           {#if recording}
             <input class="text-input toolbar-input" bind:value={markerNote} placeholder="Marker note (optional)" aria-label="Marker note" disabled={busy} />
             <button class="button secondary" onclick={insertLiveMarker} disabled={busy}>＋ Marker</button>
+          {:else if connected && !session}
+            <button class="button secondary" onclick={exportLiveCsv} disabled={busy || !hasLiveCsvSamples} title="Save the retained live samples for logged signals as CSV">Save live CSV</button>
           {:else}
             <button class="button secondary" onclick={exportCsv} disabled={busy || (!recordingPath && !session)}>Export CSV</button>
           {/if}
@@ -841,32 +873,39 @@
     </section>
 
 
-    <PlaybackPanel
-      info={session}
-      {playback}
-      {markers}
-      range={timeWindow}
-      openDisabled={connected}
-      disabled={busy || recording}
-      onOpen={openCsv}
-      onClose={closeSession}
-      onTogglePlay={togglePlayback}
-      onStart={returnToStart}
-      onScrub={scrubTo}
-      onSpeed={setSpeed}
-      onAddMarker={addMarker}
-      onUpdateMarker={updateMarker}
-      onDeleteMarker={deleteMarker}
-      onJumpMarker={seek}
-      onZoom={zoom}
-      onPan={pan}
-      onReset={resetZoom}
-    />
+    {#if session}
+      <PlaybackPanel
+        info={session}
+        {playback}
+        {markers}
+        range={timeWindow}
+        openDisabled={connected}
+        disabled={busy || recording}
+        onOpen={openCsv}
+        onClose={closeSession}
+        onTogglePlay={togglePlayback}
+        onStart={returnToStart}
+        onScrub={scrubTo}
+        onSpeed={setSpeed}
+        onAddMarker={addMarker}
+        onUpdateMarker={updateMarker}
+        onDeleteMarker={deleteMarker}
+        onJumpMarker={seek}
+        onZoom={zoom}
+        onPan={pan}
+        onReset={resetZoom}
+      />
+    {/if}
 
-    <details class="session-browser-details">
-      <summary>Browse saved sessions</summary>
-      <SessionBrowser disabled={busy || connected || recording} onOpen={activateSession} />
-    </details>
+    <div class="session-tools">
+      <details class="session-browser-details">
+        <summary>Browse saved sessions</summary>
+        <SessionBrowser disabled={busy || recording} openDisabled={connected || recording} onOpen={activateSession} onShare={shareRecording} onSaveAs={saveRecordingAs} />
+      </details>
+      {#if !session}
+        <button class="button secondary open-csv-compact" onclick={openCsv} disabled={busy || connected || recording}>Open CSV</button>
+      {/if}
+    </div>
 
     <dialog class="derived-signal-dialog" aria-label="Derived signal editor" bind:this={derivedSignalDialog} onclose={() => derivedSignalSource = null}>
       <button class="derived-dialog-close" type="button" aria-label="Close derived signal editor" onclick={() => derivedSignalDialog?.close()}>×</button>
@@ -928,6 +967,7 @@
             onToggleGraphSignal={toggleGraphSignal}
             onSeek={session ? seek : undefined}
             onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
+            live={!session && connected}
             timeWindow={session ? timeWindow : undefined}
             markers={session ? markers : []}
             playheadNs={session ? playback.position_ns : undefined}

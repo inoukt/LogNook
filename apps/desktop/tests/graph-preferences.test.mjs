@@ -58,6 +58,20 @@ test("same-unit derived traces include source values in their automatic vertical
   assert.ok(sourcePoint.y < derivedPoint.y, "source RPM should plot above RPM minus 500");
 });
 
+test("live graph time moves by display time and holds only the last plotted point", () => {
+  const first = graphPreferences.liveGraphTimeWindow(20_000_000_000);
+  const next = graphPreferences.liveGraphTimeWindow(20_100_000_000);
+  assert.equal(first.endNs - first.startNs, 18_000_000_000);
+  assert.deepEqual(next, { startNs: 2_100_000_000, endNs: 20_100_000_000 });
+
+  const measured = [{ elapsed_ns: 20_000_000_000, value: 900, x: 713, y: 64 }];
+  assert.deepEqual(graphPreferences.holdLastPointAtRightEdge(measured), [
+    measured[0],
+    { ...measured[0], x: 720 },
+  ]);
+  assert.equal(measured.length, 1, "visual hold must not alter measured samples");
+});
+
 test("graph preferences load safely and round-trip through local storage", () => {
   assert.equal(typeof graphPreferences.loadGraphPreferences, "function");
   assert.equal(typeof graphPreferences.saveGraphPreferences, "function");

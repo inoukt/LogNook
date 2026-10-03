@@ -1,11 +1,12 @@
 use super::engine;
 use crate::AppState;
-use lognook_core::{RecordingInfo, inspect_recording};
+use lognook_core::{RecordingInfo, export_recording_csv, inspect_recording};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 
 type BrowserRecordingRow = (String, String, u64, usize);
 
@@ -59,14 +60,57 @@ pub fn open_recording(
     open_selected_recording(&state.recordings_dir, Path::new(&path), &mut engine)
 }
 
-fn open_selected_recording(
-    recordings_dir: &Path,
-    selected_path: &Path,
-    engine: &mut lognook_core::LogNookEngine,
-) -> Result<RecordingInfo, String> {
-    if engine.is_connected() || engine.is_recording() {
-        return Err("Disconnect and stop recording before opening a session".into());
-    }
+#[tauri::command]
+pub fn share_recording_csv(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<String>, String> {
+    let source = selected_recording_path(&state.recordings_dir, Path::new(&path))?;
+    let name = format!(
+        "{}.csv",
+        source.file_stem().unwrap_or_default().to_string_lossy()
+    );
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("CSV files", &["csv"])
+        .set_file_name(name)
+        .blocking_save_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let destination = selected.into_path().map_err(|error| error.to_string())?;
+    let destination = share_recording_csv_in(&state.recordings_dir, &source, &destination)?;
+    Ok(Some(destination.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn save_recording_as(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<String>, String> {
+    let source = selected_recording_path(&state.recordings_dir, Path::new(&path))?;
+    let name = format!(
+        "{}.lognook",
+        source.file_stem().unwrap_or_default().to_string_lossy()
+    );
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("LogNook sessions", &["lognook"])
+        .set_file_name(name)
+        .blocking_save_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let destination = selected.into_path().map_err(|error| error.to_string())?;
+    let destination = save_recording_as_in(&state.recordings_dir, &source, &destination)?;
+    Ok(Some(destination.to_string_lossy().into_owned()))
+}
+
+fn selected_recording_path(recordings_dir: &Path, selected_path: &Path) -> Result<PathBuf, String> {
     let recordings_dir = recordings_dir
         .canonicalize()
         .map_err(|error| error.to_string())?;
@@ -83,6 +127,46 @@ fn open_selected_recording(
     {
         return Err("Selected file is not a native .lognook recording".into());
     }
+    Ok(selected_path)
+}
+
+fn share_recording_csv_in(
+    recordings_dir: &Path,
+    selected_path: &Path,
+    csv_path: &Path,
+) -> Result<PathBuf, String> {
+    let source = selected_recording_path(recordings_dir, selected_path)?;
+    let mut csv_path = csv_path.to_path_buf();
+    csv_path.set_extension("csv");
+    export_recording_csv(&source, &csv_path).map_err(|error| error.to_string())?;
+    Ok(csv_path)
+}
+
+fn save_recording_as_in(
+    recordings_dir: &Path,
+    selected_path: &Path,
+    target_path: &Path,
+) -> Result<PathBuf, String> {
+    let source = selected_recording_path(recordings_dir, selected_path)?;
+    let mut target = target_path.to_path_buf();
+    target.set_extension("lognook");
+    let canonical_target = target.canonicalize().unwrap_or_else(|_| target.clone());
+    if canonical_target == source {
+        return Err("Choose a different location for the session copy".into());
+    }
+    std::fs::copy(source, &target).map_err(|error| error.to_string())?;
+    Ok(target)
+}
+
+fn open_selected_recording(
+    recordings_dir: &Path,
+    selected_path: &Path,
+    engine: &mut lognook_core::LogNookEngine,
+) -> Result<RecordingInfo, String> {
+    if engine.is_connected() || engine.is_recording() {
+        return Err("Disconnect and stop recording before opening a session".into());
+    }
+    let selected_path = selected_recording_path(recordings_dir, selected_path)?;
     engine
         .load_recording(&selected_path)
         .map_err(|error| error.to_string())
@@ -90,7 +174,9 @@ fn open_selected_recording(
 
 #[cfg(test)]
 mod tests {
-    use super::{list_recordings_in, open_selected_recording};
+    use super::{
+        list_recordings_in, open_selected_recording, save_recording_as_in, share_recording_csv_in,
+    };
     use lognook_core::{LogNookEngine, RecordingWriter, Sample, SampleOrigin, SampleQuality};
     use std::{
         path::{Path, PathBuf},
@@ -179,5 +265,65 @@ mod tests {
         assert!(path.exists());
         std::fs::remove_dir_all(directory).unwrap();
         std::fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn save_as_copies_a_native_recording_without_changing_the_source() {
+        let directory = test_directory("session-save-as");
+        let target_directory = test_directory("session-save-as-target");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::create_dir_all(&target_directory).unwrap();
+        let source = directory.join("selected.lognook");
+        let target = target_directory.join("copy.lognook");
+        create_recording(&source, 3);
+
+        let saved = save_recording_as_in(&directory, &source, &target).unwrap();
+
+        assert_eq!(saved, target);
+        assert_eq!(
+            lognook_core::inspect_recording(&saved)
+                .unwrap()
+                .sample_count,
+            3
+        );
+        assert_eq!(
+            lognook_core::inspect_recording(&source)
+                .unwrap()
+                .sample_count,
+            3
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+        std::fs::remove_dir_all(target_directory).unwrap();
+    }
+
+    #[test]
+    fn share_csv_exports_the_selected_session_and_rejects_external_sources() {
+        let directory = test_directory("session-share");
+        let outside = test_directory("session-share-outside");
+        let output_directory = test_directory("session-share-output");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(&output_directory).unwrap();
+        let source = directory.join("selected.lognook");
+        let external = outside.join("external.lognook");
+        let csv = output_directory.join("selected.csv");
+        create_recording(&source, 2);
+        create_recording(&external, 2);
+
+        let exported = share_recording_csv_in(&directory, &source, &csv).unwrap();
+
+        assert_eq!(exported, csv);
+        let contents = std::fs::read_to_string(&csv).unwrap();
+        assert!(contents.contains("signal_key"));
+        assert!(contents.contains("test_signal"));
+        assert!(share_recording_csv_in(
+            &directory,
+            &external,
+            &output_directory.join("bad.csv")
+        )
+        .is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+        std::fs::remove_dir_all(outside).unwrap();
+        std::fs::remove_dir_all(output_directory).unwrap();
     }
 }

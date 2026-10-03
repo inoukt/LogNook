@@ -234,9 +234,11 @@ svg text { fill: #657984; font-size: 11px; }
 .settings-menu summary { display: grid; place-items: center; list-style: none; }
 .settings-menu summary::-webkit-details-marker { display: none; }
 .settings-popover { position: absolute; top: 31px; left: 0; width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 54px); overflow: auto; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #19232d; box-shadow: 0 8px 22px #0008; }
-.session-browser-details { margin-bottom: 8px; }
-.session-browser-details > summary { padding: 6px 10px; color: var(--text-muted); font-size: 11px; cursor: pointer; }
-.session-browser-details[open] > summary { margin-bottom: 6px; }
+.session-tools { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.session-browser-details { flex: 1 1 auto; min-width: 0; margin: 0; }
+.session-browser-details > summary { padding: 3px 8px; color: var(--text-muted); font-size: 11px; cursor: pointer; }
+.session-browser-details[open] > summary { margin-bottom: 4px; }
+.open-csv-compact { min-height: 26px; padding-inline: 8px; font-size: 10px; }
 .derived-signal-dialog { position: relative; width: min(620px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; padding: 15px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); background: #19232d; box-shadow: 0 16px 48px #0009; }
 .derived-signal-dialog::backdrop { background: #05090dcc; backdrop-filter: blur(2px); }
 .derived-signal-dialog .derived-signals-panel { margin: 0; padding: 0; border: 0; }

@@ -8,6 +8,8 @@
     graphHeatmapRow,
     graphRangeSamples,
     graphValueRange,
+    holdLastPointAtRightEdge,
+    liveGraphTimeWindow,
     mapReferenceSamples,
     nearestGraphSample,
     type GraphReferenceTrace,
@@ -24,6 +26,8 @@
     playheadNs,
     onSeek,
     onWheelScrub,
+    liveDisplayTimeNs,
+    liveWindowSpanNs,
     signalPreferences = {},
     referenceTraces = [],
   }: {
@@ -34,6 +38,8 @@
     playheadNs?: number;
     onSeek?: (positionNs: number) => void;
     onWheelScrub?: (deltaY: number) => void;
+    liveDisplayTimeNs?: number;
+    liveWindowSpanNs?: number;
     signalPreferences?: Record<string, GraphSignalPreference>;
     referenceTraces?: GraphReferenceTrace[];
   } = $props();
@@ -43,6 +49,10 @@
   let timeBounds = $derived.by(() => {
     const times = traces.flatMap((trace) => boundedGraphSamples(trace.samples).map((sample) => ({ elapsed_ns: sample.elapsed_ns })));
     if (timeWindow) return [timeWindow.startNs, timeWindow.endNs];
+    if (liveDisplayTimeNs !== undefined && times.length) {
+      const bounds = liveGraphTimeWindow(liveDisplayTimeNs, liveWindowSpanNs);
+      return [bounds.startNs, bounds.endNs];
+    }
     const range = sampleTimeRange(times);
     return [range.startNs, range.endNs];
   });
@@ -63,10 +73,19 @@
     const preference = signalPreferences[trace.signalId] ?? defaultPreference;
     const reference = referenceTraces.find((candidate) => candidate.signalId === trace.signalId);
     const samples = boundedGraphSamples(trace.samples);
+    const firstVisibleIndex = liveDisplayTimeNs === undefined
+      ? 0
+      : samples.findIndex((sample) => sample.elapsed_ns >= timeBounds[0]);
+    const plotSamples = liveDisplayTimeNs === undefined
+      ? samples
+      : firstVisibleIndex < 0 ? [] : samples.slice(Math.max(0, firstVisibleIndex - 1));
     const referenceSamples = mapReferenceSamples(reference?.samples ?? [], timeBounds[0], timeBounds[1]);
     const rangeSamples = graphRangeSamples(samples, boundedGraphSamples(trace.scaleSamples ?? []), Boolean(trace.scaleSamples?.length));
     const range = graphValueRange(rangeSamples, referenceSamples, preference);
-    const points = graphCoordinates(samples, timeBounds[0], timeBounds[1], range);
+    const measuredPoints = graphCoordinates(plotSamples, timeBounds[0], timeBounds[1], range);
+    const points = liveDisplayTimeNs === undefined || preference.view !== "line"
+      ? measuredPoints
+      : holdLastPointAtRightEdge(measuredPoints);
     const referencePoints = graphCoordinates(referenceSamples, timeBounds[0], timeBounds[1], range);
     const color = trace.color ?? colors[index % colors.length];
     const barWidth = Math.max(1, 720 / Math.max(points.length, 1) * 0.68);

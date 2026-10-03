@@ -1,5 +1,7 @@
 # Side quest: OBDLink SX serial research
 
+**Status: completed.** See [the research report](../results/OBDLink-SX-serial-research.md).
+
 **Goal:** Prepare a source-backed integration brief for the next LogNook task: implementing a read-only OBDLink SX adapter behind the existing `HardwareAdapter` contract.
 
 ## Read first

@@ -18,6 +18,8 @@ Introduce profile-driven UDS read-only DIDs/ECU browser, authorized OEM definiti
 ## Stage 5 — broader operating systems and remote
 Linux Native/SocketCAN adapter; package and permission rules; remote LAN view-only dashboard. Later, authenticated, separately enabled remote operator controls; Bluetooth/Wi-Fi/DoIP adapters follow the common interface contract.
 
+The unprioritized ideas in [`Addons for later.txt`](../Addons%20for%20later.txt) also include a floating/separate notepad, saved graph annotations, phone sensor channels, phone-camera video synchronized to a session, and virtual-dyno feasibility. Treat these as candidate follow-on work: define data format and session synchronization before implementing them; remote phone control requires an explicit authenticated design.
+
 ## Test matrix (record firmware, vehicle ECU and observed conditions)
 - Known field vehicles: **2011 Ford Flex 3.5L EcoBoost**, **2014 Scion xB 2.4L 2AZ-FE**; Subaru make/model/year/ECU variants as test access permits. See `08_POC_VEHICLES.md` for the actual sequence and conditional signal selection.
 - Personally available adapters: Tactrix OpenPort 2.0, OBDLink SX, generic ELM327 (specific firmware/driver revisions must still be recorded). RH-02 physical hardware is not yet confirmed.

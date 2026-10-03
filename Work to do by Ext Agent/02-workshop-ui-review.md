@@ -1,5 +1,7 @@
 # Side quest: workshop UI review
 
+**Status: completed.** See [the review report](../results/workshop-ui-review.md).
+
 **Goal:** Independently review the Milestone 1 desktop screen for clarity and technician usability before adding more UI features.
 
 ## Read first

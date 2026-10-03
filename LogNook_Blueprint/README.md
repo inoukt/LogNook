@@ -1,9 +1,9 @@
 # LogNook — research-backed engineering blueprint
-Research snapshot: 2026-10-02. Milestone 1 and the simulator are implemented and build-verified on Windows x64. The OBDLink SX core adapter has now connected to the Ford, discovered supported PIDs, read one live RPM sample, and disconnected. Native UI, sustained logging, other signals, and cross-vehicle validation remain; see [Project Status](../PROJECT_STATUS.md).
+Research snapshot: 2026-10-02; implementation status: 2026-10-03. Milestone 1 is implemented, and the Windows desktop app includes the searchable signal picker, recording/replay, CSV interchange and live-buffer snapshots, saved-session sharing and Save As, settings and shortcuts, threshold recording, derived signals, configurable combined/separate graphs, and smooth live graph motion between PID samples. The OBDLink SX has connected read-only to the Ford; the grouped Mode 01 path is supported by bench captures and fixtures. Long-run application stability and cross-vehicle validation remain open; see [Project Status](../PROJECT_STATUS.md).
 
 ## Current implementation
 
-The repository contains a Rust workspace, a Tauri 2 + Svelte/TypeScript desktop app, a shared adapter contract, simulated and initial physical SX Mode 01 acquisition, a bounded sample pipeline, SQLite `.lognook` recording, CSV export/import helpers, and replay. The simulator is explicitly labeled; physical evidence is limited to the bounded SX/Ford test documented in project status.
+The repository contains a Rust workspace, a Tauri 2 + Svelte/TypeScript desktop app, a shared adapter contract, simulated and physical SX Mode 01 acquisition, a bounded sample pipeline, SQLite `.lognook` recording, CSV export/import, replay, automatic triggers, derived signals, and graph preferences. The simulator is explicitly labeled. Physical validation limits and the next test steps are documented in project status.
 
 ## Product promise
 A Windows-first, Linux-ready automotive diagnostic/tuning *measurement* suite: connect quickly, select intelligently, record reliably, analyze deeply, share deliberately. Diagnostic logging is the initial scope, not ECU flashing, bypassing access controls or automated actuator control.

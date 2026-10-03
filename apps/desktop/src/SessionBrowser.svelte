@@ -12,15 +12,22 @@
 
   let {
     disabled = false,
+    openDisabled = false,
     onOpen,
+    onShare,
+    onSaveAs,
   }: {
     disabled?: boolean;
+    openDisabled?: boolean;
     onOpen: (info: RecordingInfo) => void | Promise<void>;
+    onShare: (path: string) => void | Promise<void>;
+    onSaveAs: (path: string) => void | Promise<void>;
   } = $props();
 
   let recordings = $state<BrowserRecording[]>([]);
   let loading = $state(false);
-  let openingPath = $state<string | null>(null);
+  let actionPath = $state<string | null>(null);
+  let actionKind = $state<"open" | "share" | "saveAs" | null>(null);
   let error = $state("");
 
   onMount(() => { void refresh(); });
@@ -44,19 +51,25 @@
     }
   }
 
-  async function openRecording(recording: BrowserRecording) {
-    if (disabled || openingPath !== null || recording.sample_count === 0) return;
-    openingPath = recording.path;
+  async function runRecordingAction(recording: BrowserRecording, action: "open" | "share" | "saveAs") {
+    if (disabled || actionPath !== null) return;
+    if (action === "open" && (openDisabled || recording.sample_count === 0)) return;
+    actionPath = recording.path;
+    actionKind = action;
     error = "";
     try {
-      await openAndActivateRecording(
-        () => invoke<RecordingInfo>("open_recording", { path: recording.path }),
-        onOpen,
-      );
+      if (action === "open") {
+        await openAndActivateRecording(
+          () => invoke<RecordingInfo>("open_recording", { path: recording.path }),
+          onOpen,
+        );
+      } else if (action === "share") await onShare(recording.path);
+      else await onSaveAs(recording.path);
     } catch (cause) {
       error = errorMessage(cause);
     } finally {
-      openingPath = null;
+      actionPath = null;
+      actionKind = null;
     }
   }
 
@@ -93,16 +106,38 @@
             <span>{formatRecordingTime(recording.modified_unix_ms)}</span>
             <span>{recording.sample_count.toLocaleString()} samples</span>
           </div>
-          <button
-            class="button secondary"
-            type="button"
-            aria-label={`Open ${recording.name}`}
-            title={recording.sample_count === 0 ? "Recording contains no samples" : undefined}
-            onclick={() => openRecording(recording)}
-            disabled={disabled || openingPath !== null || recording.sample_count === 0}
-          >
-            {openingPath === recording.path ? "Opening…" : "Open"}
-          </button>
+          <div class="recording-actions">
+            <button
+              class="button secondary"
+              type="button"
+              aria-label={`Open ${recording.name}`}
+              title={recording.sample_count === 0 ? "Recording contains no samples" : undefined}
+              onclick={() => runRecordingAction(recording, "open")}
+              disabled={disabled || openDisabled || actionPath !== null || recording.sample_count === 0}
+            >
+              {#if actionPath === recording.path && actionKind === "open"}Opening…{:else}Open{/if}
+            </button>
+            <button
+              class="button secondary"
+              type="button"
+              aria-label={`Share ${recording.name} as CSV`}
+              title="Save a CSV copy with samples and markers for sharing"
+              onclick={() => runRecordingAction(recording, "share")}
+              disabled={disabled || actionPath !== null}
+            >
+              {#if actionPath === recording.path && actionKind === "share"}Sharing…{:else}Share{/if}
+            </button>
+            <button
+              class="button secondary"
+              type="button"
+              aria-label={`Save ${recording.name} as a copy`}
+              title="Save a copy of the native .lognook session"
+              onclick={() => runRecordingAction(recording, "saveAs")}
+              disabled={disabled || actionPath !== null}
+            >
+              {#if actionPath === recording.path && actionKind === "saveAs"}Saving…{:else}Save As{/if}
+            </button>
+          </div>
         </li>
       {/each}
     </ul>
@@ -111,14 +146,16 @@
 
 <style>
   .session-browser { display: grid; gap: 0.65rem; }
-  .browser-heading, .recording-row, .recording-details { display: flex; align-items: center; }
+  .browser-heading, .recording-row, .recording-details, .recording-actions { display: flex; align-items: center; }
   .browser-heading, .recording-row { justify-content: space-between; gap: 0.75rem; }
   .browser-heading .eyebrow { margin: 0 0 0.2rem; }
   .recording-list { display: grid; gap: 0.35rem; list-style: none; margin: 0; padding: 0; }
   .recording-row { border-top: 1px solid var(--line, #293847); padding-top: 0.55rem; }
-  .recording-details { flex-wrap: wrap; gap: 0.3rem 0.8rem; min-width: 0; }
+  .recording-row { flex-wrap: wrap; }
+  .recording-details { flex: 1; flex-wrap: wrap; gap: 0.3rem 0.8rem; min-width: 0; }
   .recording-details strong { flex-basis: 100%; overflow-wrap: anywhere; }
   .recording-details span, .browser-message { color: var(--muted, #9aa8b5); font-size: 0.86rem; }
   .browser-message { margin: 0; }
-  .recording-row .button { flex: 0 0 auto; }
+  .recording-actions { flex-wrap: wrap; gap: 0.35rem; }
+  .recording-actions .button { flex: 0 0 auto; }
 </style>

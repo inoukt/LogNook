@@ -15,6 +15,8 @@ Discover what the active car actually supports; search by name/alias/category/EC
 ## Recording and replay
 Single-key record/stop and Space marker (only in graph/live focus; ignored while typing); editable, deletable timestamped markers with notes and optional severity/color; trigger pre/post-roll; auto-record on selected conditions; one-click pause live display without stopping acquisition; replay with speed control, scrubbing, bookmarks, variable highlighting, frame-accurate raw-data inspection and synchronized multiple recordings. Confirm before destructive deletion; support undo where feasible.
 
+Saved sessions can be opened, shared as CSV (including markers), or copied to another location as `.lognook`. During live acquisition, users can export the retained sample buffer for logged signals as CSV without starting a recording.
+
 ## Graph workspace
 Line/time series, stacked synchronized timelines, overlaid or independent Y axes, XY/scatter with color-by-third-variable, heatmaps/binning, bar/histogram, derivatives and difference charts. Cursor crosshair, zoom, selection, min/max/average/percentiles, axis auto/manual/lock, chart/series colors, annotations, visible-range export and screenshot. Persist the last valid manual range and last color PER `signal_key + unit + workspace` so switching °C/°F does not silently reuse inappropriate limits. Display an explicit indicator when auto-range is in force. Graph/list ratio resizable; graph-only shortcut; light, slate/dark-high-contrast and user-selected backgrounds; warn if wallpaper reduces text contrast.
 

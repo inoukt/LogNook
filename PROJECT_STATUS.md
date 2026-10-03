@@ -1,6 +1,6 @@
 # LogNook project status
 
-Updated 2026-10-02 · **Milestone 1 simulator complete; the OBDLink SX has completed live read-only acquisition and Ford transport/PID benchmarks on the MSI test computer. The production SX adapter now uses the measured grouped Mode 01 path on verified CAN 11/500. The CSV session player now imports mixed/legacy CSV, replays `.lognook` sessions with controls, and supports persistent markers and zoomable graph windows.** The five-signal UI CSV contains 1,095 valid live rows—219 per signal—over about 65.6 seconds. The Ford advertised 41 PIDs; all 35 public generic candidates marked auto-requestable in the PIDs seed returned valid responses, individually and in seven combined SAE PID request groups. Bare requests measured about 16.6 aggregate responses/s; single-PID STPX measured about 33.3 responses/s. Five-PID stuffing measured 80.5 PID values/s, and the seven groups returned 350/350 values at 81.42 values/s. OBDwiz 4.36 release notes document its “Combine SAE PID Requests” setting, consistent with the user's reported >=50 PID-values/s observation. Six advertised PIDs remain marked review-required because they need structured or multi-channel decoders.
+Updated 2026-10-03 · **Milestone 1 simulator complete; the OBDLink SX has completed live read-only acquisition and Ford transport/PID benchmarks on the MSI test computer. The production SX adapter now uses the measured grouped Mode 01 path on verified CAN 11/500. The CSV session player imports mixed/legacy CSV, replays `.lognook` sessions with controls, and supports persistent markers and zoomable graph windows.** The five-signal UI CSV contains 1,095 valid live rows—219 per signal—over about 65.6 seconds. The Ford advertised 41 PIDs; all 35 public generic candidates marked auto-requestable in the PIDs seed returned valid responses, individually and in seven combined SAE PID request groups. Bare requests measured about 16.6 aggregate responses/s; single-PID STPX measured about 33.3 responses/s. Five-PID stuffing measured 80.5 PID values/s, and the seven groups returned 350/350 values at 81.42 values/s. OBDwiz 4.36 release notes document its “Combine SAE PID Requests” setting, consistent with the user's reported >=50 PID-values/s observation. Six advertised PIDs remain marked review-required because they need structured or multi-channel decoders.
 
 This Git checkout preserves the existing source and external-agent reports. The hardware records are [OBDLink SX / Ford physical test](docs/hardware/2026-10-02-sx-ford.md), [the direct current-check log](docs/hardware/2026-10-02-sx-current-check.log), [the key-on retry log](docs/hardware/2026-10-02-sx-key-on-retry.log), and [the remaining-PID log](docs/hardware/2026-10-02-sx-remaining-pids.log).
 
@@ -13,6 +13,7 @@ This Git checkout preserves the existing source and external-agent reports. The 
 - Separate Tauri/UI Identify SX action sends identity queries only; live acquisition is a separate action. The simulator remains available.
 - Synthetic fixtures plus actual Ford/SX identity, supported-PID, and grouped-response captures. Tests cover no startup banner, optional startup frames, silent replies, wrong identity, exact USB matching, malformed/truncated/multiple-ECU replies, all 35 seed decoders, grouping all signals into seven responses of at most two CAN frames, supported-PID selection, and volatile setting restoration.
 - Bounded acquisition-to-recording/UI pipeline, SQLite `.lognook` recording, marker insertion/edit/delete, controlled replay, bounded graph-window queries, and CSV sample/marker event import/export.
+- Saved-session Share exports sample/marker CSV, Save As copies the native session file, and live acquisition can export the retained buffer (up to 180 samples per logged PID) without starting a recording.
 - Tauri 2 native CSV picker and command/event bridge; Svelte/TypeScript UI with a searchable PID picker, combined and separate draggable/resizable graphs, zoom/pan, playback speed/seek, marker controls, recording, and CSV export.
 - Failure handling for adapter reads, invalid measurements, and recording writes. CSV exports refuse to overwrite existing files.
 - External-agent tasks and completed reports remain in `Work to do by Ext Agent/` and `results/`.
@@ -83,8 +84,20 @@ The machine has Rustup, MSVC build tools, Node, and npm. Clippy is not installed
 OpenPort 2: the user chose to retain the OPTA WinUSB binding. The matching signed x86 DLL passed Open/ReadVersion/Close (firmware `1.17.4877`, DLL `0.1.0`, API `04.04`) and a passive CAN connect at 500 kbit/s. The trace records 104 Normal CAN frames across 24 IDs, including frames drained during disconnect. The first returned J2534 message combined frame data; the probe rejected it after 109 ms and disconnected/closed cleanly. The old host log does not retain the rejected message's complete metadata, so DataSize and RxStatus remain unknown. The observed filter command used TxFlags `0x40` despite requested 0. Reliable raw J2534 frame delivery is unverified. No diagnostic request or vehicle transmit API was used; the driver and DLL remain unchanged, and no production J2534 backend is implemented. Captures, physical fixture, and a small implementation plan are in [the OpenPort 2 report](docs/hardware/2026-10-02-openport2.md).
 
 1. Connect the OpenPort2 to USB and the Ford, then run the prepared passive metadata capture without replacing the OPTA driver; the latest PnP inventory showed only the SX.
+
 2. Verify the grouped STPX path in a live LogNook session when the SX is next available, including long-run timing, disconnect/restore behavior, and the selected-signal sets users record. Existing rate evidence is from the read-only hardware harness, not a post-implementation application recording. `R:1` truncates multi-frame responses; the app uses `R:2` only after unique responder discovery and response-size grouping. The six review-required PIDs need structured decoders before they can be exposed. OBDLink `STBC` host-command batching returned `?` on this SX. The screenshot's `STMPA`/`STMPR`/`STMPC` are not documented; actual `STPPMA/MD/MC` periodic messaging did not produce a reliable stream.
 3. Replay the five-signal recording, run longer stability/disconnect checks, and compare generic PIDs on the 2014 Scion xB when available. Do not claim Ford MS-CAN/enhanced support for the SX.
+
+## Future feature ideas
+
+These are backlog ideas from [Addons for later](Addons%20for%20later.txt), not yet designed or scheduled:
+
+- An in-app notepad, either always on top or in a separate window, with notes optionally saved alongside CSV data.
+- Drawing or annotations on stopped graphs, persisted with the session/export, plus a list of saved annotated screenshots.
+- Phone-based remote control, with explicit authentication and safety boundaries to be designed before implementation.
+- Phone sensor channels (for example GPS and altitude) alongside vehicle PIDs; microphone use needs a specific measurement definition.
+- Video synchronized with session time from a phone camera.
+- A feasibility investigation for a virtual dynamometer.
 
 ## Remaining POC limits
 
@@ -159,3 +172,14 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - Review fixes: failed or manual disconnects disarm automatic triggers and clear the pre-trigger ring; an open partial recording blocks reconnect so reset adapter clocks cannot mix into it. Session opening now awaits player activation, Space can insert a marker while the graph slider is focused, derived IDs reject duplicates/base PID collisions, and formula help matches supported operators.
 - Verification on this checkout after review: `cargo test --workspace` **86 passed**; `cargo check --workspace` passed; `cargo build -p lognook-desktop --features tauri/custom-protocol` passed; UI tests **52 passed**; `npm run build` passed with **0 Svelte errors/warnings**; `git diff --check` passed. `cargo fmt --all -- --check` could not run because rustfmt is not installed in the available stable toolchain.
 - This feature batch was verified by simulation/fixtures and compilation only; no physical vehicle or adapter test was performed. PNG capture covers the graph view rather than the whole desktop window. Automatic recording currently starts from one threshold rule; compound/time/change rules and automatic stop actions remain future work. Formula functions beyond arithmetic are not implemented.
+
+## Live graph motion — 2026-10-03
+
+- Live graphs share an animation-frame clock and advance their viewport between PID samples. Line charts extend the last measured point to the right edge for a continuous display; cursor readouts, acquisition samples, recordings, and replay data remain based on real measurements. The live clock resets on connection clock rollover and stops when live acquisition ends.
+- UI verification: **53 tests passed**; Svelte check reported **0 errors / 0 warnings**; Vite production build passed. The smooth animation has not yet been manually checked in the native simulator window.
+
+## Session sharing and live CSV snapshots — 2026-10-03
+
+- Each saved-session row has **Share** (saves the complete session as portable CSV with markers) and **Save As** (copies the native `.lognook` file). Source paths are restricted to canonical recordings directly inside LogNook's recordings folder.
+- **Save live CSV** exports the retained samples for currently logged PIDs, sorted by timestamp, even when recording is off. The snapshot uses each PID's existing 180-sample in-memory buffer and does not start or modify a recording.
+- Verification: UI tests **54 passed**; Svelte check reported **0 errors / 0 warnings**; Vite production build passed; `cargo test --workspace` **86 passed** (including the new CSV snapshot and session export tests); `cargo check --workspace` and the Tauri custom-protocol build passed. Native save dialogs and the visual button flow have not yet been manually exercised.

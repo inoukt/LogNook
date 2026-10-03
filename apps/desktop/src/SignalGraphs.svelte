@@ -9,6 +9,9 @@
     captureGraphReference,
     defaultGraphSignalPreference,
     formatDerivedExpression,
+    holdLastPointAtRightEdge,
+    LIVE_GRAPH_WINDOW_NS,
+    liveGraphTimeWindow,
     loadGraphPreferences,
     migrateDerivedGraphStyles,
     normalizeGraphPreferences,
@@ -20,7 +23,7 @@
 
   const traceColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
 
-  let { traces, graphMode, graphSignalIds, onReorder, onCreateDerivedSignal, onToggleGraphSignal, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub }: {
+  let { traces, graphMode, graphSignalIds, onReorder, onCreateDerivedSignal, onToggleGraphSignal, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub, live = false }: {
     traces: ChartTrace[];
     graphMode: "overlay" | "separate";
     graphSignalIds: string[];
@@ -32,11 +35,55 @@
     playheadNs?: number;
     onSeek?: (positionNs: number) => void;
     onWheelScrub?: (deltaY: number) => void;
+    live?: boolean;
   } = $props();
   let draggedSignal = $state<string | null>(null);
   let exportError = $state(false);
   let graphPreferences = $state(loadGraphPreferences());
+  let liveAnchor = $state<{ sampleNs: number; arrivedAtMs: number } | null>(null);
+  let liveDisplayTimeNs = $state<number | undefined>();
+  let lastPaintedTimeNs: number | undefined;
   const migratedDerivedStyles = new Set<string>();
+
+  let latestLiveSampleNs = $derived.by(() => traces.reduce<number | undefined>((latest, trace) => {
+    const sample = trace.samples.at(-1);
+    return sample && (latest === undefined || sample.elapsed_ns > latest) ? sample.elapsed_ns : latest;
+  }, undefined));
+  let liveWindowSpanNs = $derived.by(() => {
+    const times = traces.flatMap((trace) => trace.samples.map((sample) => sample.elapsed_ns));
+    if (times.length < 2) return LIVE_GRAPH_WINDOW_NS;
+    return Math.max(LIVE_GRAPH_WINDOW_NS, Math.max(...times) - Math.min(...times));
+  });
+
+  $effect(() => {
+    if (!live || latestLiveSampleNs === undefined) {
+      liveAnchor = null;
+      liveDisplayTimeNs = undefined;
+      lastPaintedTimeNs = undefined;
+      return;
+    }
+    if (!liveAnchor || liveAnchor.sampleNs !== latestLiveSampleNs) {
+      const sampleNs = liveAnchor && latestLiveSampleNs < liveAnchor.sampleNs
+        ? latestLiveSampleNs
+        : Math.max(latestLiveSampleNs, lastPaintedTimeNs ?? latestLiveSampleNs);
+      liveAnchor = { sampleNs, arrivedAtMs: performance.now() };
+      liveDisplayTimeNs = sampleNs;
+      lastPaintedTimeNs = sampleNs;
+    }
+  });
+
+  $effect(() => {
+    const anchor = liveAnchor;
+    if (!live || !anchor) return;
+    let frame = 0;
+    const advance = () => {
+      lastPaintedTimeNs = anchor.sampleNs + (performance.now() - anchor.arrivedAtMs) * 1_000_000;
+      liveDisplayTimeNs = lastPaintedTimeNs;
+      frame = requestAnimationFrame(advance);
+    };
+    frame = requestAnimationFrame(advance);
+    return () => cancelAnimationFrame(frame);
+  });
 
   $effect(() => {
     const ids = traces.filter((trace) => trace.formula && !migratedDerivedStyles.has(trace.signalId)).map(({ signalId }) => signalId);
@@ -226,7 +273,7 @@
           {#if exportError}<span class="graph-export-error" role="status">PNG export failed</span>{/if}
         </div>
       </div>
-      <LiveChart {traces} showLegend={true} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} signalPreferences={graphPreferences.signals} referenceTraces={graphPreferences.reference?.traces ?? []} />
+      <LiveChart {traces} showLegend={true} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} {liveDisplayTimeNs} {liveWindowSpanNs} signalPreferences={graphPreferences.signals} referenceTraces={graphPreferences.reference?.traces ?? []} />
     </article>
   </div>
 {:else}
@@ -253,7 +300,7 @@
           </div>
           <div class="metric"><strong>{trace.current ? trace.current.value.toFixed(1) : "—"}</strong><span>{trace.unit}</span></div>
         </div>
-        <LiveChart traces={[trace]} showLegend={false} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} signalPreferences={graphPreferences.signals} referenceTraces={graphPreferences.reference?.traces ?? []} />
+        <LiveChart traces={[trace]} showLegend={false} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} {liveDisplayTimeNs} {liveWindowSpanNs} signalPreferences={graphPreferences.signals} referenceTraces={graphPreferences.reference?.traces ?? []} />
         <div class="chart-footer"><span>{trace.current?.quality ?? "waiting"}</span>{#if trace.formula}<span class="chart-formula">{formatDerivedExpression(trace.formula)}</span>{/if}<span>{trace.sampleRate}</span></div>
       </article>
     {/each}
