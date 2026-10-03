@@ -11,6 +11,7 @@ export type WorkspacePreferences = {
   statusHeight: number;
   theme: WorkspaceTheme;
   highContrast: boolean;
+  uiScale: number;
 };
 export type SignalOption = {
   id: string;
@@ -51,6 +52,7 @@ export function restoreWorkspacePreferences(
     statusHeight: Math.max(36, Math.min(maxStatusHeight, statusHeight)),
     theme: workspaceThemes.includes(saved.theme ?? defaults.theme) ? saved.theme ?? defaults.theme : defaults.theme,
     highContrast: typeof saved.highContrast === "boolean" ? saved.highContrast : defaults.highContrast,
+    uiScale: Number.isFinite(saved.uiScale) ? Math.max(80, Math.min(120, saved.uiScale!)) : defaults.uiScale,
   };
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke, isTauri } from "@tauri-apps/api/core";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { liveCsvSamples } from "./liveCsv";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import DerivedSignalsPanel from "./DerivedSignalsPanel.svelte";
@@ -37,6 +38,7 @@
     statusHeight: 42,
     theme: "midnight",
     highContrast: false,
+    uiScale: 100,
   };
   const workspacePreferencesKey = "lognook.workspace-preferences";
   const automaticTriggerPreferencesKey = "lognook.automatic-trigger";
@@ -78,6 +80,7 @@
   let signalPickerVisible = true;
   let theme: WorkspaceTheme = defaultWorkspacePreferences.theme;
   let highContrast = defaultWorkspacePreferences.highContrast;
+  let uiScale = defaultWorkspacePreferences.uiScale;
   let sessionBrowserOpen = false;
   let wheelScrubbing = false;
   let workspacePreferencesReady = false;
@@ -164,8 +167,12 @@
         statusHeight,
         theme,
         highContrast,
+        uiScale,
       }));
     } catch { /* Preferences are optional. */ }
+  }
+  $: if (workspacePreferencesReady && isTauri()) {
+    getCurrentWebview().setZoom(uiScale / 100).catch(showError);
   }
   $: if (automaticTriggerPreferencesReady) {
     try { localStorage.setItem(automaticTriggerPreferencesKey, JSON.stringify(automaticTriggerConfig)); }
@@ -218,6 +225,7 @@
         statusHeight = preferences.statusHeight;
         theme = preferences.theme;
         highContrast = preferences.highContrast;
+        uiScale = preferences.uiScale;
         workspacePreferencesReady = true;
       })
       .catch(() => error = "Open LogNook as a desktop app to access the acquisition engine.");
@@ -768,6 +776,7 @@
     statusHeight = preferences.statusHeight;
     theme = preferences.theme;
     highContrast = preferences.highContrast;
+    uiScale = preferences.uiScale;
     signalColors = {};
     wheelScrubbing = false;
     automaticTriggerConfig = { ...defaultAutomaticTriggerConfig };
@@ -837,6 +846,7 @@
       bind:wheelScrubbing
       bind:theme
       bind:highContrast
+      bind:uiScale
       resetDisabled={!workspacePreferencesReady || connected || recording || replaying || session !== null}
       onAction={runShortcut}
       onReset={resetPreferences}
@@ -849,6 +859,13 @@
       <div class="workspace-title"><p class="eyebrow">LIVE WORKSPACE</p><h1>Acquisition</h1></div>
       <div class="toolbar-groups">
         <div class="toolbar-group utility-group" role="group" aria-label="Graph and data tools">
+          <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
+            <summary aria-label="Browse saved sessions" title="Browse saved sessions">Sessions</summary>
+            <SessionBrowser disabled={busy || recording} openDisabled={connected || recording} onOpen={activateSession} onShare={shareRecording} onSaveAs={saveRecordingAs} />
+          </details>
+          {#if !session}
+            <button class="button secondary open-csv-compact" title="Open CSV session" aria-label="Open CSV session" onclick={openCsv} disabled={busy || connected || recording}>CSV</button>
+          {/if}
           <div class="mode-control">
             <span class="toolbar-label">GRAPH VIEW</span>
             <div class="mode-switch" role="group" aria-label="Graph view">
@@ -861,9 +878,9 @@
               <input class="text-input toolbar-input" bind:value={markerNote} placeholder="Marker note (optional)" aria-label="Marker note" disabled={busy} />
               <button class="button secondary" onclick={insertLiveMarker} disabled={busy}>＋ Marker</button>
             {:else if connected && !session}
-              <button class="button secondary" onclick={exportLiveCsv} disabled={busy || !hasLiveCsvSamples} title="Save the retained live samples for logged signals as CSV">Save live CSV</button>
+              <button class="button secondary" onclick={exportLiveCsv} disabled={busy || !hasLiveCsvSamples} title="Save the retained live samples for logged signals as CSV">Save CSV</button>
             {:else}
-              <button class="button secondary" onclick={exportCsv} disabled={busy || (!recordingPath && !session)}>Export CSV</button>
+              <button class="button secondary" onclick={exportCsv} disabled={busy || (!recordingPath && !session)} title="Export recorded data as CSV" aria-label="Export CSV">Export</button>
             {/if}
           </div>
         </div>
@@ -876,12 +893,12 @@
               {#if sxPorts.length === 0}<option value="">No SX found</option>{/if}
               {#each sxPorts as port}<option value={port}>{port}</option>{/each}
             </select>
-            <button class="button secondary" onclick={identifySx} disabled={busy || recording || !selectedSxPort || replaying}>Identify SX</button>
-            <button class="button secondary" onclick={connectSx} disabled={busy || recording || !selectedSxPort || sxIdentity?.path !== selectedSxPort || logSignalIds.length === 0 || replaying}>Connect OBDLink SX</button>
-            <button class="button primary" onclick={connect} disabled={busy || recording || logSignalIds.length === 0 || replaying}>Connect simulator</button>
+            <button class="button secondary" onclick={identifySx} disabled={busy || recording || !selectedSxPort || replaying} title="Identify OBDLink SX" aria-label="Identify OBDLink SX">Identify</button>
+            <button class="button secondary" onclick={connectSx} disabled={busy || recording || !selectedSxPort || sxIdentity?.path !== selectedSxPort || logSignalIds.length === 0 || replaying} title="Connect OBDLink SX" aria-label="Connect OBDLink SX">Connect SX</button>
+            <button class="button primary" onclick={connect} disabled={busy || recording || logSignalIds.length === 0 || replaying} title="Connect simulator" aria-label="Connect simulator">Simulator</button>
           {/if}
           {#if recording}
-            <button class="button danger" onclick={stopRecording} disabled={busy}>Stop recording</button>
+            <button class="button danger" onclick={stopRecording} disabled={busy} title="Stop recording" aria-label="Stop recording">Stop</button>
           {:else}
             <button class="button record" onclick={startRecording} disabled={busy || !connected || replaying}>● Record</button>
           {/if}
@@ -913,16 +930,6 @@
         onReset={resetZoom}
       />
     {/if}
-
-    <div class="session-tools">
-      <details class="session-browser-details" bind:open={sessionBrowserOpen}>
-        <summary>Browse saved sessions</summary>
-        <SessionBrowser disabled={busy || recording} openDisabled={connected || recording} onOpen={activateSession} onShare={shareRecording} onSaveAs={saveRecordingAs} />
-      </details>
-      {#if !session}
-        <button class="button secondary open-csv-compact" title="Open CSV session" aria-label="Open CSV session" onclick={openCsv} disabled={busy || connected || recording}>CSV</button>
-      {/if}
-    </div>
 
     <dialog class="derived-signal-dialog" aria-label="Derived signal editor" bind:this={derivedSignalDialog} onclose={() => derivedSignalSource = null}>
       <button class="derived-dialog-close" type="button" aria-label="Close derived signal editor" onclick={() => derivedSignalDialog?.close()}>×</button>

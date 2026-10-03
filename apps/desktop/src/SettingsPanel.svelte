@@ -10,6 +10,7 @@
     wheelScrubbing = $bindable(false),
     theme = $bindable<WorkspaceTheme>("midnight"),
     highContrast = $bindable(false),
+    uiScale = $bindable(100),
     resetDisabled = false,
     onAction,
     onReset,
@@ -17,6 +18,7 @@
     wheelScrubbing?: boolean;
     theme?: WorkspaceTheme;
     highContrast?: boolean;
+    uiScale?: number;
     resetDisabled?: boolean;
     onAction: (action: ShortcutAction) => void;
     onReset: () => void;
@@ -121,6 +123,10 @@
       </select>
     </label>
     <label><input type="checkbox" checked={highContrast} onchange={(event) => highContrast = event.currentTarget.checked} /> High contrast</label>
+    <label class="settings-scale">
+      <span>UI scale <strong>{uiScale}%</strong></span>
+      <input type="range" min="80" max="120" step="5" aria-label="UI scale" aria-valuetext={`${uiScale}%`} value={uiScale} oninput={(event) => uiScale = Number(event.currentTarget.value)} />
+    </label>
     <label><input type="checkbox" checked={wheelScrubbing} onchange={updateWheelScrubbing} /> Wheel scrubs graph</label>
     <small>Replay keeps the playhead centered while playing.</small>
     <section class="shortcut-settings" aria-label="Keyboard shortcuts">

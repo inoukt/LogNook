@@ -35,6 +35,7 @@ const defaultWorkspacePreferences = {
   statusHeight: 42,
   theme: "midnight",
   highContrast: false,
+  uiScale: 100,
 };
 
 function point(elapsed_ns, value) {
@@ -97,6 +98,7 @@ test("workspace preferences survive a serialized round trip", () => {
     statusHeight: 96,
     theme: "steel",
     highContrast: true,
+    uiScale: 90,
   };
   assert.deepEqual(
     restoreWorkspacePreferences(JSON.stringify(preferences), signals.map(({ id }) => id), defaultWorkspacePreferences, 120),
@@ -121,6 +123,7 @@ test("workspace preference restoration filters unsupported PIDs and malformed va
     statusHeight: 120,
     theme: "midnight",
     highContrast: false,
+    uiScale: 100,
   });
   assert.deepEqual(
     restoreWorkspacePreferences("not json", ["engine_rpm"], defaultWorkspacePreferences, 120),
@@ -137,6 +140,15 @@ test("workspace appearance preferences accept known themes and reject unknown va
     restoreWorkspacePreferences(JSON.stringify({ theme: "solarized", highContrast: "yes" }), ["engine_rpm"], defaultWorkspacePreferences, 120),
     { ...defaultWorkspacePreferences, logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"] },
   );
+});
+
+test("workspace UI scale stays within 80–120 percent and defaults malformed values", () => {
+  const restoreScale = (uiScale) => restoreWorkspacePreferences(
+    JSON.stringify({ uiScale }), ["engine_rpm"], defaultWorkspacePreferences, 120,
+  ).uiScale;
+  assert.equal(restoreScale(70), 80);
+  assert.equal(restoreScale(125), 120);
+  assert.equal(restoreScale("90"), 100);
 });
 
 test("PID search matches names, descriptions, IDs, units, and decimal or hex PID", () => {
