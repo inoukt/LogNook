@@ -19,6 +19,7 @@ enum Command {
     Resume(Sender<PlaybackState>),
     Seek(i64, Sender<PlaybackState>),
     Speed(f64, Sender<PlaybackState>),
+    Duration(i64, Sender<PlaybackState>),
     Stop(Sender<()>),
 }
 
@@ -82,6 +83,10 @@ impl PlaybackHandle {
         self.change(|reply| Command::Speed(speed, reply))
     }
 
+    pub(crate) fn set_duration(&self, duration_ns: i64) -> Result<PlaybackState, LogNookError> {
+        self.change(|reply| Command::Duration(duration_ns, reply))
+    }
+
     pub(crate) fn stop(&mut self) {
         let (reply, response) = mpsc::channel();
         let _ = self.commands.send(Command::Stop(reply));
@@ -112,6 +117,7 @@ fn run(
                 Ok(command) => {
                     let (reply, stop) = apply(command, &state, &mut cursor);
                     respond(reply, &state);
+                    output.send_playback_state(snapshot(&state));
                     if stop {
                         break;
                     }
@@ -159,6 +165,7 @@ fn run(
         if let Some(reply) = pending_reply {
             let stopping = matches!(&reply, Reply::Stop(_));
             respond(Some(reply), &state);
+            output.send_playback_state(snapshot(&state));
             if stopping {
                 break;
             }
@@ -179,14 +186,12 @@ fn run(
                 current.playing = false;
                 store(&state, current.clone());
                 output.send_playback_state(current);
-                output.playback_finished();
             }
         }
         if !snapshot(&state).playing {
             continue;
         }
     }
-    output.playback_finished();
 }
 
 fn wait_until(
@@ -260,6 +265,13 @@ fn apply(
         }
         Command::Speed(speed, reply) => {
             update(state, |state| state.speed = speed);
+            (Some(Reply::State(reply)), false)
+        }
+        Command::Duration(duration_ns, reply) => {
+            update(state, |state| {
+                state.duration_ns = duration_ns.max(0);
+                state.position_ns = state.position_ns.min(state.duration_ns);
+            });
             (Some(Reply::State(reply)), false)
         }
         Command::Stop(reply) => {

@@ -152,7 +152,6 @@ impl LogNookEngine {
         if info.sample_count == 0 {
             return Err(LogNookError::new("Recording contains no samples"));
         }
-        self.disconnect_if_connected()?;
         self.stop_playback();
         self.session_path = Some(path.to_path_buf());
         self.pipeline.set_last_recording_path(path.to_path_buf());
@@ -272,7 +271,15 @@ impl LogNookEngine {
     pub fn delete_playback_marker(&mut self, id: i64) -> Result<(), LogNookError> {
         let path = self.active_session_path()?;
         let was_playing = self.pause_for_marker()?;
-        self.finish_marker_change(delete_recording_marker(&path, id), was_playing)
+        let result = delete_recording_marker(&path, id);
+        if result.is_ok() {
+            let duration_ns = inspect_recording(&path)?.duration_ns;
+            self.playback_state.duration_ns = duration_ns;
+            if let Some(playback) = &self.playback {
+                self.playback_state = playback.set_duration(duration_ns)?;
+            }
+        }
+        self.finish_marker_change(result, was_playing)
     }
 
     pub fn active_session_path(&self) -> Result<PathBuf, LogNookError> {

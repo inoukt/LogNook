@@ -1,6 +1,6 @@
 use lognook_core::{
-    EngineEvent, LogNookEngine, Marker, RecordingWriter, Sample, SampleOrigin, SampleQuality,
-    inspect_recording,
+    EngineEvent, LogNookEngine, Marker, PlaybackState, RecordingWriter, Sample, SampleOrigin,
+    SampleQuality, add_recording_marker, inspect_recording,
 };
 use std::{
     path::Path,
@@ -67,7 +67,40 @@ fn pause_returns_before_pending_delay() {
     let started = Instant::now();
     engine.pause_replay().unwrap();
     assert!(started.elapsed() < Duration::from_millis(250));
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut state_seen = false;
+    while Instant::now() < deadline {
+        if let Ok(EngineEvent::PlaybackState(state)) = rx.recv_timeout(Duration::from_millis(20))
+            && !state.playing
+        {
+            state_seen = true;
+            break;
+        }
+    }
+    assert!(state_seen, "pause did not emit its playback state");
     engine.stop_replay();
+    drop(engine);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn stop_does_not_report_natural_completion() {
+    let path = fixture();
+    let (mut engine, rx) = engine_with(&path);
+    engine.start_replay(1.0).unwrap();
+    next_replay_sample(&rx, Duration::from_secs(1));
+    engine.stop_replay();
+    let deadline = Instant::now() + Duration::from_millis(150);
+    let mut finished = false;
+    while Instant::now() < deadline {
+        if let Ok(event) = rx.recv_timeout(Duration::from_millis(20))
+            && matches!(event, EngineEvent::PlaybackFinished)
+        {
+            finished = true;
+            break;
+        }
+    }
+    assert!(!finished, "explicit stop reported natural completion");
     drop(engine);
     std::fs::remove_file(path).unwrap();
 }
@@ -135,6 +168,34 @@ fn playback_marker_persists_at_playhead() {
             note: "full throttle".into()
         }]
     );
+    drop(engine);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn deleting_late_marker_updates_playback_duration() {
+    let path = fixture();
+    let marker = add_recording_marker(
+        &path,
+        &Marker {
+            id: None,
+            elapsed_ns: 4_000_000_000,
+            wall_time_unix_ns: 1,
+            label: "late".into(),
+            note: String::new(),
+        },
+    )
+    .unwrap();
+    let (mut engine, _) = engine_with(&path);
+    assert_eq!(engine.playback_state().unwrap().duration_ns, 4_000_000_000);
+    engine.delete_playback_marker(marker.id.unwrap()).unwrap();
+    let PlaybackState {
+        duration_ns,
+        position_ns,
+        ..
+    } = engine.playback_state().unwrap();
+    assert_eq!(duration_ns, 2_000_000_000);
+    assert!(position_ns <= duration_ns);
     drop(engine);
     std::fs::remove_file(path).unwrap();
 }
