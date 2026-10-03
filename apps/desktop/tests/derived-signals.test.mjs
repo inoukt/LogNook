@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   derivedSignalOptions,
   isAvailableDerivedSignalId,
+  newDerivedSignalDefinition,
   restoreDerivedSignalDefinitions,
 } from "../src/derivedSignals.ts";
 
@@ -41,4 +42,16 @@ test("derived signal ids must be valid, unique, and avoid base signal ids", () =
   assert.equal(isAvailableDerivedSignalId("engine_rpm", "temp_f", definitions, ["engine_rpm"]), false);
   assert.equal(isAvailableDerivedSignalId("bad-id", "temp_f", definitions, []), false);
   assert.equal(isAvailableDerivedSignalId("temp_f", "temp_f", definitions, []), true);
+});
+
+test("new derived signals start from the PID that opened the editor", () => {
+  assert.deepEqual(newDerivedSignalDefinition([
+    { id: "derived_1", name: "Existing", expression: "engine_rpm", unit: "rpm", tare_offset: 0 },
+  ], { id: "vehicle_speed", name: "Vehicle speed", unit: "km/h" }), {
+    id: "derived_2",
+    name: "Vehicle speed derived",
+    expression: "vehicle_speed * 1",
+    unit: "km/h",
+    tare_offset: 0,
+  });
 });

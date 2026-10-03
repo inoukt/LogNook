@@ -13,7 +13,7 @@
     restoreAutomaticTriggerConfig, type AutomaticTriggerConfig, type AutomaticTriggerStatus,
   } from "./automaticTrigger";
   import {
-    derivedSignalOptions, restoreDerivedSignalDefinitions, type DerivedSignalDefinition,
+    derivedSignalOptions, restoreDerivedSignalDefinitions, type DerivedSignalDefinition, type DerivedSignalSource,
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
@@ -69,6 +69,8 @@
   let error = "";
   let signalSearch = "";
   let signalSearchInput: HTMLInputElement | undefined;
+  let derivedSignalDialog: HTMLDialogElement | undefined;
+  let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
   let wheelScrubbing = false;
   let workspacePreferencesReady = false;
@@ -681,6 +683,11 @@
     derivedSignalDefinitions = definitions;
   }
 
+  function openDerivedSignalEditor(source: DerivedSignalSource) {
+    derivedSignalSource = source;
+    derivedSignalDialog?.showModal();
+  }
+
   function tareDerivedSignal(signalId: string) {
     return run(async () => {
       const tareOffset = await invoke<number>("tare_derived_signal", { signalId });
@@ -837,6 +844,20 @@
       <SessionBrowser disabled={busy || connected || recording} onOpen={activateSession} />
     </details>
 
+    <dialog class="derived-signal-dialog" aria-label="Derived signal editor" bind:this={derivedSignalDialog} onclose={() => derivedSignalSource = null}>
+      <button class="derived-dialog-close" type="button" aria-label="Close derived signal editor" onclick={() => derivedSignalDialog?.close()}>×</button>
+      <DerivedSignalsPanel
+        definitions={derivedSignalDefinitions}
+        baseSignalIds={signalCatalog.map(({ id }) => id)}
+        sourceSignal={derivedSignalSource}
+        currentValues={currentDerivedValues}
+        disabled={busy || connected || recording || replaying || session !== null}
+        tareDisabled={busy || !connected || replaying || session !== null}
+        onChange={updateDerivedSignals}
+        onTare={tareDerivedSignal}
+      />
+    </dialog>
+
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
@@ -850,15 +871,6 @@
           onConfigChange={updateAutomaticTriggerConfig}
           onArm={armAutomaticTrigger}
           onDisarm={disarmAutomaticTrigger}
-        />
-        <DerivedSignalsPanel
-          definitions={derivedSignalDefinitions}
-          baseSignalIds={signalCatalog.map(({ id }) => id)}
-          currentValues={currentDerivedValues}
-          disabled={busy || connected || recording || replaying || session !== null}
-          tareDisabled={busy || !connected || replaying || session !== null}
-          onChange={updateDerivedSignals}
-          onTare={tareDerivedSignal}
         />
         <div class="signal-columns" aria-hidden="true"><span></span><span></span><span>Log</span><span>Graph</span></div>
         <div class="signal-list">
@@ -887,6 +899,7 @@
             {traces}
             {graphMode}
             onReorder={swapGraphPositions}
+            onCreateDerivedSignal={openDerivedSignalEditor}
             onSeek={session ? seek : undefined}
             onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
             timeWindow={session ? timeWindow : undefined}

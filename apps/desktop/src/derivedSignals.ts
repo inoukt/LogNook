@@ -8,6 +8,23 @@ export type DerivedSignalDefinition = {
   tare_offset: number;
 };
 
+export type DerivedSignalSource = { id: string; name: string; unit: string };
+
+export function newDerivedSignalDefinition(
+  definitions: readonly DerivedSignalDefinition[],
+  source?: DerivedSignalSource | null,
+): DerivedSignalDefinition {
+  let number = definitions.length + 1;
+  while (definitions.some(({ id }) => id === `derived_${number}`)) number++;
+  return {
+    id: `derived_${number}`,
+    name: source ? `${source.name} derived` : `Derived signal ${number}`,
+    expression: source ? `${source.id} * 1` : "engine_rpm * 1",
+    unit: source?.unit ?? "rpm",
+    tare_offset: 0,
+  };
+}
+
 export function isAvailableDerivedSignalId(
   candidate: string,
   editingId: string,

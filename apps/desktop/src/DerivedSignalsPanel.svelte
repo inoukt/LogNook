@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { isAvailableDerivedSignalId, type DerivedSignalDefinition } from "./derivedSignals";
+  import {
+    isAvailableDerivedSignalId,
+    newDerivedSignalDefinition,
+    type DerivedSignalDefinition,
+    type DerivedSignalSource,
+  } from "./derivedSignals";
 
   let {
     definitions,
     baseSignalIds = [],
+    sourceSignal = null,
     currentValues,
     disabled = false,
     tareDisabled = false,
@@ -12,6 +18,7 @@
   }: {
     definitions: DerivedSignalDefinition[];
     baseSignalIds?: string[];
+    sourceSignal?: DerivedSignalSource | null;
     currentValues: Record<string, number | undefined>;
     disabled?: boolean;
     tareDisabled?: boolean;
@@ -39,15 +46,7 @@
   }
 
   function addDefinition() {
-    let number = definitions.length + 1;
-    while (definitions.some((definition) => definition.id === `derived_${number}`)) number++;
-    onChange([...definitions, {
-      id: `derived_${number}`,
-      name: `Derived signal ${number}`,
-      expression: "engine_rpm * 1",
-      unit: "rpm",
-      tare_offset: 0,
-    }]);
+    onChange([...definitions, newDerivedSignalDefinition(definitions, sourceSignal)]);
   }
 
   function tare(definition: DerivedSignalDefinition) {

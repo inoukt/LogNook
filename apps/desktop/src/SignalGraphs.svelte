@@ -4,6 +4,7 @@
   import { buildGraphExportSvg, graphPngFilename, type GraphExportLegendItem } from "./graphExport";
   import type { ChartTrace, Marker } from "./types";
   import type { TimeWindow } from "./workspace";
+  import type { DerivedSignalSource } from "./derivedSignals";
   import {
     captureGraphReference,
     loadGraphPreferences,
@@ -16,10 +17,11 @@
 
   const traceColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
 
-  let { traces, graphMode, onReorder, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub }: {
+  let { traces, graphMode, onReorder, onCreateDerivedSignal, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub }: {
     traces: ChartTrace[];
     graphMode: "overlay" | "separate";
     onReorder: (fromId: string, toId: string) => void;
+    onCreateDerivedSignal: (source: DerivedSignalSource) => void;
     timeWindow?: TimeWindow;
     markers?: Marker[];
     playheadNs?: number;
@@ -150,6 +152,9 @@
   {@const preference = signalPreference(trace.signalId)}
   <div class="signal-graph-options">
     <strong>{trace.name}</strong>
+    {#if trace.pid !== undefined}
+      <button class="derive-signal-button" type="button" title={`Create a derived signal from ${trace.name}`} aria-label={`Create a derived signal from ${trace.name}`} onclick={() => onCreateDerivedSignal({ id: trace.signalId, name: trace.name, unit: trace.unit })}>ƒx</button>
+    {/if}
     <label><span>View</span><select aria-label={`${trace.name} graph view`} value={preference.view} onchange={(event) => updateSignalPreference(trace.signalId, { view: event.currentTarget.value as GraphView })}>
       <option value="line">Line</option><option value="scatter">Scatter</option><option value="bar">Bar</option><option value="heatmap">Heatmap</option>
     </select></label>
@@ -234,6 +239,9 @@
   .graph-settings-list { max-height: 180px; overflow: auto; border-top: 1px solid #2b3944; }
   .signal-graph-options { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; padding: 7px 9px; border-bottom: 1px solid #24313b; }
   .signal-graph-options > strong { min-width: 105px; font-size: 10px; }
+  .derive-signal-button { min-width: 26px; height: 25px; padding: 0 5px; border: 1px solid #344450; border-radius: 4px; color: var(--accent); background: #0d151b; font-size: 10px; font-weight: 700; cursor: pointer; }
+  .derive-signal-button:hover, .derive-signal-button:focus-visible { border-color: var(--accent); }
+  .derive-signal-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .signal-graph-options label { display: grid; gap: 2px; color: var(--text-muted); font-size: 9px; }
   .signal-graph-options select, .signal-graph-options input { width: 82px; min-height: 25px; padding: 2px 5px; border: 1px solid #344450; border-radius: 4px; background: #0d151b; color: #e7edf3; font-size: 10px; }
   .signal-graph-options input { width: 76px; }
