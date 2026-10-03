@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Marker, PlaybackState, RecordingInfo } from "./types";
-  import { formatDurationNs, type TimeWindow } from "./workspace";
+  import { formatDurationNs, formatTimelineNs, type TimeWindow } from "./workspace";
 
   let {
     info,
@@ -12,7 +12,7 @@
     onOpen,
     onTogglePlay,
     onStart,
-    onSeek,
+    onScrub,
     onSpeed,
     onAddMarker,
     onUpdateMarker,
@@ -31,7 +31,7 @@
     onOpen: () => void;
     onTogglePlay: () => void;
     onStart: () => void;
-    onSeek: (positionNs: number) => void;
+    onScrub: (positionNs: number) => void;
     onSpeed: (speed: number) => void;
     onAddMarker: (label: string, note: string) => void;
     onUpdateMarker: (id: number, label: string, note: string) => void;
@@ -94,7 +94,7 @@
 
   {#if info}
     <div class="timeline-row">
-      <span class="timeline-start">{formatDurationNs(range.startNs)}</span>
+      <span class="timeline-start">{formatTimelineNs(range.startNs)}</span>
       <div class="seek-wrap">
         <div class="seek-marker-ticks" aria-hidden="true">
           {#each markers as marker (marker.id ?? `${marker.elapsed_ns}-${marker.label}`)}
@@ -113,12 +113,12 @@
           aria-label="Recording position"
           disabled={disabled}
           onpointerdown={() => seeking = true}
-          oninput={(event) => { seeking = true; seekDraft = Number(event.currentTarget.value); }}
-          onchange={() => { seeking = false; onSeek(seekDraft); }}
+          oninput={(event) => { seeking = true; seekDraft = Number(event.currentTarget.value); onScrub(seekDraft); }}
+          onchange={() => seeking = false}
           onpointercancel={() => seeking = false}
         />
       </div>
-      <span class="timeline-end">{formatDurationNs(range.endNs)}</span>
+      <span class="timeline-end">{formatTimelineNs(range.endNs)}</span>
       <div class="viewport-controls" role="group" aria-label="Graph time range">
         <button class="icon-button" title="Pan earlier" aria-label="Pan earlier" onclick={() => onPan(-0.25)} disabled={disabled}>←</button>
         <button class="icon-button" title="Zoom out" aria-label="Zoom out" onclick={() => onZoom(0.5)} disabled={disabled}>−</button>

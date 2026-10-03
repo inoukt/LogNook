@@ -41,11 +41,9 @@ export function sampleTimeRange(samples: Array<{ elapsed_ns: number }>): TimeWin
 }
 
 export function followPlayhead(range: TimeWindow, positionNs: number, durationNs: number): TimeWindow {
-  const { startNs, endNs } = clampTimeWindow(range, durationNs);
-  const span = endNs - startNs;
-  if (!span) return { startNs, endNs };
+  const span = Math.max(0, range.endNs - range.startNs);
   const position = clampSeekPosition(positionNs, durationNs);
-  const start = Math.round(Math.min(Math.max(position - span / 2, 0), Math.max(0, durationNs - span)));
+  const start = Math.round(position - span / 2);
   return { startNs: start, endNs: start + span };
 }
 
@@ -56,6 +54,16 @@ export function positionAtChartX(clientX: number, left: number, width: number, r
 
 export function wheelScrubPosition(positionNs: number, deltaY: number, range: TimeWindow, durationNs: number): number {
   return clampSeekPosition(positionNs + deltaY * Math.max(range.endNs - range.startNs, 0) / 1_000, durationNs);
+}
+
+export function scrubTimeWindow(
+  positionNs: number,
+  deltaY: number,
+  range: TimeWindow,
+  durationNs: number,
+): { positionNs: number; range: TimeWindow } {
+  const position = wheelScrubPosition(positionNs, deltaY, range, durationNs);
+  return { positionNs: position, range: followPlayhead(range, position, durationNs) };
 }
 
 export function filterSignals(signals: SignalOption[], query: string): SignalOption[] {
@@ -124,6 +132,10 @@ export function formatDurationNs(durationNs: number): string {
   return minutes >= 60
     ? `${Math.floor(minutes / 60)}:${padded(minutes % 60)}:${clock}`
     : `${padded(minutes)}:${clock}`;
+}
+
+export function formatTimelineNs(timeNs: number): string {
+  return timeNs < 0 ? `−${formatDurationNs(-timeNs)}` : formatDurationNs(timeNs);
 }
 
 export function clampSeekPosition(positionNs: number, durationNs: number): number {

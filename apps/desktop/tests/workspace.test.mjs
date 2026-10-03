@@ -7,10 +7,12 @@ import {
   filterSignals,
   followPlayhead,
   formatDurationNs,
+  formatTimelineNs,
   orderMarkersForTimeline,
   panTimeWindow,
   positionAtChartX,
   sampleTimeRange,
+  scrubTimeWindow,
   setGraphSignal,
   setLogSignal,
   signalColor,
@@ -39,9 +41,10 @@ test("visible PID ranges share the bounds of the plotted signals", () => {
   assert.equal(averageInWindow([point(0, 100), point(100, 10), point(200, 30)], visibleRange), 20);
 });
 
-test("playhead-follow preserves the visible span and clamps to recording bounds", () => {
+test("playhead-follow preserves the visible span and centers even at recording edges", () => {
   assert.deepEqual(followPlayhead({ startNs: 100, endNs: 500 }, 800, 1_000), { startNs: 600, endNs: 1_000 });
-  assert.deepEqual(followPlayhead({ startNs: 100, endNs: 500 }, 0, 1_000), { startNs: 0, endNs: 400 });
+  assert.deepEqual(followPlayhead({ startNs: 100, endNs: 500 }, 0, 1_000), { startNs: -200, endNs: 200 });
+  assert.deepEqual(followPlayhead({ startNs: 100, endNs: 500 }, 1_000, 1_000), { startNs: 800, endNs: 1_200 });
 });
 
 test("graph clicks map screen coordinates to the visible recording time", () => {
@@ -54,6 +57,13 @@ test("graph clicks map screen coordinates to the visible recording time", () => 
 test("wheel scrubbing moves playback by a fraction of the visible time range", () => {
   assert.equal(wheelScrubPosition(500, 100, { startNs: 0, endNs: 1_000 }, 2_000), 600);
   assert.equal(wheelScrubPosition(1_950, 100, { startNs: 0, endNs: 1_000 }, 2_000), 2_000);
+});
+
+test("wheel scrubbing updates position and centers the visible window together", () => {
+  assert.deepEqual(
+    scrubTimeWindow(0, -100, { startNs: 0, endNs: 30_000_000_000 }, 60_000_000_000),
+    { positionNs: 0, range: { startNs: -15_000_000_000, endNs: 15_000_000_000 } },
+  );
 });
 
 test("custom PID color overrides the default palette and invalid colors are ignored", () => {
@@ -114,6 +124,8 @@ test("duration formatting keeps millisecond precision and switches to hours", ()
   assert.equal(formatDurationNs(61_234_000_000), "01:01.234");
   assert.equal(formatDurationNs(3_661_000_000_000), "1:01:01.000");
   assert.equal(formatDurationNs(-1), "00:00.000");
+  assert.equal(formatTimelineNs(-1_500_000_000), "−00:01.500");
+  assert.equal(formatTimelineNs(1_500_000_000), "00:01.500");
 });
 
 test("seek positions stay within the recording duration", () => {

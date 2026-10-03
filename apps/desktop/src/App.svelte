@@ -10,7 +10,7 @@
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, orderMarkersForTimeline,
-    panTimeWindow, sampleTimeRange, setGraphSignal, setLogSignal, signalColor, swapPositions, wheelScrubPosition,
+    panTimeWindow, sampleTimeRange, scrubTimeWindow, setGraphSignal, setLogSignal, signalColor, swapPositions,
     zoomTimeWindow, type SignalOption, type TimeWindow,
   } from "./workspace";
 
@@ -45,8 +45,11 @@
   let unlisten: UnlistenFn | undefined;
   let graphRequest = 0;
   let readoutRequest = 0;
-  let wheelSeekFrame = 0;
-  let wheelSeekTarget = 0;
+  let graphRefreshTimer: number | undefined;
+  let pendingGraphRefresh: { info: RecordingInfo; signalIds: string[]; range: TimeWindow } | undefined;
+  let lastGraphRefreshAt = 0;
+  let scrubPending: number | null = null;
+  let scrubInFlight: number | null = null;
 
   $: availableSignals = session
     ? session.signals.map((recorded): SignalOption => {
@@ -82,7 +85,7 @@
     current: latest[signal.id],
     sampleRate: sampleRate(signal.id),
   }));
-  $: if (session) refreshGraphWindow(session, graphSignalIds, timeWindow);
+  $: if (session) scheduleGraphWindow(session, graphSignalIds, timeWindow);
 
   onMount(() => {
     let disposed = false;
@@ -108,7 +111,7 @@
 
   function handleEvent(event: EngineEvent) {
     if (event.type === "playbackSample") {
-      if (event.payload.session_id !== playback.session_id) return;
+      if (event.payload.session_id !== playback.session_id || scrubPending !== null || scrubInFlight !== null) return;
       const sample = event.payload.sample;
       readoutRequest++;
       latest = { ...latest, [sample.signal_id]: sample };
@@ -140,17 +143,14 @@
       status = "Disconnected";
     } else if (event.type === "playbackState") {
       if (event.payload.session_id !== playback.session_id) return;
-      playback = event.payload;
+      const pendingPosition = scrubPending ?? scrubInFlight;
+      playback = pendingPosition === null ? event.payload : { ...event.payload, position_ns: pendingPosition };
       if (playback.playing && session) {
         let followRange = timeWindow;
-        if (followRange.endNs - followRange.startNs >= playback.duration_ns && playback.duration_ns > 30_000_000_000) {
+        if (followRange.endNs - followRange.startNs >= playback.duration_ns) {
           followRange = { startNs: 0, endNs: 30_000_000_000 };
         }
-        const span = followRange.endNs - followRange.startNs;
-        const center = followRange.startNs + span / 2;
-        if (span > 0 && Math.abs(playback.position_ns - center) > span * 0.1) {
-          timeWindow = followPlayhead(followRange, playback.position_ns, playback.duration_ns);
-        }
+        timeWindow = followPlayhead(followRange, playback.position_ns, playback.duration_ns);
       }
       replaying = playback.playing;
       status = playback.playing
@@ -180,6 +180,11 @@
 
   async function clearSession() {
     readoutRequest++;
+    graphRequest++;
+    if (graphRefreshTimer !== undefined) clearTimeout(graphRefreshTimer);
+    graphRefreshTimer = undefined;
+    pendingGraphRefresh = undefined;
+    scrubPending = null;
     session = null;
     sessionSeries = {};
     sessionAverages = {};
@@ -188,6 +193,8 @@
 
   async function activateSession(info: RecordingInfo) {
     readoutRequest++;
+    graphRequest++;
+    scrubPending = null;
     session = info;
     playback = { session_id: 0, position_ns: 0, duration_ns: info.duration_ns, speed: 1, playing: false };
     graphSignalIds = info.signals.map((signal) => signal.id);
@@ -320,9 +327,8 @@
       else {
         if (session && playback.duration_ns > 0) {
           const currentSpan = timeWindow.endNs - timeWindow.startNs;
-          const span = Math.min(currentSpan || playback.duration_ns, playback.duration_ns, 30_000_000_000);
           const view = currentSpan >= playback.duration_ns
-            ? { startNs: 0, endNs: Math.max(span, 1) }
+            ? { startNs: 0, endNs: 30_000_000_000 }
             : timeWindow;
           timeWindow = followPlayhead(view, playback.position_ns, playback.duration_ns);
         }
@@ -330,6 +336,21 @@
       }
       playback = await invoke<PlaybackState>("playback_state");
     });
+  }
+
+  function scheduleGraphWindow(info: RecordingInfo, signalIds: string[], range: TimeWindow) {
+    pendingGraphRefresh = { info, signalIds: [...signalIds], range: { ...range } };
+    if (graphRefreshTimer !== undefined) return;
+    const delay = Math.max(0, 100 - (performance.now() - lastGraphRefreshAt));
+    graphRefreshTimer = window.setTimeout(() => {
+      graphRefreshTimer = undefined;
+      lastGraphRefreshAt = performance.now();
+      const request = pendingGraphRefresh;
+      pendingGraphRefresh = undefined;
+      if (request && request.info === session) {
+        refreshGraphWindow(request.info, request.signalIds, request.range);
+      }
+    }, delay);
   }
 
   function returnToStart() {
@@ -346,12 +367,42 @@
 
   function scrubWheel(deltaY: number) {
     if (!session) return;
-    wheelSeekTarget = wheelScrubPosition(wheelSeekFrame ? wheelSeekTarget : playback.position_ns, deltaY, timeWindow, playback.duration_ns);
-    if (wheelSeekFrame) return;
-    wheelSeekFrame = requestAnimationFrame(() => {
-      wheelSeekFrame = 0;
-      seek(wheelSeekTarget);
-    });
+    const base = scrubPending ?? scrubInFlight ?? playback.position_ns;
+    const result = scrubTimeWindow(base, deltaY, timeWindow, playback.duration_ns);
+    scrubTo(result.positionNs, result.range);
+  }
+
+  function scrubTo(positionNs: number, range = followPlayhead(timeWindow, positionNs, playback.duration_ns)) {
+    scrubPending = clampSeekPosition(positionNs, playback.duration_ns);
+    playback = { ...playback, position_ns: scrubPending };
+    timeWindow = range;
+    if (scrubInFlight === null) flushScrub();
+  }
+
+  async function flushScrub() {
+    while (scrubPending !== null) {
+      const info = session;
+      const positionNs = scrubPending;
+      const signalIds = info?.signals.map((signal) => signal.id) ?? graphSignalIds;
+      scrubPending = null;
+      scrubInFlight = positionNs;
+      try {
+        await invoke("seek_replay", { positionNs });
+        const [state, values] = await Promise.all([
+          invoke<PlaybackState>("playback_state"),
+          invoke<Sample[]>("recording_values_at", { signalIds, positionNs }),
+        ]);
+        if (session === info && scrubPending === null) {
+          playback = state;
+          latest = Object.fromEntries(values.map((sample) => [sample.signal_id, sample]));
+          if (playback.playing && session) timeWindow = followPlayhead(timeWindow, playback.position_ns, playback.duration_ns);
+        }
+      } catch (reason) {
+        showError(reason);
+      } finally {
+        scrubInFlight = null;
+      }
+    }
   }
 
   function setSpeed(speed: number) {
@@ -533,7 +584,7 @@
       onOpen={openCsv}
       onTogglePlay={togglePlayback}
       onStart={returnToStart}
-      onSeek={seek}
+      onScrub={scrubTo}
       onSpeed={setSpeed}
       onAddMarker={addMarker}
       onUpdateMarker={updateMarker}
