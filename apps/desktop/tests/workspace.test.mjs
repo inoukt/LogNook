@@ -115,6 +115,15 @@ test("multiple traces share elapsed-time X positions and scale values independen
   assert.equal(firstPoints.at(-1)[1], secondPoints.at(-1)[1]);
 });
 
+test("graph rendering limits points to screen resolution while preserving signal peaks", () => {
+  const samples = [point(0, 1), point(1, 50), point(2, 2), point(3, 100), point(4, -100), point(5, 3), point(6, 4)];
+  const coords = chartPoints(samples, 0, 6, 2).split(" ").map((pair) => pair.split(",").map(Number));
+
+  assert.ok(coords.length <= 4);
+  assert.ok(coords.some(([, y]) => y === 34));
+  assert.ok(coords.some(([, y]) => y === 134));
+});
+
 test("zero-duration samples align with marker and playhead guides at the left edge", () => {
   assert.equal(chartPoints([{ elapsed_ns: 5, value: 10 }], 5, 5, 720).split(",")[0], "0.0");
 });

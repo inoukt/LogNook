@@ -109,18 +109,51 @@ export function chartPoints(
   width = 720,
 ): string {
   if (!samples.length) return "";
-  const values = samples.map((sample) => sample.value);
-  const low = Math.min(...values);
-  const high = Math.max(...values);
+
+  const renderWidth = Number.isFinite(width) ? Math.max(width, 1) : 1;
+  const pixelCount = Math.ceil(renderWidth);
+  const bins: Array<{ first: number; last: number; minimum: number; maximum: number } | undefined> = Array(pixelCount);
+  let low = Infinity;
+  let high = -Infinity;
+  const duration = timeEnd - timeStart;
+  for (let index = 0; index < samples.length; index++) {
+    const sample = samples[index];
+    low = Math.min(low, sample.value);
+    high = Math.max(high, sample.value);
+    const x = duration > 0 ? ((sample.elapsed_ns - timeStart) / duration) * renderWidth : 0;
+    const column = Math.min(pixelCount - 1, Math.max(0, Math.floor(x)));
+    const bin = bins[column];
+    if (bin) {
+      bin.last = index;
+      if (sample.value < samples[bin.minimum].value) bin.minimum = index;
+      if (sample.value > samples[bin.maximum].value) bin.maximum = index;
+    } else {
+      bins[column] = { first: index, last: index, minimum: index, maximum: index };
+    }
+  }
+
   const padding = Math.max((high - low) * 0.12, 1);
   const minimum = low - padding;
   const span = high - low + padding * 2;
-  const duration = timeEnd - timeStart;
-  return samples.map((sample) => {
-    const x = duration > 0 ? ((sample.elapsed_ns - timeStart) / duration) * width : 0;
+  const coordinate = (index: number) => {
+    const sample = samples[index];
+    const x = duration > 0 ? ((sample.elapsed_ns - timeStart) / duration) * renderWidth : 0;
     const y = 146 - ((sample.value - minimum) / span) * 124;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
+  };
+  const points: string[] = [];
+  for (const bin of bins) {
+    if (!bin) continue;
+    const first = bin.minimum === bin.maximum && bin.first !== bin.last
+      ? bin.first
+      : Math.min(bin.minimum, bin.maximum);
+    const last = bin.minimum === bin.maximum && bin.first !== bin.last
+      ? bin.last
+      : Math.max(bin.minimum, bin.maximum);
+    points.push(coordinate(first));
+    if (last !== first) points.push(coordinate(last));
+  }
+  return points.join(" ");
 }
 
 export function formatDurationNs(durationNs: number): string {

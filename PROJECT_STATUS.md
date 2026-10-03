@@ -137,3 +137,9 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - Replay keeps the playhead centered on each progress update, including at recording edges. Clicking the graph, dragging the recording-position slider, and optional wheel scrubbing update the cursor and viewport immediately, with backend seeks coalesced in order. Markers can have blank labels and notes.
 - Replay uses absolute playback deadlines and coalesces UI readouts per signal at 50 ms, preserving all recorded samples and marker events.
 - Verification: UI tests **18 passed**; `cargo test -p lognook-core` **66 passed**; Svelte check **0 errors / 0 warnings**; Vite build passed; Tauri development build launched. `cargo fmt` was unavailable because the rustfmt toolchain component is not installed.
+
+## Workspace layout and graph rendering — 2026-10-03
+
+- Compressed the session player by about 25%, removed the redundant measurements heading, and added a PID panel show/hide toggle.
+- Clipped graph paint to its column and limited replay graph rendering to screen-resolution extrema; acquisition and recordings retain full-resolution samples.
+- Verification: UI tests **19 passed**; Svelte check **0 errors / 0 warnings**; Vite production build passed; PID hide/show preview checked. `cargo test --workspace` passed **67 tests**. Native high-speed replay smoothness was not measured here.

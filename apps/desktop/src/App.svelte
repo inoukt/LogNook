@@ -38,6 +38,7 @@
   let markerNote = "";
   let error = "";
   let signalSearch = "";
+  let signalPickerVisible = true;
   let wheelScrubbing = false;
   let statusHeight = 42;
   let statusResize: { y: number; height: number } | null = null;
@@ -221,7 +222,7 @@
               signalIds,
               startNs: range.startNs,
               endNs: range.endNs,
-              maxBuckets: 1_000,
+              maxBuckets: 360,
             })
           : Promise.resolve([]),
         invoke<Record<string, number>>("recording_averages", { startNs: range.startNs, endNs: range.endNs }),
@@ -544,6 +545,7 @@
             <button class:active={graphMode === "separate"} aria-pressed={graphMode === "separate"} onclick={() => graphMode = "separate"}>Separate</button>
           </div>
         </div>
+        <button class="button secondary picker-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide PIDs" : "Show PIDs"}</button>
         <div class="session-actions">
           {#if recording}
             <input class="text-input toolbar-input" bind:value={markerNote} placeholder="Marker note (optional)" aria-label="Marker note" disabled={busy} />
@@ -595,8 +597,8 @@
       onReset={resetZoom}
     />
 
-    <div class="workspace-grid">
-      <aside class="panel signal-panel">
+    <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
+      <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
         <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : `${logSignalIds.length} logging · ${graphSignalIds.length} graphed`}</span></div>
         <input class="text-input signal-search" type="search" bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
         <div class="signal-columns" aria-hidden="true"><span></span><span></span><span>Log</span><span>Graph</span></div>
@@ -619,7 +621,6 @@
       </aside>
 
       <section class="measurements" aria-label="Measurements">
-        <div class="measurement-heading"><div><p class="eyebrow">MEASUREMENTS</p><h2>{session ? "Recorded data" : "Live values"}</h2></div><span class="rate-note">{graphMode === "overlay" ? "Combined signals · shared time" : "Drag to swap · resize at corner"}</span></div>
         {#if visibleSignals.length === 0}
           <div class="empty-state"><span class="empty-icon">⌁</span><h3>{session ? "No signals selected" : "Select signals to begin"}</h3><p>{session ? "Choose recorded signals to add them to the graph." : "Choose one or more PIDs, then connect an adapter."}</p></div>
         {:else}
