@@ -4,7 +4,7 @@ use crate::{
     recording::open_recording,
     recording_view::inspect_recording,
 };
-use rusqlite::{OpenFlags, OptionalExtension, params};
+use rusqlite::{OpenFlags, params, params_from_iter, types::Value};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -79,21 +79,30 @@ pub fn query_recording_values_at(
         return Ok(Vec::new());
     }
     let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mut statement = connection.prepare(
+    let placeholders = vec!["?"; signal_ids.len()].join(", ");
+    let position_parameter = signal_ids.len() + 1;
+    let query = format!(
         "SELECT id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id, value,
          unit, quality, origin, raw_bytes FROM samples
-         WHERE signal_id = ?1 AND elapsed_ns <= ?2 ORDER BY elapsed_ns DESC, id DESC LIMIT 1",
-    )?;
-    let mut samples = Vec::with_capacity(signal_ids.len());
-    for signal_id in signal_ids {
-        if let Some(row) = statement
-            .query_row(params![signal_id, position_ns.max(0)], map_graph_row)
-            .optional()?
-        {
-            samples.push(row.into_sample()?);
-        }
+         WHERE signal_id IN ({placeholders}) AND elapsed_ns <= ?{position_parameter}
+         ORDER BY signal_id, elapsed_ns DESC, id DESC"
+    );
+    let parameters = signal_ids
+        .iter()
+        .cloned()
+        .map(Value::Text)
+        .chain(std::iter::once(Value::Integer(position_ns.max(0))));
+    let mut statement = connection.prepare(&query)?;
+    let rows = statement.query_map(params_from_iter(parameters), map_graph_row)?;
+    let mut latest = HashMap::with_capacity(signal_ids.len());
+    for row in rows {
+        let sample = row?.into_sample()?;
+        latest.entry(sample.signal_id.clone()).or_insert(sample);
     }
-    Ok(samples)
+    Ok(signal_ids
+        .iter()
+        .filter_map(|signal_id| latest.get(signal_id).cloned())
+        .collect())
 }
 
 pub fn query_recording_averages(

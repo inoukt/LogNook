@@ -7,6 +7,7 @@
   import DerivedSignalsPanel from "./DerivedSignalsPanel.svelte";
   import PlaybackPanel from "./PlaybackPanel.svelte";
   import SessionBrowser from "./SessionBrowser.svelte";
+  import { openAndActivateRecording } from "./sessionBrowser";
   import AutomaticTriggerPanel from "./AutomaticTriggerPanel.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
   import SignalGraphs from "./SignalGraphs.svelte";
@@ -406,6 +407,13 @@
     replaying = false;
     if (!connected) status = "Session loaded";
     signalSearch = "";
+  }
+
+  function openSavedRecording(path: string) {
+    return run(() => openAndActivateRecording(
+      () => invoke<RecordingInfo>("open_recording", { path }),
+      activateSession,
+    ));
   }
 
   async function refreshGraphWindow(info: RecordingInfo, signalIds: string[], range: TimeWindow) {
@@ -862,7 +870,7 @@
         <div class="toolbar-group utility-group" role="group" aria-label="Graph and data tools">
           <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
             <summary aria-label="Browse saved sessions" title="Browse saved sessions">Sessions</summary>
-            <SessionBrowser disabled={busy || recording} openDisabled={connected || recording} onOpen={activateSession} onShare={shareRecording} onSaveAs={saveRecordingAs} />
+            <SessionBrowser open={sessionBrowserOpen} disabled={busy || recording} openDisabled={connected || recording} onOpen={openSavedRecording} onShare={shareRecording} onSaveAs={saveRecordingAs} />
           </details>
           {#if !session}
             <button class="button secondary open-csv-compact" title="Open CSV session" aria-label="Open CSV session" onclick={openCsv} disabled={busy || connected || recording}>CSV</button>
