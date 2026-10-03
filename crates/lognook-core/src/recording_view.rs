@@ -83,6 +83,26 @@ pub fn update_recording_marker(
     Ok(marker)
 }
 
+pub fn add_recording_marker(path: &Path, marker: &Marker) -> Result<Marker, LogNookError> {
+    let mut connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "INSERT INTO markers(elapsed_ns, wall_time_unix_ns, label, note) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            marker.elapsed_ns,
+            marker.wall_time_unix_ns,
+            marker.label,
+            marker.note
+        ],
+    )?;
+    let saved = Marker {
+        id: Some(transaction.last_insert_rowid()),
+        ..marker.clone()
+    };
+    transaction.commit()?;
+    Ok(saved)
+}
+
 pub fn delete_recording_marker(path: &Path, id: i64) -> Result<(), LogNookError> {
     let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     if connection.execute("DELETE FROM markers WHERE id = ?1", [id])? == 0 {

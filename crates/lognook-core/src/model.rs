@@ -142,6 +142,14 @@ pub struct RecordingInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PlaybackState {
+    pub position_ns: i64,
+    pub duration_ns: i64,
+    pub speed: f64,
+    pub playing: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum EngineEvent {
     Connected(ConnectionCapabilities),
@@ -152,6 +160,7 @@ pub enum EngineEvent {
     Error(String),
     PlaybackStarted,
     PlaybackFinished,
+    PlaybackState(PlaybackState),
 }
 
 #[derive(Debug)]

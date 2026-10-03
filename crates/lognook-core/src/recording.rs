@@ -94,6 +94,13 @@ pub(crate) enum RecordedEvent {
     Marker(Marker),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct EventCursor {
+    pub elapsed_ns: i64,
+    pub kind: i64,
+    pub id: i64,
+}
+
 pub(crate) fn open_recording(path: &Path, flags: OpenFlags) -> Result<Connection, LogNookError> {
     let connection = Connection::open_with_flags(path, flags)?;
     let version: Option<String> = connection
@@ -115,9 +122,17 @@ pub(crate) fn visit_recording_events(
     path: &Path,
     mut visit: impl FnMut(RecordedEvent) -> Result<bool, LogNookError>,
 ) -> Result<bool, LogNookError> {
+    visit_recording_events_from(path, 0, None, |event, _| visit(event))
+}
+
+pub(crate) fn visit_recording_events_from(
+    path: &Path,
+    start_ns: i64,
+    cursor: Option<EventCursor>,
+    mut visit: impl FnMut(RecordedEvent, EventCursor) -> Result<bool, LogNookError>,
+) -> Result<bool, LogNookError> {
     let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mut statement = connection.prepare(
-        "SELECT kind, id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id,
+    let selection = "SELECT kind, id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id,
          value, unit, quality, origin, raw_bytes, label, note FROM (
            SELECT 0 AS kind, id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id,
              signal_id, value, unit, quality, origin, raw_bytes, NULL AS label, NULL AS note
@@ -125,9 +140,16 @@ pub(crate) fn visit_recording_events(
            UNION ALL
            SELECT 1 AS kind, id, elapsed_ns, wall_time_unix_ns, NULL, NULL, NULL,
              NULL, NULL, NULL, NULL, NULL, label, note FROM markers
-         ) ORDER BY elapsed_ns, kind, id",
-    )?;
-    for row in statement.query_map([], |row| {
+         ) WHERE elapsed_ns >= ?1";
+    let query = if cursor.is_some() {
+        format!(
+            "{selection} AND (elapsed_ns > ?2 OR (elapsed_ns = ?2 AND (kind > ?3 OR (kind = ?3 AND id > ?4)))) ORDER BY elapsed_ns, kind, id"
+        )
+    } else {
+        format!("{selection} ORDER BY elapsed_ns, kind, id")
+    };
+    let mut statement = connection.prepare(&query)?;
+    let map_row = |row: &rusqlite::Row<'_>| {
         Ok(RecordedEventRow {
             kind: row.get(0)?,
             id: row.get(1)?,
@@ -144,9 +166,24 @@ pub(crate) fn visit_recording_events(
             label: row.get(12)?,
             note: row.get(13)?,
         })
-    })? {
-        let event = row?.into_event()?;
-        if !visit(event)? {
+    };
+    let rows = if let Some(cursor) = cursor {
+        statement.query_map(
+            rusqlite::params![start_ns, cursor.elapsed_ns, cursor.kind, cursor.id],
+            map_row,
+        )?
+    } else {
+        statement.query_map([start_ns], map_row)?
+    };
+    for row in rows {
+        let row = row?;
+        let cursor = EventCursor {
+            elapsed_ns: row.elapsed_ns,
+            kind: row.kind,
+            id: row.id,
+        };
+        let event = row.into_event()?;
+        if !visit(event, cursor)? {
             return Ok(false);
         }
     }

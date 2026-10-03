@@ -97,6 +97,7 @@ pub(crate) fn process(
             Message::ReplayMarker(marker) => sink(EngineEvent::Marker(marker)),
             Message::PlaybackStarted => sink(EngineEvent::PlaybackStarted),
             Message::PlaybackFinished => sink(EngineEvent::PlaybackFinished),
+            Message::PlaybackState(state) => sink(EngineEvent::PlaybackState(state)),
             Message::Disconnected => sink(EngineEvent::Disconnected),
             Message::Error(message) => sink(EngineEvent::Error(message)),
             Message::Shutdown => {

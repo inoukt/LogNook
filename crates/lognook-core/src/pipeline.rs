@@ -1,4 +1,4 @@
-use crate::model::{EngineEvent, LogNookError, Marker, RecordingSummary, Sample};
+use crate::model::{EngineEvent, LogNookError, Marker, PlaybackState, RecordingSummary, Sample};
 use crate::pipeline_worker::process;
 use std::{
     path::PathBuf,
@@ -21,6 +21,7 @@ pub(crate) enum Message {
     ReplayMarker(Marker),
     PlaybackStarted,
     PlaybackFinished,
+    PlaybackState(PlaybackState),
     Disconnected,
     Error(String),
     Shutdown,
@@ -56,6 +57,10 @@ impl SampleSender {
 
     pub(crate) fn playback_finished(&self) {
         let _ = self.0.send(Message::PlaybackFinished);
+    }
+
+    pub(crate) fn send_playback_state(&self, state: PlaybackState) {
+        let _ = self.0.send(Message::PlaybackState(state));
     }
 }
 
@@ -161,10 +166,6 @@ impl SamplePipeline {
 
     pub(crate) fn playback_started(&self) {
         let _ = self.sender.0.send(Message::PlaybackStarted);
-    }
-
-    pub(crate) fn playback_finished(&self) {
-        self.sender.playback_finished();
     }
 
     pub(crate) fn set_last_recording_path(&self, path: PathBuf) {
