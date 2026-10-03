@@ -5,6 +5,7 @@ use crate::{
     recording::{EventCursor, RecordedEvent, visit_recording_events_from},
 };
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -26,6 +27,35 @@ enum Command {
 enum Reply {
     State(Sender<PlaybackState>),
     Stop(Sender<()>),
+}
+
+struct ReplayClock {
+    position_ns: i64,
+    started: Instant,
+}
+
+impl ReplayClock {
+    fn new(position_ns: i64) -> Self {
+        Self {
+            position_ns,
+            started: Instant::now(),
+        }
+    }
+
+    fn reset(&mut self, position_ns: i64) {
+        self.position_ns = position_ns;
+        self.started = Instant::now();
+    }
+
+    fn deadline(&self, target_ns: i64, speed: f64) -> Instant {
+        let delta_ns = (target_ns - self.position_ns).max(0) as f64 / speed;
+        self.started + Duration::from_nanos(delta_ns.min(u64::MAX as f64) as u64)
+    }
+
+    fn position_at(&self, now: Instant, speed: f64) -> i64 {
+        let elapsed_ns = now.saturating_duration_since(self.started).as_nanos() as f64 * speed;
+        self.position_ns.saturating_add(elapsed_ns.min(i64::MAX as f64) as i64)
+    }
 }
 
 pub(crate) struct PlaybackHandle {
@@ -110,13 +140,19 @@ fn run(
     output: SampleSender,
 ) {
     let mut cursor: Option<EventCursor> = None;
-    let session_id = snapshot(&state).session_id;
+    let initial_state = snapshot(&state);
+    let session_id = initial_state.session_id;
+    let mut pending_samples = HashMap::new();
+    let mut last_state_emit = Instant::now();
+    let mut last_sample_emit = Instant::now();
+    let mut clock = ReplayClock::new(initial_state.position_ns);
     output.send_playback_state(snapshot(&state));
     loop {
         if !snapshot(&state).playing {
             match commands.recv() {
                 Ok(command) => {
                     let (reply, stop) = apply(command, &state, &mut cursor);
+                    clock.reset(snapshot(&state).position_ns);
                     respond(reply, &state);
                     output.send_playback_state(snapshot(&state));
                     if stop {
@@ -145,6 +181,8 @@ fn run(
                     &state,
                     &mut cursor,
                     &mut pending_reply,
+                    &mut last_state_emit,
+                    &mut clock,
                     &output,
                 ) {
                     return Ok(false);
@@ -153,9 +191,25 @@ fn run(
                 match event {
                     RecordedEvent::Sample(mut sample) => {
                         sample.origin = SampleOrigin::Replay;
-                        output.send_playback_sample(session_id, sample)?;
+                        pending_samples.insert(sample.signal_id.clone(), sample);
+                        if !pending_samples.is_empty()
+                            && last_sample_emit.elapsed() >= Duration::from_millis(50)
+                        {
+                            flush_samples(
+                                &mut pending_samples,
+                                session_id,
+                                &output,
+                                &mut last_sample_emit,
+                            )?;
+                        }
                     }
                     RecordedEvent::Marker(marker) => {
+                        flush_samples(
+                            &mut pending_samples,
+                            session_id,
+                            &output,
+                            &mut last_sample_emit,
+                        )?;
                         output.send_playback_marker(session_id, marker)?;
                     }
                 }
@@ -163,6 +217,15 @@ fn run(
                 Ok(true)
             },
         );
+
+        if let Err(error) = flush_samples(
+            &mut pending_samples,
+            session_id,
+            &output,
+            &mut last_sample_emit,
+        ) {
+            let _ = output.send_error(error.to_string());
+        }
 
         if let Some(reply) = pending_reply {
             let stopping = matches!(&reply, Reply::Stop(_));
@@ -202,46 +265,66 @@ fn wait_until(
     state: &Arc<Mutex<PlaybackState>>,
     cursor: &mut Option<EventCursor>,
     pending_reply: &mut Option<Reply>,
+    last_state_emit: &mut Instant,
+    clock: &mut ReplayClock,
     output: &SampleSender,
 ) -> bool {
-    let mut last_tick = Instant::now();
-    let mut last_emit = last_tick;
     loop {
         let current = snapshot(state);
-        if current.position_ns >= target_ns {
+        let deadline = clock.deadline(target_ns, current.speed);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            if let Ok(command) = commands.try_recv() {
+                set_position(state, clock.position_at(Instant::now(), current.speed).min(target_ns));
+                let (reply, _) = apply(command, state, cursor);
+                clock.reset(snapshot(state).position_ns);
+                *pending_reply = reply;
+                return false;
+            }
+            set_position(state, target_ns);
+            emit_playback_state_if_due(state, last_state_emit, output);
             return true;
         }
-        let remaining = (target_ns - current.position_ns) as f64 / current.speed;
-        let timeout = Duration::from_nanos(remaining.max(1.0).min(50_000_000.0) as u64);
+        let timeout = remaining.min(Duration::from_millis(50));
         match commands.recv_timeout(timeout) {
             Ok(command) => {
-                advance(state, target_ns, last_tick.elapsed());
+                set_position(state, clock.position_at(Instant::now(), current.speed).min(target_ns));
                 let (reply, _) = apply(command, state, cursor);
+                clock.reset(snapshot(state).position_ns);
                 *pending_reply = reply;
                 return false;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                let elapsed = last_tick.elapsed();
-                advance(state, target_ns, elapsed);
-                last_tick = Instant::now();
-                if last_emit.elapsed() >= Duration::from_millis(50) {
-                    output.send_playback_state(snapshot(state));
-                    last_emit = Instant::now();
-                }
+                set_position(state, clock.position_at(Instant::now(), current.speed).min(target_ns));
+                emit_playback_state_if_due(state, last_state_emit, output);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => return false,
         }
     }
 }
 
-fn advance(state: &Arc<Mutex<PlaybackState>>, target_ns: i64, elapsed: Duration) {
-    if let Ok(mut state) = state.lock() {
-        let virtual_ns = elapsed.as_nanos() as f64 * state.speed;
-        state.position_ns = state
-            .position_ns
-            .saturating_add(virtual_ns.min(i64::MAX as f64) as i64)
-            .min(target_ns);
+fn emit_playback_state_if_due(
+    state: &Arc<Mutex<PlaybackState>>,
+    last_state_emit: &mut Instant,
+    output: &SampleSender,
+) {
+    if last_state_emit.elapsed() >= Duration::from_millis(50) {
+        output.send_playback_state(snapshot(state));
+        *last_state_emit = Instant::now();
     }
+}
+
+fn flush_samples(
+    pending: &mut HashMap<String, crate::Sample>,
+    session_id: u64,
+    output: &SampleSender,
+    last_sample_emit: &mut Instant,
+) -> Result<(), LogNookError> {
+    for sample in pending.drain().map(|(_, sample)| sample) {
+        output.send_playback_sample(session_id, sample)?;
+    }
+    *last_sample_emit = Instant::now();
+    Ok(())
 }
 
 fn apply(

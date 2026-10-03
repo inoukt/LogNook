@@ -9,6 +9,55 @@ export type SignalOption = {
   pid?: number;
 };
 
+const defaultSignalColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
+
+export function signalColor(signalId: string, index: number, overrides: Record<string, string>): string {
+  const color = overrides[signalId];
+  return color && /^#[\da-f]{6}$/i.test(color)
+    ? color
+    : defaultSignalColors[((index % defaultSignalColors.length) + defaultSignalColors.length) % defaultSignalColors.length];
+}
+
+export function averageInWindow(samples: Array<{ elapsed_ns: number; value: number }>, range: TimeWindow): number | undefined {
+  let total = 0;
+  let count = 0;
+  for (const sample of samples) {
+    if (sample.elapsed_ns < range.startNs || sample.elapsed_ns > range.endNs || !Number.isFinite(sample.value)) continue;
+    total += sample.value;
+    count++;
+  }
+  return count ? total / count : undefined;
+}
+
+export function sampleTimeRange(samples: Array<{ elapsed_ns: number }>): TimeWindow {
+  if (!samples.length) return { startNs: 0, endNs: 0 };
+  let startNs = Infinity;
+  let endNs = -Infinity;
+  for (const sample of samples) {
+    startNs = Math.min(startNs, sample.elapsed_ns);
+    endNs = Math.max(endNs, sample.elapsed_ns);
+  }
+  return { startNs, endNs };
+}
+
+export function followPlayhead(range: TimeWindow, positionNs: number, durationNs: number): TimeWindow {
+  const { startNs, endNs } = clampTimeWindow(range, durationNs);
+  const span = endNs - startNs;
+  if (!span) return { startNs, endNs };
+  const position = clampSeekPosition(positionNs, durationNs);
+  const start = Math.round(Math.min(Math.max(position - span / 2, 0), Math.max(0, durationNs - span)));
+  return { startNs: start, endNs: start + span };
+}
+
+export function positionAtChartX(clientX: number, left: number, width: number, range: TimeWindow): number {
+  const ratio = width > 0 ? Math.min(Math.max((clientX - left) / width, 0), 1) : 0;
+  return Math.round(range.startNs + (range.endNs - range.startNs) * ratio);
+}
+
+export function wheelScrubPosition(positionNs: number, deltaY: number, range: TimeWindow, durationNs: number): number {
+  return clampSeekPosition(positionNs + deltaY * Math.max(range.endNs - range.startNs, 0) / 1_000, durationNs);
+}
+
 export function filterSignals(signals: SignalOption[], query: string): SignalOption[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return signals;

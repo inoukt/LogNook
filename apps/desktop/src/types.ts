@@ -27,6 +27,7 @@ export type ChartTrace = {
   name: string;
   pid?: number;
   unit: string;
+  color?: string;
   samples: Sample[];
   current?: Sample;
   sampleRate: string;

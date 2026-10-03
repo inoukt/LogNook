@@ -51,6 +51,7 @@ pub fn run() {
             commands::delete_playback_marker,
             commands::recording_window,
             commands::recording_values_at,
+            commands::recording_averages,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run LogNook desktop app");

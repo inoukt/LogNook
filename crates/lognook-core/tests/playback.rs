@@ -111,10 +111,7 @@ fn seek_restarts_at_or_after_target() {
     let (mut engine, rx) = engine_with(&path);
     engine.seek_replay(400_000_000).unwrap();
     engine.start_replay(32.0).unwrap();
-    assert_eq!(
-        next_replay_sample(&rx, Duration::from_secs(1)).elapsed_ns,
-        500_000_000
-    );
+    assert!(next_replay_sample(&rx, Duration::from_secs(1)).elapsed_ns >= 500_000_000);
     engine.stop_replay();
     drop(engine);
     std::fs::remove_file(path).unwrap();
@@ -166,12 +163,92 @@ fn speed_change_updates_pending_delay() {
     next_replay_sample(&rx, Duration::from_secs(1));
     engine.set_replay_speed(8.0).unwrap();
     let started = Instant::now();
-    assert_eq!(
-        next_replay_sample(&rx, Duration::from_secs(1)).elapsed_ns,
-        500_000_000
-    );
+    assert!(next_replay_sample(&rx, Duration::from_secs(1)).elapsed_ns >= 500_000_000);
     assert!(started.elapsed() < Duration::from_millis(900));
     engine.stop_replay();
+    drop(engine);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn fast_replay_coalesces_readouts_but_preserves_latest_values_and_markers() {
+    let path = std::env::temp_dir().join(format!(
+        "lognook-fast-playback-{}.lognook",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let mut writer = RecordingWriter::create(&path).unwrap();
+    for index in 0..2_000_i64 {
+        for (signal_id, value) in [
+            ("engine_rpm", index as f64),
+            ("coolant_temp", (index * 2) as f64),
+        ] {
+            writer
+                .append(&Sample {
+                    elapsed_ns: index * 1_000_000,
+                    wall_time_unix_ns: 1_800_000_000_000_000_000 + index * 1_000_000,
+                    source_id: "fixture".into(),
+                    ecu_id: Some("engine".into()),
+                    signal_id: signal_id.into(),
+                    value,
+                    unit: "unit".into(),
+                    quality: SampleQuality::Valid,
+                    origin: SampleOrigin::Live,
+                    raw_bytes: None,
+                })
+                .unwrap();
+        }
+    }
+    writer
+        .add_marker(&Marker {
+            id: None,
+            elapsed_ns: 1_000_000_000,
+            wall_time_unix_ns: 1_800_000_001_000_000_000,
+            label: String::new(),
+            note: String::new(),
+        })
+        .unwrap();
+    writer.finish().unwrap();
+
+    let (mut engine, rx) = engine_with(&path);
+    engine.start_replay(32.0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut samples = 0;
+    let mut latest = std::collections::HashMap::new();
+    let mut found_marker = false;
+    let mut progress_updates = 0;
+    let mut finished = false;
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(EngineEvent::PlaybackSample { sample, .. }) => {
+                samples += 1;
+                latest.insert(sample.signal_id.clone(), sample.value);
+            }
+            Ok(EngineEvent::PlaybackMarker { marker, .. }) => {
+                found_marker |= marker.elapsed_ns == 1_000_000_000
+                    && marker.label.is_empty()
+                    && marker.note.is_empty();
+            }
+            Ok(EngineEvent::PlaybackState(state)) if state.playing && state.position_ns > 0 => {
+                progress_updates += 1;
+            }
+            Ok(EngineEvent::PlaybackFinished) => {
+                finished = true;
+                break;
+            }
+            Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    assert!(finished, "32× replay did not finish promptly");
+    assert!(samples < 100, "replay sent {samples} individual readouts");
+    assert_eq!(latest.get("engine_rpm"), Some(&1_999.0));
+    assert_eq!(latest.get("coolant_temp"), Some(&3_998.0));
+    assert!(progress_updates > 0, "replay did not report live position progress");
+    assert!(found_marker, "replay dropped the marker event");
     drop(engine);
     std::fs::remove_file(path).unwrap();
 }

@@ -9,8 +9,9 @@
     RecordingInfo, Sample, SignalDefinition,
   } from "./types";
   import {
-    clampSeekPosition, filterSignals, orderMarkersForTimeline, panTimeWindow,
-    setGraphSignal, setLogSignal, swapPositions, zoomTimeWindow, type SignalOption, type TimeWindow,
+    averageInWindow, clampSeekPosition, filterSignals, followPlayhead, orderMarkersForTimeline,
+    panTimeWindow, sampleTimeRange, setGraphSignal, setLogSignal, signalColor, swapPositions, wheelScrubPosition,
+    zoomTimeWindow, type SignalOption, type TimeWindow,
   } from "./workspace";
 
   let signalCatalog: SignalDefinition[] = [];
@@ -22,6 +23,8 @@
   let latest: Record<string, Sample> = {};
   let series: Record<string, Sample[]> = {};
   let sessionSeries: Record<string, Sample[]> = {};
+  let sessionAverages: Record<string, number> = {};
+  let signalColors: Record<string, string> = {};
   let session: RecordingInfo | null = null;
   let playback: PlaybackState = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
   let timeWindow: TimeWindow = { startNs: 0, endNs: 0 };
@@ -35,12 +38,15 @@
   let markerNote = "";
   let error = "";
   let signalSearch = "";
+  let wheelScrubbing = false;
   let statusHeight = 42;
   let statusResize: { y: number; height: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
   let graphRequest = 0;
   let readoutRequest = 0;
+  let wheelSeekFrame = 0;
+  let wheelSeekTarget = 0;
 
   $: availableSignals = session
     ? session.signals.map((recorded): SignalOption => {
@@ -58,12 +64,20 @@
     return signal ? [signal] : [];
   });
   $: filteredSignals = filterSignals(availableSignals, signalSearch);
+  $: liveGraphRange = sampleTimeRange(visibleSignals.flatMap((signal) => series[signal.id] ?? []));
+  $: signalAverages = session
+    ? sessionAverages
+    : Object.fromEntries(availableSignals.map((signal) => [
+        signal.id,
+        averageInWindow(series[signal.id] ?? [], liveGraphRange),
+      ]));
   $: markers = orderMarkersForTimeline(session?.markers ?? []);
   $: traces = visibleSignals.map((signal): ChartTrace => ({
     signalId: signal.id,
     name: signal.name,
     pid: signal.pid,
     unit: signal.unit,
+    color: signalColor(signal.id, availableSignals.indexOf(signal), signalColors),
     samples: session ? (sessionSeries[signal.id] ?? []) : (series[signal.id] ?? []),
     current: latest[signal.id],
     sampleRate: sampleRate(signal.id),
@@ -72,6 +86,11 @@
 
   onMount(() => {
     let disposed = false;
+    try {
+      const colors = JSON.parse(localStorage.getItem("lognook.signal-colors") ?? "{}");
+      if (colors && typeof colors === "object" && !Array.isArray(colors)) signalColors = colors;
+      wheelScrubbing = localStorage.getItem("lognook.wheel-scrubbing") === "true";
+    } catch { /* Ignore unavailable or malformed local preferences. */ }
     listen<EngineEvent>("lognook-event", ({ payload }) => handleEvent(payload))
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
@@ -122,6 +141,17 @@
     } else if (event.type === "playbackState") {
       if (event.payload.session_id !== playback.session_id) return;
       playback = event.payload;
+      if (playback.playing && session) {
+        let followRange = timeWindow;
+        if (followRange.endNs - followRange.startNs >= playback.duration_ns && playback.duration_ns > 30_000_000_000) {
+          followRange = { startNs: 0, endNs: 30_000_000_000 };
+        }
+        const span = followRange.endNs - followRange.startNs;
+        const center = followRange.startNs + span / 2;
+        if (span > 0 && Math.abs(playback.position_ns - center) > span * 0.1) {
+          timeWindow = followPlayhead(followRange, playback.position_ns, playback.duration_ns);
+        }
+      }
       replaying = playback.playing;
       status = playback.playing
         ? "Replaying session"
@@ -152,6 +182,7 @@
     readoutRequest++;
     session = null;
     sessionSeries = {};
+    sessionAverages = {};
     playback = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
   }
 
@@ -164,8 +195,9 @@
     latest = {};
     series = {};
     sessionSeries = {};
+    sessionAverages = {};
     playback = await invoke<PlaybackState>("playback_state");
-    await refreshPlaybackReadouts(playback.position_ns, graphSignalIds);
+    await refreshPlaybackReadouts(playback.position_ns, info.signals.map((signal) => signal.id));
     recordingPath = "loaded";
     exportPath = "";
     replaying = false;
@@ -175,18 +207,23 @@
 
   async function refreshGraphWindow(info: RecordingInfo, signalIds: string[], range: TimeWindow) {
     const request = ++graphRequest;
-    if (!signalIds.length) { sessionSeries = {}; return; }
     try {
-      const samples = await invoke<Sample[]>("recording_window", {
-        signalIds,
-        startNs: range.startNs,
-        endNs: range.endNs,
-        maxBuckets: 1_000,
-      });
+      const [samples, averages] = await Promise.all([
+        signalIds.length
+          ? invoke<Sample[]>("recording_window", {
+              signalIds,
+              startNs: range.startNs,
+              endNs: range.endNs,
+              maxBuckets: 1_000,
+            })
+          : Promise.resolve([]),
+        invoke<Record<string, number>>("recording_averages", { startNs: range.startNs, endNs: range.endNs }),
+      ]);
       if (request !== graphRequest || info !== session) return;
       const grouped: Record<string, Sample[]> = {};
       for (const sample of samples) (grouped[sample.signal_id] ??= []).push(sample);
       sessionSeries = grouped;
+      sessionAverages = averages;
     } catch (reason) {
       if (request === graphRequest) showError(reason);
     }
@@ -280,7 +317,17 @@
   function togglePlayback() {
     return run(async () => {
       if (playback.playing) await invoke("pause_replay");
-      else await invoke("start_replay", { speed: playback.speed });
+      else {
+        if (session && playback.duration_ns > 0) {
+          const currentSpan = timeWindow.endNs - timeWindow.startNs;
+          const span = Math.min(currentSpan || playback.duration_ns, playback.duration_ns, 30_000_000_000);
+          const view = currentSpan >= playback.duration_ns
+            ? { startNs: 0, endNs: Math.max(span, 1) }
+            : timeWindow;
+          timeWindow = followPlayhead(view, playback.position_ns, playback.duration_ns);
+        }
+        await invoke("start_replay", { speed: playback.speed });
+      }
       playback = await invoke<PlaybackState>("playback_state");
     });
   }
@@ -293,7 +340,17 @@
     return run(async () => {
       await invoke("seek_replay", { positionNs: clampSeekPosition(positionNs, playback.duration_ns) });
       playback = await invoke<PlaybackState>("playback_state");
-      await refreshPlaybackReadouts(playback.position_ns, graphSignalIds);
+      await refreshPlaybackReadouts(playback.position_ns, session?.signals.map((signal) => signal.id) ?? graphSignalIds);
+    });
+  }
+
+  function scrubWheel(deltaY: number) {
+    if (!session) return;
+    wheelSeekTarget = wheelScrubPosition(wheelSeekFrame ? wheelSeekTarget : playback.position_ns, deltaY, timeWindow, playback.duration_ns);
+    if (wheelSeekFrame) return;
+    wheelSeekFrame = requestAnimationFrame(() => {
+      wheelSeekFrame = 0;
+      seek(wheelSeekTarget);
     });
   }
 
@@ -358,8 +415,18 @@
   function toggleGraphSignal(signalId: string, enabled: boolean) {
     graphSignalIds = setGraphSignal(graphSignalIds, signalId, enabled);
     if (session && !playback.playing) {
-      refreshPlaybackReadouts(playback.position_ns, graphSignalIds).catch(showError);
+      refreshPlaybackReadouts(playback.position_ns, session.signals.map((signal) => signal.id)).catch(showError);
     }
+  }
+
+  function updateSignalColor(signalId: string, color: string) {
+    signalColors = { ...signalColors, [signalId]: color };
+    try { localStorage.setItem("lognook.signal-colors", JSON.stringify(signalColors)); } catch { /* Preferences are optional. */ }
+  }
+
+  function updateWheelScrubbing(event: Event) {
+    wheelScrubbing = (event.currentTarget as HTMLInputElement).checked;
+    try { localStorage.setItem("lognook.wheel-scrubbing", String(wheelScrubbing)); } catch { /* Preferences are optional. */ }
   }
 
   function swapGraphPositions(fromId: string, toId: string) {
@@ -389,6 +456,10 @@
     const delta = current.elapsed_ns - previous.elapsed_ns;
     return delta > 0 ? `${(1e9 / delta).toFixed(1)} Hz` : "— Hz";
   }
+
+  function formatSignalValue(value: number | undefined, unit: string): string {
+    return value === undefined ? `— ${unit}` : `${value.toFixed(1)} ${unit}`;
+  }
 </script>
 
 <svelte:head>
@@ -400,6 +471,14 @@
   <header class="topbar">
     <a class="brand" href="/" aria-label="LogNook home"><span class="brand-mark">L</span><span>Log<span class="brand-accent">Nook</span></span></a>
     <div class="connection-state" aria-label={status} title={status}><span class:online={connected} class:replay={replaying} class="state-dot"></span></div>
+    <details class="settings-menu">
+      <summary class="icon-button" aria-label="Settings" title="Settings">⚙</summary>
+      <div class="settings-popover">
+        <strong>Settings</strong>
+        <label><input type="checkbox" checked={wheelScrubbing} onchange={updateWheelScrubbing} /> Wheel scrubs graph</label>
+        <small>Replay keeps the playhead centered while playing.</small>
+      </div>
+    </details>
     <span class="milestone">FOUNDATION POC</span>
   </header>
 
@@ -469,11 +548,15 @@
       <aside class="panel signal-panel">
         <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : `${logSignalIds.length} logging · ${graphSignalIds.length} graphed`}</span></div>
         <input class="text-input signal-search" type="search" bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
-        <div class="signal-columns" aria-hidden="true"><span></span><span>Log</span><span>Graph</span></div>
+        <div class="signal-columns" aria-hidden="true"><span></span><span></span><span>Log</span><span>Graph</span></div>
         <div class="signal-list">
           {#each filteredSignals as signal (signal.id)}
             <div class="signal-option">
-              <span class="signal-copy"><span>{signal.name}</span><small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · {signal.unit}</small></span>
+              <input class="signal-color" type="color" value={signalColor(signal.id, availableSignals.indexOf(signal), signalColors)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
+              <span class="signal-copy">
+                <span class="signal-name-row"><span>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
+                <small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
+              </span>
               <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy} />
               <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id))} />
             </div>
@@ -493,6 +576,8 @@
             {traces}
             {graphMode}
             onReorder={swapGraphPositions}
+            onSeek={session ? seek : undefined}
+            onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
             timeWindow={session ? timeWindow : undefined}
             markers={session ? markers : []}
             playheadNs={session ? playback.position_ns : undefined}

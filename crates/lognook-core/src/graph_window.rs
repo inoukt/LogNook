@@ -96,6 +96,30 @@ pub fn query_recording_values_at(
     Ok(samples)
 }
 
+pub fn query_recording_averages(
+    path: &Path,
+    start_ns: i64,
+    end_ns: i64,
+) -> Result<HashMap<String, f64>, LogNookError> {
+    let duration_ns = inspect_recording(path)?.duration_ns.max(0);
+    let start_ns = start_ns.clamp(0, duration_ns);
+    let end_ns = end_ns.clamp(0, duration_ns);
+    if end_ns < start_ns {
+        return Ok(HashMap::new());
+    }
+
+    let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut statement = connection.prepare(
+        "SELECT signal_id, AVG(value) FROM samples
+         WHERE elapsed_ns >= ?1 AND elapsed_ns <= ?2 GROUP BY signal_id",
+    )?;
+    let rows = statement.query_map(params![start_ns, end_ns], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+    })?;
+    rows.collect::<Result<HashMap<_, _>, _>>()
+        .map_err(LogNookError::from)
+}
+
 fn map_graph_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphRow> {
     Ok(GraphRow {
         id: row.get(0)?,

@@ -130,3 +130,10 @@ cargo run -p lognook-desktop --features tauri/custom-protocol
 ```
 
 For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`. The MSI machine had Node.js but no `npm` command in the earlier environment check, so install/enable npm there before building this branch.
+
+## Replay and PID workspace refinements — 2026-10-02
+
+- Added persistent per-PID color pickers, current values, and averages over the visible graph range; session averages are queried from SQLite.
+- Replay auto-follows near the center of the visible graph. Clicking the graph seeks; blank marker labels/notes are allowed. Wheel scrubbing is optional in the settings menu.
+- Replay uses absolute playback deadlines and coalesces UI readouts per signal at 50 ms, preserving all recorded samples and marker events.
+- Verification: UI tests **17 passed**; `cargo test -p lognook-core` **66 passed**; Svelte check **0 errors / 0 warnings**; Vite build passed; Tauri development build launched. `cargo fmt` was unavailable because the rustfmt toolchain component is not installed.

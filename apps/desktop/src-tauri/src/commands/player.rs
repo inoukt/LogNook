@@ -2,7 +2,7 @@ use super::{engine, session_path};
 use crate::AppState;
 use lognook_core::{
     Marker, PlaybackState, RecordingInfo, Sample, import_csv_to_recording,
-    query_recording_values_at, query_recording_window,
+    query_recording_averages, query_recording_values_at, query_recording_window,
 };
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -156,6 +156,20 @@ pub fn recording_values_at(
             .map_err(|error| error.to_string())
     })?;
     query_recording_values_at(&path, &signal_ids, position_ns).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn recording_averages(
+    state: State<'_, AppState>,
+    start_ns: i64,
+    end_ns: i64,
+) -> Result<std::collections::HashMap<String, f64>, String> {
+    let path = engine(&state).and_then(|engine| {
+        engine
+            .active_session_path()
+            .map_err(|error| error.to_string())
+    })?;
+    query_recording_averages(&path, start_ns, end_ns).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

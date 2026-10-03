@@ -19,7 +19,7 @@ pub use adapter::HardwareAdapter;
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
 pub use engine::LogNookEngine;
-pub use graph_window::{query_recording_values_at, query_recording_window};
+pub use graph_window::{query_recording_averages, query_recording_values_at, query_recording_window};
 pub use model::{
     ConnectionCapabilities, DeviceDescriptor, EngineEvent, LogNookError, Marker, PlaybackState,
     Recording, RecordingInfo, RecordingSignal, RecordingSummary, Sample, SampleOrigin,

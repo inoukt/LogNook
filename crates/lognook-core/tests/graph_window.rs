@@ -1,6 +1,6 @@
 use lognook_core::{
     RecordingWriter, Sample, SampleOrigin, SampleQuality, query_recording_values_at,
-    query_recording_window,
+    query_recording_averages, query_recording_window,
 };
 use rusqlite::params;
 use std::{
@@ -89,6 +89,27 @@ fn query_values_at_returns_latest_selected_samples_before_playhead() {
     assert_eq!(values[0].elapsed_ns, 0);
     assert_eq!(values[1].signal_id, "coolant_temp");
     assert_eq!(values[1].elapsed_ns, 3);
+}
+
+#[test]
+fn query_averages_returns_per_signal_mean_for_visible_time_window() {
+    let directory = TempDir::new();
+    let path = directory.0.join("averages.lognook");
+    let mut writer = RecordingWriter::create(&path).unwrap();
+    for (time, signal, value) in [
+        (0, "engine_rpm", 800.0),
+        (1, "engine_rpm", 1_000.0),
+        (2, "engine_rpm", 1_200.0),
+        (1, "coolant_temp", 80.0),
+    ] {
+        writer.append(&sample(time, signal, value)).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let averages = query_recording_averages(&path, 1, 2).unwrap();
+
+    assert_eq!(averages.get("engine_rpm"), Some(&1_100.0));
+    assert_eq!(averages.get("coolant_temp"), Some(&80.0));
 }
 
 #[test]

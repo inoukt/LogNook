@@ -77,6 +77,8 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - Playback events and state carry a monotonically changing session ID. The UI ignores queued samples, markers, or state from a session that has since been replaced. A paused seek queries the latest stored value for each selected signal at or before the playhead.
 - The UI lists the signals present in the session. Catalog metadata is reused for known generic PIDs; unknown signal keys remain identifiable without inventing a PID. Graph samples come from a bounded SQLite window query that keeps first/minimum/maximum/last points per signal bucket (up to 2,000 buckets); saved samples stay full resolution.
 - Combined and separate graph layouts share one zoom/pan time window and draw marker positions plus the playhead. The player timeline, marker list, and PID list use the dark-slate scrollbar and teal accent styling.
+- Playback follows a monotonic virtual clock and emits only the latest replay readout per signal at a 50 ms cadence; markers flush pending readouts in order. This avoids per-sample UI backpressure at high speeds while preserving recorded samples in SQLite.
+- PID colors and the optional wheel-scrub setting are local renderer preferences. The graph click seeks the shared playback cursor; adding a marker at that cursor accepts blank label and note. Averages use the visible graph range (live retained points or SQLite `AVG` for sessions).
 
 ## Physical validation and transport decision
 

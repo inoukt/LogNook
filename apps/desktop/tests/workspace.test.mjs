@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  averageInWindow,
   chartPoints,
   clampSeekPosition,
   filterSignals,
+  followPlayhead,
   formatDurationNs,
   orderMarkersForTimeline,
   panTimeWindow,
+  positionAtChartX,
+  sampleTimeRange,
   setGraphSignal,
   setLogSignal,
+  signalColor,
   swapPositions,
+  wheelScrubPosition,
   zoomTimeWindow,
 } from "../src/workspace.ts";
 
@@ -21,6 +27,40 @@ const signals = [
 function point(elapsed_ns, value) {
   return { elapsed_ns, value };
 }
+
+test("PID average uses only samples in the visible time window", () => {
+  assert.equal(averageInWindow([point(0, 10), point(5, 20), point(10, 30)], { startNs: 5, endNs: 10 }), 25);
+  assert.equal(averageInWindow([point(0, 10)], { startNs: 5, endNs: 10 }), undefined);
+});
+
+test("visible PID ranges share the bounds of the plotted signals", () => {
+  const visibleRange = sampleTimeRange([point(100, 1), point(500, 2)]);
+  assert.deepEqual(visibleRange, { startNs: 100, endNs: 500 });
+  assert.equal(averageInWindow([point(0, 100), point(100, 10), point(200, 30)], visibleRange), 20);
+});
+
+test("playhead-follow preserves the visible span and clamps to recording bounds", () => {
+  assert.deepEqual(followPlayhead({ startNs: 100, endNs: 500 }, 800, 1_000), { startNs: 600, endNs: 1_000 });
+  assert.deepEqual(followPlayhead({ startNs: 100, endNs: 500 }, 0, 1_000), { startNs: 0, endNs: 400 });
+});
+
+test("graph clicks map screen coordinates to the visible recording time", () => {
+  const window = { startNs: 100, endNs: 900 };
+  assert.equal(positionAtChartX(25, 10, 100, window), 220);
+  assert.equal(positionAtChartX(-10, 10, 100, window), 100);
+  assert.equal(positionAtChartX(10, 10, 0, window), 100);
+});
+
+test("wheel scrubbing moves playback by a fraction of the visible time range", () => {
+  assert.equal(wheelScrubPosition(500, 100, { startNs: 0, endNs: 1_000 }, 2_000), 600);
+  assert.equal(wheelScrubPosition(1_950, 100, { startNs: 0, endNs: 1_000 }, 2_000), 2_000);
+});
+
+test("custom PID color overrides the default palette and invalid colors are ignored", () => {
+  assert.equal(signalColor("rpm", 0, {}), "#56c8bd");
+  assert.equal(signalColor("rpm", 0, { rpm: "#ff0000" }), "#ff0000");
+  assert.equal(signalColor("rpm", 0, { rpm: "red" }), "#56c8bd");
+});
 
 test("PID search matches names, descriptions, IDs, units, and decimal or hex PID", () => {
   assert.deepEqual(filterSignals(signals, "crankshaft"), [signals[0]]);

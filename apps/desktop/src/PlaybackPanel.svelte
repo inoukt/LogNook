@@ -52,7 +52,6 @@
   $effect(() => { if (!seeking) seekDraft = playback.position_ns; });
 
   function addMarker() {
-    if (!markerLabel.trim()) return;
     onAddMarker(markerLabel.trim(), markerNote.trim());
     markerLabel = "";
     markerNote = "";
@@ -66,7 +65,7 @@
   }
 
   function saveEdit() {
-    if (editingId === null || !editingLabel.trim()) return;
+    if (editingId === null) return;
     onUpdateMarker(editingId, editingLabel.trim(), editingNote.trim());
     editingId = null;
   }
@@ -133,7 +132,7 @@
       <form class="marker-create" onsubmit={(event) => { event.preventDefault(); addMarker(); }}>
         <input class="text-input marker-label-input" bind:value={markerLabel} placeholder="Marker label" aria-label="Marker label" disabled={disabled} />
         <input class="text-input marker-note-input" bind:value={markerNote} placeholder="Note (optional)" aria-label="Marker note" disabled={disabled} />
-        <button class="button secondary" type="submit" disabled={disabled || !markerLabel.trim()}>＋ Marker</button>
+        <button class="button secondary" type="submit" disabled={disabled}>＋ Marker</button>
       </form>
       <div class="marker-list" aria-label="Session markers">
         {#each markers as marker (marker.id ?? `${marker.elapsed_ns}-${marker.label}`)}
@@ -148,7 +147,7 @@
           {:else}
             <div class="marker-item">
               <button class="marker-jump" onclick={() => onJumpMarker(marker.elapsed_ns)} title={marker.note || marker.label}>
-                <span class="marker-time">{formatDurationNs(marker.elapsed_ns)}</span><strong>{marker.label}</strong>
+                <span class="marker-time">{formatDurationNs(marker.elapsed_ns)}</span><strong>{marker.label || "Marker"}</strong>
               </button>
               {#if marker.id !== null}
                 <button class="icon-button" aria-label={`Edit ${marker.label}`} onclick={() => edit(marker)}>✎</button>

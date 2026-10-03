@@ -49,15 +49,38 @@ fn live_recording_and_replay_share_the_sample_event_pipeline() {
     assert_eq!(recorded.markers[0].label, "test marker");
     engine.replay_recording(&path, 32.0).unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
-    let mut replay_count = 0;
+    let mut replay_latest = std::collections::HashMap::new();
+    let mut replay_marker = false;
+    let mut replay_finished = false;
     while Instant::now() < deadline {
         match event_rx.recv_timeout(Duration::from_millis(250)) {
-            Ok(EngineEvent::PlaybackSample { .. }) => replay_count += 1,
-            Ok(EngineEvent::PlaybackFinished) => break,
+            Ok(EngineEvent::PlaybackSample { sample, .. }) => {
+                replay_latest.insert(sample.signal_id.clone(), sample);
+            }
+            Ok(EngineEvent::PlaybackMarker { marker, .. }) => {
+                replay_marker |= marker.label == "test marker";
+            }
+            Ok(EngineEvent::PlaybackFinished) => {
+                replay_finished = true;
+                break;
+            }
             _ => {}
         }
     }
-    assert_eq!(replay_count, recorded.samples.len());
+    assert!(replay_finished, "replay did not finish");
+    assert_eq!(replay_latest.len(), 2);
+    for signal_id in ["engine_rpm", "coolant_temp"] {
+        let recorded_latest = recorded
+            .samples
+            .iter()
+            .filter(|sample| sample.signal_id == signal_id)
+            .max_by_key(|sample| sample.elapsed_ns)
+            .unwrap();
+        let replayed = replay_latest.get(signal_id).unwrap();
+        assert_eq!(replayed.elapsed_ns, recorded_latest.elapsed_ns);
+        assert_eq!(replayed.value, recorded_latest.value);
+    }
+    assert!(replay_marker, "replay did not preserve marker events");
     engine.disconnect().unwrap();
     std::fs::remove_file(path).unwrap();
 }

@@ -3,13 +3,15 @@
   import type { ChartTrace, Marker } from "./types";
   import type { TimeWindow } from "./workspace";
 
-  let { traces, graphMode, onReorder, timeWindow, markers = [], playheadNs }: {
+  let { traces, graphMode, onReorder, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub }: {
     traces: ChartTrace[];
     graphMode: "overlay" | "separate";
     onReorder: (fromId: string, toId: string) => void;
     timeWindow?: TimeWindow;
     markers?: Marker[];
     playheadNs?: number;
+    onSeek?: (positionNs: number) => void;
+    onWheelScrub?: (deltaY: number) => void;
   } = $props();
   let draggedSignal = $state<string | null>(null);
 
@@ -43,7 +45,7 @@
   <div class="chart-layout overlay-layout">
     <article class="panel chart-card">
       <div class="chart-heading combined-heading"><div><h3>Selected signals</h3><p>Shared time axis · each signal uses its own vertical scale</p></div></div>
-      <LiveChart {traces} showLegend={true} {timeWindow} {markers} {playheadNs} />
+      <LiveChart {traces} showLegend={true} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} />
     </article>
   </div>
 {:else}
@@ -66,7 +68,7 @@
           </div>
           <div class="metric"><strong>{trace.current ? trace.current.value.toFixed(1) : "—"}</strong><span>{trace.unit}</span></div>
         </div>
-        <LiveChart traces={[trace]} showLegend={false} {timeWindow} {markers} {playheadNs} />
+        <LiveChart traces={[trace]} showLegend={false} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} />
         <div class="chart-footer"><span>{trace.current?.quality ?? "waiting"}</span><span>{trace.sampleRate}</span></div>
       </article>
     {/each}
