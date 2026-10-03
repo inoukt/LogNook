@@ -127,6 +127,19 @@ pub struct RecordingSummary {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RecordingSignal {
+    pub id: String,
+    pub unit: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RecordingInfo {
+    pub sample_count: usize,
+    pub duration_ns: i64,
+    pub signals: Vec<RecordingSignal>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum EngineEvent {
     Connected(ConnectionCapabilities),

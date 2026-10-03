@@ -1,5 +1,6 @@
 use crate::model::{
-    LogNookError, Marker, Recording, RecordingSummary, Sample, SampleOrigin, SampleQuality,
+    LogNookError, Marker, Recording, RecordingInfo, RecordingSignal, RecordingSummary, Sample,
+    SampleOrigin, SampleQuality,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{
@@ -94,10 +95,35 @@ pub(crate) enum RecordedEvent {
     Marker(Marker),
 }
 
-pub(crate) fn visit_recording_events(
-    path: &Path,
-    mut visit: impl FnMut(RecordedEvent) -> Result<bool, LogNookError>,
-) -> Result<bool, LogNookError> {
+pub fn inspect_recording(path: &Path) -> Result<RecordingInfo, LogNookError> {
+    let connection = open_recording(path)?;
+    let sample_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM samples", [], |row| row.get(0))?;
+    let duration_ns: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(elapsed_ns), 0) FROM (
+           SELECT elapsed_ns FROM samples UNION ALL SELECT elapsed_ns FROM markers
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let mut statement = connection
+        .prepare("SELECT DISTINCT signal_id, unit FROM samples ORDER BY signal_id, unit")?;
+    let signals = statement
+        .query_map([], |row| {
+            Ok(RecordingSignal {
+                id: row.get(0)?,
+                unit: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RecordingInfo {
+        sample_count: sample_count as usize,
+        duration_ns,
+        signals,
+    })
+}
+
+fn open_recording(path: &Path) -> Result<Connection, LogNookError> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let version: Option<String> = connection
         .query_row(
@@ -111,6 +137,14 @@ pub(crate) fn visit_recording_events(
             "Unsupported or missing .lognook schema version",
         ));
     }
+    Ok(connection)
+}
+
+pub(crate) fn visit_recording_events(
+    path: &Path,
+    mut visit: impl FnMut(RecordedEvent) -> Result<bool, LogNookError>,
+) -> Result<bool, LogNookError> {
+    let connection = open_recording(path)?;
     let mut statement = connection.prepare(
         "SELECT kind, id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id,
          value, unit, quality, origin, raw_bytes, label, note FROM (

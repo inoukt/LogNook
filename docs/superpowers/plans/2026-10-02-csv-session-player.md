@@ -36,7 +36,6 @@
 
 **Files:**
 - Modify: `crates/lognook-core/src/csv_io.rs`
-- Modify: `crates/lognook-core/src/lib.rs`
 - Test: `crates/lognook-core/tests/recording.rs`
 - Test: `crates/lognook-core/tests/csv_roundtrip.rs`
 
@@ -55,7 +54,7 @@
 ### Task 2: Atomic CSV import and session metadata
 
 **Files:**
-- Modify: `crates/lognook-core/src/csv_io.rs`
+- Create: `crates/lognook-core/src/csv_import.rs`
 - Modify: `crates/lognook-core/src/recording.rs`
 - Modify: `crates/lognook-core/src/model.rs`
 - Modify: `crates/lognook-core/src/lib.rs`
@@ -63,13 +62,13 @@
 
 **Interfaces:**
 - Consume: `visit_csv_events` from Task 1 and `RecordingWriter`.
-- Produce: `pub fn import_csv_to_recording(source: &Path, target: &Path) -> Result<RecordingSummary, LogNookError>`; stream into a temporary sibling session, integrity-check it, then atomically rename it to `target`.
+- Produce: `pub fn import_csv_to_recording(source: &Path, target: &Path) -> Result<RecordingSummary, LogNookError>` in `csv_import.rs`; stream into a temporary sibling session, integrity-check it, atomically create `target` without replacement, then remove the temporary path.
 - Produce: `pub fn inspect_recording(path: &Path) -> Result<RecordingInfo, LogNookError>` where `RecordingInfo` has `sample_count`, `duration_ns`, and distinct `{ id, unit }` signals. Task 3 adds marker IDs/list to this type.
 - Preserve: existing `.lognook` schema version 1 and its `samples_by_time` index.
 
 - [ ] **Step 1: Add failing tests** `imports_sample_only_csv_without_event_type`, `imports_legacy_marker_sidecar_once`, `inline_markers_take_precedence_over_sidecar`, `unknown_event_type_reports_row`, `empty_csv_is_rejected`, `failed_import_removes_temp_and_preserves_target`, and `inspect_recording_reports_duration_and_signals`. Assert sample/marker counts, timestamps, durations, signal IDs/units, row-number errors, temp cleanup, and byte-for-byte preservation of an existing target.
 - [ ] **Step 2: Run** `cargo test -p lognook-core --test csv_import`; expect compilation to fail because the import and metadata APIs are missing.
-- [ ] **Step 3: Implement** streaming import through `RecordingWriter`; use a temporary path and clean it on parse, write, integrity, or rename failure. Import a legacy sidecar only when the main file has no inline markers.
+- [ ] **Step 3: Implement** streaming import through `RecordingWriter`; use a temporary path and clean it on parse, write, integrity, or publication failure. Publish with a same-directory hard link so an existing target cannot be replaced. Import a legacy sidecar only when the main file has no inline markers.
 - [ ] **Step 4: Run** `cargo test -p lognook-core --test csv_import`; expect all import cases to pass and no partial target to remain after failure.
 - [ ] **Step 5: Commit** as `feat: import csv as lognook sessions`.
 

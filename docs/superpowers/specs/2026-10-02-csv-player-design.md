@@ -72,7 +72,9 @@ source. Existing CSV export naming and no-overwrite behavior remain in force.
   only its Rust dependency and initialize it in the Tauri builder.
 - Reuse `RecordingWriter` and the current SQLite session schema. Import into a
   temporary path, validate all rows, finish and integrity-check the database,
-  then rename it to its final unique session path.
+  then atomically create the unique final path without overwriting anything.
+  Remove the temporary link after promotion; if the filesystem cannot safely
+  publish the completed database, fail and remove the temporary files.
 - Keep the source CSV untouched. Import legacy sidecars only when no inline
   markers are present, preventing duplicate annotations.
 - Export events in timestamp order from the session database. Marker IDs stay
