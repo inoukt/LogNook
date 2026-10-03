@@ -24,7 +24,7 @@
     RecordingInfo, Sample, SignalDefinition,
   } from "./types";
   import {
-    averageInWindow, clampSeekPosition, filterSignals, followPlayhead, orderMarkersForTimeline,
+    averageInWindow, clampSeekPosition, filterSignals, followPlayhead, graphRefreshIntervalMs, orderMarkersForTimeline,
     panTimeWindow, restoreWorkspacePreferences, sampleTimeRange, scrubTimeWindow, setGraphSignal,
     setLogSignal, signalColor, swapPositions, zoomTimeWindow, type SignalOption, type TimeWindow,
     type WorkspacePreferences, type WorkspaceTheme,
@@ -608,7 +608,8 @@
   function scheduleGraphWindow(info: RecordingInfo, signalIds: string[], range: TimeWindow) {
     pendingGraphRefresh = { info, signalIds: [...signalIds], range: { ...range } };
     if (graphRefreshTimer !== undefined) return;
-    const delay = Math.max(0, 100 - (performance.now() - lastGraphRefreshAt));
+    const scrubbing = scrubPending !== null || scrubInFlight !== null;
+    const delay = Math.max(0, graphRefreshIntervalMs(scrubbing) - (performance.now() - lastGraphRefreshAt));
     graphRefreshTimer = window.setTimeout(() => {
       graphRefreshTimer = undefined;
       lastGraphRefreshAt = performance.now();

@@ -22,6 +22,10 @@ export type SignalOption = {
   pid?: number;
 };
 
+export function graphRefreshIntervalMs(scrubbing: boolean): number {
+  return scrubbing ? 33 : 100;
+}
+
 const defaultSignalColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
 
 export function restoreWorkspacePreferences(

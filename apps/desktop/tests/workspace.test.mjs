@@ -8,6 +8,7 @@ import {
   followPlayhead,
   formatDurationNs,
   formatTimelineNs,
+  graphRefreshIntervalMs,
   orderMarkersForTimeline,
   panTimeWindow,
   positionAtChartX,
@@ -149,6 +150,11 @@ test("workspace UI scale stays within 80–120 percent and defaults malformed va
   assert.equal(restoreScale(70), 80);
   assert.equal(restoreScale(125), 120);
   assert.equal(restoreScale("90"), 100);
+});
+
+test("graph refresh interval is faster while scrubbing the timeline", () => {
+  assert.equal(graphRefreshIntervalMs(true), 33);
+  assert.equal(graphRefreshIntervalMs(false), 100);
 });
 
 test("PID search matches names, descriptions, IDs, units, and decimal or hex PID", () => {
