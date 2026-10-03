@@ -28,6 +28,9 @@
   let shortcutBindings = $state<ShortcutBindings>({ ...defaultShortcuts });
   let capturingShortcut = $state<ShortcutAction | null>(null);
   let shortcutCaptureError = $state("");
+  let scalePreview = $state(uiScale);
+
+  $effect(() => { scalePreview = uiScale; });
 
   onMount(() => {
     let saved: string | null = null;
@@ -100,6 +103,14 @@
     try { localStorage.setItem("lognook.wheel-scrubbing", String(wheelScrubbing)); } catch { /* Preferences are optional. */ }
   }
 
+  function previewScale(event: Event) {
+    scalePreview = Number((event.currentTarget as HTMLInputElement).value);
+  }
+
+  function applyScale() {
+    uiScale = scalePreview;
+  }
+
   function reset() {
     shortcutBindings = { ...defaultShortcuts };
     capturingShortcut = null;
@@ -124,8 +135,8 @@
     </label>
     <label><input type="checkbox" checked={highContrast} onchange={(event) => highContrast = event.currentTarget.checked} /> High contrast</label>
     <label class="settings-scale">
-      <span>UI scale <strong>{uiScale}%</strong></span>
-      <input type="range" min="80" max="120" step="5" aria-label="UI scale" aria-valuetext={`${uiScale}%`} value={uiScale} oninput={(event) => uiScale = Number(event.currentTarget.value)} />
+      <span>UI scale <strong>{scalePreview}%</strong></span>
+      <input type="range" min="80" max="120" step="5" aria-label="UI scale" aria-valuetext={`${scalePreview}%`} value={scalePreview} oninput={previewScale} onchange={applyScale} />
     </label>
     <label><input type="checkbox" checked={wheelScrubbing} onchange={updateWheelScrubbing} /> Wheel scrubs graph</label>
     <small>Replay keeps the playhead centered while playing.</small>

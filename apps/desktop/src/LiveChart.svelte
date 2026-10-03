@@ -229,7 +229,7 @@
       {/if}
     {/each}
   {:else}
-    <text x="360" y="91" text-anchor="middle">Waiting for samples</text>
+    <text class="waiting-message" x="360" y="91" text-anchor="middle">Waiting for samples</text>
   {/if}
   {#if cursorTimeNs !== null}
     <line class="cursor-guide" x1={timeBounds[1] > timeBounds[0] ? ((cursorTimeNs - timeBounds[0]) / (timeBounds[1] - timeBounds[0])) * 720 : 0} y1="16" x2={timeBounds[1] > timeBounds[0] ? ((cursorTimeNs - timeBounds[0]) / (timeBounds[1] - timeBounds[0])) * 720 : 0} y2="146" />
@@ -237,15 +237,15 @@
 </svg>
 </div>
 
-{#if cursorTimeNs !== null}
-  <div class="chart-cursor-readout" role="status" aria-live="polite">
+<div class="chart-cursor-readout" role="status" aria-live="polite">
+  {#if cursorTimeNs !== null}
     <strong>{formatDurationNs(cursorTimeNs)}</strong>
     {#each cursorReadouts as item (item.signalId)}
       <span>{item.name}: {item.sample ? `${item.sample.value.toFixed(2)} ${item.unit}` : "—"}{formatDerivedExpression(item.formula)}</span>
     {/each}
     {#if cursorPinned}<button class="clear-cursor" aria-label="Clear pinned cursor" onclick={() => { cursorPinned = false; cursorTimeNs = null; }}>×</button>{/if}
-  </div>
-{/if}
+  {/if}
+</div>
 
 {#if showLegend}
   <div class="chart-legend" aria-label="Signal values">
@@ -262,7 +262,7 @@
 {/if}
 
 <style>
-  .chart-cursor-readout { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 6px 2px 2px; color: var(--text-muted); font-size: 10px; }
+  .chart-cursor-readout { height: 24px; min-width: 0; flex: 0 0 24px; display: flex; align-items: center; flex-wrap: nowrap; gap: 4px 12px; overflow-x: auto; overflow-y: hidden; padding: 2px; color: var(--text-muted); font-size: 10px; white-space: nowrap; }
   .chart-cursor-readout strong { color: var(--text); }
   .clear-cursor { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--surface-raised); color: var(--text-muted); cursor: pointer; }
   .reference-legend { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; }

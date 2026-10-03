@@ -239,6 +239,7 @@ svg circle.marker-cap { fill: #f0d45c; }
 svg line.playhead-guide { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
 svg polyline { fill: none; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 svg text { fill: var(--text-muted); font-size: 11px; }
+svg text.waiting-message { font-size: calc(11px / var(--ui-scale-factor, 1)); }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 8px 17px; padding: 9px 2px 2px; border-top: 1px solid var(--border-soft); }
 .legend-item { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: 10px; }
 .legend-swatch { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--trace-color); }
