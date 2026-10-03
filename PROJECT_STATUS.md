@@ -1,6 +1,6 @@
 # LogNook project status
 
-Updated 2026-10-02 · **Milestone 1 simulator complete; the OBDLink SX has completed live read-only acquisition and Ford transport/PID benchmarks on the MSI test computer. The production SX adapter now uses the measured grouped Mode 01 path on verified CAN 11/500.** The five-signal UI CSV contains 1,095 valid live rows—219 per signal—over about 65.6 seconds. The Ford advertised 41 PIDs; all 35 public generic candidates marked auto-requestable in the PIDs seed returned valid responses, individually and in seven combined SAE PID request groups. Bare requests measured about 16.6 aggregate responses/s; single-PID STPX measured about 33.3 responses/s. Five-PID stuffing measured 80.5 PID values/s, and the seven groups returned 350/350 values at 81.42 values/s. OBDwiz 4.36 release notes document its “Combine SAE PID Requests” setting, consistent with the user's reported >=50 PID-values/s observation. Six advertised PIDs remain marked review-required because they need structured or multi-channel decoders.
+Updated 2026-10-02 · **Milestone 1 simulator complete; the OBDLink SX has completed live read-only acquisition and Ford transport/PID benchmarks on the MSI test computer. The production SX adapter now uses the measured grouped Mode 01 path on verified CAN 11/500. The CSV session player now imports mixed/legacy CSV, replays `.lognook` sessions with controls, and supports persistent markers and zoomable graph windows.** The five-signal UI CSV contains 1,095 valid live rows—219 per signal—over about 65.6 seconds. The Ford advertised 41 PIDs; all 35 public generic candidates marked auto-requestable in the PIDs seed returned valid responses, individually and in seven combined SAE PID request groups. Bare requests measured about 16.6 aggregate responses/s; single-PID STPX measured about 33.3 responses/s. Five-PID stuffing measured 80.5 PID values/s, and the seven groups returned 350/350 values at 81.42 values/s. OBDwiz 4.36 release notes document its “Combine SAE PID Requests” setting, consistent with the user's reported >=50 PID-values/s observation. Six advertised PIDs remain marked review-required because they need structured or multi-channel decoders.
 
 This Git checkout preserves the existing source and external-agent reports. The hardware records are [OBDLink SX / Ford physical test](docs/hardware/2026-10-02-sx-ford.md), [the direct current-check log](docs/hardware/2026-10-02-sx-current-check.log), [the key-on retry log](docs/hardware/2026-10-02-sx-key-on-retry.log), and [the remaining-PID log](docs/hardware/2026-10-02-sx-remaining-pids.log).
 
@@ -12,8 +12,8 @@ This Git checkout preserves the existing source and external-agent reports. The 
 - Live SX connection queries supported generic Mode 01 PID ranges, follows each bitmap continuation flag, filters the shared 35-signal catalog by ECU support, and reads only selected supported signals. On ISO 15765-4 CAN 11/500, it enables headers and uses grouped `STPX` only when discovery identifies one standard `7E8`–`7EF` responder; it derives the matching physical request header, reassembles complete ISO-TP replies, and restores volatile echo/header settings on disconnect or failure. When a single standard responder ID is unavailable, it retains the per-PID path. The adapter sends no reset, wake pulse, saved-protocol/NVM command, DTC-clear request, OEM/UDS request, or actuator/write request.
 - Separate Tauri/UI Identify SX action sends identity queries only; live acquisition is a separate action. The simulator remains available.
 - Synthetic fixtures plus actual Ford/SX identity, supported-PID, and grouped-response captures. Tests cover no startup banner, optional startup frames, silent replies, wrong identity, exact USB matching, malformed/truncated/multiple-ECU replies, all 35 seed decoders, grouping all signals into seven responses of at most two CAN frames, supported-PID selection, and volatile setting restoration.
-- Bounded acquisition-to-recording/UI pipeline, SQLite `.lognook` recording, marker insertion, incremental replay, CSV export/import helpers, raw-byte CSV field, and marker sidecar.
-- Tauri 2 command/event bridge and Svelte/TypeScript UI with a compact toolbar, searchable PID picker, combined graph, separate draggable/resizable signal graphs, record, marker, export, and replay controls.
+- Bounded acquisition-to-recording/UI pipeline, SQLite `.lognook` recording, marker insertion/edit/delete, controlled replay, bounded graph-window queries, and CSV sample/marker event import/export.
+- Tauri 2 native CSV picker and command/event bridge; Svelte/TypeScript UI with a searchable PID picker, combined and separate draggable/resizable graphs, zoom/pan, playback speed/seek, marker controls, recording, and CSV export.
 - Failure handling for adapter reads, invalid measurements, and recording writes. CSV exports refuse to overwrite existing files.
 - External-agent tasks and completed reports remain in `Work to do by Ext Agent/` and `results/`.
 
@@ -88,7 +88,7 @@ OpenPort 2: the user chose to retain the OPTA WinUSB binding. The matching signe
 
 ## Remaining POC limits
 
-The Ford bench advertised 41 generic PIDs. The shared scalar signal catalog and production picker support the 35 seed entries marked `public_reference` and `auto_request=True`; the six review-required entries (`01`, `15`, `19`, `34`, `38`, `41`) need structured or sub-channel decoders. The grouped production path is covered by fixtures and unit tests; application throughput has not yet been remeasured on the vehicle. Multiple ECU responders remain rejected, and Ford enhanced/MS-CAN support is not claimed. There is no scripted timeout/disconnect simulator, marker-sidecar importer, CSV import UI, session browser, installer, or Linux packaging. The COM4 transport remains the production implementation; direct D2XX was used only for diagnostics.
+The Ford bench advertised 41 generic PIDs. The shared scalar signal catalog and production picker support the 35 seed entries marked `public_reference` and `auto_request=True`; the six review-required entries (`01`, `15`, `19`, `34`, `38`, `41`) need structured or sub-channel decoders. The grouped production path is covered by fixtures and unit tests; application throughput has not yet been remeasured on the vehicle. Multiple ECU responders remain rejected, and Ford enhanced/MS-CAN support is not claimed. There is no scripted timeout/disconnect simulator, session browser, installer, or Linux packaging. The COM4 transport remains the production implementation; direct D2XX was used only for diagnostics.
 
 ## Grouped SX polling implementation and verification — 2026-10-02
 
@@ -108,3 +108,20 @@ passed. This host has no `npm` command, so the UI test and build script commands
 were run through the bundled Node executable and `apps/desktop/node_modules/.bin`.
 The 81.42 PID-values/s result is from the previously completed hardware bench;
 the application has not yet been run against the Ford after this code change.
+
+## CSV session player progress — 2026-10-02
+
+- Added mixed sample/marker CSV export and import into a new `.lognook` session. Legacy sample-only CSV and old marker sidecars remain readable; round-trip coverage preserves timestamps, raw bytes, labels, and notes.
+- Added streaming, interruptible playback with pause/resume, seek, speed, progress events, persistent marker editing, and a bounded SQLite graph window.
+- Added the native CSV picker, session-aware searchable signal list, combined/separate graph marker lines, zoom/pan/reset, player timeline, marker controls, and themed scrollbars.
+- Verification on `feature/csv-session-player`: Rust workspace **65 passed, 0 failed**; `cargo check --workspace` passed; formatting check passed; custom-protocol desktop build passed; UI tests **9 passed**; Svelte check **0 errors / 0 warnings**; Vite build passed.
+- A launch smoke check opened a native window titled `LogNook`. The imported CSV player was not manually operated in the native window, and this player change was not tested against a physical SX. Physical SX acquisition/throughput evidence remains in the hardware reports above.
+- Build and launch from the repository root:
+
+```bat
+cargo test --workspace
+cargo build -p lognook-desktop --features tauri/custom-protocol
+cargo run -p lognook-desktop --features tauri/custom-protocol
+```
+
+For the frontend checks, run `npm run test:ui` and `npm run build` from `apps/desktop`.

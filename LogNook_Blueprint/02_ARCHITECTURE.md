@@ -65,8 +65,18 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - Acquisition serializes adapter reads at a 100 ms target and submits timestamped samples to a bounded 256-item synchronous queue. A slow recorder applies backpressure. The UI consumes pipeline events rather than synthesizing measurements.
 - Samples retain monotonic elapsed time, UTC receive time, source/ECU, units, quality, origin, and optional raw OBD bytes. Missing ECU-address headers remain unknown; no ECU address is fabricated.
 - A recording is a new SQLite `.lognook` file with WAL during acquisition. Clean close checkpoints and verifies integrity. Original sample timestamps, raw bytes, quality, and separate markers are retained.
-- CSV is long-form with `raw_hex`; markers use a sibling `*-markers.csv`. Export refuses overwrites. Replay/export walk rows incrementally and replay feeds the same bounded pipeline with `origin=replay`.
+- CSV is long-form with `raw_hex` and typed `event_type=sample|marker` rows. Export refuses overwrites. The importer accepts older sample-only CSV and imports legacy `*-markers.csv` sidecars only when inline marker events are absent. CSV import streams into a new SQLite session and preserves the selected source. Playback reads ordered session events incrementally and feeds samples through the same bounded pipeline with `origin=replay`.
 - Tauri owns app-local recording paths and bridges the engine to Svelte. The PID picker and combined/separate graphs share timestamped pipeline samples with recording and replay.
+
+### CSV session player
+
+- `LogNookEngine` loads an inspected `.lognook` session and owns one interruptible playback worker. Pause, resume, seek, speed changes, and stop do not wait for a long event gap. Playback state is serialized as position, duration, speed, and playing status and is sent through the pipeline event stream, with progress capped at 20 updates per second.
+- Imported CSV sessions are streamed to a temporary SQLite file, integrity-checked, then published with a same-directory hard link so an existing target is never replaced. On filesystems without hard-link support, import fails safely and removes the temporary file.
+- Marker IDs are session-local SQLite IDs. Add, edit, and delete operations pause playback until its read cursor closes, commit the marker change, then resume at the same position. CSV stores marker time, wall time, label, and note, but not the local ID.
+- Elapsed times must be non-negative. CSV sample rows reject marker-only fields, marker rows reject measurement fields, and an absent marker note becomes an empty note. Errors include the CSV row number.
+- Playback events and state carry a monotonically changing session ID. The UI ignores queued samples, markers, or state from a session that has since been replaced. A paused seek queries the latest stored value for each selected signal at or before the playhead.
+- The UI lists the signals present in the session. Catalog metadata is reused for known generic PIDs; unknown signal keys remain identifiable without inventing a PID. Graph samples come from a bounded SQLite window query that keeps first/minimum/maximum/last points per signal bucket (up to 2,000 buckets); saved samples stay full resolution.
+- Combined and separate graph layouts share one zoom/pan time window and draw marker positions plus the playhead. The player timeline, marker list, and PID list use the dark-slate scrollbar and teal accent styling.
 
 ## Physical validation and transport decision
 
@@ -135,5 +145,5 @@ Sources: [OBDLink FRPM Rev F](https://www.scantool.net/scantool/downloads/682/ob
 - Physical validation covers one SX/Ford connection, 41 advertised generic PIDs, successful reads for all 35 auto-requestable seed candidates, live samples for all five original UI signals, and a roughly 66-second recording of those five. The diagnostic bench measured 81.42 aggregate PID values/second across width-aware grouped queries. A live LogNook application run is still needed to verify application-level rate and stability.
 - Multiple ECU responders are rejected until explicit selection is implemented. The grouped CAN fast path first enables headers and identifies one responder; the app still does not support multiple ECU selection. Ford enhanced/MS-CAN support is not claimed.
 - The simulator supplies plausible values, timestamps, and response delays; scripted disconnects, malformed replies, and variable ECU sets are not implemented.
-- CSV import exists in the core and has round-trip coverage; no import wizard or session browser exists. The graph keeps a 180-point display window; persisted data remains un-decimated.
+- CSV import and a shared session player are available. A session browser and alternate CSV schemas are out of scope. Live graphs keep a 180-point display window; session graphs request a bounded window from SQLite, while persisted data remains full resolution.
 - The updated SX controls were not exercised in a native Tauri window during the hardware follow-up. No installer or release package has been validated.

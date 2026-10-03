@@ -1,6 +1,6 @@
 # CSV Session Player Design
 
-**Status:** Ready for user review
+**Status:** Approved; implementation complete
 
 **Date:** 2026-10-02
 
@@ -46,6 +46,8 @@ event_type,elapsed_ns,wall_time_unix_ns,source_id,ecu_id,signal_key,value,unit,q
 - `event_type=sample` rows retain the existing measurement fields.
 - `event_type=marker` rows contain elapsed time, wall time, label, and note;
   measurement-specific fields are empty.
+- An empty marker note is valid. Cross-kind fields are rejected, and elapsed
+  times must be non-negative.
 - The importer continues to accept the current sample-only format, which has
   no `event_type` column.
 - Old `<name>-markers.csv` sidecars are imported when the main file has no
@@ -97,6 +99,9 @@ will follow the [Tauri 2 Dialog plugin guide](https://v2.tauri.app/plugin/dialog
 - Emit bounded playback-state updates with position, duration, speed, and
   paused/playing state. Validate speed with the existing `0.1x`–`32x` engine
   limit.
+- Tag replay events with the active session ID so queued events from a replaced
+  session can be ignored. A paused seek refreshes the current values from the
+  latest sample at or before the playhead.
 - Serialize marker edits with playback reads: pause and release the reader,
   commit the marker transaction to the active session, then resume from the
   same playhead if playback was running. A write failure leaves the marker
