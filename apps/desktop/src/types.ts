@@ -25,7 +25,7 @@ export type Sample = {
 export type ChartTrace = {
   signalId: string;
   name: string;
-  pid: number;
+  pid?: number;
   unit: string;
   samples: Sample[];
   current?: Sample;
@@ -46,12 +46,37 @@ export type ConnectionCapabilities = {
   supported_signals: SignalDefinition[];
 };
 
+export type Marker = {
+  id: number | null;
+  elapsed_ns: number;
+  wall_time_unix_ns: number;
+  label: string;
+  note: string;
+};
+
+export type RecordingSignal = { id: string; unit: string };
+
+export type RecordingInfo = {
+  sample_count: number;
+  duration_ns: number;
+  signals: RecordingSignal[];
+  markers: Marker[];
+};
+
+export type PlaybackState = {
+  position_ns: number;
+  duration_ns: number;
+  speed: number;
+  playing: boolean;
+};
+
 export type EngineEvent =
   | { type: "connected"; payload: ConnectionCapabilities }
   | { type: "disconnected"; payload?: null }
   | { type: "sample"; payload: Sample }
-  | { type: "marker"; payload: { elapsed_ns: number; label: string; note: string } }
+  | { type: "marker"; payload: Marker }
   | { type: "recordingFailed"; payload: { path: string; sample_count: number } }
   | { type: "error"; payload: string }
   | { type: "playbackStarted"; payload?: null }
-  | { type: "playbackFinished"; payload?: null };
+  | { type: "playbackFinished"; payload?: null }
+  | { type: "playbackState"; payload: PlaybackState };

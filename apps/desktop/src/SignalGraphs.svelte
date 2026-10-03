@@ -1,11 +1,15 @@
 <script lang="ts">
   import LiveChart from "./LiveChart.svelte";
-  import type { ChartTrace } from "./types";
+  import type { ChartTrace, Marker } from "./types";
+  import type { TimeWindow } from "./workspace";
 
-  let { traces, graphMode, onReorder }: {
+  let { traces, graphMode, onReorder, timeWindow, markers = [], playheadNs }: {
     traces: ChartTrace[];
     graphMode: "overlay" | "separate";
     onReorder: (fromId: string, toId: string) => void;
+    timeWindow?: TimeWindow;
+    markers?: Marker[];
+    playheadNs?: number;
   } = $props();
   let draggedSignal = $state<string | null>(null);
 
@@ -39,7 +43,7 @@
   <div class="chart-layout overlay-layout">
     <article class="panel chart-card">
       <div class="chart-heading combined-heading"><div><h3>Selected signals</h3><p>Shared time axis · each signal uses its own vertical scale</p></div></div>
-      <LiveChart {traces} showLegend={true} />
+      <LiveChart {traces} showLegend={true} {timeWindow} {markers} {playheadNs} />
     </article>
   </div>
 {:else}
@@ -55,14 +59,14 @@
         ondragend={() => draggedSignal = null}
       >
         <div class="chart-heading">
-          <div><h3>{trace.name}</h3><p>PID {trace.pid.toString(16).toUpperCase().padStart(2, "0")} · {trace.unit}</p></div>
+          <div><h3>{trace.name}</h3><p>{trace.pid === undefined ? trace.signalId : `PID ${trace.pid.toString(16).toUpperCase().padStart(2, "0")}`} · {trace.unit}</p></div>
           <div class="graph-order-controls" aria-label="Reorder graph">
             <button aria-label={`Move ${trace.name} earlier`} title="Move earlier" onclick={() => moveBy(trace.signalId, -1)} disabled={traces[0]?.signalId === trace.signalId}>←</button>
             <button aria-label={`Move ${trace.name} later`} title="Move later" onclick={() => moveBy(trace.signalId, 1)} disabled={traces.at(-1)?.signalId === trace.signalId}>→</button>
           </div>
           <div class="metric"><strong>{trace.current ? trace.current.value.toFixed(1) : "—"}</strong><span>{trace.unit}</span></div>
         </div>
-        <LiveChart traces={[trace]} showLegend={false} />
+        <LiveChart traces={[trace]} showLegend={false} {timeWindow} {markers} {playheadNs} />
         <div class="chart-footer"><span>{trace.current?.quality ?? "waiting"}</span><span>{trace.sampleRate}</span></div>
       </article>
     {/each}
