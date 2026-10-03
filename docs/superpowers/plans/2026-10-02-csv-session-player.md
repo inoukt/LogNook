@@ -37,8 +37,8 @@
 **Files:**
 - Modify: `crates/lognook-core/src/csv_io.rs`
 - Modify: `crates/lognook-core/src/lib.rs`
+- Test: `crates/lognook-core/tests/recording.rs`
 - Test: `crates/lognook-core/tests/csv_roundtrip.rs`
-- Test: `crates/lognook-core/src/csv_io.rs` unit tests
 
 **Interfaces:**
 - Consume: `RecordedEvent::{Sample, Marker}` from `recording.rs`.
@@ -46,10 +46,10 @@
 - Produce: `export_recording_csv` writes a single ordered event stream with `event_type=sample|marker` rows.
 - Preserve: `export_csv(&[Sample], output)` and `import_csv(input) -> Vec<Sample>` for sample-only callers.
 
-- [ ] **Step 1: Add failing test** `recording_export_contains_samples_and_markers_inline`; assert one CSV has the exact typed header, one sample row, one marker row with quoted note intact, and no new sidecar file.
-- [ ] **Step 2: Run** `cargo test -p lognook-core recording_export_contains_samples_and_markers_inline`; expect the assertion to fail because the current export writes markers to a separate file.
+- [ ] **Step 1: Update the existing failing test** `tests/recording.rs::recording_export_contains_samples_and_markers_inline`; assert one CSV has the typed header, one sample row, one marker row with quoted note intact, and no sidecar file.
+- [ ] **Step 2: Run** `cargo test -p lognook-core --test recording recording_export_contains_samples_and_markers_inline`; expect the header assertion to fail because the current export writes markers to a separate file.
 - [ ] **Step 3: Implement** the event-row serializer and streaming visitor. Keep old sample-only files readable when `event_type` is absent. New recording exports write markers inline and no longer create a marker sidecar.
-- [ ] **Step 4: Run** `cargo test -p lognook-core recording_export_contains_samples_and_markers_inline` and `cargo test -p lognook-core --test csv_roundtrip`; expect the mixed-event test and legacy sample round trip to pass.
+- [ ] **Step 4: Run** `cargo test -p lognook-core --test recording recording_export_contains_samples_and_markers_inline` and `cargo test -p lognook-core --test csv_roundtrip`; expect mixed-event export and legacy sample round trip to pass.
 - [ ] **Step 5: Commit** as `feat: store markers in recording csv`.
 
 ### Task 2: Atomic CSV import and session metadata

@@ -80,7 +80,7 @@ fn csv_export_refuses_to_overwrite_the_source_recording() {
 }
 
 #[test]
-fn recording_csv_export_writes_markers_to_a_sidecar() {
+fn recording_export_contains_samples_and_markers_inline() {
     let path = temp_recording();
     let csv_path = path.with_extension("csv");
     let marker_path = csv_path.with_file_name(format!(
@@ -101,9 +101,17 @@ fn recording_csv_export_writes_markers_to_a_sidecar() {
 
     export_recording_csv(&path, &csv_path).unwrap();
 
-    let marker_csv = std::fs::read_to_string(&marker_path).unwrap();
-    assert!(marker_csv.contains("third gear, full load"));
+    let mut reader = csv::Reader::from_path(&csv_path).unwrap();
+    assert_eq!(reader.headers().unwrap().get(0), Some("event_type"));
+    let rows = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].get(0), Some("sample"));
+    assert_eq!(rows[1].get(0), Some("marker"));
+    assert_eq!(rows[1].get(12), Some("third gear, full load"));
+    assert!(!marker_path.exists());
     std::fs::remove_file(path).unwrap();
     std::fs::remove_file(csv_path).unwrap();
-    std::fs::remove_file(marker_path).unwrap();
+    if marker_path.exists() {
+        std::fs::remove_file(marker_path).unwrap();
+    }
 }

@@ -4,152 +4,176 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 #[derive(Deserialize, Serialize)]
-struct CsvSample {
-    elapsed_ns: i64,
-    wall_time_unix_ns: i64,
-    source_id: String,
+struct CsvEventRow {
+    #[serde(default)]
+    event_type: Option<String>,
+    elapsed_ns: Option<i64>,
+    wall_time_unix_ns: Option<i64>,
+    source_id: Option<String>,
     ecu_id: Option<String>,
     #[serde(rename = "signal_key")]
-    signal_id: String,
-    value: f64,
-    unit: String,
-    quality: SampleQuality,
-    origin: SampleOrigin,
-    #[serde(default)]
+    signal_id: Option<String>,
+    value: Option<f64>,
+    unit: Option<String>,
+    quality: Option<SampleQuality>,
+    origin: Option<SampleOrigin>,
     raw_hex: Option<String>,
+    label: Option<String>,
+    note: Option<String>,
 }
 
-impl From<&Sample> for CsvSample {
+impl From<&Sample> for CsvEventRow {
     fn from(sample: &Sample) -> Self {
         Self {
-            elapsed_ns: sample.elapsed_ns,
-            wall_time_unix_ns: sample.wall_time_unix_ns,
-            source_id: sample.source_id.clone(),
+            event_type: Some("sample".into()),
+            elapsed_ns: Some(sample.elapsed_ns),
+            wall_time_unix_ns: Some(sample.wall_time_unix_ns),
+            source_id: Some(sample.source_id.clone()),
             ecu_id: sample.ecu_id.clone(),
-            signal_id: sample.signal_id.clone(),
-            value: sample.value,
-            unit: sample.unit.clone(),
-            quality: sample.quality.clone(),
-            origin: sample.origin.clone(),
+            signal_id: Some(sample.signal_id.clone()),
+            value: Some(sample.value),
+            unit: Some(sample.unit.clone()),
+            quality: Some(sample.quality.clone()),
+            origin: Some(sample.origin.clone()),
             raw_hex: sample.raw_bytes.as_deref().map(encode_hex),
+            label: None,
+            note: None,
         }
     }
 }
 
-impl CsvSample {
-    fn into_sample(self) -> Result<Sample, LogNookError> {
-        Ok(Sample {
-            elapsed_ns: self.elapsed_ns,
-            wall_time_unix_ns: self.wall_time_unix_ns,
-            source_id: self.source_id,
-            ecu_id: self.ecu_id,
-            signal_id: self.signal_id,
-            value: self.value,
-            unit: self.unit,
-            quality: self.quality,
-            origin: self.origin,
-            raw_bytes: self.raw_hex.map(|hex| decode_hex(&hex)).transpose()?,
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct CsvMarker<'a> {
-    elapsed_ns: i64,
-    wall_time_unix_ns: i64,
-    label: &'a str,
-    note: &'a str,
-}
-
-impl<'a> From<&'a Marker> for CsvMarker<'a> {
-    fn from(marker: &'a Marker) -> Self {
+impl From<&Marker> for CsvEventRow {
+    fn from(marker: &Marker) -> Self {
         Self {
-            elapsed_ns: marker.elapsed_ns,
-            wall_time_unix_ns: marker.wall_time_unix_ns,
-            label: &marker.label,
-            note: &marker.note,
+            event_type: Some("marker".into()),
+            elapsed_ns: Some(marker.elapsed_ns),
+            wall_time_unix_ns: Some(marker.wall_time_unix_ns),
+            source_id: None,
+            ecu_id: None,
+            signal_id: None,
+            value: None,
+            unit: None,
+            quality: None,
+            origin: None,
+            raw_hex: None,
+            label: Some(marker.label.clone()),
+            note: Some(marker.note.clone()),
         }
     }
+}
+
+impl From<&RecordedEvent> for CsvEventRow {
+    fn from(event: &RecordedEvent) -> Self {
+        match event {
+            RecordedEvent::Sample(sample) => Self::from(sample),
+            RecordedEvent::Marker(marker) => Self::from(marker),
+        }
+    }
+}
+
+impl CsvEventRow {
+    fn into_event(self) -> Result<RecordedEvent, LogNookError> {
+        match self.event_type.as_deref().unwrap_or("sample") {
+            "sample" => {
+                let value = required(self.value, "value")?;
+                if !value.is_finite() {
+                    return Err(LogNookError::new("Sample value must be finite"));
+                }
+                Ok(RecordedEvent::Sample(Sample {
+                    elapsed_ns: required(self.elapsed_ns, "elapsed_ns")?,
+                    wall_time_unix_ns: required(self.wall_time_unix_ns, "wall_time_unix_ns")?,
+                    source_id: required(self.source_id, "source_id")?,
+                    ecu_id: self.ecu_id,
+                    signal_id: required(self.signal_id, "signal_key")?,
+                    value,
+                    unit: required(self.unit, "unit")?,
+                    quality: required(self.quality, "quality")?,
+                    origin: required(self.origin, "origin")?,
+                    raw_bytes: self.raw_hex.map(|hex| decode_hex(&hex)).transpose()?,
+                }))
+            }
+            "marker" => Ok(RecordedEvent::Marker(Marker {
+                elapsed_ns: required(self.elapsed_ns, "elapsed_ns")?,
+                wall_time_unix_ns: required(self.wall_time_unix_ns, "wall_time_unix_ns")?,
+                label: required(self.label, "label")?,
+                note: required(self.note, "note")?,
+            })),
+            event_type => Err(LogNookError::new(format!(
+                "Unknown CSV event_type '{event_type}'"
+            ))),
+        }
+    }
+}
+
+fn required<T>(value: Option<T>, field: &str) -> Result<T, LogNookError> {
+    value.ok_or_else(|| LogNookError::new(format!("CSV row is missing {field}")))
 }
 
 pub fn export_csv<W: Write>(samples: &[Sample], output: W) -> Result<(), LogNookError> {
     let mut writer = csv::Writer::from_writer(output);
     for sample in samples {
-        writer.serialize(CsvSample::from(sample))?;
+        writer.serialize(CsvEventRow::from(sample))?;
     }
     writer.flush()?;
     Ok(())
 }
 
 pub fn import_csv<R: Read>(input: R) -> Result<Vec<Sample>, LogNookError> {
-    let mut reader = csv::Reader::from_reader(input);
-    reader
-        .deserialize::<CsvSample>()
-        .map(|row| {
-            row.map_err(LogNookError::from)
-                .and_then(CsvSample::into_sample)
-        })
-        .collect()
+    let mut samples = Vec::new();
+    visit_csv_events(input, |event| match event {
+        RecordedEvent::Sample(sample) => {
+            samples.push(sample);
+            Ok(())
+        }
+        RecordedEvent::Marker(_) => Err(LogNookError::new(
+            "CSV contains markers; import it as a recording to preserve them",
+        )),
+    })?;
+    Ok(samples)
 }
 
 pub fn export_recording_csv(recording_path: &Path, csv_path: &Path) -> Result<(), LogNookError> {
-    let mut main_created = false;
-    let mut marker_created = false;
-    let marker_path = marker_csv_path(csv_path);
+    let mut output_created = false;
     let result = (|| {
         let output = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(csv_path)?;
-        main_created = true;
-        let mut samples = csv::Writer::from_writer(output);
-        let mut markers: Option<csv::Writer<File>> = None;
+        output_created = true;
+        let mut writer = csv::Writer::from_writer(output);
         visit_recording_events(recording_path, |event| {
-            match event {
-                RecordedEvent::Sample(sample) => samples.serialize(CsvSample::from(&sample))?,
-                RecordedEvent::Marker(marker) => {
-                    if markers.is_none() {
-                        let output = OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(&marker_path)?;
-                        marker_created = true;
-                        markers = Some(csv::Writer::from_writer(output));
-                    }
-                    markers
-                        .as_mut()
-                        .unwrap()
-                        .serialize(CsvMarker::from(&marker))?;
-                }
-            }
+            writer.serialize(CsvEventRow::from(&event))?;
             Ok(true)
         })?;
-        samples.flush()?;
-        if let Some(markers) = &mut markers {
-            markers.flush()?;
-        }
-        Ok(())
+        writer.flush().map_err(LogNookError::from)
     })();
-    if result.is_err() {
-        if main_created {
-            let _ = std::fs::remove_file(csv_path);
-        }
-        if marker_created {
-            let _ = std::fs::remove_file(&marker_path);
-        }
+    if result.is_err() && output_created {
+        let _ = std::fs::remove_file(csv_path);
     }
     result
 }
 
-fn marker_csv_path(csv_path: &Path) -> PathBuf {
-    let stem = csv_path.file_stem().unwrap_or_default().to_string_lossy();
-    csv_path.with_file_name(format!("{stem}-markers.csv"))
+pub(crate) fn visit_csv_events<R: Read>(
+    input: R,
+    mut visit: impl FnMut(RecordedEvent) -> Result<(), LogNookError>,
+) -> Result<(), LogNookError> {
+    let mut reader = csv::Reader::from_reader(input);
+    for (index, row) in reader.deserialize::<CsvEventRow>().enumerate() {
+        let row_number = index + 2;
+        let event = row
+            .map_err(|error| LogNookError::new(format!("CSV row {row_number}: {error}")))?
+            .into_event()
+            .map_err(|error| LogNookError::new(format!("CSV row {row_number}: {error}")))?;
+        visit(event)
+            .map_err(|error| LogNookError::new(format!("CSV row {row_number}: {error}")))?;
+    }
+    Ok(())
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
