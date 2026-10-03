@@ -1,4 +1,7 @@
-use lognook_core::{RecordingSignal, import_csv_to_recording, inspect_recording, read_recording};
+use lognook_core::{
+    Marker, RecordingSignal, RecordingWriter, Sample, SampleOrigin, SampleQuality,
+    export_recording_csv, import_csv_to_recording, inspect_recording, read_recording,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -184,4 +187,49 @@ fn inspect_recording_reports_duration_and_signals() {
             }
         ]
     );
+}
+
+#[test]
+fn mixed_event_csv_round_trip_preserves_raw_samples_and_markers() {
+    let directory = TempDir::new();
+    let recording_path = directory.path("source.lognook");
+    let csv_path = directory.path("source.csv");
+    let imported_path = directory.path("imported.lognook");
+    let sample = Sample {
+        elapsed_ns: 123_456,
+        wall_time_unix_ns: 1_800_000_000_000_123_456,
+        source_id: "adapter,with comma".into(),
+        ecu_id: Some("7E8".into()),
+        signal_id: "engine_rpm".into(),
+        value: 812.5,
+        unit: "rpm".into(),
+        quality: SampleQuality::Valid,
+        origin: SampleOrigin::Live,
+        raw_bytes: Some(vec![0x0C, 0x34]),
+    };
+    let marker = Marker {
+        id: None,
+        elapsed_ns: 456_789,
+        wall_time_unix_ns: 1_800_000_000_000_456_789,
+        label: "3rd gear, full load".into(),
+        note: "operator note, kept intact".into(),
+    };
+    let mut writer = RecordingWriter::create(&recording_path).unwrap();
+    writer.append(&sample).unwrap();
+    writer.add_marker(&marker).unwrap();
+    writer.finish().unwrap();
+
+    export_recording_csv(&recording_path, &csv_path).unwrap();
+    import_csv_to_recording(&csv_path, &imported_path).unwrap();
+    let restored = read_recording(&imported_path).unwrap();
+
+    assert_eq!(restored.samples, vec![sample]);
+    assert_eq!(restored.markers.len(), 1);
+    assert_eq!(restored.markers[0].elapsed_ns, marker.elapsed_ns);
+    assert_eq!(
+        restored.markers[0].wall_time_unix_ns,
+        marker.wall_time_unix_ns
+    );
+    assert_eq!(restored.markers[0].label, marker.label);
+    assert_eq!(restored.markers[0].note, marker.note);
 }
