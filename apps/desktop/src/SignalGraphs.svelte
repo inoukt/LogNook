@@ -7,7 +7,10 @@
   import type { DerivedSignalSource } from "./derivedSignals";
   import {
     captureGraphReference,
+    defaultGraphSignalPreference,
+    formatDerivedExpression,
     loadGraphPreferences,
+    migrateDerivedGraphStyles,
     normalizeGraphPreferences,
     saveGraphPreferences,
     type GraphSignalPreference,
@@ -17,11 +20,13 @@
 
   const traceColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
 
-  let { traces, graphMode, onReorder, onCreateDerivedSignal, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub }: {
+  let { traces, graphMode, graphSignalIds, onReorder, onCreateDerivedSignal, onToggleGraphSignal, timeWindow, markers = [], playheadNs, onSeek, onWheelScrub }: {
     traces: ChartTrace[];
     graphMode: "overlay" | "separate";
+    graphSignalIds: string[];
     onReorder: (fromId: string, toId: string) => void;
     onCreateDerivedSignal: (source: DerivedSignalSource) => void;
+    onToggleGraphSignal: (signalId: string, enabled: boolean) => void;
     timeWindow?: TimeWindow;
     markers?: Marker[];
     playheadNs?: number;
@@ -31,16 +36,27 @@
   let draggedSignal = $state<string | null>(null);
   let exportError = $state(false);
   let graphPreferences = $state(loadGraphPreferences());
-  const defaultSignalPreference: GraphSignalPreference = { min: null, max: null, view: "line", lineStyle: "solid", lineWidth: 2 };
+  const migratedDerivedStyles = new Set<string>();
 
-  function signalPreference(signalId: string) {
-    return graphPreferences.signals[signalId] ?? defaultSignalPreference;
+  $effect(() => {
+    const ids = traces.filter((trace) => trace.formula && !migratedDerivedStyles.has(trace.signalId)).map(({ signalId }) => signalId);
+    if (!ids.length) return;
+    ids.forEach((id) => migratedDerivedStyles.add(id));
+    const migrated = migrateDerivedGraphStyles(graphPreferences, ids);
+    if (migrated !== graphPreferences) {
+      graphPreferences = migrated;
+      saveGraphPreferences(graphPreferences);
+    }
+  });
+
+  function signalPreference(signalId: string, isDerived = false) {
+    return graphPreferences.signals[signalId] ?? defaultGraphSignalPreference(isDerived);
   }
 
-  function updateSignalPreference(signalId: string, patch: Partial<GraphSignalPreference>) {
+  function updateSignalPreference(signalId: string, patch: Partial<GraphSignalPreference>, isDerived = false) {
     graphPreferences = normalizeGraphPreferences({
       ...graphPreferences,
-      signals: { ...graphPreferences.signals, [signalId]: { ...signalPreference(signalId), ...patch } },
+      signals: { ...graphPreferences.signals, [signalId]: { ...signalPreference(signalId, isDerived), ...patch } },
     });
     saveGraphPreferences(graphPreferences);
   }
@@ -61,7 +77,7 @@
     const bounds = chart.getBoundingClientRect();
     const legend: GraphExportLegendItem[] = showLegend ? traceList.map((trace, index) => ({
       color: trace.color ?? traceColors[index % traceColors.length],
-      label: trace.pid === undefined ? trace.signalId : `PID ${trace.pid.toString(16).toUpperCase().padStart(2, "0")} · ${trace.name}`,
+      label: `${trace.pid === undefined ? trace.name : `PID ${trace.pid.toString(16).toUpperCase().padStart(2, "0")} · ${trace.name}`}${formatDerivedExpression(trace.formula)}`,
       value: `${trace.current ? trace.current.value.toFixed(1) : "—"} ${trace.unit}`,
     })) : [];
     const output = buildGraphExportSvg(chart.innerHTML, {
@@ -149,21 +165,33 @@
 </script>
 
 {#snippet signalOptions(trace: ChartTrace)}
-  {@const preference = signalPreference(trace.signalId)}
+  {@const isDerived = trace.formula !== undefined}
+  {@const preference = signalPreference(trace.signalId, isDerived)}
   <div class="signal-graph-options">
     <strong>{trace.name}</strong>
+    {#if isDerived && trace.sourceSignalIds?.length}
+      <label class="keep-source-line">
+        <span>{trace.sourceSignalIds.length === 1 ? "Keep source line" : "Keep input lines"}</span>
+        <input
+          type="checkbox"
+          aria-label={`Keep source line for ${trace.name}`}
+          checked={trace.sourceSignalIds.every((id) => graphSignalIds.includes(id))}
+          onchange={(event) => trace.sourceSignalIds?.forEach((id) => onToggleGraphSignal(id, event.currentTarget.checked))}
+        />
+      </label>
+    {/if}
     {#if trace.pid !== undefined}
       <button class="derive-signal-button" type="button" title={`Create a derived signal from ${trace.name}`} aria-label={`Create a derived signal from ${trace.name}`} onclick={() => onCreateDerivedSignal({ id: trace.signalId, name: trace.name, unit: trace.unit })}>ƒx</button>
     {/if}
-    <label><span>View</span><select aria-label={`${trace.name} graph view`} value={preference.view} onchange={(event) => updateSignalPreference(trace.signalId, { view: event.currentTarget.value as GraphView })}>
+    <label><span>View</span><select aria-label={`${trace.name} graph view`} value={preference.view} onchange={(event) => updateSignalPreference(trace.signalId, { view: event.currentTarget.value as GraphView }, isDerived)}>
       <option value="line">Line</option><option value="scatter">Scatter</option><option value="bar">Bar</option><option value="heatmap">Heatmap</option>
     </select></label>
-    <label><span>Minimum</span><input type="number" step="any" aria-label={`${trace.name} minimum`} value={preference.min ?? ""} placeholder="Auto" onchange={(event) => updateSignalPreference(trace.signalId, { min: parseOptionalRange(event.currentTarget.value) })} /></label>
-    <label><span>Maximum</span><input type="number" step="any" aria-label={`${trace.name} maximum`} value={preference.max ?? ""} placeholder="Auto" onchange={(event) => updateSignalPreference(trace.signalId, { max: parseOptionalRange(event.currentTarget.value) })} /></label>
-    <label><span>Line</span><select aria-label={`${trace.name} line style`} value={preference.lineStyle} onchange={(event) => updateSignalPreference(trace.signalId, { lineStyle: event.currentTarget.value as GraphLineStyle })}>
+    <label><span>Minimum</span><input type="number" step="any" aria-label={`${trace.name} minimum`} value={preference.min ?? ""} placeholder="Auto" onchange={(event) => updateSignalPreference(trace.signalId, { min: parseOptionalRange(event.currentTarget.value) }, isDerived)} /></label>
+    <label><span>Maximum</span><input type="number" step="any" aria-label={`${trace.name} maximum`} value={preference.max ?? ""} placeholder="Auto" onchange={(event) => updateSignalPreference(trace.signalId, { max: parseOptionalRange(event.currentTarget.value) }, isDerived)} /></label>
+    <label><span>Line</span><select aria-label={`${trace.name} line style`} value={preference.lineStyle} onchange={(event) => updateSignalPreference(trace.signalId, { lineStyle: event.currentTarget.value as GraphLineStyle }, isDerived)}>
       <option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option>
     </select></label>
-    <label><span>Thickness</span><input type="number" min="1" max="5" step="0.5" aria-label={`${trace.name} line thickness`} value={preference.lineWidth} onchange={(event) => updateSignalPreference(trace.signalId, { lineWidth: Number(event.currentTarget.value) })} /></label>
+    <label><span>Thickness</span><input type="number" min="1" max="5" step="0.5" aria-label={`${trace.name} line thickness`} value={preference.lineWidth} onchange={(event) => updateSignalPreference(trace.signalId, { lineWidth: Number(event.currentTarget.value) }, isDerived)} /></label>
   </div>
 {/snippet}
 
@@ -226,7 +254,7 @@
           <div class="metric"><strong>{trace.current ? trace.current.value.toFixed(1) : "—"}</strong><span>{trace.unit}</span></div>
         </div>
         <LiveChart traces={[trace]} showLegend={false} {timeWindow} {markers} {playheadNs} {onSeek} {onWheelScrub} signalPreferences={graphPreferences.signals} referenceTraces={graphPreferences.reference?.traces ?? []} />
-        <div class="chart-footer"><span>{trace.current?.quality ?? "waiting"}</span><span>{trace.sampleRate}</span></div>
+        <div class="chart-footer"><span>{trace.current?.quality ?? "waiting"}</span>{#if trace.formula}<span class="chart-formula">{formatDerivedExpression(trace.formula)}</span>{/if}<span>{trace.sampleRate}</span></div>
       </article>
     {/each}
   </div>
@@ -245,6 +273,8 @@
   .signal-graph-options label { display: grid; gap: 2px; color: var(--text-muted); font-size: 9px; }
   .signal-graph-options select, .signal-graph-options input { width: 82px; min-height: 25px; padding: 2px 5px; border: 1px solid #344450; border-radius: 4px; background: #0d151b; color: #e7edf3; font-size: 10px; }
   .signal-graph-options input { width: 76px; }
+  .signal-graph-options .keep-source-line { align-items: center; gap: 5px; }
+  .signal-graph-options .keep-source-line input { width: auto; min-height: auto; padding: 0; accent-color: var(--accent); }
   .graph-export-control { display: flex; align-items: center; gap: 7px; }
   .graph-export-button { min-height: 28px; padding-inline: 8px; font-size: 10px; }
   .graph-export-error { color: #ffc3bb; font-size: 10px; white-space: nowrap; }

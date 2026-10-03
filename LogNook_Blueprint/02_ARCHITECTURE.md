@@ -85,6 +85,7 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - PID colors and the optional wheel-scrub setting are local renderer preferences. The graph click seeks the shared playback cursor; adding a marker at that cursor accepts blank label and note. Averages use the visible graph range (live retained points or SQLite `AVG` for sessions).
 - Derived-signal IDs are checked for syntax, uniqueness, and collisions with base PIDs before the keyed signal list changes. Formula help uses the parser's ASCII arithmetic operators (`+ - * /`).
 - The derived-signal editor is a native modal opened from the `ƒx` button on each base PID in Graph settings. New formulas start with that PID, its name, and its unit; the editor no longer occupies PID-list space.
+- Derived traces default to a dotted line and a color distinct from their formula inputs. Same-unit formulas share an automatic vertical range with their input PIDs to show offsets; a **Keep source line** checkbox controls whether those source traces are drawn. Combined and separate graph footers show the formula in parentheses beside its value.
 
 ## Physical validation and transport decision
 

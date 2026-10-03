@@ -64,7 +64,7 @@
     <div><p class="eyebrow">CUSTOM SIGNALS</p><h3>Derived signals</h3></div>
     <button class="button secondary" type="button" onclick={addDefinition} disabled={disabled}>＋ Add</button>
   </div>
-  <p class="derived-hint">Use signal IDs, numbers, parentheses, and operators <code>+ - * /</code>. Example: <code>coolant_temp * 1.8 + 32</code>.</p>
+  <p class="derived-hint">Use signal IDs, numbers, parentheses, and operators <code>+ - * /</code>. Example: <code>coolant_temp * 1.8 + 32</code>. Set the output unit separately, such as <code>°F</code>.</p>
   {#each definitions as definition (definition.id)}
     <div class="derived-definition">
       <label>Signal id

@@ -81,6 +81,11 @@ test("custom PID color overrides the default palette and invalid colors are igno
   assert.equal(signalColor("rpm", 0, { rpm: "red" }), "#56c8bd");
 });
 
+test("derived trace colors avoid the colors of their formula inputs", () => {
+  assert.equal(signalColor("derived_1", 35, {}, ["#56c8bd"]), "#6ca8ff");
+  assert.equal(signalColor("derived_1", 35, { derived_1: "#56c8bd" }, ["#56c8bd"]), "#56c8bd");
+});
+
 test("workspace preferences survive a serialized round trip", () => {
   const preferences = {
     logSignalIds: ["coolant_temp", "engine_rpm"],

@@ -10,6 +10,36 @@ export type DerivedSignalDefinition = {
 
 export type DerivedSignalSource = { id: string; name: string; unit: string };
 
+export function formulaSignalIds(
+  expression: string | undefined,
+  signals: readonly Pick<SignalOption, "id" | "unit">[],
+  matchingUnit?: string,
+): string[] {
+  const identifiers = new Set(expression?.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
+  return signals
+    .filter((signal) => identifiers.has(signal.id) && (!matchingUnit || signal.unit === matchingUnit))
+    .map(({ id }) => id);
+}
+
+export function graphScaleSignalIds(
+  signalId: string,
+  visibleSignals: readonly { id: string; unit: string; formula?: string }[],
+  availableSignals: readonly Pick<SignalOption, "id" | "unit">[],
+): string[] {
+  const current = visibleSignals.find(({ id }) => id === signalId);
+  if (!current) return [signalId];
+  const currentInputs = formulaSignalIds(current.formula, availableSignals, current.unit);
+  const group = new Set([current.id, ...currentInputs]);
+  for (const candidate of visibleSignals) {
+    if (candidate.id === current.id || candidate.unit !== current.unit) continue;
+    const inputs = formulaSignalIds(candidate.formula, availableSignals, candidate.unit);
+    if (!inputs.some((id) => group.has(id)) && !currentInputs.includes(candidate.id)) continue;
+    group.add(candidate.id);
+    for (const id of inputs) group.add(id);
+  }
+  return [...group];
+}
+
 export function newDerivedSignalDefinition(
   definitions: readonly DerivedSignalDefinition[],
   source?: DerivedSignalSource | null,
@@ -74,5 +104,6 @@ export function derivedSignalOptions(definitions: DerivedSignalDefinition[]): Si
     name,
     unit,
     description: `Derived from ${expression}`,
+    formula: expression,
   }));
 }

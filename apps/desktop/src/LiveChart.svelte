@@ -3,8 +3,10 @@
   import { formatDurationNs, sampleTimeRange } from "./workspace";
   import {
     boundedGraphSamples,
+    formatDerivedExpression,
     graphCoordinates,
     graphHeatmapRow,
+    graphRangeSamples,
     graphValueRange,
     mapReferenceSamples,
     nearestGraphSample,
@@ -62,7 +64,8 @@
     const reference = referenceTraces.find((candidate) => candidate.signalId === trace.signalId);
     const samples = boundedGraphSamples(trace.samples);
     const referenceSamples = mapReferenceSamples(reference?.samples ?? [], timeBounds[0], timeBounds[1]);
-    const range = graphValueRange(samples, referenceSamples, preference);
+    const rangeSamples = graphRangeSamples(samples, boundedGraphSamples(trace.scaleSamples ?? []), Boolean(trace.scaleSamples?.length));
+    const range = graphValueRange(rangeSamples, referenceSamples, preference);
     const points = graphCoordinates(samples, timeBounds[0], timeBounds[1], range);
     const referencePoints = graphCoordinates(referenceSamples, timeBounds[0], timeBounds[1], range);
     const color = trace.color ?? colors[index % colors.length];
@@ -82,6 +85,7 @@
     signalId: item.trace.signalId,
     name: item.trace.name,
     unit: item.trace.unit,
+    formula: item.trace.formula,
     sample: nearestGraphSample(item.samples, cursorTimeNs!),
   })));
 
@@ -218,7 +222,7 @@
   <div class="chart-cursor-readout" role="status" aria-live="polite">
     <strong>{formatDurationNs(cursorTimeNs)}</strong>
     {#each cursorReadouts as item (item.signalId)}
-      <span>{item.name}: {item.sample ? `${item.sample.value.toFixed(2)} ${item.unit}` : "—"}</span>
+      <span>{item.name}: {item.sample ? `${item.sample.value.toFixed(2)} ${item.unit}` : "—"}{formatDerivedExpression(item.formula)}</span>
     {/each}
     {#if cursorPinned}<button class="clear-cursor" aria-label="Clear pinned cursor" onclick={() => { cursorPinned = false; cursorTimeNs = null; }}>×</button>{/if}
   </div>
@@ -229,8 +233,9 @@
     {#each plottedTraces as item (item.trace.signalId)}
       <div class="legend-item">
         <span class="legend-swatch" style={`--trace-color: ${item.color}`}></span>
-        <span class="legend-name">{item.trace.pid === undefined ? item.trace.signalId : `PID ${item.trace.pid.toString(16).toUpperCase().padStart(2, "0")} · ${item.trace.name}`}</span>
+        <span class="legend-name">{item.trace.pid === undefined ? item.trace.name : `PID ${item.trace.pid.toString(16).toUpperCase().padStart(2, "0")} · ${item.trace.name}`}</span>
         <strong>{item.trace.current ? item.trace.current.value.toFixed(1) : "—"} {item.trace.unit}</strong>
+        {#if item.trace.formula}<small class="legend-formula">{formatDerivedExpression(item.trace.formula)}</small>{/if}
       </div>
     {/each}
     {#if plottedTraces.some((item) => item.referencePoints.length)}<div class="reference-legend"><span></span> dashed trace: saved reference</div>{/if}

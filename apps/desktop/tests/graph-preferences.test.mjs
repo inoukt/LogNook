@@ -29,6 +29,35 @@ test("graph preferences validate per-signal controls and saved reference data", 
   assert.deepEqual(normalized.reference.traces[0].samples, [{ elapsed_ns: 0, value: 1200 }]);
 });
 
+test("derived formulas appear in parenthesized graph readouts and default to a dotted line", () => {
+  assert.equal(graphPreferences.formatDerivedExpression(" engine_rpm - 500 "), "(engine_rpm - 500)");
+  assert.equal(graphPreferences.formatDerivedExpression(undefined), "");
+  assert.equal(graphPreferences.defaultGraphSignalPreference(true).lineStyle, "dotted");
+  assert.equal(graphPreferences.defaultGraphSignalPreference(false).lineStyle, "solid");
+});
+
+test("existing derived graph styles migrate to dotted without resetting other preferences", () => {
+  const original = graphPreferences.normalizeGraphPreferences({ signals: {
+    derived_1: { min: 0, max: 2_000, view: "line", lineStyle: "dashed", lineWidth: 3 },
+    engine_rpm: { min: null, max: null, view: "line", lineStyle: "solid", lineWidth: 2 },
+  } });
+  const migrated = graphPreferences.migrateDerivedGraphStyles(original, ["derived_1"]);
+  assert.deepEqual(migrated.signals.derived_1, { min: 0, max: 2_000, view: "line", lineStyle: "dotted", lineWidth: 3 });
+  assert.deepEqual(migrated.signals.engine_rpm, original.signals.engine_rpm);
+});
+
+test("same-unit derived traces include source values in their automatic vertical range", () => {
+  const derived = [{ elapsed_ns: 0, value: -400 }, { elapsed_ns: 1, value: -300 }];
+  const source = [{ elapsed_ns: 0, value: 100 }, { elapsed_ns: 1, value: 200 }];
+  const rangeSamples = graphPreferences.graphRangeSamples(derived, source, true);
+  assert.deepEqual(rangeSamples, [...derived, ...source]);
+  assert.deepEqual(graphPreferences.graphRangeSamples(derived, source, false), derived);
+  const sharedRange = graphPreferences.graphValueRange(rangeSamples, []);
+  const sourcePoint = graphPreferences.graphCoordinates(source, 0, 1, sharedRange)[0];
+  const derivedPoint = graphPreferences.graphCoordinates(derived, 0, 1, sharedRange)[0];
+  assert.ok(sourcePoint.y < derivedPoint.y, "source RPM should plot above RPM minus 500");
+});
+
 test("graph preferences load safely and round-trip through local storage", () => {
   assert.equal(typeof graphPreferences.loadGraphPreferences, "function");
   assert.equal(typeof graphPreferences.saveGraphPreferences, "function");

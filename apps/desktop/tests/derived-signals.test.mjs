@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   derivedSignalOptions,
+  formulaSignalIds,
+  graphScaleSignalIds,
   isAvailableDerivedSignalId,
   newDerivedSignalDefinition,
   restoreDerivedSignalDefinitions,
@@ -21,13 +23,15 @@ test("derived definitions restore with stable ids, formulas, units, and tare off
 });
 
 test("derived definitions appear as signal options with their formula in the description", () => {
-  assert.deepEqual(derivedSignalOptions([
+  const options = derivedSignalOptions([
     { id: "temp_f", name: "Coolant °F", expression: "coolant_temp * 1.8 + 32", unit: "°F", tare_offset: 0 },
-  ]), [{
+  ]);
+  assert.deepEqual(options, [{
     id: "temp_f",
     name: "Coolant °F",
     unit: "°F",
     description: "Derived from coolant_temp * 1.8 + 32",
+    formula: "coolant_temp * 1.8 + 32",
   }]);
 });
 
@@ -54,4 +58,31 @@ test("new derived signals start from the PID that opened the editor", () => {
     unit: "km/h",
     tare_offset: 0,
   });
+});
+
+test("derived formula inputs resolve to acquired PIDs and can match the output unit", () => {
+  const inputs = [
+    { id: "engine_rpm", unit: "rpm" },
+    { id: "coolant_temp", unit: "°C" },
+  ];
+  assert.deepEqual(formulaSignalIds("engine_rpm - 500", inputs), ["engine_rpm"]);
+  assert.deepEqual(formulaSignalIds("engine_rpm + coolant_temp", inputs, "rpm"), ["engine_rpm"]);
+  assert.deepEqual(formulaSignalIds("engine_rpm + coolant_temp", inputs, "°F"), []);
+});
+
+test("same-unit derived traces share a range with their source while conversions stay separate", () => {
+  const visible = [
+    { id: "engine_rpm", unit: "rpm" },
+    { id: "derived_1", unit: "rpm", formula: "engine_rpm - 500" },
+    { id: "temp_f", unit: "°F", formula: "coolant_temp * 1.8 + 32" },
+  ];
+  const available = [
+    { id: "engine_rpm", unit: "rpm" },
+    { id: "coolant_temp", unit: "°C" },
+    { id: "derived_1", unit: "rpm" },
+    { id: "temp_f", unit: "°F" },
+  ];
+  assert.deepEqual(graphScaleSignalIds("derived_1", visible, available), ["derived_1", "engine_rpm"]);
+  assert.deepEqual(graphScaleSignalIds("engine_rpm", visible, available), ["engine_rpm", "derived_1"]);
+  assert.deepEqual(graphScaleSignalIds("temp_f", visible, available), ["temp_f"]);
 });

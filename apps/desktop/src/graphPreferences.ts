@@ -32,6 +32,38 @@ const DEFAULT_SIGNAL_PREFERENCE: GraphSignalPreference = {
   lineWidth: 2,
 };
 
+export function defaultGraphSignalPreference(isDerived = false): GraphSignalPreference {
+  return { ...DEFAULT_SIGNAL_PREFERENCE, lineStyle: isDerived ? "dotted" : "solid" };
+}
+
+export function formatDerivedExpression(expression?: string): string {
+  const formula = expression?.trim();
+  return formula ? `(${formula})` : "";
+}
+
+export function migrateDerivedGraphStyles(
+  preferences: GraphPreferences,
+  derivedSignalIds: readonly string[],
+): GraphPreferences {
+  const signals = { ...preferences.signals };
+  let changed = false;
+  for (const id of derivedSignalIds) {
+    const preference = signals[id];
+    if (!preference || preference.lineStyle === "dotted") continue;
+    signals[id] = { ...preference, lineStyle: "dotted" };
+    changed = true;
+  }
+  return changed ? normalizeGraphPreferences({ ...preferences, signals }) : preferences;
+}
+
+export function graphRangeSamples(
+  samples: GraphValueSample[],
+  sourceSamples: GraphValueSample[],
+  includeSource: boolean,
+): GraphValueSample[] {
+  return includeSource ? [...samples, ...sourceSamples] : samples;
+}
+
 export function normalizeGraphPreferences(value: unknown): GraphPreferences {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { signals: {}, reference: null };
   const saved = value as Record<string, unknown>;

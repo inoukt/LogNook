@@ -13,7 +13,8 @@
     restoreAutomaticTriggerConfig, type AutomaticTriggerConfig, type AutomaticTriggerStatus,
   } from "./automaticTrigger";
   import {
-    derivedSignalOptions, restoreDerivedSignalDefinitions, type DerivedSignalDefinition, type DerivedSignalSource,
+    derivedSignalOptions, formulaSignalIds, graphScaleSignalIds, restoreDerivedSignalDefinitions,
+    type DerivedSignalDefinition, type DerivedSignalSource,
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
@@ -85,10 +86,13 @@
   let lastGraphRefreshAt = 0;
   let scrubPending: number | null = null;
   let scrubInFlight: number | null = null;
+  let availableSignals: SignalOption[] = [];
 
+  $: derivedOptions = derivedSignalOptions(derivedSignalDefinitions);
   $: availableSignals = session
     ? session.signals.map((recorded): SignalOption => {
-        const known = signalCatalog.find((signal) => signal.id === recorded.id);
+        const known = signalCatalog.find((signal) => signal.id === recorded.id)
+          ?? derivedOptions.find((signal) => signal.id === recorded.id);
         return known ?? {
           id: recorded.id,
           name: recorded.id,
@@ -96,11 +100,15 @@
           description: "Recorded signal",
         };
       })
-    : [...signalCatalog, ...derivedSignalOptions(derivedSignalDefinitions)];
+    : [...signalCatalog, ...derivedOptions];
   $: visibleSignals = graphSignalIds.flatMap((id) => {
     const signal = availableSignals.find((candidate) => candidate.id === id);
     return signal ? [signal] : [];
   });
+  $: graphWindowSignalIds = [...new Set([
+    ...graphSignalIds,
+    ...visibleSignals.flatMap((signal) => formulaSignalIds(signal.formula, signalCatalog)),
+  ])];
   $: filteredSignals = filterSignals(availableSignals, signalSearch);
   $: automaticTriggerSignals = session ? [] : availableSignals.filter((signal) => logSignalIds.includes(signal.id));
   $: currentDerivedValues = Object.fromEntries(derivedSignalDefinitions.map((definition) => [
@@ -119,17 +127,25 @@
         averageInWindow(series[signal.id] ?? [], liveGraphRange),
       ]));
   $: markers = orderMarkersForTimeline(session?.markers ?? []);
-  $: traces = visibleSignals.map((signal): ChartTrace => ({
-    signalId: signal.id,
-    name: signal.name,
-    pid: signal.pid,
-    unit: signal.unit,
-    color: signalColor(signal.id, availableSignals.indexOf(signal), signalColors),
-    samples: session ? (sessionSeries[signal.id] ?? []) : (series[signal.id] ?? []),
-    current: latest[signal.id],
-    sampleRate: sampleRate(signal.id),
-  }));
-  $: if (session) scheduleGraphWindow(session, graphSignalIds, timeWindow);
+  $: traces = visibleSignals.map((signal): ChartTrace => {
+    const sourceSignalIds = formulaSignalIds(signal.formula, signalCatalog);
+    const scaleSignalIds = graphScaleSignalIds(signal.id, visibleSignals, availableSignals);
+    const samplesBySignal = session ? sessionSeries : series;
+    return {
+      signalId: signal.id,
+      name: signal.name,
+      pid: signal.pid,
+      unit: signal.unit,
+      color: signalColorFor(signal),
+      formula: signal.formula,
+      sourceSignalIds,
+      scaleSamples: scaleSignalIds.filter((id) => id !== signal.id).flatMap((id) => samplesBySignal[id] ?? []),
+      samples: samplesBySignal[signal.id] ?? [],
+      current: latest[signal.id],
+      sampleRate: sampleRate(signal.id),
+    };
+  });
+  $: if (session) scheduleGraphWindow(session, graphWindowSignalIds, timeWindow);
   $: if (workspacePreferencesReady) {
     try {
       localStorage.setItem(workspacePreferencesKey, JSON.stringify({
@@ -756,6 +772,14 @@
   function formatSignalValue(value: number | undefined, unit: string): string {
     return value === undefined ? `— ${unit}` : `${value.toFixed(1)} ${unit}`;
   }
+
+  function signalColorFor(signal: SignalOption): string {
+    const avoidColors = formulaSignalIds(signal.formula, availableSignals).flatMap((id) => {
+      const source = availableSignals.find((candidate) => candidate.id === id);
+      return source ? [signalColor(source.id, availableSignals.indexOf(source), signalColors)] : [];
+    });
+    return signalColor(signal.id, availableSignals.indexOf(signal), signalColors, avoidColors);
+  }
 </script>
 
 <svelte:head>
@@ -876,7 +900,7 @@
         <div class="signal-list">
           {#each filteredSignals as signal (signal.id)}
             <div class="signal-option">
-              <input class="signal-color" type="color" value={signalColor(signal.id, availableSignals.indexOf(signal), signalColors)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
+              <input class="signal-color" type="color" value={signalColorFor(signal)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
               <span class="signal-copy">
                 <span class="signal-name-row"><span>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
                 <small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
@@ -897,9 +921,11 @@
         {:else}
           <SignalGraphs
             {traces}
+            {graphSignalIds}
             {graphMode}
             onReorder={swapGraphPositions}
             onCreateDerivedSignal={openDerivedSignalEditor}
+            onToggleGraphSignal={toggleGraphSignal}
             onSeek={session ? seek : undefined}
             onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
             timeWindow={session ? timeWindow : undefined}

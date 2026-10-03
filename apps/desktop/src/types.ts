@@ -29,6 +29,9 @@ export type ChartTrace = {
   name: string;
   pid?: number;
   unit: string;
+  formula?: string;
+  sourceSignalIds?: string[];
+  scaleSamples?: Sample[];
   color?: string;
   samples: Sample[];
   current?: Sample;

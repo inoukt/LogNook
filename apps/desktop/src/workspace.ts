@@ -13,6 +13,7 @@ export type SignalOption = {
   name: string;
   unit: string;
   description?: string;
+  formula?: string;
   pid?: number;
 };
 
@@ -47,11 +48,20 @@ export function restoreWorkspacePreferences(
   };
 }
 
-export function signalColor(signalId: string, index: number, overrides: Record<string, string>): string {
+export function signalColor(
+  signalId: string,
+  index: number,
+  overrides: Record<string, string>,
+  avoidColors: readonly string[] = [],
+): string {
   const color = overrides[signalId];
-  return color && /^#[\da-f]{6}$/i.test(color)
-    ? color
-    : defaultSignalColors[((index % defaultSignalColors.length) + defaultSignalColors.length) % defaultSignalColors.length];
+  if (color && /^#[\da-f]{6}$/i.test(color)) return color;
+  const start = ((index % defaultSignalColors.length) + defaultSignalColors.length) % defaultSignalColors.length;
+  for (let offset = 0; offset < defaultSignalColors.length; offset++) {
+    const candidate = defaultSignalColors[(start + offset) % defaultSignalColors.length];
+    if (!avoidColors.includes(candidate)) return candidate;
+  }
+  return defaultSignalColors[start];
 }
 
 export function averageInWindow(samples: Array<{ elapsed_ns: number; value: number }>, range: TimeWindow): number | undefined {
