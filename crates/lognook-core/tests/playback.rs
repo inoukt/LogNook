@@ -4,18 +4,29 @@ use lognook_core::{
 };
 use std::{
     path::Path,
-    sync::mpsc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+fn temp_session(prefix: &str) -> std::path::PathBuf {
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let counter = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{time}-{counter}.lognook",
+        std::process::id()
+    ))
+}
+
 fn fixture() -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "lognook-playback-{}.lognook",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let path = temp_session("lognook-playback");
     let mut writer = RecordingWriter::create(&path).unwrap();
     for elapsed_ns in [0, 500_000_000, 2_000_000_000] {
         writer
@@ -172,13 +183,7 @@ fn speed_change_updates_pending_delay() {
 
 #[test]
 fn fast_replay_coalesces_readouts_but_preserves_latest_values_and_markers() {
-    let path = std::env::temp_dir().join(format!(
-        "lognook-fast-playback-{}.lognook",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let path = temp_session("lognook-fast-playback");
     let mut writer = RecordingWriter::create(&path).unwrap();
     for index in 0..2_000_i64 {
         for (signal_id, value) in [

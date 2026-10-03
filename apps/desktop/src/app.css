@@ -75,6 +75,16 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .signal-panel .panel-heading { margin-bottom: 11px; }
 .count-pill { padding: 4px 7px; border: 1px solid #344652; border-radius: 20px; color: #aab9c2; font-size: 10px; white-space: nowrap; }
 .signal-search { margin-bottom: 6px; }
+.automatic-trigger-panel { flex: 0 0 auto; margin: 0 0 7px; border: 1px solid #30414e; border-radius: 7px; background: #151e27; }
+.automatic-trigger-panel > summary { min-height: 31px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; color: #d6e1e5; cursor: pointer; font-size: 10px; font-weight: 650; list-style: none; }
+.automatic-trigger-panel > summary::-webkit-details-marker { display: none; }
+.automatic-trigger-panel > summary small { overflow: hidden; color: var(--text-muted); font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.trigger-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 3px 7px 7px; }
+.trigger-settings label { display: grid; gap: 3px; color: #9eafb9; font-size: 9px; }
+.trigger-settings .text-input { width: 100%; min-width: 0; height: 27px; padding: 0 6px; font-size: 10px; }
+.trigger-actions { display: flex; align-items: center; gap: 7px; padding: 0 7px 7px; }
+.trigger-actions .button { min-height: 27px; font-size: 10px; }
+.trigger-actions small { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .text-input { height: 34px; padding: 0 10px; border: 1px solid #3b4c58; border-radius: 6px; outline: none; color: #e7edf3; background: #131c24; font-size: 11px; }
 .text-input:focus { border-color: var(--accent); }
 .text-input::placeholder { color: #758792; }
@@ -221,11 +231,23 @@ svg text { fill: #657984; font-size: 11px; }
 .settings-menu { position: relative; z-index: 10; }
 .settings-menu summary { display: grid; place-items: center; list-style: none; }
 .settings-menu summary::-webkit-details-marker { display: none; }
-.settings-popover { position: absolute; top: 31px; left: 0; width: 230px; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #19232d; box-shadow: 0 8px 22px #0008; }
+.settings-popover { position: absolute; top: 31px; left: 0; width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 54px); overflow: auto; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #19232d; box-shadow: 0 8px 22px #0008; }
+.session-browser-details { margin-bottom: 8px; }
+.session-browser-details > summary { padding: 6px 10px; color: var(--text-muted); font-size: 11px; cursor: pointer; }
+.session-browser-details[open] > summary { margin-bottom: 6px; }
 .settings-popover strong { color: #e7edf3; font-size: 12px; }
 .settings-popover label { display: flex; align-items: center; gap: 8px; color: #cbd8df; font-size: 11px; cursor: pointer; }
 .settings-popover input { accent-color: var(--accent); }
 .settings-popover small { color: var(--text-muted); font-size: 10px; }
+.shortcut-settings { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.settings-subtitle { color: #8396a3; font-size: 9px; font-weight: 700; letter-spacing: .6px; }
+.shortcut-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; align-items: center; gap: 5px; color: #cbd8df; font-size: 10px; }
+.shortcut-binding, .shortcut-clear { min-height: 26px; border: 1px solid #3a4e5b; border-radius: 5px; background: #111a22; color: #dce7ec; font: inherit; cursor: pointer; }
+.shortcut-binding { min-width: 112px; padding: 3px 6px; font-size: 10px; }
+.shortcut-binding.capturing { border-color: var(--accent); color: var(--accent); }
+.shortcut-clear { width: 24px; padding: 0; color: var(--text-muted); font-size: 15px; }
+.shortcut-binding:focus-visible, .shortcut-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.shortcut-error { color: #ffc3bb !important; }
 @media (max-width: 900px) {
   main { padding-inline: 8px; }
 }

@@ -1,11 +1,14 @@
 mod player;
 pub use player::*;
+mod sessions;
+pub use sessions::*;
 
 use crate::AppState;
 use lognook_core::{
-    ConnectionCapabilities, DeviceDescriptor, ObdLinkSxAdapter, RecordingSummary, SignalDefinition,
-    available_obdlink_sx_ports as list_obdlink_sx_ports, identify_obdlink_sx as identify_sx_device,
-    standard_obd_signals,
+    AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities, DerivedSignalDefinition, DeviceDescriptor,
+    ObdLinkSxAdapter, RecordingSummary, SignalDefinition,
+    available_obdlink_sx_ports as list_obdlink_sx_ports,
+    identify_obdlink_sx as identify_sx_device, standard_obd_signals,
 };
 use std::{
     path::PathBuf,
@@ -71,6 +74,50 @@ pub fn stop_recording(state: State<'_, AppState>) -> Result<RecordingSummary, St
     engine(&state)?
         .stop_recording()
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn configure_derived_signals(
+    state: State<'_, AppState>,
+    definitions: Vec<DerivedSignalDefinition>,
+    active_ids: Vec<String>,
+) -> Result<(), String> {
+    engine(&state)?
+        .configure_derived_signals(&definitions, &active_ids)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn tare_derived_signal(
+    state: State<'_, AppState>,
+    signal_id: String,
+) -> Result<f64, String> {
+    engine(&state)?
+        .tare_derived_signal(&signal_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn arm_automatic_trigger(
+    state: State<'_, AppState>,
+    config: AutomaticTriggerConfig,
+) -> Result<AutomaticTriggerStatus, String> {
+    let path = session_path(&state.recordings_dir);
+    engine(&state)?
+        .arm_automatic_trigger(&config, &path)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn disarm_automatic_trigger(state: State<'_, AppState>) -> Result<AutomaticTriggerStatus, String> {
+    engine(&state)?
+        .disarm_automatic_trigger()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn automatic_trigger_status(state: State<'_, AppState>) -> Result<AutomaticTriggerStatus, String> {
+    Ok(engine(&state)?.automatic_trigger_status())
 }
 
 #[tauri::command]

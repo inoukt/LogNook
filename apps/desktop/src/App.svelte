@@ -1,24 +1,48 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import DerivedSignalsPanel from "./DerivedSignalsPanel.svelte";
   import PlaybackPanel from "./PlaybackPanel.svelte";
+  import SessionBrowser from "./SessionBrowser.svelte";
+  import AutomaticTriggerPanel from "./AutomaticTriggerPanel.svelte";
+  import SettingsPanel from "./SettingsPanel.svelte";
   import SignalGraphs from "./SignalGraphs.svelte";
+  import {
+    defaultAutomaticTriggerConfig, disarmedAutomaticTriggerStatus, normalizeAutomaticTriggerConfig,
+    restoreAutomaticTriggerConfig, type AutomaticTriggerConfig, type AutomaticTriggerStatus,
+  } from "./automaticTrigger";
+  import {
+    derivedSignalOptions, restoreDerivedSignalDefinitions, type DerivedSignalDefinition,
+  } from "./derivedSignals";
+  import type { ShortcutAction } from "./shortcuts";
   import type {
     ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     RecordingInfo, Sample, SignalDefinition,
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, orderMarkersForTimeline,
-    panTimeWindow, sampleTimeRange, scrubTimeWindow, setGraphSignal, setLogSignal, signalColor, swapPositions,
-    zoomTimeWindow, type SignalOption, type TimeWindow,
+    panTimeWindow, restoreWorkspacePreferences, sampleTimeRange, scrubTimeWindow, setGraphSignal,
+    setLogSignal, signalColor, swapPositions, zoomTimeWindow, type SignalOption, type TimeWindow,
+    type WorkspacePreferences,
   } from "./workspace";
 
+  const defaultWorkspacePreferences: WorkspacePreferences = {
+    logSignalIds: ["engine_rpm", "coolant_temp", "intake_temp"],
+    graphSignalIds: ["engine_rpm", "coolant_temp", "intake_temp"],
+    graphMode: "overlay",
+    signalPickerVisible: true,
+    statusHeight: 42,
+  };
+  const workspacePreferencesKey = "lognook.workspace-preferences";
+  const automaticTriggerPreferencesKey = "lognook.automatic-trigger";
+
   let signalCatalog: SignalDefinition[] = [];
+  let derivedSignalDefinitions: DerivedSignalDefinition[] = [];
   let sxPorts: string[] = [];
   let selectedSxPort = "";
   let sxIdentity: DeviceDescriptor | undefined;
-  let logSignalIds = ["engine_rpm", "coolant_temp", "intake_temp"];
+  let logSignalIds = [...defaultWorkspacePreferences.logSignalIds];
   let graphSignalIds = [...logSignalIds];
   let latest: Record<string, Sample> = {};
   let series: Record<string, Sample[]> = {};
@@ -31,6 +55,11 @@
   let timeWindow: TimeWindow = { startNs: 0, endNs: 0 };
   let connected = false;
   let recording = false;
+  let automaticRecording = false;
+  let automaticTriggerConfig: AutomaticTriggerConfig = { ...defaultAutomaticTriggerConfig };
+  let automaticTriggerStatus: AutomaticTriggerStatus = { ...disarmedAutomaticTriggerStatus };
+  let automaticTriggerPreferencesReady = false;
+  let derivedSignalPreferencesReady = false;
   let replaying = false;
   let busy = false;
   let status = "Disconnected";
@@ -39,8 +68,10 @@
   let markerNote = "";
   let error = "";
   let signalSearch = "";
+  let signalSearchInput: HTMLInputElement | undefined;
   let signalPickerVisible = true;
   let wheelScrubbing = false;
+  let workspacePreferencesReady = false;
   let statusHeight = 42;
   let statusResize: { y: number; height: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
@@ -63,12 +94,21 @@
           description: "Recorded signal",
         };
       })
-    : signalCatalog;
+    : [...signalCatalog, ...derivedSignalOptions(derivedSignalDefinitions)];
   $: visibleSignals = graphSignalIds.flatMap((id) => {
     const signal = availableSignals.find((candidate) => candidate.id === id);
     return signal ? [signal] : [];
   });
   $: filteredSignals = filterSignals(availableSignals, signalSearch);
+  $: automaticTriggerSignals = session ? [] : availableSignals.filter((signal) => logSignalIds.includes(signal.id));
+  $: currentDerivedValues = Object.fromEntries(derivedSignalDefinitions.map((definition) => [
+    definition.id,
+    latest[definition.id]?.value,
+  ]));
+  $: if (!automaticTriggerStatus.armed && automaticTriggerSignals.length
+    && !automaticTriggerSignals.some((signal) => signal.id === automaticTriggerConfig.signal_id)) {
+    updateAutomaticTriggerConfig(automaticTriggerConfig);
+  }
   $: liveGraphRange = sampleTimeRange(visibleSignals.flatMap((signal) => series[signal.id] ?? []));
   $: signalAverages = session
     ? sessionAverages
@@ -88,19 +128,69 @@
     sampleRate: sampleRate(signal.id),
   }));
   $: if (session) scheduleGraphWindow(session, graphSignalIds, timeWindow);
+  $: if (workspacePreferencesReady) {
+    try {
+      localStorage.setItem(workspacePreferencesKey, JSON.stringify({
+        ...defaultWorkspacePreferences,
+        logSignalIds,
+        graphSignalIds: liveGraphSignalIds ?? graphSignalIds,
+        graphMode,
+        signalPickerVisible,
+        statusHeight,
+      }));
+    } catch { /* Preferences are optional. */ }
+  }
+  $: if (automaticTriggerPreferencesReady) {
+    try { localStorage.setItem(automaticTriggerPreferencesKey, JSON.stringify(automaticTriggerConfig)); }
+    catch { /* Preferences are optional. */ }
+  }
+  $: if (derivedSignalPreferencesReady) {
+    try { localStorage.setItem("lognook.derived-signals", JSON.stringify(derivedSignalDefinitions)); }
+    catch { /* Preferences are optional. */ }
+  }
 
   onMount(() => {
     let disposed = false;
+    let savedWorkspacePreferences: string | null = null;
+    let savedAutomaticTrigger: string | null = null;
+    let savedDerivedSignals: string | null = null;
+    try {
+      savedWorkspacePreferences = localStorage.getItem(workspacePreferencesKey);
+      savedAutomaticTrigger = localStorage.getItem(automaticTriggerPreferencesKey);
+      savedDerivedSignals = localStorage.getItem("lognook.derived-signals");
+    } catch { /* Preferences are optional. */ }
     try {
       const colors = JSON.parse(localStorage.getItem("lognook.signal-colors") ?? "{}");
       if (colors && typeof colors === "object" && !Array.isArray(colors)) signalColors = colors;
-      wheelScrubbing = localStorage.getItem("lognook.wheel-scrubbing") === "true";
     } catch { /* Ignore unavailable or malformed local preferences. */ }
     listen<EngineEvent>("lognook-event", ({ payload }) => handleEvent(payload))
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
     invoke<SignalDefinition[]>("available_signals")
-      .then((signals) => signalCatalog = signals)
+      .then((signals) => {
+        signalCatalog = signals;
+        derivedSignalDefinitions = restoreDerivedSignalDefinitions(savedDerivedSignals, signals.map(({ id }) => id));
+        derivedSignalPreferencesReady = true;
+        const preferences = restoreWorkspacePreferences(
+          savedWorkspacePreferences,
+          [...signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)],
+          defaultWorkspacePreferences,
+          Math.max(36, window.innerHeight * 0.3),
+        );
+        logSignalIds = preferences.logSignalIds;
+        automaticTriggerConfig = restoreAutomaticTriggerConfig(
+          savedAutomaticTrigger,
+          preferences.logSignalIds,
+          preferences.logSignalIds[0] ?? signals[0]?.id ?? defaultAutomaticTriggerConfig.signal_id,
+        );
+        automaticTriggerPreferencesReady = true;
+        if (session) liveGraphSignalIds = preferences.graphSignalIds;
+        else graphSignalIds = preferences.graphSignalIds;
+        graphMode = preferences.graphMode;
+        signalPickerVisible = preferences.signalPickerVisible;
+        statusHeight = preferences.statusHeight;
+        workspacePreferencesReady = true;
+      })
       .catch(() => error = "Open LogNook as a desktop app to access the acquisition engine.");
     invoke<string[]>("available_obdlink_sx_ports")
       .then((ports) => {
@@ -108,8 +198,54 @@
         selectedSxPort = ports[0] ?? "";
       })
       .catch(() => sxPorts = []);
-    return () => { disposed = true; unlisten?.(); };
+    invoke<AutomaticTriggerStatus>("automatic_trigger_status")
+      .then((triggerStatus) => handleEvent({ type: "triggerStatus", payload: triggerStatus }))
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   });
+
+  function runShortcut(action: ShortcutAction) {
+    if (action === "toggleRecording") {
+      if (busy) return;
+      if (recording) stopRecording();
+      else if (connected && !replaying) startRecording();
+    } else if (action === "togglePlayback") {
+      if (session && !recording && !busy) togglePlayback();
+    } else if (action === "insertMarker") {
+      if (busy) return;
+      if (recording) insertLiveMarker();
+      else if (session) addMarker("Manual marker", "");
+    } else if (action === "previousMarker") {
+      jumpToMarker(-1);
+    } else if (action === "nextMarker") {
+      jumpToMarker(1);
+    } else if (action === "focusPidSearch") {
+      focusPidSearch();
+    } else if (action === "captureScreenshot") {
+      window.dispatchEvent(new Event("lognook-capture-screenshot"));
+    } else if (action === "zoomIn") {
+      zoom(2);
+    } else if (action === "zoomOut") {
+      zoom(0.5);
+    }
+  }
+
+  function jumpToMarker(direction: -1 | 1) {
+    if (!session || busy) return;
+    const marker = direction < 0
+      ? [...markers].reverse().find((item) => item.elapsed_ns < playback.position_ns)
+      : markers.find((item) => item.elapsed_ns > playback.position_ns);
+    if (marker) seek(marker.elapsed_ns);
+  }
+
+  async function focusPidSearch() {
+    if (!signalPickerVisible) signalPickerVisible = true;
+    await tick();
+    signalSearchInput?.focus();
+  }
 
   function handleEvent(event: EngineEvent) {
     if (event.type === "playbackSample") {
@@ -134,6 +270,18 @@
     } else if (event.type === "marker") {
       if (session && !session.markers.some((marker) => marker.id === event.payload.id)) {
         session = { ...session, markers: [...session.markers, event.payload] };
+      }
+    } else if (event.type === "triggerStatus") {
+      automaticTriggerStatus = event.payload;
+      if (event.payload.armed) status = "Automatic trigger armed";
+      if (event.payload.recording) {
+        automaticRecording = true;
+        recording = true;
+        recordingPath = event.payload.recording_path ?? "automatic trigger";
+        status = "Automatic trigger fired · recording";
+      } else if (automaticRecording) {
+        automaticRecording = false;
+        recording = false;
       }
     } else if (event.type === "connected") {
       connected = true;
@@ -161,6 +309,7 @@
           ? "Replay complete"
           : "Session paused";
     } else if (event.type === "recordingFailed") {
+      automaticRecording = false;
       recording = false;
       recordingPath = event.payload.path;
       status = `Recording stopped · preserved ${event.payload.sample_count} samples`;
@@ -255,21 +404,30 @@
 
   function connect() {
     return run(async () => {
-      const requested = logSignalIds.filter((id) => signalCatalog.some((signal) => signal.id === id));
+      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
+      await invoke("configure_derived_signals", {
+        definitions: derivedSignalDefinitions,
+        activeIds: derivedSignalDefinitions.filter((definition) => requested.includes(definition.id)).map(({ id }) => id),
+      });
       const capabilities = await invoke<ConnectionCapabilities>("connect_simulator", { signalIds: requested });
       await clearSession();
       series = {};
       latest = {};
-      logSignalIds = logSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
-      graphSignalIds = graphSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
+      graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
     });
   }
 
   function connectSx() {
     return run(async () => {
-      const requested = logSignalIds.filter((id) => signalCatalog.some((signal) => signal.id === id));
+      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
+      await invoke("configure_derived_signals", {
+        definitions: derivedSignalDefinitions,
+        activeIds: derivedSignalDefinitions.filter((definition) => requested.includes(definition.id)).map(({ id }) => id),
+      });
       const capabilities = await invoke<ConnectionCapabilities>("connect_obdlink_sx", {
         portName: selectedSxPort,
         signalIds: requested,
@@ -277,8 +435,9 @@
       await clearSession();
       series = {};
       latest = {};
-      logSignalIds = logSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
-      graphSignalIds = graphSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
+      graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
     });
   }
 
@@ -307,6 +466,7 @@
       const result = await invoke<{ path: string; sample_count: number }>("stop_recording");
       recordingPath = result.path;
       recording = false;
+      automaticRecording = false;
       status = `Saved ${result.sample_count.toLocaleString()} samples`;
       await activateSession(await invoke<RecordingInfo>("load_last_recording"));
     });
@@ -327,6 +487,31 @@
     return run(async () => {
       const info = await invoke<RecordingInfo | null>("open_csv");
       if (info) await activateSession(info);
+    });
+  }
+
+  function updateAutomaticTriggerConfig(config: AutomaticTriggerConfig) {
+    automaticTriggerConfig = normalizeAutomaticTriggerConfig(
+      config,
+      automaticTriggerSignals.map((signal) => signal.id),
+      automaticTriggerSignals[0]?.id ?? defaultAutomaticTriggerConfig.signal_id,
+    );
+  }
+
+  function armAutomaticTrigger() {
+    return run(async () => {
+      updateAutomaticTriggerConfig(automaticTriggerConfig);
+      automaticTriggerStatus = await invoke<AutomaticTriggerStatus>("arm_automatic_trigger", {
+        config: automaticTriggerConfig,
+      });
+      status = "Automatic trigger armed";
+    });
+  }
+
+  function disarmAutomaticTrigger() {
+    return run(async () => {
+      automaticTriggerStatus = await invoke<AutomaticTriggerStatus>("disarm_automatic_trigger");
+      status = connected ? "Automatic trigger disarmed" : "Disconnected";
     });
   }
 
@@ -486,14 +671,51 @@
     }
   }
 
+  function updateDerivedSignals(definitions: DerivedSignalDefinition[]) {
+    const oldIds = new Set(derivedSignalDefinitions.map(({ id }) => id));
+    const nextIds = new Set(definitions.map(({ id }) => id));
+    const added = definitions.filter(({ id }) => !oldIds.has(id)).map(({ id }) => id);
+    const keepSelected = (ids: string[]) => ids.filter((id) => !oldIds.has(id) || nextIds.has(id));
+    logSignalIds = [...new Set([...keepSelected(logSignalIds), ...added])];
+    graphSignalIds = [...new Set([...keepSelected(graphSignalIds), ...added])];
+    derivedSignalDefinitions = definitions;
+  }
+
+  function tareDerivedSignal(signalId: string) {
+    return run(async () => {
+      const tareOffset = await invoke<number>("tare_derived_signal", { signalId });
+      derivedSignalDefinitions = derivedSignalDefinitions.map((definition) => definition.id === signalId
+        ? { ...definition, tare_offset: tareOffset }
+        : definition);
+    });
+  }
+
   function updateSignalColor(signalId: string, color: string) {
     signalColors = { ...signalColors, [signalId]: color };
     try { localStorage.setItem("lognook.signal-colors", JSON.stringify(signalColors)); } catch { /* Preferences are optional. */ }
   }
 
-  function updateWheelScrubbing(event: Event) {
-    wheelScrubbing = (event.currentTarget as HTMLInputElement).checked;
-    try { localStorage.setItem("lognook.wheel-scrubbing", String(wheelScrubbing)); } catch { /* Preferences are optional. */ }
+  function resetPreferences() {
+    const preferences = restoreWorkspacePreferences(null, signalCatalog.map(({ id }) => id), defaultWorkspacePreferences, Math.max(36, window.innerHeight * 0.3));
+    logSignalIds = preferences.logSignalIds;
+    if (session) liveGraphSignalIds = preferences.graphSignalIds;
+    else graphSignalIds = preferences.graphSignalIds;
+    graphMode = preferences.graphMode;
+    signalPickerVisible = preferences.signalPickerVisible;
+    statusHeight = preferences.statusHeight;
+    signalColors = {};
+    wheelScrubbing = false;
+    automaticTriggerConfig = { ...defaultAutomaticTriggerConfig };
+    derivedSignalDefinitions = [];
+    try {
+      localStorage.removeItem(workspacePreferencesKey);
+      localStorage.removeItem("lognook.signal-colors");
+      localStorage.removeItem("lognook.wheel-scrubbing");
+      localStorage.removeItem("lognook.automatic-trigger");
+      localStorage.removeItem("lognook.derived-signals");
+      localStorage.removeItem("lognook.graph-preferences.v1");
+    } catch { /* Preferences are optional. */ }
+    window.dispatchEvent(new Event("lognook-reset-graph-preferences"));
   }
 
   function swapGraphPositions(fromId: string, toId: string) {
@@ -538,14 +760,12 @@
   <header class="topbar">
     <a class="brand" href="/" aria-label="LogNook home"><span class="brand-mark">L</span><span>Log<span class="brand-accent">Nook</span></span></a>
     <div class="connection-state" aria-label={status} title={status}><span class:online={connected} class:replay={replaying} class="state-dot"></span></div>
-    <details class="settings-menu">
-      <summary class="icon-button" aria-label="Settings" title="Settings">⚙</summary>
-      <div class="settings-popover">
-        <strong>Settings</strong>
-        <label><input type="checkbox" checked={wheelScrubbing} onchange={updateWheelScrubbing} /> Wheel scrubs graph</label>
-        <small>Replay keeps the playhead centered while playing.</small>
-      </div>
-    </details>
+    <SettingsPanel
+      bind:wheelScrubbing
+      resetDisabled={!workspacePreferencesReady || connected || recording || replaying || session !== null}
+      onAction={runShortcut}
+      onReset={resetPreferences}
+    />
     <span class="milestone">FOUNDATION POC</span>
   </header>
 
@@ -573,13 +793,13 @@
         {#if connected}
           <button class="button secondary" onclick={disconnect} disabled={busy}>Disconnect</button>
         {:else}
-          <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || sxPorts.length === 0 || replaying}>
+          <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || recording || sxPorts.length === 0 || replaying}>
             {#if sxPorts.length === 0}<option value="">No SX found</option>{/if}
             {#each sxPorts as port}<option value={port}>{port}</option>{/each}
           </select>
-          <button class="button secondary" onclick={identifySx} disabled={busy || !selectedSxPort || replaying}>Identify SX</button>
-          <button class="button secondary" onclick={connectSx} disabled={busy || !selectedSxPort || sxIdentity?.path !== selectedSxPort || logSignalIds.length === 0 || replaying}>Connect OBDLink SX</button>
-          <button class="button primary" onclick={connect} disabled={busy || logSignalIds.length === 0 || replaying}>Connect simulator</button>
+          <button class="button secondary" onclick={identifySx} disabled={busy || recording || !selectedSxPort || replaying}>Identify SX</button>
+          <button class="button secondary" onclick={connectSx} disabled={busy || recording || !selectedSxPort || sxIdentity?.path !== selectedSxPort || logSignalIds.length === 0 || replaying}>Connect OBDLink SX</button>
+          <button class="button primary" onclick={connect} disabled={busy || recording || logSignalIds.length === 0 || replaying}>Connect simulator</button>
         {/if}
         {#if recording}
           <button class="button danger" onclick={stopRecording} disabled={busy}>Stop recording</button>
@@ -612,11 +832,34 @@
       onReset={resetZoom}
     />
 
+    <details class="session-browser-details">
+      <summary>Browse saved sessions</summary>
+      <SessionBrowser disabled={busy || connected || recording} onOpen={activateSession} />
+    </details>
+
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
         <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : `${logSignalIds.length} logging · ${graphSignalIds.length} graphed`}</span></div>
-        <input class="text-input signal-search" type="search" bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
+        <input class="text-input signal-search" type="search" bind:this={signalSearchInput} bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
+        <AutomaticTriggerPanel
+          signals={automaticTriggerSignals}
+          config={automaticTriggerConfig}
+          status={automaticTriggerStatus}
+          disabled={busy || !connected || recording || replaying || session !== null}
+          onConfigChange={updateAutomaticTriggerConfig}
+          onArm={armAutomaticTrigger}
+          onDisarm={disarmAutomaticTrigger}
+        />
+        <DerivedSignalsPanel
+          definitions={derivedSignalDefinitions}
+          baseSignalIds={signalCatalog.map(({ id }) => id)}
+          currentValues={currentDerivedValues}
+          disabled={busy || connected || recording || replaying || session !== null}
+          tareDisabled={busy || !connected || replaying || session !== null}
+          onChange={updateDerivedSignals}
+          onTare={tareDerivedSignal}
+        />
         <div class="signal-columns" aria-hidden="true"><span></span><span></span><span>Log</span><span>Graph</span></div>
         <div class="signal-list">
           {#each filteredSignals as signal (signal.id)}
@@ -662,7 +905,8 @@
       <strong>{status}</strong>
       {#if error}<span class="status-error" role="alert">{error}</span>{/if}
       {#if sxIdentity}<span class="status-success">Identified {sxIdentity.hardware_family} · {sxIdentity.firmware} · serial {sxIdentity.stable_id}</span>{/if}
-      {#if recording}<span class="status-recording"><span class="pulse-dot"></span>Recording live samples · {recordingPath}</span>{/if}
+      {#if automaticTriggerStatus.armed}<span class="status-success">Automatic trigger armed · {automaticTriggerStatus.config?.signal_id} {automaticTriggerStatus.config?.direction} {automaticTriggerStatus.config?.threshold}</span>{/if}
+      {#if recording}<span class="status-recording"><span class="pulse-dot"></span>{automaticRecording ? "Automatic trigger recording" : "Recording live samples"} · {recordingPath}</span>{/if}
       {#if exportPath}<span class="status-success">CSV exported · {exportPath}</span>{/if}
     </div>
   </footer>

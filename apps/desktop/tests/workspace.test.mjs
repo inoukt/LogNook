@@ -11,6 +11,7 @@ import {
   orderMarkersForTimeline,
   panTimeWindow,
   positionAtChartX,
+  restoreWorkspacePreferences,
   sampleTimeRange,
   scrubTimeWindow,
   setGraphSignal,
@@ -25,6 +26,14 @@ const signals = [
   { id: "engine_rpm", name: "Engine speed", service: 1, pid: 12, unit: "rpm", min: 0, max: 8000, description: "Crankshaft rotation speed" },
   { id: "coolant_temp", name: "Coolant temperature", service: 1, pid: 5, unit: "°C", min: -40, max: 215, description: "Engine coolant temperature" },
 ];
+
+const defaultWorkspacePreferences = {
+  logSignalIds: ["engine_rpm", "coolant_temp"],
+  graphSignalIds: ["engine_rpm", "coolant_temp"],
+  graphMode: "overlay",
+  signalPickerVisible: true,
+  statusHeight: 42,
+};
 
 function point(elapsed_ns, value) {
   return { elapsed_ns, value };
@@ -70,6 +79,42 @@ test("custom PID color overrides the default palette and invalid colors are igno
   assert.equal(signalColor("rpm", 0, {}), "#56c8bd");
   assert.equal(signalColor("rpm", 0, { rpm: "#ff0000" }), "#ff0000");
   assert.equal(signalColor("rpm", 0, { rpm: "red" }), "#56c8bd");
+});
+
+test("workspace preferences survive a serialized round trip", () => {
+  const preferences = {
+    logSignalIds: ["coolant_temp", "engine_rpm"],
+    graphSignalIds: ["coolant_temp"],
+    graphMode: "separate",
+    signalPickerVisible: false,
+    statusHeight: 96,
+  };
+  assert.deepEqual(
+    restoreWorkspacePreferences(JSON.stringify(preferences), signals.map(({ id }) => id), defaultWorkspacePreferences, 120),
+    preferences,
+  );
+});
+
+test("workspace preference restoration filters unsupported PIDs and malformed values", () => {
+  const restored = restoreWorkspacePreferences(JSON.stringify({
+    logSignalIds: ["engine_rpm", "missing", "engine_rpm", 4],
+    graphSignalIds: ["coolant_temp", "engine_rpm", "missing"],
+    graphMode: "invalid",
+    signalPickerVisible: "hidden",
+    statusHeight: 900,
+  }), ["engine_rpm", "coolant_temp"], defaultWorkspacePreferences, 120);
+
+  assert.deepEqual(restored, {
+    logSignalIds: ["engine_rpm"],
+    graphSignalIds: ["engine_rpm"],
+    graphMode: "overlay",
+    signalPickerVisible: true,
+    statusHeight: 120,
+  });
+  assert.deepEqual(
+    restoreWorkspacePreferences("not json", ["engine_rpm"], defaultWorkspacePreferences, 120),
+    { ...defaultWorkspacePreferences, logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"] },
+  );
 });
 
 test("PID search matches names, descriptions, IDs, units, and decimal or hex PID", () => {

@@ -2,6 +2,7 @@ mod acquisition;
 mod adapter;
 mod csv_import;
 mod csv_io;
+mod derived;
 mod engine;
 mod graph_window;
 mod model;
@@ -21,9 +22,9 @@ pub use csv_io::{export_csv, export_recording_csv, import_csv};
 pub use engine::LogNookEngine;
 pub use graph_window::{query_recording_averages, query_recording_values_at, query_recording_window};
 pub use model::{
-    ConnectionCapabilities, DeviceDescriptor, EngineEvent, LogNookError, Marker, PlaybackState,
-    Recording, RecordingInfo, RecordingSignal, RecordingSummary, Sample, SampleOrigin,
-    SampleQuality, SignalDefinition,
+    AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities, DerivedSignalDefinition, DeviceDescriptor,
+    EngineEvent, LogNookError, Marker, PlaybackState, Recording, RecordingInfo, RecordingSignal,
+    RecordingSummary, Sample, SampleOrigin, SampleQuality, SignalDefinition, TriggerDirection,
 };
 pub use obdlink_sx::{ObdLinkSxAdapter, available_obdlink_sx_ports, identify_obdlink_sx};
 pub use recording::{RecordingWriter, read_recording};

@@ -65,6 +65,7 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - Acquisition serializes adapter reads at a 100 ms target and submits timestamped samples to a bounded 256-item synchronous queue. A slow recorder applies backpressure. The UI consumes pipeline events rather than synthesizing measurements.
 - Samples retain monotonic elapsed time, UTC receive time, source/ECU, units, quality, origin, and optional raw OBD bytes. Missing ECU-address headers remain unknown; no ECU address is fabricated.
 - A recording is a new SQLite `.lognook` file with WAL during acquisition. Clean close checkpoints and verifies integrity. Original sample timestamps, raw bytes, quality, and separate markers are retained.
+- An adapter disconnect disarms an untriggered automatic rule and clears its rolling pre-trigger samples. If an adapter read fails during an active recording, the partial recording stays open for an explicit stop; another adapter cannot connect until that recording closes, avoiding mixed elapsed-time origins.
 - CSV is long-form with `raw_hex` and typed `event_type=sample|marker` rows. Export refuses overwrites. The importer accepts older sample-only CSV and imports legacy `*-markers.csv` sidecars only when inline marker events are absent. CSV import streams into a new SQLite session and preserves the selected source. Playback reads ordered session events incrementally and feeds samples through the same bounded pipeline with `origin=replay`.
 - Tauri owns app-local recording paths and bridges the engine to Svelte. The PID picker and combined/separate graphs share timestamped pipeline samples with recording and replay.
 
@@ -82,6 +83,7 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - Replay graph queries use 360 buckets for the 720-unit SVG viewport, and the renderer retains each pixel column's extrema to keep the plotted path small without dropping stored samples. The PID panel is hideable; graph paint is clipped to its column and kept below the PID panel's layer.
 - The PID list toggle stays in a narrow rail beside the list across responsive layouts. Closing a loaded session stops replay, clears session readouts, and restores the live graph selection.
 - PID colors and the optional wheel-scrub setting are local renderer preferences. The graph click seeks the shared playback cursor; adding a marker at that cursor accepts blank label and note. Averages use the visible graph range (live retained points or SQLite `AVG` for sessions).
+- Derived-signal IDs are checked for syntax, uniqueness, and collisions with base PIDs before the keyed signal list changes. Formula help uses the parser's ASCII arithmetic operators (`+ - * /`).
 
 ## Physical validation and transport decision
 
@@ -150,5 +152,15 @@ Sources: [OBDLink FRPM Rev F](https://www.scantool.net/scantool/downloads/682/ob
 - Physical validation covers one SX/Ford connection, 41 advertised generic PIDs, successful reads for all 35 auto-requestable seed candidates, live samples for all five original UI signals, and a roughly 66-second recording of those five. The diagnostic bench measured 81.42 aggregate PID values/second across width-aware grouped queries. A live LogNook application run is still needed to verify application-level rate and stability.
 - Multiple ECU responders are rejected until explicit selection is implemented. The grouped CAN fast path first enables headers and identifies one responder; the app still does not support multiple ECU selection. Ford enhanced/MS-CAN support is not claimed.
 - The simulator supplies plausible values, timestamps, and response delays; scripted disconnects, malformed replies, and variable ECU sets are not implemented.
-- CSV import and a shared session player are available. A session browser and alternate CSV schemas are out of scope. Live graphs keep a 180-point display window; session graphs request a bounded window from SQLite, while persisted data remains full resolution.
+- CSV import, a shared session player, and a recent-session browser for app-local `.lognook` files are available. Alternate CSV schemas are out of scope. Live graphs keep a 180-point display window; session graphs request a bounded window from SQLite, while persisted data remains full resolution.
 - The updated SX controls were not exercised in a native Tauri window during the hardware follow-up. No installer or release package has been validated.
+
+## Selected workspace, capture, and analysis features — 2026-10-03
+
+- `SettingsPanel.svelte` owns persisted keyboard bindings and dispatches typed actions to `App.svelte`. Focus guards leave text fields and native controls usable. The graph exposes its PNG action to this shortcut system through a window event.
+- The Tauri player commands list native recordings by metadata, then open only canonical files whose direct parent is the app recordings directory. CSV import remains a separate path.
+- `pipeline_worker` serializes acquisition samples, recording, automatic triggers, and derived outputs. `pipeline_worker/trigger.rs` detects threshold conditions; `live_samples.rs` bounds the pre-trigger buffer and starts the recorder; `derived.rs` maintains formula inputs and emits separate output samples. Both use the same recording/event pipeline.
+- Derived formulas compile to a small arithmetic expression tree over catalog signal IDs. The engine requests formula inputs from the adapter, emits the derived sample with the source timestamp, and never changes source rows. Tare updates only the derived offset and records a zero-valued sample.
+- `GraphPreferences` are renderer-local preferences: per-signal manual min/max and line styling, one of line/scatter/bar/heatmap views, cursor readouts, and a stored reference snapshot. Reference samples are capped at 180 per signal and mapped to the current visible time span.
+- Graph screenshots serialize the displayed SVG with its legend and guides, then use the browser canvas to download PNG. Full-window/native desktop capture is not implemented.
+- Automatic recording currently supports one selected-signal threshold, above/below direction, hysteresis, hold duration, a 0–30 s pre-trigger window, and an automatic marker. The ring buffer is capped at 100,000 samples. Compound conditions, time/change events, automatic stop rules, notifications/audio, and physical trigger validation remain future work.

@@ -88,7 +88,7 @@ OpenPort 2: the user chose to retain the OPTA WinUSB binding. The matching signe
 
 ## Remaining POC limits
 
-The Ford bench advertised 41 generic PIDs. The shared scalar signal catalog and production picker support the 35 seed entries marked `public_reference` and `auto_request=True`; the six review-required entries (`01`, `15`, `19`, `34`, `38`, `41`) need structured or sub-channel decoders. The grouped production path is covered by fixtures and unit tests; application throughput has not yet been remeasured on the vehicle. Multiple ECU responders remain rejected, and Ford enhanced/MS-CAN support is not claimed. There is no scripted timeout/disconnect simulator, session browser, installer, or Linux packaging. The COM4 transport remains the production implementation; direct D2XX was used only for diagnostics.
+The Ford bench advertised 41 generic PIDs. The shared scalar signal catalog and production picker support the 35 seed entries marked `public_reference` and `auto_request=True`; the six review-required entries (`01`, `15`, `19`, `34`, `38`, `41`) need structured or sub-channel decoders. The grouped production path is covered by fixtures and unit tests; application throughput has not yet been remeasured on the vehicle. Multiple ECU responders remain rejected, and Ford enhanced/MS-CAN support is not claimed. Scripted timeout/disconnect simulation, installer work, Linux packaging, and alternate CSV schemas remain open. The COM4 transport remains the production implementation; direct D2XX was used only for diagnostics.
 
 ## Grouped SX polling implementation and verification — 2026-10-02
 
@@ -144,3 +144,16 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - Clipped graph paint to its column and limited replay graph rendering to screen-resolution extrema; acquisition and recordings retain full-resolution samples.
 - Reduced the branded top bar, made the acquisition toolbar wrap at narrow widths, moved the toggle to a left-side **Hide List / Show List** rail, and added a Close session action that stops replay and restores live graph selection.
 - Verification: UI tests **19 passed**; Svelte check **0 errors / 0 warnings**; Vite production build passed; `cargo test --workspace` passed **67 tests**. Hide/Show List was checked in the 1280 px browser preview; the native CSV close flow and 760 px layout were not manually exercised.
+
+## Selected requested features 1–7 — 2026-10-03
+
+- Workspace preferences restore logged/graphed PIDs, graph mode, PID-list visibility, and status-panel height. Settings reset clears workspace, graph, color, wheel-scrub, shortcut, trigger, and derived-signal preferences.
+- Customizable shortcuts cover recording, replay, markers and marker navigation, PID search, graph zoom, and graph PNG capture. A single Settings panel owns shortcut editing and focus guards.
+- Automatic threshold recording supports above/below conditions, hysteresis, hold time, and 0–30 second pre-trigger capture. The Rust pipeline keeps at most 30 seconds/100,000 samples, writes the original sample timestamps, and inserts an automatic marker.
+- Graph PNG export includes the rendered SVG, marker/playhead guides, current legend, and title; the shortcut is `Ctrl+Shift+S` by default.
+- Derived signals use a safe arithmetic parser over acquired PID identifiers. Unit conversion is expressed in the formula; tare captures the current formula output as an offset. Derived samples are stored alongside unchanged source samples and remain available in CSV and replay.
+- Graph settings persist manual ranges, line styles/thickness, line/scatter/bar/heatmap views, cursor readouts, and a dashed reference snapshot (up to 180 samples per signal).
+- The session browser lists local `.lognook` recordings by modified time and sample count. The native command only opens canonicalized files directly inside LogNook's recordings directory.
+- Review fixes: failed or manual disconnects disarm automatic triggers and clear the pre-trigger ring; an open partial recording blocks reconnect so reset adapter clocks cannot mix into it. Session opening now awaits player activation, Space can insert a marker while the graph slider is focused, derived IDs reject duplicates/base PID collisions, and formula help matches supported operators.
+- Verification on this checkout after review: `cargo test --workspace` **86 passed**; `cargo check --workspace` passed; `cargo build -p lognook-desktop --features tauri/custom-protocol` passed; UI tests **45 passed**; `npm run build` passed with **0 Svelte errors/warnings**; `git diff --check` passed. `cargo fmt --all -- --check` could not run because rustfmt is not installed in the available stable toolchain.
+- This feature batch was verified by simulation/fixtures and compilation only; no physical vehicle or adapter test was performed. PNG capture covers the graph view rather than the whole desktop window. Automatic recording currently starts from one threshold rule; compound/time/change rules and automatic stop actions remain future work. Formula functions beyond arithmetic are not implemented.

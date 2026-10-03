@@ -1,0 +1,44 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  derivedSignalOptions,
+  isAvailableDerivedSignalId,
+  restoreDerivedSignalDefinitions,
+} from "../src/derivedSignals.ts";
+
+test("derived definitions restore with stable ids, formulas, units, and tare offsets", () => {
+  const definitions = restoreDerivedSignalDefinitions(JSON.stringify([
+    { id: "temp_f", name: "Coolant °F", expression: "coolant_temp * 1.8 + 32", unit: "°F", tare_offset: 10 },
+    { id: "engine_rpm", name: "Collision", expression: "engine_rpm", unit: "rpm", tare_offset: 0 },
+    { id: "temp_f", name: "Duplicate", expression: "coolant_temp", unit: "°C", tare_offset: 0 },
+    { id: "bad-id", name: "Invalid", expression: "coolant_temp", unit: "°C", tare_offset: 0 },
+  ]), ["engine_rpm", "coolant_temp"]);
+
+  assert.deepEqual(definitions, [
+    { id: "temp_f", name: "Coolant °F", expression: "coolant_temp * 1.8 + 32", unit: "°F", tare_offset: 10 },
+  ]);
+});
+
+test("derived definitions appear as signal options with their formula in the description", () => {
+  assert.deepEqual(derivedSignalOptions([
+    { id: "temp_f", name: "Coolant °F", expression: "coolant_temp * 1.8 + 32", unit: "°F", tare_offset: 0 },
+  ]), [{
+    id: "temp_f",
+    name: "Coolant °F",
+    unit: "°F",
+    description: "Derived from coolant_temp * 1.8 + 32",
+  }]);
+});
+
+test("derived signal ids must be valid, unique, and avoid base signal ids", () => {
+  const definitions = [
+    { id: "speed_mph", name: "Speed", expression: "vehicle_speed", unit: "mph", tare_offset: 0 },
+    { id: "temp_f", name: "Temp", expression: "coolant_temp", unit: "°F", tare_offset: 0 },
+  ];
+
+  assert.equal(isAvailableDerivedSignalId("rpm_delta", "temp_f", definitions, ["engine_rpm"]), true);
+  assert.equal(isAvailableDerivedSignalId("speed_mph", "temp_f", definitions, []), false);
+  assert.equal(isAvailableDerivedSignalId("engine_rpm", "temp_f", definitions, ["engine_rpm"]), false);
+  assert.equal(isAvailableDerivedSignalId("bad-id", "temp_f", definitions, []), false);
+  assert.equal(isAvailableDerivedSignalId("temp_f", "temp_f", definitions, []), true);
+});

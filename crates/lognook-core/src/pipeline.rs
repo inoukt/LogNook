@@ -1,4 +1,8 @@
-use crate::model::{EngineEvent, LogNookError, Marker, PlaybackState, RecordingSummary, Sample};
+use crate::model::{
+    AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, LogNookError, Marker,
+    PlaybackState, RecordingSummary, Sample,
+};
+use crate::derived::CompiledDerivedSignal;
 use crate::pipeline_worker::process;
 use std::{
     path::PathBuf,
@@ -15,8 +19,16 @@ const QUEUE_CAPACITY: usize = 256;
 
 pub(crate) enum Message {
     Sample(Sample),
+    SetDerivedSignals(Vec<CompiledDerivedSignal>, mpsc::Sender<Result<(), String>>),
+    TareDerivedSignal(String, mpsc::Sender<Result<f64, String>>),
     PlaybackSample(u64, Sample),
     StartRecording(PathBuf, mpsc::Sender<Result<(), String>>),
+    ArmAutomaticTrigger(
+        AutomaticTriggerConfig,
+        PathBuf,
+        mpsc::Sender<Result<AutomaticTriggerStatus, String>>,
+    ),
+    DisarmAutomaticTrigger(mpsc::Sender<Result<AutomaticTriggerStatus, String>>),
     StopRecording(mpsc::Sender<Result<RecordingSummary, String>>),
     Marker(Marker, mpsc::Sender<Result<Marker, String>>),
     PlaybackMarker(u64, Marker),
@@ -83,6 +95,7 @@ pub(crate) struct SamplePipeline {
     sender: SampleSender,
     latest_elapsed_ns: Arc<AtomicI64>,
     recording_active: Arc<AtomicBool>,
+    automatic_trigger_status: Arc<Mutex<AutomaticTriggerStatus>>,
     last_recording_path: Arc<Mutex<Option<PathBuf>>>,
     worker: Option<JoinHandle<()>>,
 }
@@ -92,16 +105,19 @@ impl SamplePipeline {
         let (tx, rx) = mpsc::sync_channel(QUEUE_CAPACITY);
         let latest_elapsed_ns = Arc::new(AtomicI64::new(0));
         let recording_active = Arc::new(AtomicBool::new(false));
+        let automatic_trigger_status = Arc::new(Mutex::new(AutomaticTriggerStatus::default()));
         let last_recording_path = Arc::new(Mutex::new(None));
         let worker = thread::spawn({
             let latest = latest_elapsed_ns.clone();
             let recording_active = recording_active.clone();
+            let automatic_trigger_status = automatic_trigger_status.clone();
             let last_recording_path = last_recording_path.clone();
             move || {
                 process(
                     rx,
                     latest,
                     recording_active,
+                    automatic_trigger_status,
                     last_recording_path,
                     event_sink,
                 )
@@ -111,6 +127,7 @@ impl SamplePipeline {
             sender: SampleSender(tx),
             latest_elapsed_ns,
             recording_active,
+            automatic_trigger_status,
             last_recording_path,
             worker: Some(worker),
         }
@@ -120,8 +137,42 @@ impl SamplePipeline {
         self.sender.clone()
     }
 
+    pub(crate) fn set_derived_signals(
+        &self,
+        signals: Vec<CompiledDerivedSignal>,
+    ) -> Result<(), LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.sender
+            .0
+            .send(Message::SetDerivedSignals(signals, reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge derived signals"))?
+            .map_err(LogNookError::new)
+    }
+
+    pub(crate) fn tare_derived_signal(&self, id: String) -> Result<f64, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.sender
+            .0
+            .send(Message::TareDerivedSignal(id, reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge tare"))?
+            .map_err(LogNookError::new)
+    }
+
     pub(crate) fn is_recording(&self) -> bool {
         self.recording_active.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn automatic_trigger_status(&self) -> AutomaticTriggerStatus {
+        self.automatic_trigger_status
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn last_recording_path(&self) -> Option<PathBuf> {
@@ -137,6 +188,36 @@ impl SamplePipeline {
         response
             .recv()
             .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge recording start"))?
+            .map_err(LogNookError::new)
+    }
+
+    pub(crate) fn arm_automatic_trigger(
+        &self,
+        config: AutomaticTriggerConfig,
+        path: PathBuf,
+    ) -> Result<AutomaticTriggerStatus, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.sender
+            .0
+            .send(Message::ArmAutomaticTrigger(config, path, reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge trigger arming"))?
+            .map_err(LogNookError::new)
+    }
+
+    pub(crate) fn disarm_automatic_trigger(
+        &self,
+    ) -> Result<AutomaticTriggerStatus, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.sender
+            .0
+            .send(Message::DisarmAutomaticTrigger(reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge trigger disarming"))?
             .map_err(LogNookError::new)
     }
 

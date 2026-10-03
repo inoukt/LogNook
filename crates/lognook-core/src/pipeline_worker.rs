@@ -1,10 +1,23 @@
+mod derived;
+mod live_samples;
+mod trigger;
+
+use self::{
+    derived::DerivedProcessor,
+    live_samples::{
+        fail_recording, get_trigger_status, process_live_sample, set_last_recording_path,
+        set_trigger_status,
+    },
+    trigger::TriggerDetector,
+};
 use crate::{
-    model::{EngineEvent, Marker, SampleOrigin},
+    model::{AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, Marker},
     pipeline::Message,
     recording::RecordingWriter,
 };
 use std::{
-    path::{Path, PathBuf},
+    collections::VecDeque,
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicI64, Ordering},
@@ -16,43 +29,85 @@ pub(crate) fn process(
     rx: Receiver<Message>,
     latest: Arc<AtomicI64>,
     recording_active: Arc<AtomicBool>,
+    automatic_trigger_status: Arc<Mutex<AutomaticTriggerStatus>>,
     last_recording_path: Arc<Mutex<Option<PathBuf>>>,
     sink: Arc<dyn Fn(EngineEvent) + Send + Sync>,
 ) {
     let mut recorder: Option<RecordingWriter> = None;
-    while let Ok(message) = rx.recv() {
+    let mut automatic_trigger: Option<(TriggerDetector, AutomaticTriggerConfig, PathBuf)> = None;
+    let mut derived = DerivedProcessor::default();
+    let mut pre_trigger_samples = VecDeque::new();
+    let mut newest_elapsed_ns = 0;
+    'messages: while let Ok(message) = rx.recv() {
         match message {
             Message::Sample(sample) => {
                 if !sample.value.is_finite() {
+                    derived.invalidate(&sample.signal_id);
+                    if let Some((detector, _, _)) = automatic_trigger.as_mut() {
+                        detector.observe(&sample);
+                    }
                     fail_recording(
                         &mut recorder,
                         &recording_active,
+                        &automatic_trigger_status,
                         &last_recording_path,
                         &sink,
                         "Dropped non-finite measurement".into(),
                     );
                     continue;
                 }
-                if sample.origin == SampleOrigin::Live {
-                    latest.store(sample.elapsed_ns, Ordering::Relaxed);
-                    let write_error = recorder
-                        .as_mut()
-                        .and_then(|writer| writer.append(&sample).err());
-                    if let Some(error) = write_error {
-                        fail_recording(
-                            &mut recorder,
-                            &recording_active,
-                            &last_recording_path,
-                            &sink,
-                            format!("Recording stopped: {error}"),
-                        );
-                        continue;
+                let (derived_samples, errors) = derived.observe(&sample);
+                for error in errors {
+                    sink(EngineEvent::Error(error));
+                }
+                for current in std::iter::once(sample).chain(derived_samples) {
+                    if !process_live_sample(
+                        current,
+                        &latest,
+                        &mut recorder,
+                        &recording_active,
+                        &automatic_trigger_status,
+                        &last_recording_path,
+                        &sink,
+                        &mut automatic_trigger,
+                        &mut pre_trigger_samples,
+                        &mut newest_elapsed_ns,
+                    ) {
+                        continue 'messages;
                     }
                 }
-                sink(EngineEvent::Sample(sample));
             }
             Message::PlaybackSample(session_id, sample) => {
                 sink(EngineEvent::PlaybackSample { session_id, sample });
+            }
+            Message::SetDerivedSignals(signals, reply) => {
+                derived = DerivedProcessor::new(signals);
+                let _ = reply.send(Ok(()));
+            }
+            Message::TareDerivedSignal(id, reply) => {
+                let result = derived.tare(&id);
+                match result {
+                    Ok((sample, offset)) => {
+                        let processed = process_live_sample(
+                            sample,
+                            &latest,
+                            &mut recorder,
+                            &recording_active,
+                            &automatic_trigger_status,
+                            &last_recording_path,
+                            &sink,
+                            &mut automatic_trigger,
+                            &mut pre_trigger_samples,
+                            &mut newest_elapsed_ns,
+                        );
+                        let _ = reply.send(if processed {
+                            Ok(offset)
+                        } else {
+                            Err("Tare was applied, but the recording stopped after a write error".into())
+                        });
+                    }
+                    Err(error) => { let _ = reply.send(Err(error)); }
+                }
             }
             Message::StartRecording(path, reply) => {
                 let result = if recorder.is_some() {
@@ -65,6 +120,50 @@ pub(crate) fn process(
                         })
                         .map_err(|error| error.to_string())
                 };
+                if result.is_ok() && automatic_trigger.take().is_some() {
+                    set_trigger_status(
+                        &automatic_trigger_status,
+                        AutomaticTriggerStatus::default(),
+                        &sink,
+                    );
+                }
+                let _ = reply.send(result);
+            }
+            Message::ArmAutomaticTrigger(config, path, reply) => {
+                let result = if recorder.is_some() {
+                    Err("Stop the active recording before arming an automatic trigger".to_owned())
+                } else if automatic_trigger.is_some() {
+                    Err("An automatic trigger is already armed".to_owned())
+                } else {
+                    let status = AutomaticTriggerStatus {
+                        armed: true,
+                        recording: false,
+                        config: Some(config.clone()),
+                        recording_path: None,
+                    };
+                    automatic_trigger = Some((TriggerDetector::new(config.clone()), config, path));
+                    set_trigger_status(&automatic_trigger_status, status.clone(), &sink);
+                    Ok(status)
+                };
+                let _ = reply.send(result);
+            }
+            Message::DisarmAutomaticTrigger(reply) => {
+                let status = get_trigger_status(&automatic_trigger_status);
+                let result = if status.recording {
+                    Err("Stop the active recording before disarming the automatic trigger".to_owned())
+                } else {
+                    automatic_trigger = None;
+                    pre_trigger_samples.clear();
+                    newest_elapsed_ns = 0;
+                    if status.armed {
+                        set_trigger_status(
+                            &automatic_trigger_status,
+                            AutomaticTriggerStatus::default(),
+                            &sink,
+                        );
+                    }
+                    Ok(get_trigger_status(&automatic_trigger_status))
+                };
                 let _ = reply.send(result);
             }
             Message::StopRecording(reply) => {
@@ -74,6 +173,13 @@ pub(crate) fn process(
                     .and_then(|writer| {
                         let result = writer.finish().map_err(|error| error.to_string());
                         recording_active.store(false, Ordering::Release);
+                        if get_trigger_status(&automatic_trigger_status).recording {
+                            set_trigger_status(
+                                &automatic_trigger_status,
+                                AutomaticTriggerStatus::default(),
+                                &sink,
+                            );
+                        }
                         if let Ok(summary) = &result {
                             set_last_recording_path(&last_recording_path, &summary.path);
                         }
@@ -103,7 +209,19 @@ pub(crate) fn process(
             Message::PlaybackStarted => sink(EngineEvent::PlaybackStarted),
             Message::PlaybackFinished => sink(EngineEvent::PlaybackFinished),
             Message::PlaybackState(state) => sink(EngineEvent::PlaybackState(state)),
-            Message::Disconnected => sink(EngineEvent::Disconnected),
+            Message::Disconnected => {
+                automatic_trigger = None;
+                pre_trigger_samples.clear();
+                newest_elapsed_ns = 0;
+                if get_trigger_status(&automatic_trigger_status).armed {
+                    set_trigger_status(
+                        &automatic_trigger_status,
+                        AutomaticTriggerStatus::default(),
+                        &sink,
+                    );
+                }
+                sink(EngineEvent::Disconnected);
+            }
             Message::Error(message) => sink(EngineEvent::Error(message)),
             Message::Shutdown => {
                 if let Some(writer) = recorder.take() {
@@ -119,83 +237,5 @@ pub(crate) fn process(
     }
 }
 
-fn set_last_recording_path(last: &Mutex<Option<PathBuf>>, path: &Path) {
-    if let Ok(mut last) = last.lock() {
-        *last = Some(path.to_path_buf());
-    }
-}
-
-fn fail_recording(
-    recorder: &mut Option<RecordingWriter>,
-    active: &AtomicBool,
-    last_path: &Mutex<Option<PathBuf>>,
-    sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
-    message: String,
-) {
-    if let Some(writer) = recorder.take() {
-        match writer.finish() {
-            Ok(summary) => {
-                set_last_recording_path(last_path, &summary.path);
-                sink(EngineEvent::RecordingFailed(summary));
-            }
-            Err(error) => sink(EngineEvent::Error(format!(
-                "Could not finalize recording: {error}"
-            ))),
-        }
-    }
-    active.store(false, Ordering::Release);
-    sink(EngineEvent::Error(message));
-}
-
 #[cfg(test)]
-mod tests {
-    use crate::{
-        model::{EngineEvent, Sample, SampleOrigin, SampleQuality},
-        pipeline::SamplePipeline,
-        read_recording,
-    };
-    use std::{
-        sync::{Arc, mpsc},
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
-
-    #[test]
-    fn invalid_sample_stops_recording_and_keeps_the_partial_session_readable() {
-        let id = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("lognook-write-error-{id}.lognook"));
-        let (tx, rx) = mpsc::channel();
-        let pipeline = SamplePipeline::new(Arc::new(move |event| {
-            let _ = tx.send(event);
-        }));
-        pipeline.start_recording(path.clone()).unwrap();
-        pipeline
-            .sender()
-            .send_sample(Sample {
-                elapsed_ns: 10,
-                wall_time_unix_ns: 1_800_000_000_000_000_010,
-                source_id: "simulated-obd".into(),
-                ecu_id: Some("engine".into()),
-                signal_id: "engine_rpm".into(),
-                value: f64::NAN,
-                unit: "rpm".into(),
-                quality: SampleQuality::Valid,
-                origin: SampleOrigin::Live,
-                raw_bytes: None,
-            })
-            .unwrap();
-
-        let first = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        let second = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(
-            matches!(first, EngineEvent::RecordingFailed(_))
-                || matches!(second, EngineEvent::RecordingFailed(_))
-        );
-        assert!(!pipeline.is_recording());
-        assert!(read_recording(&path).unwrap().samples.is_empty());
-        drop(pipeline);
-        std::fs::remove_file(path).unwrap();
-    }
-}
+mod tests;

@@ -2,13 +2,16 @@ use crate::{
     HardwareAdapter, SimulatedObdAdapter,
     acquisition::AcquisitionHandle,
     csv_io::export_recording_csv,
+    derived::{CompiledDerivedSignal, compile_derived_signals},
     model::{
-        ConnectionCapabilities, EngineEvent, LogNookError, RecordingSummary, SignalDefinition,
+        AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities, DerivedSignalDefinition, EngineEvent,
+        LogNookError, RecordingSummary, SignalDefinition,
     },
     pipeline::SamplePipeline,
     playback::PlaybackHandle,
 };
 use std::{
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -21,6 +24,9 @@ pub struct LogNookEngine {
     pub(crate) session_path: Option<PathBuf>,
     pub(crate) playback_state: crate::PlaybackState,
     pub(crate) session_id: u64,
+    selected_signal_ids: HashSet<String>,
+    derived_signal_definitions: Vec<DerivedSignalDefinition>,
+    active_derived_signal_ids: HashSet<String>,
 }
 
 impl LogNookEngine {
@@ -40,6 +46,9 @@ impl LogNookEngine {
                 playing: false,
             },
             session_id: 0,
+            selected_signal_ids: HashSet::new(),
+            derived_signal_definitions: Vec::new(),
+            active_derived_signal_ids: HashSet::new(),
         }
     }
 
@@ -55,6 +64,11 @@ impl LogNookEngine {
         mut adapter: Box<dyn HardwareAdapter>,
         signal_ids: &[String],
     ) -> Result<ConnectionCapabilities, LogNookError> {
+        if self.pipeline.is_recording() {
+            return Err(LogNookError::new(
+                "Stop the active recording before connecting another adapter",
+            ));
+        }
         if self.is_connected() {
             return Err(LogNookError::new("An adapter is already connected"));
         }
@@ -65,6 +79,10 @@ impl LogNookEngine {
         if signal_ids.is_empty() {
             return Err(LogNookError::new("Select at least one signal"));
         }
+        let compiled = compile_derived_signals(
+            &self.derived_signal_definitions,
+            &crate::standard_obd_signals(),
+        )?;
         let capabilities = match adapter.connect() {
             Ok(capabilities) => capabilities,
             Err(error) => {
@@ -72,14 +90,67 @@ impl LogNookEngine {
                 return Err(error);
             }
         };
-        let signals = match select_signals(&capabilities, signal_ids) {
+        let derived_by_id = compiled
+            .iter()
+            .map(|derived| (derived.definition.id.as_str(), derived))
+            .collect::<HashMap<_, _>>();
+        let all_derived_ids = self
+            .derived_signal_definitions
+            .iter()
+            .map(|definition| definition.id.as_str())
+            .collect::<HashSet<_>>();
+        let mut requested_source_ids = Vec::new();
+        let mut selected_derived_ids = HashSet::new();
+        for id in signal_ids {
+            if let Some(derived) = derived_by_id.get(id.as_str()) {
+                if !self.active_derived_signal_ids.contains(id) {
+                    adapter.disconnect();
+                    return Err(LogNookError::new(format!("Enable derived signal '{id}' before connecting")));
+                }
+                selected_derived_ids.insert(id.clone());
+                requested_source_ids.extend(derived.dependencies().iter().cloned());
+            } else if all_derived_ids.contains(id.as_str()) {
+                adapter.disconnect();
+                return Err(LogNookError::new(format!("Derived signal '{id}' is not active")));
+            } else {
+                requested_source_ids.push(id.clone());
+            }
+        }
+        for id in &selected_derived_ids {
+            if let Some(derived) = derived_by_id.get(id.as_str()) {
+                if let Some(missing) = derived.dependencies().iter().find(|dependency| {
+                    !capabilities
+                        .supported_signals
+                        .iter()
+                        .any(|signal| &signal.id == *dependency)
+                }) {
+                    adapter.disconnect();
+                    return Err(LogNookError::new(format!(
+                        "Derived signal '{id}' requires unsupported input '{missing}'"
+                    )));
+                }
+            }
+        }
+        let signals = match select_signals(&capabilities, &requested_source_ids) {
             Ok(signals) => signals,
             Err(error) => {
                 adapter.disconnect();
                 return Err(error);
             }
         };
+        self.pipeline.set_derived_signals(
+            compiled
+                .iter()
+                .filter(|signal| self.active_derived_signal_ids.contains(&signal.definition.id))
+                .cloned()
+                .collect(),
+        )?;
         (self.event_sink)(EngineEvent::Connected(capabilities.clone()));
+        self.selected_signal_ids = signals
+            .iter()
+            .map(|signal| signal.id.clone())
+            .chain(selected_derived_ids)
+            .collect();
         self.acquisition = Some(AcquisitionHandle::start(
             adapter,
             signals,
@@ -99,14 +170,68 @@ impl LogNookEngine {
         self.pipeline.is_recording()
     }
 
+    pub fn configure_derived_signals(
+        &mut self,
+        definitions: &[DerivedSignalDefinition],
+        active_ids: &[String],
+    ) -> Result<(), LogNookError> {
+        if self.is_connected() || self.pipeline.is_recording() {
+            return Err(LogNookError::new(
+                "Disconnect and stop recording before changing derived signals",
+            ));
+        }
+        let compiled = compile_derived_signals(definitions, &crate::standard_obd_signals())?;
+        let available = compiled
+            .iter()
+            .map(|signal| signal.definition.id.as_str())
+            .collect::<HashSet<_>>();
+        let mut active = HashSet::new();
+        for id in active_ids {
+            if !available.contains(id.as_str()) {
+                return Err(LogNookError::new(format!(
+                    "Cannot activate missing derived signal '{id}'"
+                )));
+            }
+            active.insert(id.clone());
+        }
+        let active_compiled = compiled
+            .into_iter()
+            .filter(|signal| active.contains(&signal.definition.id))
+            .collect::<Vec<CompiledDerivedSignal>>();
+        self.pipeline.set_derived_signals(active_compiled)?;
+        self.derived_signal_definitions = definitions.to_vec();
+        self.active_derived_signal_ids = active;
+        Ok(())
+    }
+
+    pub fn tare_derived_signal(&mut self, id: &str) -> Result<f64, LogNookError> {
+        if !self.is_connected() {
+            return Err(LogNookError::new("Connect an adapter before taring a derived signal"));
+        }
+        if !self.active_derived_signal_ids.contains(id) || !self.selected_signal_ids.contains(id) {
+            return Err(LogNookError::new(format!("Derived signal '{id}' is not being acquired")));
+        }
+        let offset = self.pipeline.tare_derived_signal(id.to_owned())?;
+        if let Some(definition) = self
+            .derived_signal_definitions
+            .iter_mut()
+            .find(|definition| definition.id == id)
+        {
+            definition.tare_offset = offset;
+        }
+        Ok(offset)
+    }
+
     pub fn disconnect(&mut self) -> Result<(), LogNookError> {
         if let Some(mut acquisition) = self.acquisition.take() {
             acquisition.stop()?;
         }
+        self.selected_signal_ids.clear();
         self.stop_playback();
         if self.pipeline.is_recording() {
             self.stop_recording()?;
         }
+        self.pipeline.disarm_automatic_trigger()?;
         (self.event_sink)(EngineEvent::Disconnected);
         Ok(())
     }
@@ -120,6 +245,39 @@ impl LogNookEngine {
         }
         self.pipeline.start_recording(path.to_path_buf())?;
         Ok(())
+    }
+
+    pub fn arm_automatic_trigger(
+        &mut self,
+        config: &AutomaticTriggerConfig,
+        path: &Path,
+    ) -> Result<AutomaticTriggerStatus, LogNookError> {
+        if !self.is_connected() {
+            return Err(LogNookError::new(
+                "Connect an adapter before arming an automatic trigger",
+            ));
+        }
+        if self.pipeline.is_recording() {
+            return Err(LogNookError::new(
+                "Stop the active recording before arming an automatic trigger",
+            ));
+        }
+        let config = config.normalized()?;
+        if !self.selected_signal_ids.contains(&config.signal_id) {
+            return Err(LogNookError::new(
+                "Choose a trigger signal that is currently acquired",
+            ));
+        }
+        self.pipeline
+            .arm_automatic_trigger(config, path.to_path_buf())
+    }
+
+    pub fn disarm_automatic_trigger(&self) -> Result<AutomaticTriggerStatus, LogNookError> {
+        self.pipeline.disarm_automatic_trigger()
+    }
+
+    pub fn automatic_trigger_status(&self) -> AutomaticTriggerStatus {
+        self.pipeline.automatic_trigger_status()
     }
 
     pub fn insert_marker(&self, label: &str, note: &str) -> Result<(), LogNookError> {

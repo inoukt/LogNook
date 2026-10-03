@@ -1,6 +1,13 @@
 import type { SignalDefinition } from "./types";
 
 export type TimeWindow = { startNs: number; endNs: number };
+export type WorkspacePreferences = {
+  logSignalIds: string[];
+  graphSignalIds: string[];
+  graphMode: "overlay" | "separate";
+  signalPickerVisible: boolean;
+  statusHeight: number;
+};
 export type SignalOption = {
   id: string;
   name: string;
@@ -10,6 +17,35 @@ export type SignalOption = {
 };
 
 const defaultSignalColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
+
+export function restoreWorkspacePreferences(
+  serialized: string | null,
+  availableSignalIds: string[],
+  defaults: WorkspacePreferences,
+  maxStatusHeight: number,
+): WorkspacePreferences {
+  let saved: Partial<WorkspacePreferences> = {};
+  try {
+    const value: unknown = JSON.parse(serialized ?? "null");
+    if (value && typeof value === "object" && !Array.isArray(value)) saved = value as Partial<WorkspacePreferences>;
+  } catch { /* Ignore malformed optional preferences. */ }
+
+  const available = new Set(availableSignalIds);
+  const validIds = (value: unknown, fallback: string[]) => Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === "string" && available.has(id)))]
+    : [...new Set(fallback.filter((id) => available.has(id)))];
+  const logSignalIds = validIds(saved.logSignalIds, defaults.logSignalIds);
+  const graphSignalIds = validIds(saved.graphSignalIds, defaults.graphSignalIds).filter((id) => logSignalIds.includes(id));
+  const statusHeight = Number.isFinite(saved.statusHeight) ? saved.statusHeight! : defaults.statusHeight;
+
+  return {
+    logSignalIds,
+    graphSignalIds,
+    graphMode: saved.graphMode === "separate" || saved.graphMode === "overlay" ? saved.graphMode : defaults.graphMode,
+    signalPickerVisible: typeof saved.signalPickerVisible === "boolean" ? saved.signalPickerVisible : defaults.signalPickerVisible,
+    statusHeight: Math.max(36, Math.min(maxStatusHeight, statusHeight)),
+  };
+}
 
 export function signalColor(signalId: string, index: number, overrides: Record<string, string>): string {
   const color = overrides[signalId];

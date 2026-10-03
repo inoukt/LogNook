@@ -115,6 +115,69 @@ pub struct Marker {
     pub note: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DerivedSignalDefinition {
+    pub id: String,
+    pub name: String,
+    pub expression: String,
+    pub unit: String,
+    pub tare_offset: f64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerDirection {
+    Above,
+    Below,
+}
+
+impl TriggerDirection {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Above => "above",
+            Self::Below => "below",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct AutomaticTriggerConfig {
+    pub signal_id: String,
+    pub direction: TriggerDirection,
+    pub threshold: f64,
+    pub hysteresis: f64,
+    pub hold_ms: u64,
+    pub pre_trigger_ms: u64,
+}
+
+impl AutomaticTriggerConfig {
+    pub(crate) fn normalized(&self) -> Result<Self, LogNookError> {
+        let signal_id = self.signal_id.trim();
+        if signal_id.is_empty() || signal_id.len() > 128 {
+            return Err(LogNookError::new("Choose a valid trigger signal"));
+        }
+        if !self.threshold.is_finite() || !self.hysteresis.is_finite() {
+            return Err(LogNookError::new("Trigger values must be finite numbers"));
+        }
+        Ok(Self {
+            signal_id: signal_id.to_owned(),
+            direction: self.direction.clone(),
+            threshold: self.threshold.clamp(-1_000_000_000.0, 1_000_000_000.0),
+            hysteresis: self.hysteresis.clamp(0.0, 1_000_000_000.0),
+            hold_ms: self.hold_ms.min(60_000),
+            pre_trigger_ms: self.pre_trigger_ms.min(30_000),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct AutomaticTriggerStatus {
+    pub armed: bool,
+    pub recording: bool,
+    pub config: Option<AutomaticTriggerConfig>,
+    pub recording_path: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Recording {
     pub samples: Vec<Sample>,
@@ -158,6 +221,7 @@ pub enum EngineEvent {
     Sample(Sample),
     PlaybackSample { session_id: u64, sample: Sample },
     Marker(Marker),
+    TriggerStatus(AutomaticTriggerStatus),
     PlaybackMarker { session_id: u64, marker: Marker },
     RecordingFailed(RecordingSummary),
     Error(String),

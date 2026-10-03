@@ -1,3 +1,5 @@
+import type { AutomaticTriggerStatus } from "./automaticTrigger";
+
 export type SignalDefinition = {
   id: string;
   name: string;
@@ -78,6 +80,7 @@ export type EngineEvent =
   | { type: "sample"; payload: Sample }
   | { type: "playbackSample"; payload: { session_id: number; sample: Sample } }
   | { type: "marker"; payload: Marker }
+  | { type: "triggerStatus"; payload: AutomaticTriggerStatus }
   | { type: "playbackMarker"; payload: { session_id: number; marker: Marker } }
   | { type: "recordingFailed"; payload: { path: string; sample_count: number } }
   | { type: "error"; payload: string }
