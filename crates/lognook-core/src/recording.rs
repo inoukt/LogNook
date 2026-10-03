@@ -47,6 +47,11 @@ impl RecordingWriter {
     }
 
     pub fn append(&mut self, sample: &Sample) -> Result<(), LogNookError> {
+        if sample.elapsed_ns < 0 {
+            return Err(LogNookError::new(
+                "Sample elapsed time must be non-negative",
+            ));
+        }
         if !sample.value.is_finite() {
             return Err(LogNookError::new("Sample value must be finite"));
         }
@@ -62,6 +67,11 @@ impl RecordingWriter {
     }
 
     pub fn add_marker(&mut self, marker: &Marker) -> Result<i64, LogNookError> {
+        if marker.elapsed_ns < 0 {
+            return Err(LogNookError::new(
+                "Marker elapsed time must be non-negative",
+            ));
+        }
         self.connection.execute(
             "INSERT INTO markers(elapsed_ns, wall_time_unix_ns, label, note) VALUES (?1, ?2, ?3, ?4)",
             params![marker.elapsed_ns, marker.wall_time_unix_ns, marker.label, marker.note],

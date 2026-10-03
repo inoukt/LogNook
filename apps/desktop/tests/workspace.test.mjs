@@ -49,6 +49,10 @@ test("multiple traces share elapsed-time X positions and scale values independen
   assert.equal(firstPoints.at(-1)[1], secondPoints.at(-1)[1]);
 });
 
+test("zero-duration samples align with marker and playhead guides at the left edge", () => {
+  assert.equal(chartPoints([{ elapsed_ns: 5, value: 10 }], 5, 5, 720).split(",")[0], "0.0");
+});
+
 test("duration formatting keeps millisecond precision and switches to hours", () => {
   assert.equal(formatDurationNs(59_999_999_999), "00:59.999");
   assert.equal(formatDurationNs(61_234_000_000), "01:01.234");

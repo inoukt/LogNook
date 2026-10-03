@@ -143,6 +143,7 @@ pub struct RecordingInfo {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PlaybackState {
+    pub session_id: u64,
     pub position_ns: i64,
     pub duration_ns: i64,
     pub speed: f64,
@@ -155,7 +156,9 @@ pub enum EngineEvent {
     Connected(ConnectionCapabilities),
     Disconnected,
     Sample(Sample),
+    PlaybackSample { session_id: u64, sample: Sample },
     Marker(Marker),
+    PlaybackMarker { session_id: u64, marker: Marker },
     RecordingFailed(RecordingSummary),
     Error(String),
     PlaybackStarted,

@@ -110,6 +110,7 @@ fn run(
     output: SampleSender,
 ) {
     let mut cursor: Option<EventCursor> = None;
+    let session_id = snapshot(&state).session_id;
     output.send_playback_state(snapshot(&state));
     loop {
         if !snapshot(&state).playing {
@@ -149,13 +150,14 @@ fn run(
                     return Ok(false);
                 }
                 set_position(&state, elapsed_ns);
-                output.send_playback_state(snapshot(&state));
                 match event {
                     RecordedEvent::Sample(mut sample) => {
                         sample.origin = SampleOrigin::Replay;
-                        output.send_sample(sample)?;
+                        output.send_playback_sample(session_id, sample)?;
                     }
-                    RecordedEvent::Marker(marker) => output.send_marker(marker)?,
+                    RecordedEvent::Marker(marker) => {
+                        output.send_playback_marker(session_id, marker)?;
+                    }
                 }
                 cursor = Some(event_cursor);
                 Ok(true)

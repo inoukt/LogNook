@@ -64,6 +64,7 @@ export type RecordingInfo = {
 };
 
 export type PlaybackState = {
+  session_id: number;
   position_ns: number;
   duration_ns: number;
   speed: number;
@@ -74,7 +75,9 @@ export type EngineEvent =
   | { type: "connected"; payload: ConnectionCapabilities }
   | { type: "disconnected"; payload?: null }
   | { type: "sample"; payload: Sample }
+  | { type: "playbackSample"; payload: { session_id: number; sample: Sample } }
   | { type: "marker"; payload: Marker }
+  | { type: "playbackMarker"; payload: { session_id: number; marker: Marker } }
   | { type: "recordingFailed"; payload: { path: string; sample_count: number } }
   | { type: "error"; payload: string }
   | { type: "playbackStarted"; payload?: null }

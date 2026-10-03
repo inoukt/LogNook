@@ -1,4 +1,7 @@
-use lognook_core::{RecordingWriter, Sample, SampleOrigin, SampleQuality, query_recording_window};
+use lognook_core::{
+    RecordingWriter, Sample, SampleOrigin, SampleQuality, query_recording_values_at,
+    query_recording_window,
+};
 use rusqlite::params;
 use std::{
     fs,
@@ -66,6 +69,26 @@ fn query_window_keeps_extrema_and_caps_output() {
         [5.0, 1.0, 9.0, 4.0]
     );
     assert!(points.iter().all(|point| point.signal_id == "engine_rpm"));
+}
+
+#[test]
+fn query_values_at_returns_latest_selected_samples_before_playhead() {
+    let directory = TempDir::new();
+    let path = directory.0.join("values.lognook");
+    let mut writer = RecordingWriter::create(&path).unwrap();
+    writer.append(&sample(0, "engine_rpm", 800.0)).unwrap();
+    writer.append(&sample(3, "coolant_temp", 82.0)).unwrap();
+    writer.append(&sample(5, "engine_rpm", 900.0)).unwrap();
+    writer.finish().unwrap();
+
+    let values =
+        query_recording_values_at(&path, &["engine_rpm".into(), "coolant_temp".into()], 4).unwrap();
+
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].signal_id, "engine_rpm");
+    assert_eq!(values[0].elapsed_ns, 0);
+    assert_eq!(values[1].signal_id, "coolant_temp");
+    assert_eq!(values[1].elapsed_ns, 3);
 }
 
 #[test]

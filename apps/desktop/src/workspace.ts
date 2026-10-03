@@ -43,7 +43,7 @@ export function chartPoints(
   const span = high - low + padding * 2;
   const duration = timeEnd - timeStart;
   return samples.map((sample) => {
-    const x = duration > 0 ? ((sample.elapsed_ns - timeStart) / duration) * width : width;
+    const x = duration > 0 ? ((sample.elapsed_ns - timeStart) / duration) * width : 0;
     const y = 146 - ((sample.value - minimum) / span) * 124;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");

@@ -51,6 +51,9 @@ pub(crate) fn process(
                 }
                 sink(EngineEvent::Sample(sample));
             }
+            Message::PlaybackSample(session_id, sample) => {
+                sink(EngineEvent::PlaybackSample { session_id, sample });
+            }
             Message::StartRecording(path, reply) => {
                 let result = if recorder.is_some() {
                     Err("A recording is already active".to_owned())
@@ -94,7 +97,9 @@ pub(crate) fn process(
                 }
                 let _ = reply.send(result);
             }
-            Message::ReplayMarker(marker) => sink(EngineEvent::Marker(marker)),
+            Message::PlaybackMarker(session_id, marker) => {
+                sink(EngineEvent::PlaybackMarker { session_id, marker });
+            }
             Message::PlaybackStarted => sink(EngineEvent::PlaybackStarted),
             Message::PlaybackFinished => sink(EngineEvent::PlaybackFinished),
             Message::PlaybackState(state) => sink(EngineEvent::PlaybackState(state)),

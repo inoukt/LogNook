@@ -81,12 +81,15 @@ impl CsvEventRow {
     fn into_event(self) -> Result<RecordedEvent, LogNookError> {
         match self.event_type.as_deref().unwrap_or("sample") {
             "sample" => {
+                if has_text(&self.label) || has_text(&self.note) {
+                    return Err(LogNookError::new("Sample row contains marker fields"));
+                }
                 let value = required(self.value, "value")?;
                 if !value.is_finite() {
                     return Err(LogNookError::new("Sample value must be finite"));
                 }
                 Ok(RecordedEvent::Sample(Sample {
-                    elapsed_ns: required(self.elapsed_ns, "elapsed_ns")?,
+                    elapsed_ns: nonnegative_elapsed(self.elapsed_ns)?,
                     wall_time_unix_ns: required(self.wall_time_unix_ns, "wall_time_unix_ns")?,
                     source_id: required(self.source_id, "source_id")?,
                     ecu_id: self.ecu_id,
@@ -98,13 +101,26 @@ impl CsvEventRow {
                     raw_bytes: self.raw_hex.map(|hex| decode_hex(&hex)).transpose()?,
                 }))
             }
-            "marker" => Ok(RecordedEvent::Marker(Marker {
-                id: None,
-                elapsed_ns: required(self.elapsed_ns, "elapsed_ns")?,
-                wall_time_unix_ns: required(self.wall_time_unix_ns, "wall_time_unix_ns")?,
-                label: required(self.label, "label")?,
-                note: required(self.note, "note")?,
-            })),
+            "marker" => {
+                if has_text(&self.source_id)
+                    || has_text(&self.ecu_id)
+                    || has_text(&self.signal_id)
+                    || self.value.is_some()
+                    || has_text(&self.unit)
+                    || self.quality.is_some()
+                    || self.origin.is_some()
+                    || has_text(&self.raw_hex)
+                {
+                    return Err(LogNookError::new("Marker row contains sample fields"));
+                }
+                Ok(RecordedEvent::Marker(Marker {
+                    id: None,
+                    elapsed_ns: nonnegative_elapsed(self.elapsed_ns)?,
+                    wall_time_unix_ns: required(self.wall_time_unix_ns, "wall_time_unix_ns")?,
+                    label: required(self.label, "label")?,
+                    note: self.note.unwrap_or_default(),
+                }))
+            }
             event_type => Err(LogNookError::new(format!(
                 "Unknown CSV event_type '{event_type}'"
             ))),
@@ -114,6 +130,18 @@ impl CsvEventRow {
 
 fn required<T>(value: Option<T>, field: &str) -> Result<T, LogNookError> {
     value.ok_or_else(|| LogNookError::new(format!("CSV row is missing {field}")))
+}
+
+fn nonnegative_elapsed(value: Option<i64>) -> Result<i64, LogNookError> {
+    let elapsed_ns = required(value, "elapsed_ns")?;
+    if elapsed_ns < 0 {
+        return Err(LogNookError::new("elapsed_ns must be non-negative"));
+    }
+    Ok(elapsed_ns)
+}
+
+fn has_text(value: &Option<String>) -> bool {
+    value.as_deref().is_some_and(|value| !value.is_empty())
 }
 
 pub fn export_csv<W: Write>(samples: &[Sample], output: W) -> Result<(), LogNookError> {

@@ -22,7 +22,7 @@
   let series: Record<string, Sample[]> = {};
   let sessionSeries: Record<string, Sample[]> = {};
   let session: RecordingInfo | null = null;
-  let playback: PlaybackState = { position_ns: 0, duration_ns: 0, speed: 1, playing: false };
+  let playback: PlaybackState = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
   let timeWindow: TimeWindow = { startNs: 0, endNs: 0 };
   let connected = false;
   let recording = false;
@@ -37,6 +37,7 @@
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
   let graphRequest = 0;
+  let readoutRequest = 0;
 
   $: availableSignals = session
     ? session.signals.map((recorded): SignalOption => {
@@ -84,15 +85,24 @@
   });
 
   function handleEvent(event: EngineEvent) {
-    if (event.type === "sample") {
+    if (event.type === "playbackSample") {
+      if (event.payload.session_id !== playback.session_id) return;
+      const sample = event.payload.sample;
+      readoutRequest++;
+      latest = { ...latest, [sample.signal_id]: sample };
+    } else if (event.type === "sample") {
       const sample = event.payload;
       if (sample.origin === "live") {
         if (!session) {
           latest = { ...latest, [sample.signal_id]: sample };
           series = { ...series, [sample.signal_id]: [...(series[sample.signal_id] ?? []), sample].slice(-180) };
         }
-      } else {
-        latest = { ...latest, [sample.signal_id]: sample };
+      }
+    } else if (event.type === "playbackMarker") {
+      if (event.payload.session_id !== playback.session_id) return;
+      const marker = event.payload.marker;
+      if (session && !session.markers.some((item) => item.id === marker.id)) {
+        session = { ...session, markers: [...session.markers, marker] };
       }
     } else if (event.type === "marker") {
       if (session && !session.markers.some((marker) => marker.id === event.payload.id)) {
@@ -106,17 +116,15 @@
     } else if (event.type === "disconnected") {
       connected = false;
       status = "Disconnected";
-    } else if (event.type === "playbackStarted") {
-      latest = {};
-      replaying = true;
-      status = "Replaying session";
     } else if (event.type === "playbackState") {
+      if (event.payload.session_id !== playback.session_id) return;
       playback = event.payload;
       replaying = playback.playing;
-      status = playback.playing ? "Replaying session" : "Session paused";
-    } else if (event.type === "playbackFinished") {
-      replaying = false;
-      status = "Replay complete";
+      status = playback.playing
+        ? "Replaying session"
+        : playback.duration_ns > 0 && playback.position_ns >= playback.duration_ns
+          ? "Replay complete"
+          : "Session paused";
     } else if (event.type === "recordingFailed") {
       recording = false;
       recordingPath = event.payload.path;
@@ -138,19 +146,23 @@
   }
 
   async function clearSession() {
+    readoutRequest++;
     session = null;
     sessionSeries = {};
-    playback = { position_ns: 0, duration_ns: 0, speed: 1, playing: false };
+    playback = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
   }
 
   async function activateSession(info: RecordingInfo) {
+    readoutRequest++;
     session = info;
+    playback = { session_id: 0, position_ns: 0, duration_ns: info.duration_ns, speed: 1, playing: false };
     selectedSignals = info.signals.map((signal) => signal.id);
     timeWindow = { startNs: 0, endNs: info.duration_ns };
     latest = {};
     series = {};
     sessionSeries = {};
     playback = await invoke<PlaybackState>("playback_state");
+    await refreshPlaybackReadouts(playback.position_ns, selectedSignals);
     recordingPath = "loaded";
     exportPath = "";
     replaying = false;
@@ -174,6 +186,14 @@
       sessionSeries = grouped;
     } catch (reason) {
       if (request === graphRequest) showError(reason);
+    }
+  }
+
+  async function refreshPlaybackReadouts(positionNs: number, signalIds: string[]) {
+    const request = ++readoutRequest;
+    const values = await invoke<Sample[]>("recording_values_at", { signalIds, positionNs });
+    if (request === readoutRequest && session) {
+      latest = Object.fromEntries(values.map((sample) => [sample.signal_id, sample]));
     }
   }
 
@@ -261,16 +281,14 @@
   }
 
   function returnToStart() {
-    return run(async () => {
-      await invoke("seek_replay", { positionNs: 0 });
-      playback = await invoke<PlaybackState>("playback_state");
-    });
+    return seek(0);
   }
 
   function seek(positionNs: number) {
     return run(async () => {
       await invoke("seek_replay", { positionNs: clampSeekPosition(positionNs, playback.duration_ns) });
       playback = await invoke<PlaybackState>("playback_state");
+      await refreshPlaybackReadouts(playback.position_ns, selectedSignals);
     });
   }
 
@@ -300,6 +318,13 @@
       await invoke("delete_playback_marker", { id });
       if (session) session = { ...session, markers: session.markers.filter((marker) => marker.id !== id) };
       playback = await invoke<PlaybackState>("playback_state");
+      if (timeWindow.endNs > playback.duration_ns) {
+        const endNs = Math.min(timeWindow.endNs, playback.duration_ns);
+        const startNs = Math.min(timeWindow.startNs, endNs);
+        timeWindow = startNs < endNs
+          ? { startNs, endNs }
+          : { startNs: 0, endNs: playback.duration_ns };
+      }
     });
   }
 
@@ -325,6 +350,9 @@
     selectedSignals = selectedSignals.includes(signalId)
       ? selectedSignals.filter((id) => id !== signalId)
       : [...selectedSignals, signalId];
+    if (session && !playback.playing) {
+      refreshPlaybackReadouts(playback.position_ns, selectedSignals).catch(showError);
+    }
   }
 
   function swapGraphPositions(fromId: string, toId: string) {

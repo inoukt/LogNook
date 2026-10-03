@@ -15,10 +15,11 @@ const QUEUE_CAPACITY: usize = 256;
 
 pub(crate) enum Message {
     Sample(Sample),
+    PlaybackSample(u64, Sample),
     StartRecording(PathBuf, mpsc::Sender<Result<(), String>>),
     StopRecording(mpsc::Sender<Result<RecordingSummary, String>>),
     Marker(Marker, mpsc::Sender<Result<Marker, String>>),
-    ReplayMarker(Marker),
+    PlaybackMarker(u64, Marker),
     PlaybackStarted,
     PlaybackFinished,
     PlaybackState(PlaybackState),
@@ -49,9 +50,23 @@ impl SampleSender {
             .map_err(|_| LogNookError::new("Sample pipeline has stopped"))
     }
 
-    pub(crate) fn send_marker(&self, marker: Marker) -> Result<(), LogNookError> {
+    pub(crate) fn send_playback_sample(
+        &self,
+        session_id: u64,
+        sample: Sample,
+    ) -> Result<(), LogNookError> {
         self.0
-            .send(Message::ReplayMarker(marker))
+            .send(Message::PlaybackSample(session_id, sample))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))
+    }
+
+    pub(crate) fn send_playback_marker(
+        &self,
+        session_id: u64,
+        marker: Marker,
+    ) -> Result<(), LogNookError> {
+        self.0
+            .send(Message::PlaybackMarker(session_id, marker))
             .map_err(|_| LogNookError::new("Sample pipeline has stopped"))
     }
 

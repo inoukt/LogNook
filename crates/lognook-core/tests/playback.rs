@@ -49,8 +49,8 @@ fn engine_with(path: &Path) -> (LogNookEngine, mpsc::Receiver<EngineEvent>) {
 fn next_replay_sample(rx: &mpsc::Receiver<EngineEvent>, timeout: Duration) -> Sample {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let Ok(EngineEvent::Sample(sample)) = rx.recv_timeout(Duration::from_millis(20))
-            && sample.origin == SampleOrigin::Replay
+        if let Ok(EngineEvent::PlaybackSample { sample, .. }) =
+            rx.recv_timeout(Duration::from_millis(20))
         {
             return sample;
         }
@@ -121,6 +121,44 @@ fn seek_restarts_at_or_after_target() {
 }
 
 #[test]
+fn replay_events_carry_the_loaded_session_identity() {
+    let first_path = fixture();
+    let second_path = fixture();
+    let (mut engine, rx) = engine_with(&first_path);
+    let first_session = engine.playback_state().unwrap().session_id;
+    engine.start_replay(32.0).unwrap();
+    let first_sample = loop {
+        if let Ok(EngineEvent::PlaybackSample { session_id, sample }) =
+            rx.recv_timeout(Duration::from_secs(1))
+        {
+            break (session_id, sample);
+        }
+    };
+    assert_eq!(first_sample.0, first_session);
+
+    engine.load_recording(&second_path).unwrap();
+    let second_session = engine.playback_state().unwrap().session_id;
+    assert_ne!(first_session, second_session);
+    engine.start_replay(32.0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut found_current = false;
+    while Instant::now() < deadline {
+        if let Ok(EngineEvent::PlaybackSample { session_id, .. }) =
+            rx.recv_timeout(Duration::from_millis(20))
+            && session_id == second_session
+        {
+            found_current = true;
+            break;
+        }
+    }
+    assert!(found_current);
+    engine.stop_replay();
+    drop(engine);
+    std::fs::remove_file(first_path).unwrap();
+    std::fs::remove_file(second_path).unwrap();
+}
+
+#[test]
 fn speed_change_updates_pending_delay() {
     let path = fixture();
     let (mut engine, rx) = engine_with(&path);
@@ -188,6 +226,7 @@ fn deleting_late_marker_updates_playback_duration() {
     .unwrap();
     let (mut engine, _) = engine_with(&path);
     assert_eq!(engine.playback_state().unwrap().duration_ns, 4_000_000_000);
+    engine.seek_replay(4_000_000_000).unwrap();
     engine.delete_playback_marker(marker.id.unwrap()).unwrap();
     let PlaybackState {
         duration_ns,
@@ -196,6 +235,33 @@ fn deleting_late_marker_updates_playback_duration() {
     } = engine.playback_state().unwrap();
     assert_eq!(duration_ns, 2_000_000_000);
     assert!(position_ns <= duration_ns);
+    drop(engine);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn deleting_late_marker_during_playback_clamps_without_restarting() {
+    let path = fixture();
+    let marker = add_recording_marker(
+        &path,
+        &Marker {
+            id: None,
+            elapsed_ns: 4_000_000_000,
+            wall_time_unix_ns: 1,
+            label: "late".into(),
+            note: String::new(),
+        },
+    )
+    .unwrap();
+    let (mut engine, _) = engine_with(&path);
+    engine.start_replay(0.1).unwrap();
+    engine.seek_replay(3_500_000_000).unwrap();
+    engine.delete_playback_marker(marker.id.unwrap()).unwrap();
+    let state = engine.playback_state().unwrap();
+    assert_eq!(state.position_ns, 2_000_000_000);
+    assert_eq!(state.duration_ns, 2_000_000_000);
+    assert!(state.playing);
+    engine.stop_replay();
     drop(engine);
     std::fs::remove_file(path).unwrap();
 }

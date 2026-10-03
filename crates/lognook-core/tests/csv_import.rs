@@ -130,6 +130,25 @@ fn unknown_event_type_reports_row() {
 }
 
 #[test]
+fn malformed_mixed_rows_and_negative_times_report_the_csv_row() {
+    let directory = TempDir::new();
+    let header = "event_type,elapsed_ns,wall_time_unix_ns,source_id,ecu_id,signal_key,value,unit,quality,origin,raw_hex,label,note\n";
+    let rows = [
+        "sample,-1,200,sx,7E8,engine_rpm,850,rpm,valid,live,0C34,,\n",
+        "sample,100,200,sx,7E8,engine_rpm,850,rpm,valid,live,0C34,unexpected label,\n",
+        "marker,100,200,,,,850,,,,,marker,\n",
+    ];
+    for (index, row) in rows.into_iter().enumerate() {
+        let source = directory.path(&format!("malformed-{index}.csv"));
+        let target = directory.path(&format!("malformed-{index}.lognook"));
+        fs::write(&source, format!("{header}{row}")).unwrap();
+        let error = import_csv_to_recording(&source, &target).unwrap_err();
+        assert!(error.to_string().contains("CSV row 2"));
+        assert!(!target.exists());
+    }
+}
+
+#[test]
 fn empty_csv_is_rejected() {
     let directory = TempDir::new();
     let source = directory.path("empty.csv");
@@ -214,9 +233,17 @@ fn mixed_event_csv_round_trip_preserves_raw_samples_and_markers() {
         label: "3rd gear, full load".into(),
         note: "operator note, kept intact".into(),
     };
+    let optional_note_marker = Marker {
+        id: None,
+        elapsed_ns: 500_000,
+        wall_time_unix_ns: 1_800_000_000_000_500_000,
+        label: "no note".into(),
+        note: String::new(),
+    };
     let mut writer = RecordingWriter::create(&recording_path).unwrap();
     writer.append(&sample).unwrap();
     writer.add_marker(&marker).unwrap();
+    writer.add_marker(&optional_note_marker).unwrap();
     writer.finish().unwrap();
 
     export_recording_csv(&recording_path, &csv_path).unwrap();
@@ -224,7 +251,7 @@ fn mixed_event_csv_round_trip_preserves_raw_samples_and_markers() {
     let restored = read_recording(&imported_path).unwrap();
 
     assert_eq!(restored.samples, vec![sample]);
-    assert_eq!(restored.markers.len(), 1);
+    assert_eq!(restored.markers.len(), 2);
     assert_eq!(restored.markers[0].elapsed_ns, marker.elapsed_ns);
     assert_eq!(
         restored.markers[0].wall_time_unix_ns,
@@ -232,4 +259,6 @@ fn mixed_event_csv_round_trip_preserves_raw_samples_and_markers() {
     );
     assert_eq!(restored.markers[0].label, marker.label);
     assert_eq!(restored.markers[0].note, marker.note);
+    assert_eq!(restored.markers[1].label, optional_note_marker.label);
+    assert_eq!(restored.markers[1].note, "");
 }

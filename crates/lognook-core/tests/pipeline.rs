@@ -52,9 +52,7 @@ fn live_recording_and_replay_share_the_sample_event_pipeline() {
     let mut replay_count = 0;
     while Instant::now() < deadline {
         match event_rx.recv_timeout(Duration::from_millis(250)) {
-            Ok(EngineEvent::Sample(sample)) if sample.origin == SampleOrigin::Replay => {
-                replay_count += 1
-            }
+            Ok(EngineEvent::PlaybackSample { .. }) => replay_count += 1,
             Ok(EngineEvent::PlaybackFinished) => break,
             _ => {}
         }
