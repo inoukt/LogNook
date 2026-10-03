@@ -142,4 +142,5 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 
 - Compressed the session player by about 25%, removed the redundant measurements heading, and added a PID panel show/hide toggle.
 - Clipped graph paint to its column and limited replay graph rendering to screen-resolution extrema; acquisition and recordings retain full-resolution samples.
-- Verification: UI tests **19 passed**; Svelte check **0 errors / 0 warnings**; Vite production build passed; PID hide/show preview checked. `cargo test --workspace` passed **67 tests**. Native high-speed replay smoothness was not measured here.
+- Reduced the branded top bar, made the acquisition toolbar wrap at narrow widths, moved the toggle to a left-side **Hide List / Show List** rail, and added a Close session action that stops replay and restores live graph selection.
+- Verification: UI tests **19 passed**; Svelte check **0 errors / 0 warnings**; Vite production build passed; `cargo test --workspace` passed **67 tests**. Hide/Show List was checked in the 1280 px browser preview; the native CSV close flow and 760 px layout were not manually exercised.

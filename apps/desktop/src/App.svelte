@@ -26,6 +26,7 @@
   let sessionAverages: Record<string, number> = {};
   let signalColors: Record<string, string> = {};
   let session: RecordingInfo | null = null;
+  let liveGraphSignalIds: string[] | null = null;
   let playback: PlaybackState = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
   let timeWindow: TimeWindow = { startNs: 0, endNs: 0 };
   let connected = false;
@@ -186,16 +187,23 @@
     graphRefreshTimer = undefined;
     pendingGraphRefresh = undefined;
     scrubPending = null;
+    if (liveGraphSignalIds) graphSignalIds = liveGraphSignalIds;
+    liveGraphSignalIds = null;
     session = null;
+    latest = {};
     sessionSeries = {};
     sessionAverages = {};
+    replaying = false;
     playback = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
+    signalSearch = "";
+    if (!connected) status = "Disconnected";
   }
 
   async function activateSession(info: RecordingInfo) {
     readoutRequest++;
     graphRequest++;
     scrubPending = null;
+    if (!session) liveGraphSignalIds = [...graphSignalIds];
     session = info;
     playback = { session_id: 0, position_ns: 0, duration_ns: info.duration_ns, speed: 1, playing: false };
     graphSignalIds = info.signals.map((signal) => signal.id);
@@ -319,6 +327,13 @@
     return run(async () => {
       const info = await invoke<RecordingInfo | null>("open_csv");
       if (info) await activateSession(info);
+    });
+  }
+
+  function closeSession() {
+    return run(async () => {
+      await invoke("stop_replay");
+      await clearSession();
     });
   }
 
@@ -545,7 +560,6 @@
             <button class:active={graphMode === "separate"} aria-pressed={graphMode === "separate"} onclick={() => graphMode = "separate"}>Separate</button>
           </div>
         </div>
-        <button class="button secondary picker-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide PIDs" : "Show PIDs"}</button>
         <div class="session-actions">
           {#if recording}
             <input class="text-input toolbar-input" bind:value={markerNote} placeholder="Marker note (optional)" aria-label="Marker note" disabled={busy} />
@@ -584,6 +598,7 @@
       openDisabled={connected}
       disabled={busy || recording}
       onOpen={openCsv}
+      onClose={closeSession}
       onTogglePlay={togglePlayback}
       onStart={returnToStart}
       onScrub={scrubTo}
@@ -598,6 +613,7 @@
     />
 
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
+      <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
         <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : `${logSignalIds.length} logging · ${graphSignalIds.length} graphed`}</span></div>
         <input class="text-input signal-search" type="search" bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />

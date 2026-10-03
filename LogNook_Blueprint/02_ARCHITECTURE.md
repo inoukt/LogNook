@@ -80,6 +80,7 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - Playback follows a monotonic virtual clock and emits only the latest replay readout per signal at a 50 ms cadence; markers flush pending readouts in order. This avoids per-sample UI backpressure at high speeds while preserving recorded samples in SQLite.
 - The graph viewport remains centered on the playhead at every replay update, including at session edges; its displayed range may extend beyond the recording while SQLite queries clamp to available samples. Dragging the recording-position slider and optional wheel scrubbing both update the cursor and viewport immediately, while backend seeks are coalesced. Graph-window and average refreshes are throttled to 100 ms.
 - Replay graph queries use 360 buckets for the 720-unit SVG viewport, and the renderer retains each pixel column's extrema to keep the plotted path small without dropping stored samples. The PID panel is hideable; graph paint is clipped to its column and kept below the PID panel's layer.
+- The PID list toggle stays in a narrow rail beside the list across responsive layouts. Closing a loaded session stops replay, clears session readouts, and restores the live graph selection.
 - PID colors and the optional wheel-scrub setting are local renderer preferences. The graph click seeks the shared playback cursor; adding a marker at that cursor accepts blank label and note. Averages use the visible graph range (live retained points or SQLite `AVG` for sessions).
 
 ## Physical validation and transport decision

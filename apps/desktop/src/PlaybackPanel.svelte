@@ -10,6 +10,7 @@
     openDisabled = false,
     disabled,
     onOpen,
+    onClose,
     onTogglePlay,
     onStart,
     onScrub,
@@ -29,6 +30,7 @@
     openDisabled?: boolean;
     disabled: boolean;
     onOpen: () => void;
+    onClose: () => void;
     onTogglePlay: () => void;
     onStart: () => void;
     onScrub: (positionNs: number) => void;
@@ -79,6 +81,7 @@
     </div>
     <button class="button secondary" onclick={onOpen} disabled={disabled || openDisabled}>Open CSV</button>
     {#if info}
+      <button class="button secondary close-session" onclick={onClose} disabled={disabled}>Close session</button>
       <div class="playback-transport">
         <button class="button secondary transport-button" aria-label="Return to start" title="Return to start" onclick={onStart} disabled={disabled}>|◀</button>
         <button class="button primary transport-button" aria-label={playback.playing ? "Pause" : "Play"} onclick={onTogglePlay} disabled={disabled}>{playback.playing ? "Ⅱ" : "▶"}</button>
