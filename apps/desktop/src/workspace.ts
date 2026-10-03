@@ -28,6 +28,23 @@ export function swapPositions<T>(items: T[], from: number, to: number): T[] {
   return reordered;
 }
 
+export function setLogSignal(
+  logSignalIds: string[],
+  graphSignalIds: string[],
+  signalId: string,
+  enabled: boolean,
+): { logSignalIds: string[]; graphSignalIds: string[] } {
+  const update = (ids: string[]) => enabled
+    ? ids.includes(signalId) ? ids : [...ids, signalId]
+    : ids.filter((id) => id !== signalId);
+  return { logSignalIds: update(logSignalIds), graphSignalIds: update(graphSignalIds) };
+}
+
+export function setGraphSignal(graphSignalIds: string[], signalId: string, enabled: boolean): string[] {
+  if (enabled) return graphSignalIds.includes(signalId) ? graphSignalIds : [...graphSignalIds, signalId];
+  return graphSignalIds.filter((id) => id !== signalId);
+}
+
 export function chartPoints(
   samples: Array<{ elapsed_ns: number; value: number }>,
   timeStart: number,

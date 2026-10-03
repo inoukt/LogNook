@@ -10,14 +10,15 @@
   } from "./types";
   import {
     clampSeekPosition, filterSignals, orderMarkersForTimeline, panTimeWindow,
-    swapPositions, zoomTimeWindow, type SignalOption, type TimeWindow,
+    setGraphSignal, setLogSignal, swapPositions, zoomTimeWindow, type SignalOption, type TimeWindow,
   } from "./workspace";
 
   let signalCatalog: SignalDefinition[] = [];
   let sxPorts: string[] = [];
   let selectedSxPort = "";
   let sxIdentity: DeviceDescriptor | undefined;
-  let selectedSignals = ["engine_rpm", "coolant_temp", "intake_temp"];
+  let logSignalIds = ["engine_rpm", "coolant_temp", "intake_temp"];
+  let graphSignalIds = [...logSignalIds];
   let latest: Record<string, Sample> = {};
   let series: Record<string, Sample[]> = {};
   let sessionSeries: Record<string, Sample[]> = {};
@@ -34,6 +35,8 @@
   let markerNote = "";
   let error = "";
   let signalSearch = "";
+  let statusHeight = 42;
+  let statusResize: { y: number; height: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
   let graphRequest = 0;
@@ -50,7 +53,7 @@
         };
       })
     : signalCatalog;
-  $: visibleSignals = selectedSignals.flatMap((id) => {
+  $: visibleSignals = graphSignalIds.flatMap((id) => {
     const signal = availableSignals.find((candidate) => candidate.id === id);
     return signal ? [signal] : [];
   });
@@ -65,7 +68,7 @@
     current: latest[signal.id],
     sampleRate: sampleRate(signal.id),
   }));
-  $: if (session) refreshGraphWindow(session, selectedSignals, timeWindow);
+  $: if (session) refreshGraphWindow(session, graphSignalIds, timeWindow);
 
   onMount(() => {
     let disposed = false;
@@ -156,13 +159,13 @@
     readoutRequest++;
     session = info;
     playback = { session_id: 0, position_ns: 0, duration_ns: info.duration_ns, speed: 1, playing: false };
-    selectedSignals = info.signals.map((signal) => signal.id);
+    graphSignalIds = info.signals.map((signal) => signal.id);
     timeWindow = { startNs: 0, endNs: info.duration_ns };
     latest = {};
     series = {};
     sessionSeries = {};
     playback = await invoke<PlaybackState>("playback_state");
-    await refreshPlaybackReadouts(playback.position_ns, selectedSignals);
+    await refreshPlaybackReadouts(playback.position_ns, graphSignalIds);
     recordingPath = "loaded";
     exportPath = "";
     replaying = false;
@@ -199,19 +202,20 @@
 
   function connect() {
     return run(async () => {
-      const requested = selectedSignals.filter((id) => signalCatalog.some((signal) => signal.id === id));
+      const requested = logSignalIds.filter((id) => signalCatalog.some((signal) => signal.id === id));
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       const capabilities = await invoke<ConnectionCapabilities>("connect_simulator", { signalIds: requested });
       await clearSession();
       series = {};
       latest = {};
-      selectedSignals = selectedSignals.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
+      logSignalIds = logSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
+      graphSignalIds = graphSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
     });
   }
 
   function connectSx() {
     return run(async () => {
-      const requested = selectedSignals.filter((id) => signalCatalog.some((signal) => signal.id === id));
+      const requested = logSignalIds.filter((id) => signalCatalog.some((signal) => signal.id === id));
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       const capabilities = await invoke<ConnectionCapabilities>("connect_obdlink_sx", {
         portName: selectedSxPort,
@@ -220,7 +224,8 @@
       await clearSession();
       series = {};
       latest = {};
-      selectedSignals = selectedSignals.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
+      logSignalIds = logSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
+      graphSignalIds = graphSignalIds.filter((id) => capabilities.supported_signals.some((signal) => signal.id === id));
     });
   }
 
@@ -288,7 +293,7 @@
     return run(async () => {
       await invoke("seek_replay", { positionNs: clampSeekPosition(positionNs, playback.duration_ns) });
       playback = await invoke<PlaybackState>("playback_state");
-      await refreshPlaybackReadouts(playback.position_ns, selectedSignals);
+      await refreshPlaybackReadouts(playback.position_ns, graphSignalIds);
     });
   }
 
@@ -346,17 +351,34 @@
     if (session) timeWindow = { startNs: 0, endNs: playback.duration_ns };
   }
 
-  function toggleSignal(signalId: string) {
-    selectedSignals = selectedSignals.includes(signalId)
-      ? selectedSignals.filter((id) => id !== signalId)
-      : [...selectedSignals, signalId];
+  function toggleLogSignal(signalId: string, enabled: boolean) {
+    ({ logSignalIds, graphSignalIds } = setLogSignal(logSignalIds, graphSignalIds, signalId, enabled));
+  }
+
+  function toggleGraphSignal(signalId: string, enabled: boolean) {
+    graphSignalIds = setGraphSignal(graphSignalIds, signalId, enabled);
     if (session && !playback.playing) {
-      refreshPlaybackReadouts(playback.position_ns, selectedSignals).catch(showError);
+      refreshPlaybackReadouts(playback.position_ns, graphSignalIds).catch(showError);
     }
   }
 
   function swapGraphPositions(fromId: string, toId: string) {
-    selectedSignals = swapPositions(selectedSignals, selectedSignals.indexOf(fromId), selectedSignals.indexOf(toId));
+    graphSignalIds = swapPositions(graphSignalIds, graphSignalIds.indexOf(fromId), graphSignalIds.indexOf(toId));
+  }
+
+  function resizeStatus(event: PointerEvent) {
+    if (!statusResize) return;
+    statusHeight = Math.max(36, Math.min(window.innerHeight * 0.3, statusResize.height + statusResize.y - event.clientY));
+  }
+
+  function finishStatusResize() {
+    statusResize = null;
+  }
+
+  function resizeStatusFromKeyboard(event: KeyboardEvent) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    statusHeight = Math.max(36, Math.min(window.innerHeight * 0.3, statusHeight + (event.key === "ArrowUp" ? 16 : -16)));
   }
 
   function sampleRate(signalId: string): string {
@@ -374,10 +396,10 @@
   <meta name="description" content="Read-only OBD acquisition, recording, and CSV playback." />
 </svelte:head>
 
-<div class="app-shell">
+<div class="app-shell" style={`--status-height:${statusHeight}px`}>
   <header class="topbar">
     <a class="brand" href="/" aria-label="LogNook home"><span class="brand-mark">L</span><span>Log<span class="brand-accent">Nook</span></span></a>
-    <div class="connection-state"><span class:online={connected} class:replay={replaying} class="state-dot"></span><span>{status}</span></div>
+    <div class="connection-state" aria-label={status} title={status}><span class:online={connected} class:replay={replaying} class="state-dot"></span></div>
     <span class="milestone">FOUNDATION POC</span>
   </header>
 
@@ -410,8 +432,8 @@
             {#each sxPorts as port}<option value={port}>{port}</option>{/each}
           </select>
           <button class="button secondary" onclick={identifySx} disabled={busy || !selectedSxPort || replaying}>Identify SX</button>
-          <button class="button secondary" onclick={connectSx} disabled={busy || !selectedSxPort || sxIdentity?.path !== selectedSxPort || selectedSignals.length === 0 || replaying}>Connect OBDLink SX</button>
-          <button class="button primary" onclick={connect} disabled={busy || selectedSignals.length === 0 || replaying}>Connect simulator</button>
+          <button class="button secondary" onclick={connectSx} disabled={busy || !selectedSxPort || sxIdentity?.path !== selectedSxPort || logSignalIds.length === 0 || replaying}>Connect OBDLink SX</button>
+          <button class="button primary" onclick={connect} disabled={busy || logSignalIds.length === 0 || replaying}>Connect simulator</button>
         {/if}
         {#if recording}
           <button class="button danger" onclick={stopRecording} disabled={busy}>Stop recording</button>
@@ -421,10 +443,6 @@
       </div>
     </section>
 
-    {#if error}<div class="notice error" role="alert">{error}</div>{/if}
-    {#if sxIdentity}<div class="notice success">Identified {sxIdentity.hardware_family} · {sxIdentity.firmware} · serial {sxIdentity.stable_id}. Connect the vehicle before live acquisition.</div>{/if}
-    {#if recording}<div class="notice recording"><span class="pulse-dot"></span> Recording live samples · {recordingPath}</div>{/if}
-    {#if exportPath}<div class="notice success">CSV exported · {exportPath}</div>{/if}
 
     <PlaybackPanel
       info={session}
@@ -449,20 +467,21 @@
 
     <div class="workspace-grid">
       <aside class="panel signal-panel">
-        <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{selectedSignals.length} selected</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : `${logSignalIds.length} logging · ${graphSignalIds.length} graphed`}</span></div>
         <input class="text-input signal-search" type="search" bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
+        <div class="signal-columns" aria-hidden="true"><span></span><span>Log</span><span>Graph</span></div>
         <div class="signal-list">
           {#each filteredSignals as signal (signal.id)}
-            <label class="signal-option">
-              <input type="checkbox" checked={selectedSignals.includes(signal.id)} onchange={() => toggleSignal(signal.id)} disabled={connected || recording} />
+            <div class="signal-option">
               <span class="signal-copy"><span>{signal.name}</span><small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · {signal.unit}</small></span>
-              <span class="checkmark" aria-hidden="true"></span>
-            </label>
+              <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy} />
+              <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id))} />
+            </div>
           {:else}
             <p class="no-signals">{availableSignals.length ? "No matching signals" : "Loading signals…"}</p>
           {/each}
         </div>
-        <p class="panel-hint">{session ? "Session signals are stored as recorded. The list scrolls independently." : "Read-only engine signals. The list scrolls independently when it grows."}</p>
+        <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
       </aside>
 
       <section class="measurements" aria-label="Measurements">
@@ -482,4 +501,16 @@
       </section>
     </div>
   </main>
+  <footer class="status-dock" aria-live="polite">
+    <div class="status-resize-grip" role="slider" tabindex="0" aria-orientation="vertical" aria-valuemin="36" aria-valuemax={Math.round(window.innerHeight * 0.3)} aria-valuenow={Math.round(statusHeight)} aria-label="Resize status panel"
+      onpointerdown={(event) => { statusResize = { y: event.clientY, height: statusHeight }; event.currentTarget.setPointerCapture(event.pointerId); }}
+      onpointermove={resizeStatus} onpointerup={finishStatusResize} onpointercancel={finishStatusResize} onkeydown={resizeStatusFromKeyboard}></div>
+    <div class="status-content">
+      <strong>{status}</strong>
+      {#if error}<span class="status-error" role="alert">{error}</span>{/if}
+      {#if sxIdentity}<span class="status-success">Identified {sxIdentity.hardware_family} · {sxIdentity.firmware} · serial {sxIdentity.stable_id}</span>{/if}
+      {#if recording}<span class="status-recording"><span class="pulse-dot"></span>Recording live samples · {recordingPath}</span>{/if}
+      {#if exportPath}<span class="status-success">CSV exported · {exportPath}</span>{/if}
+    </div>
+  </footer>
 </div>

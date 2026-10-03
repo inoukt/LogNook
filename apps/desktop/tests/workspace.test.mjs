@@ -7,6 +7,8 @@ import {
   formatDurationNs,
   orderMarkersForTimeline,
   panTimeWindow,
+  setGraphSignal,
+  setLogSignal,
   swapPositions,
   zoomTimeWindow,
 } from "../src/workspace.ts";
@@ -33,6 +35,20 @@ test("PID search matches names, descriptions, IDs, units, and decimal or hex PID
 test("drag reorders two graph positions without changing other selections", () => {
   assert.deepEqual(swapPositions(["rpm", "coolant", "speed", "intake"], 1, 3), ["rpm", "intake", "speed", "coolant"]);
   assert.deepEqual(swapPositions(["rpm", "coolant"], -1, 0), ["rpm", "coolant"]);
+});
+
+test("logging a signal adds it to graph by default, then graph can be hidden independently", () => {
+  const logged = setLogSignal([], [], "engine_rpm", true);
+  assert.deepEqual(logged, { logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"] });
+  assert.deepEqual(setGraphSignal(logged.graphSignalIds, "engine_rpm", false), []);
+  assert.deepEqual(logged.logSignalIds, ["engine_rpm"]);
+});
+
+test("turning logging off also removes the signal from the graph", () => {
+  assert.deepEqual(
+    setLogSignal(["engine_rpm", "coolant_temp"], ["engine_rpm", "coolant_temp"], "engine_rpm", false),
+    { logSignalIds: ["coolant_temp"], graphSignalIds: ["coolant_temp"] },
+  );
 });
 
 test("multiple traces share elapsed-time X positions and scale values independently", () => {
