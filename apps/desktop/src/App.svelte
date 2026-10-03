@@ -74,6 +74,7 @@
   let derivedSignalDialog: HTMLDialogElement | undefined;
   let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
+  let sessionBrowserOpen = false;
   let wheelScrubbing = false;
   let workspacePreferencesReady = false;
   let statusHeight = 42;
@@ -383,6 +384,7 @@
     sessionAverages = {};
     playback = await invoke<PlaybackState>("playback_state");
     await refreshPlaybackReadouts(playback.position_ns, info.signals.map((signal) => signal.id));
+    sessionBrowserOpen = false;
     recordingPath = "loaded";
     exportPath = "";
     replaying = false;
@@ -898,12 +900,12 @@
     {/if}
 
     <div class="session-tools">
-      <details class="session-browser-details">
+      <details class="session-browser-details" bind:open={sessionBrowserOpen}>
         <summary>Browse saved sessions</summary>
         <SessionBrowser disabled={busy || recording} openDisabled={connected || recording} onOpen={activateSession} onShare={shareRecording} onSaveAs={saveRecordingAs} />
       </details>
       {#if !session}
-        <button class="button secondary open-csv-compact" onclick={openCsv} disabled={busy || connected || recording}>Open CSV</button>
+        <button class="button secondary open-csv-compact" title="Open CSV session" aria-label="Open CSV session" onclick={openCsv} disabled={busy || connected || recording}>CSV</button>
       {/if}
     </div>
 

@@ -145,7 +145,7 @@
 </section>
 
 <style>
-  .session-browser { display: grid; gap: 0.65rem; }
+  .session-browser { display: grid; gap: 0.65rem; padding: 9px; }
   .browser-heading, .recording-row, .recording-details, .recording-actions { display: flex; align-items: center; }
   .browser-heading, .recording-row { justify-content: space-between; gap: 0.75rem; }
   .browser-heading .eyebrow { margin: 0 0 0.2rem; }
