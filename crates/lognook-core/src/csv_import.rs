@@ -28,13 +28,15 @@ pub fn import_csv_to_recording(
             }
             RecordedEvent::Marker(marker) => {
                 inline_markers += 1;
-                writer.add_marker(&marker)
+                writer.add_marker(&marker).map(|_| ())
             }
         })?;
         if inline_markers == 0 {
             let sidecar = marker_csv_path(source);
             if sidecar.exists() {
-                visit_legacy_markers(File::open(sidecar)?, |marker| writer.add_marker(&marker))?;
+                visit_legacy_markers(File::open(sidecar)?, |marker| {
+                    writer.add_marker(&marker).map(|_| ())
+                })?;
             }
         }
         if sample_count == 0 {
@@ -74,6 +76,7 @@ fn visit_legacy_markers<R: Read>(
                 LogNookError::new(format!("CSV marker sidecar row {row_number}: {error}"))
             })
             .map(|row| Marker {
+                id: None,
                 elapsed_ns: row.elapsed_ns,
                 wall_time_unix_ns: row.wall_time_unix_ns,
                 label: row.label,

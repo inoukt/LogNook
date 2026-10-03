@@ -108,6 +108,7 @@ pub struct Sample {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Marker {
+    pub id: Option<i64>,
     pub elapsed_ns: i64,
     pub wall_time_unix_ns: i64,
     pub label: String,
@@ -137,6 +138,7 @@ pub struct RecordingInfo {
     pub sample_count: usize,
     pub duration_ns: i64,
     pub signals: Vec<RecordingSignal>,
+    pub markers: Vec<Marker>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -9,6 +9,7 @@ mod obdlink_sx_protocol;
 mod pipeline;
 mod pipeline_worker;
 mod recording;
+mod recording_view;
 mod simulator;
 
 pub use adapter::HardwareAdapter;
@@ -21,5 +22,8 @@ pub use model::{
     SignalDefinition,
 };
 pub use obdlink_sx::{ObdLinkSxAdapter, available_obdlink_sx_ports, identify_obdlink_sx};
-pub use recording::{RecordingWriter, inspect_recording, read_recording};
+pub use recording::{RecordingWriter, read_recording};
+pub use recording_view::{
+    delete_recording_marker, inspect_recording, query_recording_window, update_recording_marker,
+};
 pub use simulator::{SimulatedObdAdapter, standard_obd_signals};

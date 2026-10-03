@@ -17,7 +17,7 @@ pub(crate) enum Message {
     Sample(Sample),
     StartRecording(PathBuf, mpsc::Sender<Result<(), String>>),
     StopRecording(mpsc::Sender<Result<RecordingSummary, String>>),
-    Marker(Marker, mpsc::Sender<Result<(), String>>),
+    Marker(Marker, mpsc::Sender<Result<Marker, String>>),
     ReplayMarker(Marker),
     PlaybackStarted,
     PlaybackFinished,
@@ -138,6 +138,7 @@ impl SamplePipeline {
         note: String,
     ) -> Result<Marker, LogNookError> {
         let marker = Marker {
+            id: None,
             elapsed_ns: self.latest_elapsed_ns.load(Ordering::Relaxed),
             wall_time_unix_ns: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -155,8 +156,7 @@ impl SamplePipeline {
         response
             .recv()
             .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge marker"))?
-            .map_err(LogNookError::new)?;
-        Ok(marker)
+            .map_err(LogNookError::new)
     }
 
     pub(crate) fn playback_started(&self) {

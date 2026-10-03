@@ -99,6 +99,7 @@ impl CsvEventRow {
                 }))
             }
             "marker" => Ok(RecordedEvent::Marker(Marker {
+                id: None,
                 elapsed_ns: required(self.elapsed_ns, "elapsed_ns")?,
                 wall_time_unix_ns: required(self.wall_time_unix_ns, "wall_time_unix_ns")?,
                 label: required(self.label, "label")?,

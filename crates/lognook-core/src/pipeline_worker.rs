@@ -1,5 +1,5 @@
 use crate::{
-    model::{EngineEvent, SampleOrigin},
+    model::{EngineEvent, Marker, SampleOrigin},
     pipeline::Message,
     recording::RecordingWriter,
 };
@@ -79,16 +79,18 @@ pub(crate) fn process(
                 let _ = reply.send(result);
             }
             Message::Marker(marker, reply) => {
-                let result = recorder
-                    .as_mut()
-                    .ok_or_else(|| "Start recording before inserting a marker".to_owned())
-                    .and_then(|writer| {
-                        writer
-                            .add_marker(&marker)
-                            .map_err(|error| error.to_string())
-                    });
-                if result.is_ok() {
-                    sink(EngineEvent::Marker(marker));
+                let result = match recorder.as_mut() {
+                    Some(writer) => writer
+                        .add_marker(&marker)
+                        .map(|id| Marker {
+                            id: Some(id),
+                            ..marker
+                        })
+                        .map_err(|error| error.to_string()),
+                    None => Err("Start recording before inserting a marker".to_owned()),
+                };
+                if let Ok(marker) = &result {
+                    sink(EngineEvent::Marker(marker.clone()));
                 }
                 let _ = reply.send(result);
             }

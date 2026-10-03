@@ -1,6 +1,5 @@
 use crate::model::{
-    LogNookError, Marker, Recording, RecordingInfo, RecordingSignal, RecordingSummary, Sample,
-    SampleOrigin, SampleQuality,
+    LogNookError, Marker, Recording, RecordingSummary, Sample, SampleOrigin, SampleQuality,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{
@@ -62,12 +61,12 @@ impl RecordingWriter {
         Ok(())
     }
 
-    pub fn add_marker(&mut self, marker: &Marker) -> Result<(), LogNookError> {
+    pub fn add_marker(&mut self, marker: &Marker) -> Result<i64, LogNookError> {
         self.connection.execute(
             "INSERT INTO markers(elapsed_ns, wall_time_unix_ns, label, note) VALUES (?1, ?2, ?3, ?4)",
             params![marker.elapsed_ns, marker.wall_time_unix_ns, marker.label, marker.note],
         )?;
-        Ok(())
+        Ok(self.connection.last_insert_rowid())
     }
 
     pub fn finish(self) -> Result<RecordingSummary, LogNookError> {
@@ -95,36 +94,8 @@ pub(crate) enum RecordedEvent {
     Marker(Marker),
 }
 
-pub fn inspect_recording(path: &Path) -> Result<RecordingInfo, LogNookError> {
-    let connection = open_recording(path)?;
-    let sample_count: i64 =
-        connection.query_row("SELECT COUNT(*) FROM samples", [], |row| row.get(0))?;
-    let duration_ns: i64 = connection.query_row(
-        "SELECT COALESCE(MAX(elapsed_ns), 0) FROM (
-           SELECT elapsed_ns FROM samples UNION ALL SELECT elapsed_ns FROM markers
-         )",
-        [],
-        |row| row.get(0),
-    )?;
-    let mut statement = connection
-        .prepare("SELECT DISTINCT signal_id, unit FROM samples ORDER BY signal_id, unit")?;
-    let signals = statement
-        .query_map([], |row| {
-            Ok(RecordingSignal {
-                id: row.get(0)?,
-                unit: row.get(1)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(RecordingInfo {
-        sample_count: sample_count as usize,
-        duration_ns,
-        signals,
-    })
-}
-
-fn open_recording(path: &Path) -> Result<Connection, LogNookError> {
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+pub(crate) fn open_recording(path: &Path, flags: OpenFlags) -> Result<Connection, LogNookError> {
+    let connection = Connection::open_with_flags(path, flags)?;
     let version: Option<String> = connection
         .query_row(
             "SELECT value FROM metadata WHERE key = 'schema_version'",
@@ -144,7 +115,7 @@ pub(crate) fn visit_recording_events(
     path: &Path,
     mut visit: impl FnMut(RecordedEvent) -> Result<bool, LogNookError>,
 ) -> Result<bool, LogNookError> {
-    let connection = open_recording(path)?;
+    let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut statement = connection.prepare(
         "SELECT kind, id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id,
          value, unit, quality, origin, raw_bytes, label, note FROM (
@@ -159,6 +130,7 @@ pub(crate) fn visit_recording_events(
     for row in statement.query_map([], |row| {
         Ok(RecordedEventRow {
             kind: row.get(0)?,
+            id: row.get(1)?,
             elapsed_ns: row.get(2)?,
             wall_time_unix_ns: row.get(3)?,
             source_id: row.get(4)?,
@@ -183,6 +155,7 @@ pub(crate) fn visit_recording_events(
 
 struct RecordedEventRow {
     kind: i64,
+    id: i64,
     elapsed_ns: i64,
     wall_time_unix_ns: i64,
     source_id: Option<String>,
@@ -218,6 +191,7 @@ impl RecordedEventRow {
             }))
         } else {
             Ok(RecordedEvent::Marker(Marker {
+                id: Some(self.id),
                 elapsed_ns: self.elapsed_ns,
                 wall_time_unix_ns: self.wall_time_unix_ns,
                 label: required(self.label, "marker label")?,
