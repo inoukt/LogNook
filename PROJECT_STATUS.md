@@ -116,12 +116,17 @@ the application has not yet been run against the Ford after this code change.
 - Added the native CSV picker, session-aware searchable signal list, combined/separate graph marker lines, zoom/pan/reset, player timeline, marker controls, and themed scrollbars.
 - Verification on `feature/csv-session-player`: Rust workspace **65 passed, 0 failed**; `cargo check --workspace` passed; formatting check passed; custom-protocol desktop build passed; UI tests **9 passed**; Svelte check **0 errors / 0 warnings**; Vite build passed.
 - A launch smoke check opened a native window titled `LogNook`. The imported CSV player was not manually operated in the native window, and this player change was not tested against a physical SX. Physical SX acquisition/throughput evidence remains in the hardware reports above.
-- Build and launch from the repository root:
+- Fresh-clone build and launch (requires Rust/MSVC plus Node.js/npm):
 
 ```bat
+cd apps\desktop
+npm ci
+npm run test:ui
+npm run build
+cd ..\..
 cargo test --workspace
 cargo build -p lognook-desktop --features tauri/custom-protocol
 cargo run -p lognook-desktop --features tauri/custom-protocol
 ```
 
-For the frontend checks, run `npm run test:ui` and `npm run build` from `apps/desktop`.
+For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`. The MSI machine had Node.js but no `npm` command in the earlier environment check, so install/enable npm there before building this branch.
