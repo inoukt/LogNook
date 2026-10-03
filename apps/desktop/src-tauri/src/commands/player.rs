@@ -1,4 +1,5 @@
 use super::{engine, session_path};
+use super::sessions::open_selected_recording;
 use crate::AppState;
 use lognook_core::{
     Marker, PlaybackState, RecordingInfo, Sample, import_csv_to_recording,
@@ -9,19 +10,31 @@ use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
-pub async fn open_csv(
+pub async fn open_session_file(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<RecordingInfo>, String> {
     let selected = app
         .dialog()
         .file()
-        .add_filter("CSV files", &["csv"])
+        .add_filter("LogNook sessions and CSV", &["lognook", "csv"])
         .blocking_pick_file()
         .map(|file| file.into_path().map_err(|error| error.to_string()))
         .transpose()?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected;
     let mut engine = engine(&state)?;
-    import_selected_csv(selected, &mut engine, &state.recordings_dir)
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) if extension.eq_ignore_ascii_case("lognook") => {
+            open_selected_recording(&path, &mut engine).map(Some)
+        }
+        Some(extension) if extension.eq_ignore_ascii_case("csv") => {
+            import_selected_csv(Some(path), &mut engine, &state.recordings_dir)
+        }
+        _ => Err("Choose a .lognook recording or CSV file".into()),
+    }
 }
 
 pub fn import_selected_csv(

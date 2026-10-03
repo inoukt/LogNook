@@ -46,7 +46,7 @@ pub fn run() {
             commands::save_recording_as,
             commands::replay_last,
             commands::stop_replay,
-            commands::open_csv,
+            commands::open_session_file,
             commands::list_recordings,
             commands::open_recording,
             commands::load_last_recording,

@@ -79,7 +79,7 @@
       <p class="eyebrow">SESSION PLAYER</p>
       <strong>{info ? `${info.sample_count.toLocaleString()} samples` : "No session loaded"}</strong>
     </div>
-    <button class="button secondary" onclick={onOpen} disabled={disabled || openDisabled}>Open CSV</button>
+    <button class="button secondary" onclick={onOpen} disabled={disabled || openDisabled}>Open file</button>
     {#if info}
       <button class="button secondary close-session" onclick={onClose} disabled={disabled}>Close session</button>
       <div class="playback-transport">

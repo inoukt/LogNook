@@ -557,9 +557,9 @@
     });
   }
 
-  function openCsv() {
+  function openSessionFile() {
     return run(async () => {
-      const info = await invoke<RecordingInfo | null>("open_csv");
+      const info = await invoke<RecordingInfo | null>("open_session_file");
       if (info) await activateSession(info);
     });
   }
@@ -873,7 +873,7 @@
             <SessionBrowser open={sessionBrowserOpen} disabled={busy || recording} openDisabled={connected || recording} onOpen={openSavedRecording} onShare={shareRecording} onSaveAs={saveRecordingAs} />
           </details>
           {#if !session}
-            <button class="button secondary open-csv-compact" title="Open CSV session" aria-label="Open CSV session" onclick={openCsv} disabled={busy || connected || recording}>CSV</button>
+            <button class="button secondary open-csv-compact" title="Open a CSV or LogNook session" aria-label="Open session file" onclick={openSessionFile} disabled={busy || connected || recording}>Open</button>
           {/if}
           <div class="mode-control">
             <span class="toolbar-label">GRAPH VIEW</span>
@@ -924,7 +924,7 @@
         range={timeWindow}
         openDisabled={connected}
         disabled={busy || recording}
-        onOpen={openCsv}
+        onOpen={openSessionFile}
         onClose={closeSession}
         onTogglePlay={togglePlayback}
         onStart={returnToStart}

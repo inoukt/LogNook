@@ -16,8 +16,11 @@ pub fn list_recordings(state: State<'_, AppState>) -> Result<Vec<BrowserRecordin
 }
 
 fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>, String> {
+    let recordings_dir = recordings_dir
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     let mut recordings = Vec::new();
-    for entry in std::fs::read_dir(recordings_dir).map_err(|error| error.to_string())? {
+    for entry in std::fs::read_dir(&recordings_dir).map_err(|error| error.to_string())? {
         let Ok(entry) = entry else { continue };
         let Ok(file_type) = entry.file_type() else { continue };
         let path = entry.path();
@@ -57,7 +60,7 @@ pub fn open_recording(
     path: String,
 ) -> Result<RecordingInfo, String> {
     let mut engine = engine(&state)?;
-    open_selected_recording(&state.recordings_dir, Path::new(&path), &mut engine)
+    open_selected_recording(Path::new(&path), &mut engine)
 }
 
 #[tauri::command]
@@ -110,16 +113,37 @@ pub fn save_recording_as(
     Ok(Some(destination.to_string_lossy().into_owned()))
 }
 
+fn same_directory(left: &Path, right: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let left = left.to_string_lossy();
+        let right = right.to_string_lossy();
+        left.as_ref().eq_ignore_ascii_case(right.as_ref())
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
 fn selected_recording_path(recordings_dir: &Path, selected_path: &Path) -> Result<PathBuf, String> {
     let recordings_dir = recordings_dir
         .canonicalize()
         .map_err(|error| error.to_string())?;
+    let selected_path = native_recording_path(selected_path)?;
+    if !selected_path
+        .parent()
+        .is_some_and(|parent| same_directory(parent, &recordings_dir))
+    {
+        return Err("Selected recording is outside the app recordings directory".into());
+    }
+    Ok(selected_path)
+}
+
+fn native_recording_path(selected_path: &Path) -> Result<PathBuf, String> {
     let selected_path = selected_path
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    if selected_path.parent() != Some(recordings_dir.as_path()) {
-        return Err("Selected recording is outside the app recordings directory".into());
-    }
     if !selected_path.is_file()
         || selected_path
             .extension()
@@ -158,15 +182,14 @@ fn save_recording_as_in(
     Ok(target)
 }
 
-fn open_selected_recording(
-    recordings_dir: &Path,
+pub(super) fn open_selected_recording(
     selected_path: &Path,
     engine: &mut lognook_core::LogNookEngine,
 ) -> Result<RecordingInfo, String> {
     if engine.is_connected() || engine.is_recording() {
         return Err("Disconnect and stop recording before opening a session".into());
     }
-    let selected_path = selected_recording_path(recordings_dir, selected_path)?;
+    let selected_path = native_recording_path(selected_path)?;
     engine
         .load_recording(&selected_path)
         .map_err(|error| error.to_string())
@@ -177,6 +200,8 @@ mod tests {
     use super::{
         list_recordings_in, open_selected_recording, save_recording_as_in, share_recording_csv_in,
     };
+    #[cfg(windows)]
+    use super::same_directory;
     use lognook_core::{LogNookEngine, RecordingWriter, Sample, SampleOrigin, SampleQuality};
     use std::{
         path::{Path, PathBuf},
@@ -213,6 +238,15 @@ mod tests {
         std::env::temp_dir().join(format!("lognook-{label}-{id}"))
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn directory_comparison_ignores_windows_path_casing() {
+        assert!(same_directory(
+            Path::new(r"C:\Users\inouk\AppData\recordings"),
+            Path::new(r"c:\users\inouk\appdata\Recordings"),
+        ));
+    }
+
     #[test]
     fn lists_valid_native_recordings_newest_first_with_sample_counts() {
         let directory = test_directory("session-browser");
@@ -232,18 +266,23 @@ mod tests {
         assert_eq!(recordings[0].3, 2);
         assert_eq!(recordings[1].3, 1);
         assert!(recordings[0].2 > recordings[1].2);
+        let canonical_directory = directory.canonicalize().unwrap();
+        assert_eq!(
+            Path::new(&recordings[0].0).parent(),
+            Some(canonical_directory.as_path()),
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn opens_only_recordings_inside_the_app_directory() {
+    fn opens_native_recordings_inside_the_app_directory() {
         let directory = test_directory("session-open");
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("selected.lognook");
         create_recording(&path, 1);
         let mut engine = LogNookEngine::new(|_| {});
 
-        let info = open_selected_recording(&directory, &path, &mut engine).unwrap();
+        let info = open_selected_recording(&path, &mut engine).unwrap();
 
         assert_eq!(info.sample_count, 1);
         assert_eq!(engine.active_session_path().unwrap(), path.canonicalize().unwrap());
@@ -251,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_recordings_outside_the_app_directory() {
+    fn opens_native_recordings_outside_the_app_directory() {
         let directory = test_directory("session-boundary");
         let outside = test_directory("session-outside");
         std::fs::create_dir_all(&directory).unwrap();
@@ -260,9 +299,9 @@ mod tests {
         create_recording(&path, 1);
         let mut engine = LogNookEngine::new(|_| {});
 
-        assert!(open_selected_recording(&directory, &path, &mut engine).is_err());
-        assert!(engine.active_session_path().is_err());
-        assert!(path.exists());
+        let info = open_selected_recording(&path, &mut engine).unwrap();
+        assert_eq!(info.sample_count, 1);
+        assert_eq!(engine.active_session_path().unwrap(), path.canonicalize().unwrap());
         std::fs::remove_dir_all(directory).unwrap();
         std::fs::remove_dir_all(outside).unwrap();
     }
