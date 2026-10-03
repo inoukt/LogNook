@@ -1,12 +1,16 @@
 import type { SignalDefinition } from "./types";
 
 export type TimeWindow = { startNs: number; endNs: number };
+export type WorkspaceTheme = "midnight" | "slate-lift" | "steel" | "mist";
+const workspaceThemes: WorkspaceTheme[] = ["midnight", "slate-lift", "steel", "mist"];
 export type WorkspacePreferences = {
   logSignalIds: string[];
   graphSignalIds: string[];
   graphMode: "overlay" | "separate";
   signalPickerVisible: boolean;
   statusHeight: number;
+  theme: WorkspaceTheme;
+  highContrast: boolean;
 };
 export type SignalOption = {
   id: string;
@@ -45,6 +49,8 @@ export function restoreWorkspacePreferences(
     graphMode: saved.graphMode === "separate" || saved.graphMode === "overlay" ? saved.graphMode : defaults.graphMode,
     signalPickerVisible: typeof saved.signalPickerVisible === "boolean" ? saved.signalPickerVisible : defaults.signalPickerVisible,
     statusHeight: Math.max(36, Math.min(maxStatusHeight, statusHeight)),
+    theme: workspaceThemes.includes(saved.theme ?? defaults.theme) ? saved.theme ?? defaults.theme : defaults.theme,
+    highContrast: typeof saved.highContrast === "boolean" ? saved.highContrast : defaults.highContrast,
   };
 }
 

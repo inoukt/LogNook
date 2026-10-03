@@ -4,14 +4,19 @@
     allowsSpaceMarkerShortcut, defaultShortcuts, matchesShortcut, parseShortcut, restoreShortcutBindings, shortcutActions,
     shortcutFromEvent, type ShortcutAction, type ShortcutBindings,
   } from "./shortcuts";
+  import type { WorkspaceTheme } from "./workspace";
 
   let {
     wheelScrubbing = $bindable(false),
+    theme = $bindable<WorkspaceTheme>("midnight"),
+    highContrast = $bindable(false),
     resetDisabled = false,
     onAction,
     onReset,
   }: {
     wheelScrubbing?: boolean;
+    theme?: WorkspaceTheme;
+    highContrast?: boolean;
     resetDisabled?: boolean;
     onAction: (action: ShortcutAction) => void;
     onReset: () => void;
@@ -106,6 +111,16 @@
   <summary class="icon-button" aria-label="Settings" title="Settings">⚙</summary>
   <div class="settings-popover">
     <strong>Settings</strong>
+    <label class="settings-theme">
+      <span>Color theme</span>
+      <select class="text-input settings-theme-select" aria-label="Color theme" value={theme} onchange={(event) => theme = event.currentTarget.value as WorkspaceTheme}>
+        <option value="midnight">Midnight</option>
+        <option value="slate-lift">Slate Lift</option>
+        <option value="steel">Steel</option>
+        <option value="mist">Mist</option>
+      </select>
+    </label>
+    <label><input type="checkbox" checked={highContrast} onchange={(event) => highContrast = event.currentTarget.checked} /> High contrast</label>
     <label><input type="checkbox" checked={wheelScrubbing} onchange={updateWheelScrubbing} /> Wheel scrubs graph</label>
     <small>Replay keeps the playhead centered while playing.</small>
     <section class="shortcut-settings" aria-label="Keyboard shortcuts">

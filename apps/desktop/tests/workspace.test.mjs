@@ -33,6 +33,8 @@ const defaultWorkspacePreferences = {
   graphMode: "overlay",
   signalPickerVisible: true,
   statusHeight: 42,
+  theme: "midnight",
+  highContrast: false,
 };
 
 function point(elapsed_ns, value) {
@@ -93,6 +95,8 @@ test("workspace preferences survive a serialized round trip", () => {
     graphMode: "separate",
     signalPickerVisible: false,
     statusHeight: 96,
+    theme: "steel",
+    highContrast: true,
   };
   assert.deepEqual(
     restoreWorkspacePreferences(JSON.stringify(preferences), signals.map(({ id }) => id), defaultWorkspacePreferences, 120),
@@ -115,9 +119,22 @@ test("workspace preference restoration filters unsupported PIDs and malformed va
     graphMode: "overlay",
     signalPickerVisible: true,
     statusHeight: 120,
+    theme: "midnight",
+    highContrast: false,
   });
   assert.deepEqual(
     restoreWorkspacePreferences("not json", ["engine_rpm"], defaultWorkspacePreferences, 120),
+    { ...defaultWorkspacePreferences, logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"] },
+  );
+});
+
+test("workspace appearance preferences accept known themes and reject unknown values", () => {
+  assert.deepEqual(
+    restoreWorkspacePreferences(JSON.stringify({ theme: "mist", highContrast: true }), ["engine_rpm"], defaultWorkspacePreferences, 120),
+    { ...defaultWorkspacePreferences, logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"], theme: "mist", highContrast: true },
+  );
+  assert.deepEqual(
+    restoreWorkspacePreferences(JSON.stringify({ theme: "solarized", highContrast: "yes" }), ["engine_rpm"], defaultWorkspacePreferences, 120),
     { ...defaultWorkspacePreferences, logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"] },
   );
 });

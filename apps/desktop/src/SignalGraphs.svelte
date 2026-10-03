@@ -309,16 +309,16 @@
 
 <style>
   .graph-reference-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--text-muted); font-size: 10px; }
-  .graph-settings { margin-bottom: 8px; border: 1px solid #2b3944; border-radius: 7px; background: #131c23; }
+  .graph-settings { margin-bottom: 8px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-deep); }
   .graph-settings summary { padding: 7px 9px; color: var(--text-muted); font-size: 10px; cursor: pointer; }
-  .graph-settings-list { max-height: 180px; overflow: auto; border-top: 1px solid #2b3944; }
-  .signal-graph-options { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; padding: 7px 9px; border-bottom: 1px solid #24313b; }
+  .graph-settings-list { max-height: 180px; overflow: auto; border-top: 1px solid var(--border-soft); }
+  .signal-graph-options { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; padding: 7px 9px; border-bottom: 1px solid var(--border-soft); }
   .signal-graph-options > strong { min-width: 105px; font-size: 10px; }
-  .derive-signal-button { min-width: 26px; height: 25px; padding: 0 5px; border: 1px solid #344450; border-radius: 4px; color: var(--accent); background: #0d151b; font-size: 10px; font-weight: 700; cursor: pointer; }
+  .derive-signal-button { min-width: 26px; height: 25px; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--accent); background: var(--surface-deep); font-size: 10px; font-weight: 700; cursor: pointer; }
   .derive-signal-button:hover, .derive-signal-button:focus-visible { border-color: var(--accent); }
   .derive-signal-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .signal-graph-options label { display: grid; gap: 2px; color: var(--text-muted); font-size: 9px; }
-  .signal-graph-options select, .signal-graph-options input { width: 82px; min-height: 25px; padding: 2px 5px; border: 1px solid #344450; border-radius: 4px; background: #0d151b; color: #e7edf3; font-size: 10px; }
+  .signal-graph-options select, .signal-graph-options input { width: 82px; min-height: 25px; padding: 2px 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface-deep); color: var(--text); font-size: 10px; }
   .signal-graph-options input { width: 76px; }
   .signal-graph-options .keep-source-line { align-items: center; gap: 5px; }
   .signal-graph-options .keep-source-line input { width: auto; min-height: auto; padding: 0; accent-color: var(--accent); }

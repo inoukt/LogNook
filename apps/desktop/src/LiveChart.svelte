@@ -263,11 +263,11 @@
 
 <style>
   .chart-cursor-readout { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 6px 2px 2px; color: var(--text-muted); font-size: 10px; }
-  .chart-cursor-readout strong { color: #e7edf3; }
-  .clear-cursor { width: 18px; height: 18px; border: 0; border-radius: 50%; background: #2a3944; color: var(--text-muted); cursor: pointer; }
+  .chart-cursor-readout strong { color: var(--text); }
+  .clear-cursor { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--surface-raised); color: var(--text-muted); cursor: pointer; }
   .reference-legend { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; }
-  .reference-legend span { width: 18px; border-top: 2px dashed #e7edf3; }
+  .reference-legend span { width: 18px; border-top: 2px dashed var(--text); }
   .reference-trace { stroke-dasharray: 6 4; }
-  line.cursor-guide { stroke: #e7edf3; stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+  line.cursor-guide { stroke: var(--text); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
   rect.heatmap-cell { opacity: .72; }
 </style>

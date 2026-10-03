@@ -14,7 +14,7 @@ This Git checkout preserves the existing source and external-agent reports. The 
 - Synthetic fixtures plus actual Ford/SX identity, supported-PID, and grouped-response captures. Tests cover no startup banner, optional startup frames, silent replies, wrong identity, exact USB matching, malformed/truncated/multiple-ECU replies, all 35 seed decoders, grouping all signals into seven responses of at most two CAN frames, supported-PID selection, and volatile setting restoration.
 - Bounded acquisition-to-recording/UI pipeline, SQLite `.lognook` recording, marker insertion/edit/delete, controlled replay, bounded graph-window queries, and CSV sample/marker event import/export.
 - Saved-session Share exports sample/marker CSV, Save As copies the native session file, and live acquisition can export the retained buffer (up to 180 samples per logged PID) without starting a recording.
-- Tauri 2 native CSV picker and command/event bridge; Svelte/TypeScript UI with a searchable PID picker, combined and separate draggable/resizable graphs, zoom/pan, playback speed/seek, marker controls, recording, and CSV export.
+- Tauri 2 native CSV picker and command/event bridge; Svelte/TypeScript UI with a grouped acquisition toolbar, searchable PID picker, combined and separate draggable/resizable graphs, zoom/pan, playback speed/seek, marker controls, recording, CSV export, four saved palettes, and high-contrast mode.
 - Failure handling for adapter reads, invalid measurements, and recording writes. CSV exports refuse to overwrite existing files.
 - External-agent tasks and completed reports remain in `Work to do by Ext Agent/` and `results/`.
 
@@ -160,7 +160,7 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 
 ## Selected requested features 1–7 — 2026-10-03
 
-- Workspace preferences restore logged/graphed PIDs, graph mode, PID-list visibility, and status-panel height. Settings reset clears workspace, graph, color, wheel-scrub, shortcut, trigger, and derived-signal preferences.
+- Workspace preferences restore logged/graphed PIDs, graph mode, PID-list visibility, status-panel height, palette, and high-contrast state. Settings reset clears workspace, graph, color, wheel-scrub, shortcut, trigger, and derived-signal preferences.
 - Customizable shortcuts cover recording, replay, markers and marker navigation, PID search, graph zoom, and graph PNG capture. A single Settings panel owns shortcut editing and focus guards.
 - Automatic threshold recording supports above/below conditions, hysteresis, hold time, and 0–30 second pre-trigger capture. The Rust pipeline keeps at most 30 seconds/100,000 samples, writes the original sample timestamps, and inserts an automatic marker.
 - Graph PNG export includes the rendered SVG, marker/playhead guides, current legend, and title; the shortcut is `Ctrl+Shift+S` by default.
