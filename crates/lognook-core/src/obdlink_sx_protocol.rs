@@ -81,6 +81,13 @@ pub fn parse_mode01_payload(
     payload: &[u8],
     requested_pid: u8,
 ) -> Result<Mode01Response, String> {
+    let width = mode01_pid_data_width(requested_pid)
+        .ok_or_else(|| format!("Unsupported read-only Mode 01 PID {requested_pid:02X}"))?;
+    if payload.len() != width + 2 {
+        return Err(format!(
+            "Mode 01 PID {requested_pid:02X} response must contain exactly {width} data byte(s)"
+        ));
+    }
     let mut responses =
         parse_mode01_payload_for_service(payload, Some(ecu_id), 0x41, requested_pid)?;
     if responses.len() != 1 {

@@ -6,17 +6,51 @@ use std::time::Duration;
 pub(crate) const ISO15765_PROTOCOL_ID: u32 = 6;
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
 const ISO15765_FRAME_PAD: u32 = 0x40;
-#[cfg(all(target_os = "windows", target_arch = "x86"))]
-const PASS_FILTER: u32 = 0x01;
-#[cfg(all(target_os = "windows", target_arch = "x86"))]
+const FLOW_CONTROL_FILTER: u32 = 0x03;
+const RX_STATUS_TX_MSG_TYPE: u32 = 0x01;
+const RX_STATUS_RX_BREAK: u32 = 0x04;
+const RX_STATUS_ISO15765_ADDR_TYPE: u32 = 0x80;
+const RX_STATUS_CAN_29BIT_ID: u32 = 0x100;
 const ERR_TIMEOUT: u32 = 0x09;
-#[cfg(all(target_os = "windows", target_arch = "x86"))]
 const ERR_BUFFER_EMPTY: u32 = 0x10;
 const MESSAGE_DATA_SIZE: usize = 4128;
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
 const MAX_READ_MESSAGES: usize = 8;
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
 const READ_WINDOW: Duration = Duration::from_millis(250);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReadBatch {
+    Messages { count: usize, stop_after: bool },
+    Retry,
+    Stop,
+    ApiError(u32),
+}
+
+fn classify_read_batch(
+    status: u32,
+    count: u32,
+    maximum: usize,
+) -> Result<ReadBatch, WorkerErrorKind> {
+    if count as usize > maximum {
+        return Err(WorkerErrorKind::MalformedResponse);
+    }
+    match status {
+        0 if count > 0 => Ok(ReadBatch::Messages {
+            count: count as usize,
+            stop_after: false,
+        }),
+        0 => Err(WorkerErrorKind::MalformedResponse),
+        ERR_TIMEOUT if count > 0 => Ok(ReadBatch::Messages {
+            count: count as usize,
+            stop_after: true,
+        }),
+        ERR_TIMEOUT => Ok(ReadBatch::Stop),
+        ERR_BUFFER_EMPTY if count == 0 => Ok(ReadBatch::Retry),
+        ERR_BUFFER_EMPTY => Err(WorkerErrorKind::MalformedResponse),
+        error => Ok(ReadBatch::ApiError(error)),
+    }
+}
 
 #[repr(C)]
 #[derive(Clone)]
@@ -42,6 +76,41 @@ impl Default for J2534Message {
             data: [0; MESSAGE_DATA_SIZE],
         }
     }
+}
+
+struct J2534Filter {
+    filter_type: u32,
+    mask: J2534Message,
+    pattern: J2534Message,
+    flow_control: J2534Message,
+}
+
+fn build_obd_flow_control_filters() -> Vec<J2534Filter> {
+    (0..8)
+        .map(|index| {
+            let mut mask = J2534Message::default();
+            mask.protocol_id = ISO15765_PROTOCOL_ID;
+            mask.data_size = 4;
+            mask.data[..4].copy_from_slice(&[0x00, 0x00, 0x07, 0xFF]);
+
+            let mut pattern = J2534Message::default();
+            pattern.protocol_id = ISO15765_PROTOCOL_ID;
+            pattern.data_size = 4;
+            pattern.data[..4].copy_from_slice(&(0x7E8_u32 + index).to_be_bytes());
+
+            let mut flow_control = J2534Message::default();
+            flow_control.protocol_id = ISO15765_PROTOCOL_ID;
+            flow_control.data_size = 4;
+            flow_control.data[..4].copy_from_slice(&(0x7E0_u32 + index).to_be_bytes());
+
+            J2534Filter {
+                filter_type: FLOW_CONTROL_FILTER,
+                mask,
+                pattern,
+                flow_control,
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,7 +153,16 @@ pub(crate) fn decode_mode01_message(
     message: &J2534Message,
     requested_pid: u8,
     latency_us: u64,
-) -> Result<Mode01Payload, WorkerErrorKind> {
+) -> Result<Option<Mode01Payload>, WorkerErrorKind> {
+    if message.rx_status & RX_STATUS_TX_MSG_TYPE != 0 {
+        return Ok(None);
+    }
+    if message.rx_status
+        & (RX_STATUS_RX_BREAK | RX_STATUS_ISO15765_ADDR_TYPE | RX_STATUS_CAN_29BIT_ID)
+        != 0
+    {
+        return Err(WorkerErrorKind::MalformedResponse);
+    }
     let length = message.data_size as usize;
     if message.protocol_id != ISO15765_PROTOCOL_ID
         || !(7..=10).contains(&length)
@@ -105,19 +183,36 @@ pub(crate) fn decode_mode01_message(
         _ => return Err(WorkerErrorKind::MalformedResponse),
     }
 
-    Ok(Mode01Payload {
+    Ok(Some(Mode01Payload {
         ecu_id: format!("{can_id:03X}"),
         bytes: payload.to_vec(),
         latency_us,
-    })
+    }))
+}
+
+fn decode_mode01_batch(
+    messages: &[J2534Message],
+    requested_pid: u8,
+    latency_us: u64,
+) -> Result<Vec<Mode01Payload>, WorkerErrorKind> {
+    messages
+        .iter()
+        .filter_map(
+            |message| match decode_mode01_message(message, requested_pid, latency_us) {
+                Ok(Some(payload)) => Some(Ok(payload)),
+                Ok(None) => None,
+                Err(error) => Some(Err(error)),
+            },
+        )
+        .collect()
 }
 
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
 mod dynamic {
     use super::{
-        ERR_BUFFER_EMPTY, ERR_TIMEOUT, ISO15765_FRAME_PAD, ISO15765_PROTOCOL_ID, J2534Failure,
-        J2534Message, MAX_READ_MESSAGES, PASS_FILTER, PassThruApi, READ_WINDOW,
-        decode_mode01_message,
+        ISO15765_FRAME_PAD, ISO15765_PROTOCOL_ID, J2534Failure, J2534Message, MAX_READ_MESSAGES,
+        PassThruApi, READ_WINDOW, ReadBatch, build_obd_flow_control_filters, classify_read_batch,
+        decode_mode01_batch,
     };
     use lognook_j2534_protocol::{J2534Identity, Mode01Payload, WorkerErrorKind};
     use std::{
@@ -293,32 +388,25 @@ mod dynamic {
         }
 
         fn start_obd_filter(&mut self, channel: u32) -> Result<(), J2534Failure> {
-            let mut mask = J2534Message::default();
-            mask.protocol_id = ISO15765_PROTOCOL_ID;
-            mask.data_size = 4;
-            mask.data[..4].copy_from_slice(&[0x00, 0x00, 0x07, 0xF8]);
-
-            let mut pattern = J2534Message::default();
-            pattern.protocol_id = ISO15765_PROTOCOL_ID;
-            pattern.data_size = 4;
-            pattern.data[..4].copy_from_slice(&[0x00, 0x00, 0x07, 0xE8]);
-
-            let mut filter_id = 0;
-            let status = unsafe {
-                (self.start_filter)(
-                    channel,
-                    PASS_FILTER,
-                    &mut mask,
-                    &mut pattern,
-                    ptr::null_mut(),
-                    &mut filter_id,
-                )
-            };
-            self.check_with_kind(
-                WorkerErrorKind::ChannelFailed,
-                "PassThruStartMsgFilter(PASS)",
-                status,
-            )
+            for mut filter in build_obd_flow_control_filters() {
+                let mut filter_id = 0;
+                let status = unsafe {
+                    (self.start_filter)(
+                        channel,
+                        filter.filter_type,
+                        &mut filter.mask,
+                        &mut filter.pattern,
+                        &mut filter.flow_control,
+                        &mut filter_id,
+                    )
+                };
+                self.check_with_kind(
+                    WorkerErrorKind::ChannelFailed,
+                    "PassThruStartMsgFilter(FLOW_CONTROL)",
+                    status,
+                )?;
+            }
+            Ok(())
         }
 
         fn read_mode01(
@@ -358,35 +446,43 @@ mod dynamic {
                 let status = unsafe {
                     (self.read_messages)(channel, messages.as_mut_ptr(), &mut count, remaining_ms)
                 };
-                if status == ERR_TIMEOUT {
-                    break;
-                }
-                if status == ERR_BUFFER_EMPTY {
-                    if Instant::now() >= deadline {
-                        break;
+                let batch =
+                    classify_read_batch(status, count, MAX_READ_MESSAGES).map_err(|kind| {
+                        J2534Failure::new(
+                            kind,
+                            "PassThruReadMsgs returned an invalid message count",
+                        )
+                    })?;
+                let (batch_count, stop_after) = match batch {
+                    ReadBatch::Messages { count, stop_after } => (count, stop_after),
+                    ReadBatch::Retry => {
+                        if Instant::now() >= deadline {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                        continue;
                     }
-                    thread::sleep(Duration::from_millis(5));
-                    continue;
-                }
-                self.check("PassThruReadMsgs(Mode01)", status)?;
-                if count == 0 || count as usize > MAX_READ_MESSAGES {
-                    return Err(J2534Failure::new(
-                        WorkerErrorKind::MalformedResponse,
-                        "PassThruReadMsgs returned an invalid message count",
-                    ));
-                }
+                    ReadBatch::Stop => break,
+                    ReadBatch::ApiError(status) => {
+                        self.check("PassThruReadMsgs(Mode01)", status)?;
+                        unreachable!("nonzero J2534 status was not reported as an error")
+                    }
+                };
                 let latency_us = first_latency.get_or_insert_with(|| {
                     started.elapsed().as_micros().min(u64::MAX as u128) as u64
                 });
-                for message in messages.iter().take(count as usize) {
-                    let response =
-                        decode_mode01_message(message, pid, *latency_us).map_err(|kind| {
+                responses.extend(
+                    decode_mode01_batch(&messages[..batch_count], pid, *latency_us).map_err(
+                        |kind| {
                             J2534Failure::new(
                                 kind,
                                 "J2534 returned an invalid ISO15765 OBD response",
                             )
-                        })?;
-                    responses.push(response);
+                        },
+                    )?,
+                );
+                if stop_after {
+                    break;
                 }
             }
             if responses.is_empty() {
@@ -450,7 +546,11 @@ pub(crate) use dynamic::DynamicJ2534;
 
 #[cfg(test)]
 mod tests {
-    use super::{ISO15765_PROTOCOL_ID, J2534Message, decode_mode01_message};
+    use super::{
+        ERR_BUFFER_EMPTY, ERR_TIMEOUT, ISO15765_PROTOCOL_ID, J2534Message, RX_STATUS_TX_MSG_TYPE,
+        ReadBatch, build_obd_flow_control_filters, classify_read_batch, decode_mode01_batch,
+        decode_mode01_message,
+    };
     use lognook_j2534_protocol::WorkerErrorKind;
 
     fn rpm_message() -> J2534Message {
@@ -467,8 +567,82 @@ mod tests {
     }
 
     #[test]
+    fn iso15765_filters_use_flow_control_and_cover_each_standard_ecu_route() {
+        let filters = build_obd_flow_control_filters();
+        assert_eq!(filters.len(), 8);
+        for (index, filter) in filters.iter().enumerate() {
+            assert_eq!(filter.filter_type, 0x03);
+            assert_eq!(filter.mask.protocol_id, ISO15765_PROTOCOL_ID);
+            assert_eq!(filter.mask.data_size, 4);
+            assert_eq!(&filter.mask.data[..4], &[0x00, 0x00, 0x07, 0xFF]);
+            assert_eq!(filter.pattern.protocol_id, ISO15765_PROTOCOL_ID);
+            assert_eq!(
+                u32::from_be_bytes(filter.pattern.data[..4].try_into().unwrap()),
+                0x7E8 + index as u32
+            );
+            assert_eq!(filter.flow_control.protocol_id, ISO15765_PROTOCOL_ID);
+            assert_eq!(filter.flow_control.data_size, 4);
+            assert_eq!(
+                u32::from_be_bytes(filter.flow_control.data[..4].try_into().unwrap()),
+                0x7E0 + index as u32
+            );
+        }
+    }
+
+    #[test]
+    fn read_timeout_keeps_partial_messages_and_only_empty_buffer_retries() {
+        assert_eq!(
+            classify_read_batch(ERR_TIMEOUT, 1, 8),
+            Ok(ReadBatch::Messages {
+                count: 1,
+                stop_after: true,
+            })
+        );
+        assert_eq!(
+            classify_read_batch(0, 2, 8),
+            Ok(ReadBatch::Messages {
+                count: 2,
+                stop_after: false,
+            })
+        );
+        assert_eq!(classify_read_batch(ERR_TIMEOUT, 0, 8), Ok(ReadBatch::Stop));
+        assert_eq!(
+            classify_read_batch(ERR_BUFFER_EMPTY, 0, 8),
+            Ok(ReadBatch::Retry)
+        );
+    }
+
+    #[test]
+    fn ignores_tx_done_indications_and_rejects_nonstandard_address_flags() {
+        let mut tx_done = J2534Message::default();
+        tx_done.protocol_id = ISO15765_PROTOCOL_ID;
+        tx_done.rx_status = RX_STATUS_TX_MSG_TYPE;
+        tx_done.data_size = 4;
+        tx_done.data[..4].copy_from_slice(&[0x00, 0x00, 0x07, 0xDF]);
+        let response = rpm_message();
+        let decoded =
+            decode_mode01_batch(&[tx_done.clone(), response.clone()], 0x0C, 11_300).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].bytes, vec![0x41, 0x0C, 0x1A, 0xF8]);
+        assert!(
+            decode_mode01_batch(&[tx_done], 0x0C, 11_300)
+                .unwrap()
+                .is_empty()
+        );
+
+        let mut extended_address = response;
+        extended_address.rx_status = 0x80;
+        assert!(decode_mode01_message(&extended_address, 0x0C, 0).is_err());
+        let mut extended_can = rpm_message();
+        extended_can.rx_status = 0x100;
+        assert!(decode_mode01_message(&extended_can, 0x0C, 0).is_err());
+    }
+
+    #[test]
     fn parses_iso15765_mode01_response_with_ecu_identity() {
-        let payload = decode_mode01_message(&rpm_message(), 0x0C, 11_300).unwrap();
+        let payload = decode_mode01_message(&rpm_message(), 0x0C, 11_300)
+            .unwrap()
+            .unwrap();
         assert_eq!(payload.ecu_id, "7E8");
         assert_eq!(payload.bytes, vec![0x41, 0x0C, 0x1A, 0xF8]);
         assert_eq!(payload.latency_us, 11_300);

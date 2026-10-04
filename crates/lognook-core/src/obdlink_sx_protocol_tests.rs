@@ -106,6 +106,9 @@ fn binary_mode01_payload_rejects_wrong_service_pid_and_truncated_data() {
     assert!(parse_mode01_payload("7E8".into(), &[0x7F, 0x01, 0x11], 0x0C).is_err());
     assert!(parse_mode01_payload("7E8".into(), &[0x41, 0x05, 0x64], 0x0C).is_err());
     assert!(parse_mode01_payload("7E8".into(), &[0x41, 0x0C, 0x1A], 0x0C).is_err());
+    assert!(
+        parse_mode01_payload("7E8".into(), &[0x41, 0x0C, 0x1A, 0xF8, 0x05, 0x64], 0x0C).is_err()
+    );
 }
 
 #[test]
