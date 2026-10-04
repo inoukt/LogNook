@@ -12,7 +12,8 @@ use crate::{
     simulator::standard_obd_signals,
 };
 use lognook_j2534_protocol::{
-    J2534Identity, J2534Provider, Mode01Payload, WorkerErrorKind, WorkerRequest, WorkerResponse,
+    J2534Identity, J2534ProviderDiscovery, Mode01Payload, WorkerErrorKind, WorkerRequest,
+    WorkerResponse,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -28,7 +29,7 @@ trait WorkerSession: Send {
 
 pub fn available_openport2_providers(
     worker_path: &Path,
-) -> Result<Vec<J2534Provider>, LogNookError> {
+) -> Result<J2534ProviderDiscovery, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
     let result = available_from_session(&mut session);
     session.shutdown();
@@ -47,9 +48,15 @@ pub fn identify_openport2(
 
 fn available_from_session(
     session: &mut dyn WorkerSession,
-) -> Result<Vec<J2534Provider>, LogNookError> {
+) -> Result<J2534ProviderDiscovery, LogNookError> {
     match session.request(WorkerRequest::ListProviders)? {
-        WorkerResponse::Providers { providers } => Ok(providers),
+        WorkerResponse::Providers {
+            providers,
+            diagnostics,
+        } => Ok(J2534ProviderDiscovery {
+            providers,
+            diagnostics,
+        }),
         response => Err(unexpected_worker_response("provider listing", response)),
     }
 }
@@ -81,7 +88,9 @@ fn device_descriptor(provider_id: &str, identity: J2534Identity) -> DeviceDescri
 
 fn unexpected_worker_response(action: &str, response: WorkerResponse) -> LogNookError {
     match response {
-        WorkerResponse::Error { kind, message } => worker_error(kind, message),
+        WorkerResponse::Error { kind, message } => {
+            worker_error(kind, format!("during {action}: {message}"))
+        }
         other => LogNookError::new(format!(
             "OpenPort worker returned an unexpected response for {action}: {other:?}"
         )),

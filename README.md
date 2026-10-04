@@ -1,6 +1,6 @@
 # LogNook
 
-LogNook is a Windows-first, read-only OBD acquisition and recording desktop app built with Rust, Tauri 2, Svelte, and TypeScript. The current build supports simulated Mode 01 acquisition, an OBDLink SX adapter, `.lognook` recording/replay, LogNook CSV import/export (including live-buffer snapshots) and numeric FORScan `time(ms)` log import, saved-session Share/Save As actions, multi-signal graphs with smooth live motion, derived signals, and a paged read-only OEM PID research catalog. The OEM catalog includes a constrained one-shot Scion xB 2014 Mode 21 PID 01 read and manual SX-only Try once actions for eligible catalog rows; it does not add research candidates to normal polling.
+LogNook is a Windows-first, read-only OBD acquisition and recording desktop app built with Rust, Tauri 2, Svelte, and TypeScript. The current build supports simulated Mode 01 acquisition, hot-plug OBDLink SX discovery, OpenPort 2 provider diagnostics, `.lognook` recording/replay, LogNook CSV import/export (including live-buffer snapshots) and numeric FORScan `time(ms)` log import, saved-session Share/Save As actions, multi-signal graphs with smooth live motion, derived signals, and a paged read-only OEM PID research catalog. The OEM catalog includes a constrained one-shot Scion xB 2014 Mode 21 PID 01 read and manual SX-only Try once actions for eligible catalog rows; it does not add research candidates to normal polling.
 
 Current named beta: **OBDLinkSX-Beta1** (`0.1.0-beta.1`).
 

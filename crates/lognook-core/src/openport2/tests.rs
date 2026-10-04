@@ -1,4 +1,5 @@
 use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
+use super::unexpected_worker_response;
 use crate::{EngineEvent, HardwareAdapter, LogNookEngine, SignalDefinition, standard_obd_signals};
 use lognook_j2534_protocol::{
     J2534Identity, J2534Provider, Mode01Payload, WorkerErrorKind, WorkerRequest, WorkerResponse,
@@ -106,12 +107,29 @@ fn provider_listing_uses_only_typed_worker_provider_response() {
             id: "opta".into(),
             name: "Tactrix OpenPort 2.0".into(),
         }],
+        diagnostics: vec!["Ignored DENSO: unsupported by LogNook".into()],
     })]);
-    assert_eq!(available_from_session(&mut session).unwrap()[0].id, "opta");
+    let discovery = available_from_session(&mut session).unwrap();
+    assert_eq!(discovery.providers[0].id, "opta");
+    assert_eq!(discovery.diagnostics, ["Ignored DENSO: unsupported by LogNook"]);
     assert_eq!(
         *state.requests.lock().unwrap(),
         vec![WorkerRequest::ListProviders]
     );
+}
+
+#[test]
+fn worker_errors_report_the_openport_operation_stage() {
+    let error = unexpected_worker_response(
+        "Mode 01 PID discovery",
+        WorkerResponse::Error {
+            kind: WorkerErrorKind::NoResponse,
+            message: "No response for standard Mode 01 PID 00".into(),
+        },
+    );
+
+    assert!(error.to_string().contains("Mode 01 PID discovery"));
+    assert!(error.to_string().contains("Mode 01 PID 00"));
 }
 
 #[test]

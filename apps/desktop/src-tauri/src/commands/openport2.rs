@@ -1,7 +1,7 @@
 use super::engine;
 use crate::AppState;
 use lognook_core::{
-    ConnectionCapabilities, DeviceDescriptor, J2534Provider, OpenPort2Adapter,
+    ConnectionCapabilities, DeviceDescriptor, J2534ProviderDiscovery, OpenPort2Adapter,
     available_openport2_providers as list_openport2_providers,
     identify_openport2 as identify_openport2_device,
 };
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use tauri::State;
 
 #[tauri::command]
-pub fn available_openport2_providers() -> Result<Vec<J2534Provider>, String> {
+pub fn available_openport2_providers() -> Result<J2534ProviderDiscovery, String> {
     list_openport2_providers(&worker_path()?).map_err(|error| error.to_string())
 }
 

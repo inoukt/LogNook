@@ -14,6 +14,7 @@
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
+  import { reconcileSxPorts } from "./adapterDiscovery";
   import {
     defaultAutomaticTriggerConfig, disarmedAutomaticTriggerStatus, normalizeAutomaticTriggerConfig,
     restoreAutomaticTriggerConfig, type AutomaticTriggerConfig, type AutomaticTriggerStatus,
@@ -25,7 +26,7 @@
   import type { ShortcutAction } from "./shortcuts";
   import type {
     ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
-    J2534Provider, RecordingInfo, Sample, SignalDefinition,
+    J2534Provider, J2534ProviderDiscovery, RecordingInfo, Sample, SignalDefinition,
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, graphRefreshIntervalMs, orderMarkersForTimeline,
@@ -53,6 +54,7 @@
   let selectedSxPort = "";
   let sxIdentity: DeviceDescriptor | undefined;
   let openPortProviders: J2534Provider[] = [];
+  let openPortProviderDiagnostics: string[] = [];
   let selectedOpenPortProvider = "";
   let openPortIdentity: DeviceDescriptor | undefined;
   let selectedAdapter: AdapterKind = "simulator";
@@ -97,6 +99,9 @@
   let statusResize: { y: number; height: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
+  let sxPortRefreshTimer: number | undefined;
+  let refreshingSxPorts = false;
+  let sxDiscoveryError = "";
   let graphRequest = 0;
   let readoutRequest = 0;
   let graphRefreshTimer: number | undefined;
@@ -219,6 +224,17 @@
     listen<EngineEvent>("lognook-event", ({ payload }) => handleEvent(payload))
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
+    void refreshSxPorts();
+    const refreshSelectedSx = () => {
+      if (document.visibilityState === "visible" && selectedAdapter === "obdlink_sx") {
+        void refreshSxPorts();
+      }
+    };
+    sxPortRefreshTimer = window.setInterval(() => {
+      if (selectedAdapter === "obdlink_sx" && !connected) void refreshSxPorts();
+    }, 2000);
+    window.addEventListener("focus", refreshSelectedSx);
+    document.addEventListener("visibilitychange", refreshSelectedSx);
     invoke<SignalDefinition[]>("available_signals")
       .then((signals) => {
         signalCatalog = signals;
@@ -248,20 +264,39 @@
         workspacePreferencesReady = true;
       })
       .catch(() => error = "Open LogNook as a desktop app to access the acquisition engine.");
-    invoke<string[]>("available_obdlink_sx_ports")
-      .then((ports) => {
-        sxPorts = ports;
-        selectedSxPort = ports[0] ?? "";
-      })
-      .catch(() => sxPorts = []);
     invoke<AutomaticTriggerStatus>("automatic_trigger_status")
       .then((triggerStatus) => handleEvent({ type: "triggerStatus", payload: triggerStatus }))
       .catch(() => {});
     return () => {
       disposed = true;
+      if (sxPortRefreshTimer !== undefined) window.clearInterval(sxPortRefreshTimer);
+      window.removeEventListener("focus", refreshSelectedSx);
+      document.removeEventListener("visibilitychange", refreshSelectedSx);
       unlisten?.();
     };
   });
+
+  async function refreshSxPorts() {
+    if (!isTauri() || refreshingSxPorts || busy || connected) return;
+    refreshingSxPorts = true;
+    try {
+      const detectedPorts = await invoke<string[]>("available_obdlink_sx_ports");
+      const refreshed = reconcileSxPorts(detectedPorts, selectedSxPort);
+      sxPorts = refreshed.ports;
+      if (refreshed.selectionChanged) {
+        selectedSxPort = refreshed.selectedPort;
+        sxIdentity = undefined;
+      }
+      sxDiscoveryError = "";
+    } catch (caught) {
+      sxPorts = [];
+      selectedSxPort = "";
+      sxIdentity = undefined;
+      sxDiscoveryError = String(caught);
+    } finally {
+      refreshingSxPorts = false;
+    }
+  }
 
   function runShortcut(action: ShortcutAction) {
     if (action === "toggleRecording") {
@@ -534,13 +569,26 @@
 
   function selectAdapter(adapter: AdapterKind) {
     selectedAdapter = adapter;
-    if (adapter !== "openport2") return;
-    openPortProviders = [];
-    selectedOpenPortProvider = "";
-    openPortIdentity = undefined;
-    void run(async () => {
-      openPortProviders = await invoke<J2534Provider[]>("available_openport2_providers");
-      selectedOpenPortProvider = openPortProviders[0]?.id ?? "";
+    if (adapter === "obdlink_sx") void refreshSxPorts();
+    if (adapter === "openport2") void refreshOpenPortProviders();
+  }
+
+  function refreshOpenPortProviders() {
+    return run(async () => {
+      openPortIdentity = undefined;
+      openPortProviderDiagnostics = [];
+      try {
+        const discovery = await invoke<J2534ProviderDiscovery>("available_openport2_providers");
+        openPortProviders = discovery.providers;
+        openPortProviderDiagnostics = discovery.diagnostics;
+        if (!openPortProviders.some(({ id }) => id === selectedOpenPortProvider)) {
+          selectedOpenPortProvider = openPortProviders[0]?.id ?? "";
+        }
+      } catch (caught) {
+        openPortProviders = [];
+        selectedOpenPortProvider = "";
+        openPortProviderDiagnostics = [`Provider discovery failed: ${String(caught)}`];
+      }
     });
   }
 
@@ -981,6 +1029,7 @@
                 {#if openPortProviders.length === 0}<option value="">No OpenPort provider</option>{/if}
                 {#each openPortProviders as provider}<option value={provider.id}>{provider.name}</option>{/each}
               </select>
+              <button class="button secondary adapter-refresh" onclick={refreshOpenPortProviders} disabled={busy || recording || replaying} title="Refresh registered 32-bit J2534 providers" aria-label="Refresh OpenPort providers">↻</button>
             {/if}
             {#if selectedAdapter !== "simulator"}
               <button class="button secondary" onclick={selectedAdapter === "openport2" ? identifyOpenPort : identifySx} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
@@ -1110,6 +1159,11 @@
     <div class="status-content">
       <strong>{status}</strong>
       {#if error}<span class="status-error" role="alert">{error}</span>{/if}
+      {#if selectedAdapter === "obdlink_sx" && sxDiscoveryError}<span class="status-error" role="alert">SX port scan failed: {sxDiscoveryError}</span>{/if}
+      {#if selectedAdapter === "openport2"}
+        {#if openPortProviders.length}<span class="status-info">{openPortProviders.length} eligible 32-bit J2534 provider(s) registered; Identify checks adapter availability.</span>{/if}
+        {#each openPortProviderDiagnostics as diagnostic}<span class={openPortProviders.length ? "status-info" : "status-error"} role={openPortProviders.length ? undefined : "alert"}>{diagnostic}</span>{/each}
+      {/if}
       {#if sxIdentity}<span class="status-success">Identified {sxIdentity.hardware_family} · {sxIdentity.firmware} · serial {sxIdentity.stable_id}</span>{/if}
       {#if automaticTriggerStatus.armed}<span class="status-success">Automatic trigger armed · {automaticTriggerStatus.config?.signal_id} {automaticTriggerStatus.config?.direction} {automaticTriggerStatus.config?.threshold}</span>{/if}
       {#if recording}<span class="status-recording"><span class="pulse-dot"></span>{automaticRecording ? "Automatic trigger recording" : "Recording live samples"} · {recordingPath}</span>{/if}

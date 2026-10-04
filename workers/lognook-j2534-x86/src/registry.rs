@@ -1,6 +1,6 @@
 #[cfg(windows)]
 use crate::j2534::J2534Failure;
-use lognook_j2534_protocol::J2534Provider;
+use lognook_j2534_protocol::{J2534Provider, J2534ProviderDiscovery};
 #[cfg(windows)]
 use lognook_j2534_protocol::WorkerErrorKind;
 use std::path::PathBuf;
@@ -56,11 +56,14 @@ fn expand_environment_variables(
 }
 
 #[cfg(windows)]
-pub(crate) fn list_openport2_providers() -> Result<Vec<J2534Provider>, J2534Failure> {
-    Ok(enumerate_registered_providers()?
-        .into_iter()
-        .map(|registered| registered.provider)
-        .collect())
+pub(crate) fn list_openport2_providers() -> Result<J2534ProviderDiscovery, J2534Failure> {
+    enumerate_registered_providers()
+}
+
+fn ignored_provider_diagnostic(id: &str, name: &str) -> String {
+    format!(
+        "Ignored registered J2534 provider '{name}' ({id}): LogNook supports Tactrix/OpenPort/OPTA only."
+    )
 }
 
 #[cfg(windows)]
@@ -117,7 +120,7 @@ pub(crate) fn resolve_openport2_provider(
 }
 
 #[cfg(windows)]
-fn enumerate_registered_providers() -> Result<Vec<RegisteredProvider>, J2534Failure> {
+fn enumerate_registered_providers() -> Result<J2534ProviderDiscovery, J2534Failure> {
     use std::ptr;
     use windows_sys::Win32::{
         Foundation::ERROR_NO_MORE_ITEMS,
@@ -125,11 +128,15 @@ fn enumerate_registered_providers() -> Result<Vec<RegisteredProvider>, J2534Fail
     };
 
     let Some(key) = open_j2534_registry()? else {
-        return Ok(Vec::new());
+        return Ok(J2534ProviderDiscovery {
+            providers: Vec::new(),
+            diagnostics: vec!["No 32-bit J2534 04.04 registry entries were found.".into()],
+        });
     };
     let root: HKEY = key.0;
 
     let mut providers = Vec::new();
+    let mut diagnostics = Vec::new();
     for index in 0..u32::MAX {
         let mut subkey = [0u16; 512];
         let mut length = subkey.len() as u32;
@@ -157,18 +164,37 @@ fn enumerate_registered_providers() -> Result<Vec<RegisteredProvider>, J2534Fail
         let id = String::from_utf16_lossy(&subkey[..length as usize]);
         let name = read_registry_string(root, &id, "Name")?.unwrap_or_else(|| id.clone());
         if !is_target_provider_name(&name) {
+            diagnostics.push(ignored_provider_diagnostic(&id, &name));
             continue;
         }
         let Some(path) = read_registry_string(root, &id, "FunctionLibrary")? else {
+            diagnostics.push(format!(
+                "Ignored registered provider '{name}': it has no FunctionLibrary path."
+            ));
             continue;
         };
-        if let Some(provider) =
-            make_registered_provider(id, name, &path, |variable| std::env::var(variable).ok())
-        {
-            providers.push(provider);
+        if let Some(provider) = make_registered_provider(
+            id,
+            name.clone(),
+            &path,
+            |variable| std::env::var(variable).ok(),
+        ) {
+            providers.push(provider.provider);
+        } else {
+            diagnostics.push(format!(
+                "Ignored registered provider '{name}': its FunctionLibrary path could not be resolved or the DLL is missing."
+            ));
         }
     }
-    Ok(providers)
+    if providers.is_empty() && diagnostics.is_empty() {
+        diagnostics.push(
+            "No registered J2534 provider is eligible for OpenPort 2 connection.".into(),
+        );
+    }
+    Ok(J2534ProviderDiscovery {
+        providers,
+        diagnostics,
+    })
 }
 
 #[cfg(windows)]
@@ -293,8 +319,8 @@ fn wide(value: &str) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::{
-        RegisteredProvider, is_target_provider_name, list_openport2_providers,
-        make_registered_provider, resolve_openport2_provider,
+        RegisteredProvider, ignored_provider_diagnostic, is_target_provider_name,
+        list_openport2_providers, make_registered_provider, resolve_openport2_provider,
     };
     use lognook_j2534_protocol::WorkerErrorKind;
     use std::{
@@ -308,6 +334,15 @@ mod tests {
         assert!(is_target_provider_name("OPTA Tactrix J2534"));
         assert!(!is_target_provider_name("DENSO CORPORATION - DST-010"));
         assert!(!is_target_provider_name("Generic PassThru Device"));
+    }
+
+    #[test]
+    fn unsupported_registered_provider_diagnostic_explains_the_filter() {
+        let diagnostic = ignored_provider_diagnostic("DENSO CORPORATION - DST-010", "DST-010");
+
+        assert!(diagnostic.contains("DENSO CORPORATION - DST-010"));
+        assert!(diagnostic.contains("DST-010"));
+        assert!(diagnostic.contains("Tactrix/OpenPort/OPTA"));
     }
 
     #[test]
@@ -364,9 +399,11 @@ mod tests {
         let providers = list_openport2_providers().unwrap();
         assert!(
             providers
+                .providers
                 .iter()
                 .all(|provider| is_target_provider_name(&provider.name))
         );
+        assert!(!providers.diagnostics.is_empty() || !providers.providers.is_empty());
         let error = resolve_openport2_provider("__lognook_unregistered_provider__").unwrap_err();
         assert_eq!(error.kind, WorkerErrorKind::ProviderNotFound);
     }

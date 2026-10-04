@@ -1,7 +1,7 @@
 use lognook_j2534_protocol::{
-    J2534Identity, J2534Provider, MAX_MESSAGE_BYTES, Mode01Payload, ProtocolError, WorkerErrorKind,
-    WorkerRequest, WorkerResponse, decode_request_line, decode_response_line, encode_request_line,
-    encode_response_line,
+    J2534Identity, J2534Provider, J2534ProviderDiscovery, MAX_MESSAGE_BYTES, Mode01Payload,
+    ProtocolError, WorkerErrorKind, WorkerRequest, WorkerResponse, decode_request_line,
+    decode_response_line, encode_request_line, encode_response_line,
 };
 
 #[test]
@@ -38,6 +38,7 @@ fn response_variants_round_trip_with_provider_identity_and_raw_payload() {
                 id: "opta".into(),
                 name: "OPTA Tactrix OpenPort 2.0".into(),
             }],
+            diagnostics: vec!["Ignored DENSO: unsupported by LogNook".into()],
         },
         WorkerResponse::Identity {
             identity: J2534Identity {
@@ -71,6 +72,24 @@ fn response_variants_round_trip_with_provider_identity_and_raw_payload() {
         let line = encode_response_line(&response).unwrap();
         assert_eq!(decode_response_line(&line).unwrap(), response);
     }
+}
+
+#[test]
+fn provider_discovery_round_trips_empty_list_with_diagnostics() {
+    let discovery = J2534ProviderDiscovery {
+        providers: Vec::new(),
+        diagnostics: vec![
+            "Ignored registered provider 'DENSO': LogNook supports Tactrix/OpenPort/OPTA only."
+                .into(),
+        ],
+    };
+    let response = WorkerResponse::Providers {
+        providers: discovery.providers.clone(),
+        diagnostics: discovery.diagnostics.clone(),
+    };
+
+    let encoded = encode_response_line(&response).unwrap();
+    assert_eq!(decode_response_line(&encoded).unwrap(), response);
 }
 
 #[test]

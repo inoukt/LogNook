@@ -147,6 +147,10 @@ export type DeviceDescriptor = {
 };
 
 export type J2534Provider = { id: string; name: string };
+export type J2534ProviderDiscovery = {
+  providers: J2534Provider[];
+  diagnostics: string[];
+};
 
 export type ConnectionCapabilities = {
   device: DeviceDescriptor;

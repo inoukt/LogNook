@@ -52,6 +52,10 @@ fn classify_read_batch(
     }
 }
 
+fn no_response_diagnostic(pid: u8, elapsed_ms: u128) -> String {
+    format!("No response for standard Mode 01 PID {pid:02X} after {elapsed_ms} ms")
+}
+
 #[repr(C)]
 #[derive(Clone)]
 pub(crate) struct J2534Message {
@@ -212,7 +216,7 @@ mod dynamic {
     use super::{
         ISO15765_FRAME_PAD, ISO15765_PROTOCOL_ID, J2534Failure, J2534Message, MAX_READ_MESSAGES,
         PassThruApi, READ_WINDOW, ReadBatch, build_obd_flow_control_filters, classify_read_batch,
-        decode_mode01_batch,
+        decode_mode01_batch, no_response_diagnostic,
     };
     use lognook_j2534_protocol::{J2534Identity, Mode01Payload, WorkerErrorKind};
     use std::{
@@ -488,7 +492,7 @@ mod dynamic {
             if responses.is_empty() {
                 return Err(J2534Failure::new(
                     WorkerErrorKind::NoResponse,
-                    format!("No response for standard Mode 01 PID {pid:02X}"),
+                    no_response_diagnostic(pid, started.elapsed().as_millis()),
                 ));
             }
             Ok(responses)
@@ -549,7 +553,7 @@ mod tests {
     use super::{
         ERR_BUFFER_EMPTY, ERR_TIMEOUT, ISO15765_PROTOCOL_ID, J2534Message, RX_STATUS_TX_MSG_TYPE,
         ReadBatch, build_obd_flow_control_filters, classify_read_batch, decode_mode01_batch,
-        decode_mode01_message,
+        decode_mode01_message, no_response_diagnostic,
     };
     use lognook_j2534_protocol::WorkerErrorKind;
 
@@ -609,6 +613,14 @@ mod tests {
         assert_eq!(
             classify_read_batch(ERR_BUFFER_EMPTY, 0, 8),
             Ok(ReadBatch::Retry)
+        );
+    }
+
+    #[test]
+    fn no_response_diagnostic_names_the_pid_and_actual_wait() {
+        assert_eq!(
+            no_response_diagnostic(0x00, 250),
+            "No response for standard Mode 01 PID 00 after 250 ms"
         );
     }
 

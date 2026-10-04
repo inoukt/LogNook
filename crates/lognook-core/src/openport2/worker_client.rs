@@ -82,6 +82,21 @@ impl WorkerClient {
     }
 }
 
+fn worker_timeout_message(request: &WorkerRequest, timeout: Duration) -> String {
+    let stage = match request {
+        WorkerRequest::ListProviders => "provider discovery".to_owned(),
+        WorkerRequest::Identify { .. } => "adapter identification".to_owned(),
+        WorkerRequest::Connect { .. } => "J2534 channel setup".to_owned(),
+        WorkerRequest::DiscoverMode01 => "Mode 01 PID discovery".to_owned(),
+        WorkerRequest::ReadMode01 { pid } => format!("Mode 01 PID {pid:02X} read"),
+        WorkerRequest::Disconnect => "adapter disconnect".to_owned(),
+    };
+    format!(
+        "OpenPort worker timed out after {} ms during {stage}; the worker was stopped",
+        timeout.as_millis()
+    )
+}
+
 impl WorkerSession for WorkerClient {
     fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, LogNookError> {
         let timeout = match &request {
@@ -128,10 +143,7 @@ impl WorkerClient {
             }
             Err(RecvTimeoutError::Timeout) => {
                 self.terminate();
-                return Err(LogNookError::new(format!(
-                    "OpenPort worker response timed out after {} ms; the worker was stopped",
-                    timeout.as_millis()
-                )));
+                return Err(LogNookError::new(worker_timeout_message(&request, timeout)));
             }
             Err(RecvTimeoutError::Disconnected) => {
                 self.terminate();
@@ -225,7 +237,7 @@ fn discard_line<R: BufRead>(reader: &mut R) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkerClient, read_bounded_line};
+    use super::{WorkerClient, read_bounded_line, worker_timeout_message};
     use lognook_j2534_protocol::{
         MAX_MESSAGE_BYTES, ProtocolError, WorkerRequest, decode_request_line,
     };
@@ -254,6 +266,17 @@ mod tests {
             decode_request_line(&next).unwrap(),
             WorkerRequest::Disconnect
         );
+    }
+
+    #[test]
+    fn worker_timeout_names_the_openport_request_stage() {
+        let message = worker_timeout_message(
+            &WorkerRequest::ReadMode01 { pid: 0x00 },
+            Duration::from_millis(1_000),
+        );
+
+        assert!(message.contains("timed out after 1000 ms"));
+        assert!(message.contains("Mode 01 PID 00 read"));
     }
 
     #[cfg(windows)]

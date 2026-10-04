@@ -25,7 +25,7 @@ pub use engine::LogNookEngine;
 pub use graph_window::{
     query_recording_averages, query_recording_values_at, query_recording_window,
 };
-pub use lognook_j2534_protocol::J2534Provider;
+pub use lognook_j2534_protocol::{J2534Provider, J2534ProviderDiscovery};
 pub use model::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
     DerivedSignalDefinition, DeviceDescriptor, EngineEvent, LogNookError, Marker, PlaybackState,

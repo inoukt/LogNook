@@ -73,7 +73,10 @@ fn handle_request(
     };
     match request {
         WorkerRequest::ListProviders => match registry::list_openport2_providers() {
-            Ok(providers) => WorkerResponse::Providers { providers },
+            Ok(discovery) => WorkerResponse::Providers {
+                providers: discovery.providers,
+                diagnostics: discovery.diagnostics,
+            },
             Err(error) => failed(error),
         },
         WorkerRequest::Identify { provider_id } => {

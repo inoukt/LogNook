@@ -13,6 +13,13 @@ pub struct J2534Provider {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct J2534ProviderDiscovery {
+    pub providers: Vec<J2534Provider>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct J2534Identity {
     pub firmware: String,
     pub dll_version: String,
@@ -60,6 +67,7 @@ pub enum WorkerRequest {
 pub enum WorkerResponse {
     Providers {
         providers: Vec<J2534Provider>,
+        diagnostics: Vec<String>,
     },
     Identity {
         identity: J2534Identity,
@@ -129,7 +137,7 @@ pub fn decode_response_line(line: &[u8]) -> Result<WorkerResponse, ProtocolError
     let kind = message_type(&value)?;
     let fields = match kind {
         "disconnected" => &["type"][..],
-        "providers" => &["type", "providers"][..],
+        "providers" => &["type", "providers", "diagnostics"][..],
         "identity" | "connected" => &["type", "identity"][..],
         "mode01_responses" => &["type", "responses"][..],
         "error" => &["type", "kind", "message"][..],
