@@ -2,7 +2,7 @@
 
 ## Proposed stack
 - Tauri 2 desktop shell; Rust acquisition/storage/processing engine; Svelte + TypeScript UI; CSS variables/theme tokens.
-- Native Windows J2534 via vendor-installed DLL in isolated architecture-matched process (`lognook-j2534-x86.exe`; x64 only when a vendor supplies x64 DLL). IPC: versioned, bounded messages and worker watchdog, not DLL loaded into UI process.
+- Windows J2534 calls run in a separate architecture-matched worker. The implemented OpenPort 2 path uses the vendor-installed 32-bit J2534 v04.04 provider in `lognook-j2534-worker.exe`; the Tauri process never loads the vendor DLL. A bounded typed JSON-lines protocol and response deadlines isolate the x64 app from the x86 driver.
 - Serial for OBDLink SX/ELM; native `gs_usb` USB for compatible candleLight devices using evaluated pure-Rust `nusb` or `rusb` and Windows WinUSB binding; SLCAN over serial. Linux backend later maps `gs_usb` to SocketCAN.
 - A small, controlled renderer interface: uPlot for very fast time-series and Apache ECharts for scatter/heatmap/bar. Their two roles are explicit; don't implement two competing graph data pipelines.
 - SQLite local state and per-session recording; migration-on-open with backup and schema-version checking. Credential secrets in OS credential storage, never in JSON config.
@@ -37,7 +37,7 @@ lognook/
   crates/adapters/              # serial, gs_usb, slcan traits/impl
   crates/recording/             # SQLite, CSV, import/export, replay
   crates/analysis/              # triggers, formulas, comparison, alerts
-  workers/j2534-x86/           # separate Windows crash/bitness boundary
+  workers/lognook-j2534-x86/   # separate Windows crash/bitness boundary
   profiles/{generic,examples}/  # licensed/reviewed vehicle definitions
   tests/{fixtures,simulators}/
   docs/{decisions,protocols}/   # short ADRs only as decisions arise
@@ -69,6 +69,16 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - CSV is long-form with `raw_hex` and typed `event_type=sample|marker` rows. Export refuses overwrites. The importer accepts older sample-only CSV and imports legacy `*-markers.csv` sidecars only when inline marker events are absent. CSV import streams into a new SQLite session and preserves the selected source. Playback reads ordered session events incrementally and feeds samples through the same bounded pipeline with `origin=replay`.
 - Live CSV snapshots serialize the UI's retained live samples (at most 180 per logged signal) through the shared CSV model without opening a recording. Saved sessions offer CSV sharing (samples plus markers) and a native `.lognook` Save As copy; export commands canonicalize source sessions under the app recordings directory before reading or copying them.
 - Tauri owns app-local recording paths and bridges the engine to Svelte. The PID picker and combined/separate graphs share timestamped pipeline samples with recording and replay.
+
+### OpenPort 2.0 Mode 01 implementation — 2026-10-04
+
+- `workers/lognook-j2534-x86` is a 32-bit Windows process. It enumerates only registered 32-bit J2534 04.04 providers named for Tactrix, OpenPort, or OPTA whose expanded DLL paths exist; it resolves the selected registry ID again before loading that DLL. The user selects the provider explicitly.
+- The worker opens/closes providers for identity. Acquisition uses J2534 ISO 15765, 11-bit CAN at 500 kbit/s, fixed standard functional Mode 01 requests, and one serialized provider owner. `PassThruWriteMsgs` cannot receive caller-supplied bytes or headers. Responses retain each ECU ID and raw Mode 01 payload.
+- The core `OpenPort2Adapter` validates supported-PID pages from `00` through `E0`, advertises only supported signals in the shared catalog, rejects malformed replies or multiple ECU responders, and produces ordinary timestamped `Sample` values through `HardwareAdapter` and `LogNookEngine`. Its target cycle is 100 ms; ECU and transport latency can make the observed cycle slower.
+- Provider identity/listing and selected PID reads have response deadlines. An unresponsive worker is killed and reported. Normal close sends a worker disconnect before process shutdown. IPC is capped at 16 KiB per line.
+- Tauri exposes provider listing, identity, and connect commands. The top toolbar chooses Simulator, OBDLink SX, or OpenPort 2, displays controls for the selected device, and uses one Connect button. Simulator and SX startup do not build or launch the OpenPort worker.
+- Build and test with `rustup target add i686-pc-windows-msvc`, `npm run build:j2534-worker` from `apps/desktop`, then `npm run tauri dev` from `apps/desktop`. The x86 MSVC linker and Windows SDK are required. Release builds look in `target/i686-pc-windows-msvc/release`; worker packaging is not enabled while Tauri bundling is disabled.
+- Physical validation remains pending. The earlier OPTA passive CAN probe established identity and channel setup, then rejected an aggregated raw frame; no vehicle diagnostic request was sent in that probe. The current development host lists no matching OpenPort J2534 provider. Do not claim the new Mode 01 path works on a vehicle until it returns supported-PID replies and live samples through the app.
 
 ### CSV session player
 
@@ -152,7 +162,7 @@ Sources: [OBDLink FRPM Rev F](https://www.scantool.net/scantool/downloads/682/ob
 
 ## Current POC boundaries
 
-- The OpenPort 2 inventory and probes are recorded in [the OpenPort 2 report](../docs/hardware/2026-10-02-openport2.md). At the user's choice, the current WinUSB/OPTA binding was retained for this bounded diagnostic. Its signed x86 DLL returned firmware `1.17.4877`, DLL `0.1.0`, API `04.04`, and accepted passive CAN5 at 500 kbit/s with requested sniff flags `0x10000800`. The first J2534 read was rejected after 109 ms because the returned message combined frame data; the logged capture lacks full rejected-message metadata. The wire trace also shows filter TxFlags `0x40` despite requested 0. All calls returned status 0 through disconnect/close. Physical traces and a fixture retain distinct CAN IDs/timestamps parsed from the USB log, not from the rejected aggregate. This diagnostic exception does not select or implement a production backend. Reliable raw frames, an architecture-matched worker, and shared-contract tests remain prerequisites. No vehicle transmit/diagnostic request, driver replacement, or firmware update occurred.
+- The earlier OpenPort inventory and passive probe are recorded in [the OpenPort 2 report](../docs/hardware/2026-10-02-openport2.md). The signed x86 OPTA DLL returned firmware `1.17.4877`, DLL `0.1.0`, API `04.04`, and accepted passive CAN5 at 500 kbit/s with requested sniff flags `0x10000800`; its first raw J2534 read was rejected after 109 ms because the returned message combined frame data. That remains historical transport evidence, not decoded PID support. The x86 worker and read-only standard Mode 01 adapter are now implemented and tested with fixtures, but have not yet been tested on a vehicle. No vehicle diagnostic request was sent during the historical passive probe; no driver replacement or firmware update occurred.
 
 - Physical validation covers one SX/Ford connection, 41 advertised generic PIDs, successful reads for all 35 auto-requestable seed candidates, live samples for all five original UI signals, and a roughly 66-second recording of those five. The diagnostic bench measured 81.42 aggregate PID values/second across width-aware grouped queries. A live LogNook application run is still needed to verify application-level rate and stability.
 - Multiple ECU responders are rejected until explicit selection is implemented. The grouped CAN fast path first enables headers and identifies one responder; the app still does not support multiple ECU selection. Ford enhanced/MS-CAN support is not claimed.

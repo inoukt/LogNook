@@ -1,9 +1,23 @@
 # LogNook — research-backed engineering blueprint
-Research snapshot: 2026-10-02; implementation status: 2026-10-03. Milestone 1 is implemented, and the Windows desktop app includes the searchable signal picker, read-only OEM research catalog, a constrained Scion xB 2014 Mode 21 `21 01` one-shot path, recording/replay, CSV interchange and live-buffer snapshots, saved-session sharing and Save As, settings and shortcuts, threshold recording, derived signals, configurable combined/separate graphs, and smooth live graph motion between PID samples. The OBDLink SX has connected read-only to the Ford; the grouped Mode 01 path is supported by bench captures and fixtures. The Scion Mode 21 path has synthetic/parser coverage only; no live Scion request has been sent. Long-run application stability and cross-vehicle validation remain open; see [Project Status](../PROJECT_STATUS.md).
+Research snapshot: 2026-10-02; implementation status: 2026-10-04. Milestone 1 is implemented. The Windows desktop app includes the searchable signal picker, read-only OEM research catalog, constrained Scion xB 2014 Mode 21 `21 01` one-shot path, recording/replay, CSV interchange and live-buffer snapshots, saved-session sharing and Save As, settings and shortcuts, threshold recording, derived signals, configurable combined/separate graphs, and smooth live graph motion. The OBDLink SX has connected read-only to the Ford; the grouped Mode 01 path is supported by bench captures and fixtures. A 32-bit OpenPort 2 J2534 v04.04 worker, read-only standard Mode 01 adapter, compact adapter selector, and shared-pipeline tests are implemented; physical OpenPort Mode 01 validation is still pending. The Scion Mode 21 path has synthetic/parser coverage only; no live Scion request has been sent. Long-run application stability and cross-vehicle validation remain open; see [Project Status](../PROJECT_STATUS.md).
 
 ## Current implementation
 
 The repository contains a Rust workspace, a Tauri 2 + Svelte/TypeScript desktop app, a shared adapter contract, simulated and physical SX Mode 01 acquisition, a bounded sample pipeline, SQLite `.lognook` recording, CSV export/import, replay, automatic triggers, derived signals, graph preferences, and a read-only searchable OEM candidate catalog. The simulator is explicitly labeled. Physical validation limits and the next test steps are documented in project status.
+
+## OpenPort 2.0 test path
+
+The desktop can list registered 32-bit J2534 04.04 providers named Tactrix, OpenPort, or OPTA, identify one, and connect through the x86 worker. The implementation sends only supported standard Mode 01 reads over ISO 15765 and feeds decoded samples into the regular recorder/graph pipeline. It does not implement raw-CAN monitoring or Toyota-specific Mode 21/22 polling.
+
+On Windows, install the x86 MSVC Rust target and Visual Studio's x86 MSVC linker/Windows SDK if they are missing. From `apps/desktop`, run:
+
+```powershell
+rustup target add i686-pc-windows-msvc
+npm run build:j2534-worker
+npm run tauri dev
+```
+
+In LogNook, select **OpenPort 2**, choose the registered OPTA/Tactrix provider, press **Identify**, then **Connect**. If no provider appears, verify that the matching 32-bit J2534 04.04 provider is registered and its DLL path exists; do not change drivers or automatically switch providers. The current implementation has fixture and build coverage, not physical vehicle validation. Follow [the OpenPort hardware report](../docs/hardware/2026-10-02-openport2.md) and record provider/API identity, responding ECU, latency, sample rate, and errors during the first app test.
 
 ## Product promise
 A Windows-first, Linux-ready automotive diagnostic/tuning *measurement* suite: connect quickly, select intelligently, record reliably, analyze deeply, share deliberately. Diagnostic logging is the initial scope, not ECU flashing, bypassing access controls or automated actuator control.
