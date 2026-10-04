@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "LogNook desktop window permissions",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:webview:allow-set-webview-zoom"]
 }

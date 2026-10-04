@@ -1,12 +1,17 @@
 import type { SignalDefinition } from "./types";
 
 export type TimeWindow = { startNs: number; endNs: number };
+export type WorkspaceTheme = "midnight" | "slate-lift" | "steel" | "mist";
+const workspaceThemes: WorkspaceTheme[] = ["midnight", "slate-lift", "steel", "mist"];
 export type WorkspacePreferences = {
   logSignalIds: string[];
   graphSignalIds: string[];
   graphMode: "overlay" | "separate";
   signalPickerVisible: boolean;
   statusHeight: number;
+  theme: WorkspaceTheme;
+  highContrast: boolean;
+  uiScale: number;
 };
 export type SignalOption = {
   id: string;
@@ -16,6 +21,10 @@ export type SignalOption = {
   formula?: string;
   pid?: number;
 };
+
+export function graphRefreshIntervalMs(scrubbing: boolean): number {
+  return scrubbing ? 33 : 100;
+}
 
 const defaultSignalColors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
 
@@ -45,6 +54,9 @@ export function restoreWorkspacePreferences(
     graphMode: saved.graphMode === "separate" || saved.graphMode === "overlay" ? saved.graphMode : defaults.graphMode,
     signalPickerVisible: typeof saved.signalPickerVisible === "boolean" ? saved.signalPickerVisible : defaults.signalPickerVisible,
     statusHeight: Math.max(36, Math.min(maxStatusHeight, statusHeight)),
+    theme: workspaceThemes.includes(saved.theme ?? defaults.theme) ? saved.theme ?? defaults.theme : defaults.theme,
+    highContrast: typeof saved.highContrast === "boolean" ? saved.highContrast : defaults.highContrast,
+    uiScale: Number.isFinite(saved.uiScale) ? Math.max(80, Math.min(120, saved.uiScale!)) : defaults.uiScale,
   };
 }
 

@@ -14,7 +14,7 @@ This Git checkout preserves the existing source and external-agent reports. The 
 - Synthetic fixtures plus actual Ford/SX identity, supported-PID, and grouped-response captures. Tests cover no startup banner, optional startup frames, silent replies, wrong identity, exact USB matching, malformed/truncated/multiple-ECU replies, all 35 seed decoders, grouping all signals into seven responses of at most two CAN frames, supported-PID selection, and volatile setting restoration.
 - Bounded acquisition-to-recording/UI pipeline, SQLite `.lognook` recording, marker insertion/edit/delete, controlled replay, bounded graph-window queries, and CSV sample/marker event import/export.
 - Saved-session Share exports sample/marker CSV, Save As copies the native session file, and live acquisition can export the retained buffer (up to 180 samples per logged PID) without starting a recording.
-- Tauri 2 native CSV picker and command/event bridge; Svelte/TypeScript UI with a searchable PID picker, combined and separate draggable/resizable graphs, zoom/pan, playback speed/seek, marker controls, recording, and CSV export.
+- Tauri 2 native CSV/session picker and command/event bridge; Svelte/TypeScript UI with a compact single-row acquisition toolbar, saved-session and file-open actions in the top row, a searchable PID picker, combined and separate draggable/resizable graphs, zoom/pan, playback speed/seek, marker controls, recording, CSV export, four saved palettes, high-contrast mode, and persisted 80–120% UI scale.
 - Failure handling for adapter reads, invalid measurements, and recording writes. CSV exports refuse to overwrite existing files.
 - External-agent tasks and completed reports remain in `Work to do by Ext Agent/` and `results/`.
 
@@ -126,7 +126,7 @@ the application has not yet been run against the Ford after this code change.
 
 - Added mixed sample/marker CSV export and import into a new `.lognook` session. Legacy sample-only CSV and old marker sidecars remain readable; round-trip coverage preserves timestamps, raw bytes, labels, and notes.
 - Added streaming, interruptible playback with pause/resume, seek, speed, progress events, persistent marker editing, and a bounded SQLite graph window.
-- Added the native CSV picker, session-aware searchable signal list, combined/separate graph marker lines, zoom/pan/reset, player timeline, marker controls, and themed scrollbars.
+- Added the native CSV/`.lognook` picker, session-aware searchable signal list, combined/separate graph marker lines, zoom/pan/reset, player timeline, marker controls, and themed scrollbars.
 - Verification on `feature/csv-session-player`: Rust workspace **65 passed, 0 failed**; `cargo check --workspace` passed; formatting check passed; custom-protocol desktop build passed; UI tests **9 passed**; Svelte check **0 errors / 0 warnings**; Vite build passed.
 - A launch smoke check opened a native window titled `LogNook`. The imported CSV player was not manually operated in the native window, and this player change was not tested against a physical SX. Physical SX acquisition/throughput evidence remains in the hardware reports above.
 - Fresh-clone build and launch (requires Rust/MSVC plus Node.js/npm):
@@ -160,7 +160,7 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 
 ## Selected requested features 1–7 — 2026-10-03
 
-- Workspace preferences restore logged/graphed PIDs, graph mode, PID-list visibility, and status-panel height. Settings reset clears workspace, graph, color, wheel-scrub, shortcut, trigger, and derived-signal preferences.
+- Workspace preferences restore logged/graphed PIDs, graph mode, PID-list visibility, status-panel height, palette, and high-contrast state. Settings reset clears workspace, graph, color, wheel-scrub, shortcut, trigger, and derived-signal preferences.
 - Customizable shortcuts cover recording, replay, markers and marker navigation, PID search, graph zoom, and graph PNG capture. A single Settings panel owns shortcut editing and focus guards.
 - Automatic threshold recording supports above/below conditions, hysteresis, hold time, and 0–30 second pre-trigger capture. The Rust pipeline keeps at most 30 seconds/100,000 samples, writes the original sample timestamps, and inserts an automatic marker.
 - Graph PNG export includes the rendered SVG, marker/playhead guides, current legend, and title; the shortcut is `Ctrl+Shift+S` by default.
@@ -168,7 +168,7 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - The derived-signal editor opens as a popout from the `ƒx` icon on a PID in Graph settings, and pre-fills the formula, name, and unit from that PID.
 - Derived traces default to a dotted line and a distinct color. Same-unit formulas share a range with source PIDs to show offsets, and Graph settings can show or hide source lines; the formula appears in parentheses in graph readouts/legends.
 - Graph settings persist manual ranges, line styles/thickness, line/scatter/bar/heatmap views, cursor readouts, and a dashed reference snapshot (up to 180 samples per signal).
-- The session browser lists local `.lognook` recordings by modified time and sample count. The native command only opens canonicalized files directly inside LogNook's recordings directory.
+- The session browser lists app-local `.lognook` recordings by modified time and sample count. The native file picker opens CSV files and `.lognook` sessions from any folder; direct open validates the session file and schema.
 - Review fixes: failed or manual disconnects disarm automatic triggers and clear the pre-trigger ring; an open partial recording blocks reconnect so reset adapter clocks cannot mix into it. Session opening now awaits player activation, Space can insert a marker while the graph slider is focused, derived IDs reject duplicates/base PID collisions, and formula help matches supported operators.
 - Verification on this checkout after review: `cargo test --workspace` **86 passed**; `cargo check --workspace` passed; `cargo build -p lognook-desktop --features tauri/custom-protocol` passed; UI tests **52 passed**; `npm run build` passed with **0 Svelte errors/warnings**; `git diff --check` passed. `cargo fmt --all -- --check` could not run because rustfmt is not installed in the available stable toolchain.
 - This feature batch was verified by simulation/fixtures and compilation only; no physical vehicle or adapter test was performed. PNG capture covers the graph view rather than the whole desktop window. Automatic recording currently starts from one threshold rule; compound/time/change rules and automatic stop actions remain future work. Formula functions beyond arithmetic are not implemented.
@@ -192,3 +192,9 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - Verification after implementation: `cargo test --workspace` **93 passed, 0 failed**; `cargo check -p lognook-desktop --features tauri/custom-protocol` passed; `cargo build -p lognook-desktop --features tauri/custom-protocol` passed; UI tests **54 passed**; Svelte check **0 errors / 0 warnings**; Vite build passed; `git diff --check` passed. `cargo fmt --all -- --check` remains unavailable because the installed Rust toolchain lacks the `rustfmt` component.
 - Not verified: the OEM panel has not been manually operated in a native Tauri window, and no request has been sent to a vehicle. `tauri.conf.json` now maps the catalog as a resource, but `bundle.active` remains false; run the app from this checkout so development path resolution can find the database. No installer containing the database was built.
 - Next physical step: from the checkout, run `cd apps\desktop` then `npm run tauri -- dev`. With the **2014 Scion xB 2.4L 2AZ-FE** stationary in Park, parking brake set, ignition on, engine off, and other diagnostic apps closed, open **OEM Research**, select the SX port, and press **Read 21 01 once**. Review the raw reply and decoded reference values; stop and preserve the result if the adapter times out, the ECU replies negatively, or frames are incomplete. This read is not continuous polling and does not validate other Scion candidates.
+
+## Laptop branch integration — 2026-10-04
+
+- Integrated `codex/grouped-toolbar-themes`, including four appearance themes, high contrast, persisted 80–120% UI scale, compact grouped controls, faster graph refresh while scrubbing, and session opening from any folder. Settings, Browse saved sessions, and CSV opening share the app header; the acquisition toolbar fits one row without horizontal scrolling.
+- `feature/csv-session-player` and `fix/mode01-pid60-discovery` had no commits missing from `main`; both were already included.
+- Verification: Rust workspace **96 passed**; UI tests **57 passed**; Svelte check **0 errors / 0 warnings**; Vite and Tauri custom-protocol builds passed. The native app launched as `LogNook`; 760 px and 970 px browser layouts had no toolbar overflow, and Settings exposed the 80–120% scale control.

@@ -1,25 +1,24 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { onMount } from "svelte";
-  import type { RecordingInfo } from "./types";
   import {
     formatRecordingTime,
-    openAndActivateRecording,
     recentRecordingsFirst,
     type BrowserRecording,
     type BrowserRecordingRow,
   } from "./sessionBrowser";
 
   let {
+    open = false,
     disabled = false,
     openDisabled = false,
     onOpen,
     onShare,
     onSaveAs,
   }: {
+    open?: boolean;
     disabled?: boolean;
     openDisabled?: boolean;
-    onOpen: (info: RecordingInfo) => void | Promise<void>;
+    onOpen: (path: string) => void | Promise<void>;
     onShare: (path: string) => void | Promise<void>;
     onSaveAs: (path: string) => void | Promise<void>;
   } = $props();
@@ -29,8 +28,13 @@
   let actionPath = $state<string | null>(null);
   let actionKind = $state<"open" | "share" | "saveAs" | null>(null);
   let error = $state("");
+  let wasOpen = false;
 
-  onMount(() => { void refresh(); });
+  $effect(() => {
+    const justOpened = open && !wasOpen;
+    wasOpen = open;
+    if (justOpened) queueMicrotask(() => { if (open) void refresh(); });
+  });
 
   async function refresh() {
     if (loading) return;
@@ -52,17 +56,14 @@
   }
 
   async function runRecordingAction(recording: BrowserRecording, action: "open" | "share" | "saveAs") {
-    if (disabled || actionPath !== null) return;
+    if (disabled || loading || actionPath !== null) return;
     if (action === "open" && (openDisabled || recording.sample_count === 0)) return;
     actionPath = recording.path;
     actionKind = action;
     error = "";
     try {
       if (action === "open") {
-        await openAndActivateRecording(
-          () => invoke<RecordingInfo>("open_recording", { path: recording.path }),
-          onOpen,
-        );
+        await onOpen(recording.path);
       } else if (action === "share") await onShare(recording.path);
       else await onSaveAs(recording.path);
     } catch (cause) {
@@ -113,7 +114,7 @@
               aria-label={`Open ${recording.name}`}
               title={recording.sample_count === 0 ? "Recording contains no samples" : undefined}
               onclick={() => runRecordingAction(recording, "open")}
-              disabled={disabled || openDisabled || actionPath !== null || recording.sample_count === 0}
+              disabled={disabled || loading || openDisabled || actionPath !== null || recording.sample_count === 0}
             >
               {#if actionPath === recording.path && actionKind === "open"}Opening…{:else}Open{/if}
             </button>
@@ -123,7 +124,7 @@
               aria-label={`Share ${recording.name} as CSV`}
               title="Save a CSV copy with samples and markers for sharing"
               onclick={() => runRecordingAction(recording, "share")}
-              disabled={disabled || actionPath !== null}
+              disabled={disabled || loading || actionPath !== null}
             >
               {#if actionPath === recording.path && actionKind === "share"}Sharing…{:else}Share{/if}
             </button>
@@ -133,7 +134,7 @@
               aria-label={`Save ${recording.name} as a copy`}
               title="Save a copy of the native .lognook session"
               onclick={() => runRecordingAction(recording, "saveAs")}
-              disabled={disabled || actionPath !== null}
+              disabled={disabled || loading || actionPath !== null}
             >
               {#if actionPath === recording.path && actionKind === "saveAs"}Saving…{:else}Save As{/if}
             </button>
