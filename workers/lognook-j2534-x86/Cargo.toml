@@ -1,0 +1,10 @@
+[package]
+name = "lognook-j2534-worker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lognook-j2534-protocol = { path = "../../crates/lognook-j2534-protocol" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_Registry"] }

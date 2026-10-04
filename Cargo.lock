@@ -1852,6 +1852,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lognook-j2534-worker"
+version = "0.1.0"
+dependencies = [
+ "lognook-j2534-protocol",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
