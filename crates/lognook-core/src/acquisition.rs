@@ -6,7 +6,7 @@ use std::{
         mpsc::{self, Receiver, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 pub(crate) struct AcquisitionHandle {
@@ -62,7 +62,7 @@ fn run(
     stop: Receiver<()>,
     running: Arc<AtomicBool>,
 ) {
-    let interval = Duration::from_millis(100);
+    let interval = adapter.sample_interval();
     let mut failed = false;
     loop {
         let cycle = Instant::now();

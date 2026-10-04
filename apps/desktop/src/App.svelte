@@ -871,7 +871,7 @@
         <button class="button secondary open-csv-compact" title="Open CSV or LogNook session" aria-label="Open session file" onclick={openSessionFile} disabled={busy || connected || recording}>CSV</button>
       {/if}
     </div>
-    <span class="milestone">FOUNDATION POC</span>
+    <span class="milestone">OBDLinkSX-Beta1</span>
   </header>
 
   <main>
@@ -985,7 +985,7 @@
               <div class="signal-option">
                 <input class="signal-color" type="color" value={signalColorFor(signal)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
                 <span class="signal-copy">
-                  <span class="signal-name-row"><span>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
+                  <span class="signal-name-row"><span title={signal.name}>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
                   <small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
                 </span>
                 <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy} />

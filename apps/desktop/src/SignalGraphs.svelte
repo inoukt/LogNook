@@ -51,8 +51,8 @@
   }, undefined));
   let liveWindowSpanNs = $derived.by(() => {
     const times = traces.flatMap((trace) => trace.samples.map((sample) => sample.elapsed_ns));
-    if (times.length < 2) return LIVE_GRAPH_WINDOW_NS;
-    return Math.max(LIVE_GRAPH_WINDOW_NS, Math.max(...times) - Math.min(...times));
+    if (times.length < 2) return 1_000_000_000;
+    return Math.min(LIVE_GRAPH_WINDOW_NS, Math.max(1_000_000_000, Math.max(...times) - Math.min(...times)));
   });
 
   $effect(() => {

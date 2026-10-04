@@ -347,6 +347,10 @@ pub fn standard_obd_signals() -> Vec<SignalDefinition> {
 }
 
 impl HardwareAdapter for SimulatedObdAdapter {
+    fn sample_interval(&self) -> Duration {
+        Duration::from_millis(17)
+    }
+
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         self.started = Some(Instant::now());
         Ok(ConnectionCapabilities {
@@ -385,8 +389,8 @@ impl HardwareAdapter for SimulatedObdAdapter {
                 origin: SampleOrigin::Live,
                 raw_bytes: raw_response(&signal.id, value),
             });
-            // Simulate a modest serial ECU response delay; distinct samples keep their receive times.
-            std::thread::sleep(Duration::from_millis(8));
+            // Keep simulated PID replies distinct without dominating the screen-rate target.
+            std::thread::sleep(Duration::from_millis(1));
         }
         Ok(samples)
     }

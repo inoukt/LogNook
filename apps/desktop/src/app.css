@@ -161,13 +161,13 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .text-input:focus { border-color: var(--accent); }
 .text-input::placeholder { color: var(--text-muted); }
 .signal-list { display: grid; flex: 1 1 auto; min-height: 0; max-height: none; gap: 3px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
-.signal-option { min-height: 48px; display: grid; grid-template-columns: 24px minmax(0, 1fr) 34px 42px; align-items: center; justify-items: center; gap: 4px; padding: 7px 4px; border: 1px solid transparent; border-radius: 7px; }
+.signal-option { min-height: 48px; display: grid; grid-template-columns: 24px minmax(0, 1fr) 26px 32px; align-items: center; justify-items: center; gap: 3px; padding: 7px 4px; border: 1px solid transparent; border-radius: 7px; }
 .signal-option:hover { background: var(--surface-raised); }
 .signal-option input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 .signal-copy { width: 100%; min-width: 0; display: grid; gap: 4px; justify-self: start; font-size: 12px; }
 .signal-copy > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-name-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
-.signal-name-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-name-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 .signal-name-row strong { flex: 0 0 auto; color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .signal-option .signal-color { width: 20px; height: 20px; padding: 1px; border: 1px solid var(--border-strong); border-radius: 50%; background: transparent; cursor: pointer; }
 .signal-copy small, .panel-hint { color: var(--text-muted); font-size: 10px; }
@@ -216,7 +216,8 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .measurements { grid-column: 3; grid-row: 1; position: relative; z-index: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; }
 .workspace-grid.pid-picker-hidden .measurements { grid-column: 2; }
 .chart-layout { flex: 1 1 auto; min-width: 0; min-height: 0; }
-.chart-interaction { flex: 1 1 auto; min-height: 0; display: flex; cursor: crosshair; touch-action: pan-y; }
+.chart-interaction { position: relative; flex: 1 1 auto; min-height: 0; display: flex; cursor: crosshair; touch-action: pan-y; }
+.waiting-message { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); font-size: calc(11px / var(--ui-scale-factor, 1)); line-height: 1.2; pointer-events: none; }
 .chart-interaction[aria-disabled="true"] { cursor: default; }
 .chart-interaction:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .separate-layout { display: flex; flex-flow: row wrap; align-items: flex-start; gap: 12px; }
@@ -243,7 +244,6 @@ svg circle.marker-cap { fill: #f0d45c; }
 svg line.playhead-guide { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
 svg polyline { fill: none; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 svg text { fill: var(--text-muted); font-size: 11px; }
-svg text.waiting-message { font-size: calc(11px / var(--ui-scale-factor, 1)); }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 8px 17px; padding: 9px 2px 2px; border-top: 1px solid var(--border-soft); }
 .legend-item { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: 10px; }
 .legend-swatch { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--trace-color); }
@@ -302,7 +302,7 @@ svg text.waiting-message { font-size: calc(11px / var(--ui-scale-factor, 1)); }
   .workspace-title h1 { font-size: 15px; }
 }
 
-.signal-columns { display: grid; grid-template-columns: 24px minmax(0, 1fr) 34px 42px; gap: 4px; padding: 3px 4px 5px; color: var(--text-dim); font-size: 9px; font-weight: 700; letter-spacing: .6px; text-align: center; text-transform: uppercase; }
+.signal-columns { display: grid; grid-template-columns: 24px minmax(0, 1fr) 26px 32px; gap: 3px; padding: 3px 4px 5px; color: var(--text-dim); font-size: 9px; font-weight: 700; letter-spacing: .6px; text-align: center; text-transform: uppercase; }
 .panel-heading { gap: 8px; }
 .panel-heading > div { min-width: 0; }
 .panel-heading h2 { font-size: 14px; }

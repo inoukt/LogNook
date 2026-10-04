@@ -98,6 +98,7 @@
     }));
     return { trace, preference, reference, samples, points, referencePoints, color, range, bars };
   }));
+  let hasPlotData = $derived(plottedTraces.some((item) => item.points.length || item.referencePoints.length));
   let cursorTimeNs = $state<number | null>(null);
   let cursorPinned = $state(false);
   let cursorReadouts = $derived.by(() => cursorTimeNs === null ? [] : plottedTraces.map((item) => ({
@@ -188,7 +189,7 @@
   viewBox="0 0 720 168"
   preserveAspectRatio="none"
   role="img"
-  aria-label={`${traces.map((trace) => trace.name).join(", ")} graph`}
+  aria-label={hasPlotData ? `${traces.map((trace) => trace.name).join(", ")} graph` : "Waiting for samples"}
 >
   <line x1="0" y1="22" x2="720" y2="22" />
   <line x1="0" y1="84" x2="720" y2="84" />
@@ -200,7 +201,7 @@
   {#if playheadX !== null}
     <line class="playhead-guide" x1={playheadX} y1="13" x2={playheadX} y2="146" />
   {/if}
-  {#if plottedTraces.some((item) => item.points.length || item.referencePoints.length)}
+  {#if hasPlotData}
     {#each plottedTraces as item, itemIndex (item.trace.signalId)}
       {#if item.preference.view === "line"}
         {#if item.points.length > 1}
@@ -228,13 +229,14 @@
         <circle class="reference-trace reference-point" cx={item.referencePoints[0].x} cy={item.referencePoints[0].y} r="4" fill="none" stroke={item.reference?.color ?? item.color} style={`stroke-width:${Math.max(2, item.preference.lineWidth)}px`} />
       {/if}
     {/each}
-  {:else}
-    <text class="waiting-message" x="360" y="91" text-anchor="middle">Waiting for samples</text>
   {/if}
   {#if cursorTimeNs !== null}
     <line class="cursor-guide" x1={timeBounds[1] > timeBounds[0] ? ((cursorTimeNs - timeBounds[0]) / (timeBounds[1] - timeBounds[0])) * 720 : 0} y1="16" x2={timeBounds[1] > timeBounds[0] ? ((cursorTimeNs - timeBounds[0]) / (timeBounds[1] - timeBounds[0])) * 720 : 0} y2="146" />
   {/if}
 </svg>
+{#if !hasPlotData}
+  <span class="waiting-message" aria-hidden="true">Waiting for samples</span>
+{/if}
 </div>
 
 <div class="chart-cursor-readout" role="status" aria-live="polite">
