@@ -64,6 +64,32 @@ fn imports_sample_only_csv_without_event_type() {
 }
 
 #[test]
+fn imports_forscan_semicolon_wide_csv_as_numeric_samples() {
+    let directory = TempDir::new();
+    let source = directory.path("forscan.csv");
+    let target = directory.path("forscan.lognook");
+    fs::write(
+        &source,
+        "time(ms);MISFIRE;RPM(1/min);SPARKADV(°);SPARKADV(°)\n0;No;750;1.0;1.5\n100;Yes;800;2.0;2.5\n200;No;850;-;3.5\n",
+    )
+    .unwrap();
+
+    let summary = import_csv_to_recording(&source, &target).unwrap();
+    let recording = read_recording(&target).unwrap();
+
+    assert_eq!(summary.sample_count, 11);
+    assert_eq!(recording.samples.len(), 11);
+    assert_eq!(recording.samples[0].signal_id, "MISFIRE");
+    assert_eq!(recording.samples[0].value, 0.0);
+    assert_eq!(recording.samples[4].elapsed_ns, 100_000_000);
+    assert_eq!(recording.samples[4].value, 1.0);
+    assert_eq!(recording.samples[1].signal_id, "RPM");
+    assert_eq!(recording.samples[1].unit, "1/min");
+    assert_eq!(recording.samples[3].signal_id, "SPARKADV #2");
+    assert_eq!(recording.samples[3].unit, "°");
+}
+
+#[test]
 fn imports_legacy_marker_sidecar_once() {
     let directory = TempDir::new();
     let source = directory.path("old.csv");

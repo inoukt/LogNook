@@ -4,9 +4,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs::OpenOptions,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Deserialize, Serialize)]
@@ -192,7 +194,11 @@ pub(crate) fn visit_csv_events<R: Read>(
     input: R,
     mut visit: impl FnMut(RecordedEvent) -> Result<(), LogNookError>,
 ) -> Result<(), LogNookError> {
-    let mut reader = csv::Reader::from_reader(input);
+    let mut reader = reader_with_detected_delimiter(input)?;
+    let headers = reader.headers()?.clone();
+    if let Some(time_index) = forscan_time_index(&headers) {
+        return visit_forscan_events(reader, &headers, time_index, visit);
+    }
     for (index, row) in reader.deserialize::<CsvEventRow>().enumerate() {
         let row_number = index + 2;
         let event = row
@@ -203,6 +209,169 @@ pub(crate) fn visit_csv_events<R: Read>(
             .map_err(|error| LogNookError::new(format!("CSV row {row_number}: {error}")))?;
     }
     Ok(())
+}
+
+fn reader_with_detected_delimiter<R: Read>(
+    input: R,
+) -> Result<csv::Reader<BufReader<R>>, LogNookError> {
+    let mut input = BufReader::new(input);
+    let delimiter = {
+        let prefix = input.fill_buf()?;
+        let line_end = prefix
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .unwrap_or(prefix.len());
+        let (commas, semicolons) = delimiter_counts(&prefix[..line_end]);
+        if semicolons > commas { b';' } else { b',' }
+    };
+    Ok(csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .from_reader(input))
+}
+
+fn delimiter_counts(line: &[u8]) -> (usize, usize) {
+    let mut commas = 0;
+    let mut semicolons = 0;
+    let mut quoted = false;
+    let mut index = 0;
+    while index < line.len() {
+        match line[index] {
+            b'"' if quoted && line.get(index + 1) == Some(&b'"') => index += 1,
+            b'"' => quoted = !quoted,
+            b',' if !quoted => commas += 1,
+            b';' if !quoted => semicolons += 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    (commas, semicolons)
+}
+
+fn forscan_time_index(headers: &csv::StringRecord) -> Option<usize> {
+    headers.iter().position(|header| {
+        header
+            .trim_start_matches('\u{feff}')
+            .trim()
+            .eq_ignore_ascii_case("time(ms)")
+    })
+}
+
+struct ForscanSignalColumn {
+    index: usize,
+    id: String,
+    unit: String,
+}
+
+fn forscan_signal_columns(
+    headers: &csv::StringRecord,
+    time_index: usize,
+) -> Vec<ForscanSignalColumn> {
+    let mut occurrences = HashMap::new();
+    headers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, header)| {
+            if index == time_index {
+                return None;
+            }
+            let header = header.trim_start_matches('\u{feff}').trim();
+            let (name, unit) = header
+                .strip_suffix(')')
+                .and_then(|without_close| without_close.rsplit_once('('))
+                .map(|(name, unit)| (name.trim(), unit.trim()))
+                .unwrap_or((header, ""));
+            if name.is_empty() {
+                return None;
+            }
+            let occurrence = occurrences.entry(name.to_ascii_lowercase()).or_insert(0);
+            *occurrence += 1;
+            let id = if *occurrence == 1 {
+                name.to_owned()
+            } else {
+                format!("{name} #{}", occurrence)
+            };
+            Some(ForscanSignalColumn {
+                index,
+                id,
+                unit: unit.to_owned(),
+            })
+        })
+        .collect()
+}
+
+fn visit_forscan_events<R: Read>(
+    mut reader: csv::Reader<R>,
+    headers: &csv::StringRecord,
+    time_index: usize,
+    mut visit: impl FnMut(RecordedEvent) -> Result<(), LogNookError>,
+) -> Result<(), LogNookError> {
+    let columns = forscan_signal_columns(headers, time_index);
+    if columns.is_empty() {
+        return Err(LogNookError::new("FORScan CSV has no signal columns"));
+    }
+    // FORScan exports elapsed time only; anchor the imported samples at import time.
+    let wall_time_base_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .min(i64::MAX as u128) as i64;
+    for (index, row) in reader.records().enumerate() {
+        let row_number = index + 2;
+        let row = row
+            .map_err(|error| LogNookError::new(format!("FORScan CSV row {row_number}: {error}")))?;
+        if row.iter().all(|field| field.trim().is_empty()) {
+            continue;
+        }
+        let time_ms = row
+            .get(time_index)
+            .and_then(parse_forscan_number)
+            .filter(|value| *value >= 0.0 && *value <= i64::MAX as f64 / 1_000_000.0)
+            .ok_or_else(|| {
+                LogNookError::new(format!(
+                    "FORScan CSV row {row_number}: invalid time(ms) value"
+                ))
+            })?;
+        let elapsed_ns = (time_ms * 1_000_000.0).round() as i64;
+        for column in &columns {
+            let Some(value) = row.get(column.index).and_then(parse_forscan_value) else {
+                continue;
+            };
+            visit(RecordedEvent::Sample(Sample {
+                elapsed_ns,
+                wall_time_unix_ns: wall_time_base_ns.saturating_add(elapsed_ns),
+                source_id: "forscan".into(),
+                ecu_id: None,
+                signal_id: column.id.clone(),
+                value,
+                unit: column.unit.clone(),
+                quality: SampleQuality::Valid,
+                origin: SampleOrigin::Live,
+                raw_bytes: None,
+            }))
+            .map_err(|error| LogNookError::new(format!("FORScan CSV row {row_number}: {error}")))?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_forscan_value(value: &str) -> Option<f64> {
+    match value.trim() {
+        value if value.eq_ignore_ascii_case("yes") => Some(1.0),
+        value if value.eq_ignore_ascii_case("no") => Some(0.0),
+        value => parse_forscan_number(value),
+    }
+}
+
+fn parse_forscan_number(value: &str) -> Option<f64> {
+    let value = value.trim();
+    let parsed = match value.parse::<f64>() {
+        Ok(parsed) => parsed,
+        Err(_) if value.contains(',') && !value.contains('.') => {
+            value.replace(',', ".").parse::<f64>().ok()?
+        }
+        Err(_) => return None,
+    };
+    parsed.is_finite().then_some(parsed)
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
