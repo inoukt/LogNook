@@ -76,6 +76,42 @@ export type ScionMode21ProbeResult = {
   evidence_save_error: string | null;
 };
 
+export type OemCandidateTryResult = {
+  candidate_id: string;
+  exact_adapter_command: string;
+  adapter: DeviceDescriptor;
+  protocol: string;
+  started_at_unix_ms: number;
+  latency_ms: number;
+  outcome:
+    | "positive"
+    | "negative_response"
+    | "response_pending"
+    | "temporarily_unavailable"
+    | "session_required"
+    | "security_required"
+    | "no_response"
+    | "malformed_response"
+    | "wrong_responder"
+    | "invalid_candidate";
+  raw_response: string;
+  responder_header: string | null;
+  response_payload: number[];
+  negative_response_code: number | null;
+  decoded_value: {
+    raw_value: string;
+    value: number | null;
+    enum_value: string | null;
+    unit: string;
+    formula: string;
+    within_catalog_range: boolean | null;
+  } | null;
+  decode_error: string | null;
+  error: string | null;
+  evidence_saved: boolean;
+  evidence_save_error: string | null;
+};
+
 export type Sample = {
   elapsed_ns: number;
   wall_time_unix_ns: number;

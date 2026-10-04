@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, OpenFlags, Row, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -66,6 +66,12 @@ pub struct ScionMode21ProbeSpec {
     pub request_header: String,
     pub response_header: String,
     pub channels: Vec<ScionProbeChannel>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct OemCandidateTrySpec {
+    pub candidate: OemCandidate,
+    pub value_format: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -153,23 +159,56 @@ impl OemCatalog {
         ).map_err(|error| error.to_string())?;
         let candidates = statement.query_map(
             params![query, brand, model, service, limit as i64, offset as i64],
-            |row| Ok(OemCandidate {
-                candidate_id: row.get(0)?, source_id: row.get(1)?, family: row.get(2)?,
-                brand: row.get(3)?, model_scope: row.get(4)?, service: row.get(5)?,
-                identifier: row.get(6)?, request_header: row.get(7)?, response_header: row.get(8)?,
-                frequency_hz: row.get(9)?, module_type: row.get(10)?, category: row.get(11)?,
-                name: row.get(12)?, signal_source_id: row.get(13)?, bit_offset: row.get(14)?,
-                bit_length: row.get(15)?, formula: row.get(16)?, unit: row.get(17)?,
-                year_filter_json: row.get(18)?, ecu_filter: row.get(19)?, source_blob_sha: row.get(20)?,
-                research_state: row.get(21)?, vehicle_validation: row.get(22)?,
-                auto_request: row.get::<_, i64>(23)? != 0, confidence: row.get(24)?, notes: row.get(25)?,
-                source_url: row.get(26)?, license: row.get(27)?, license_url: row.get(28)?,
-                decoder_json: row.get(29)?, suggested_metric: row.get(30)?, source_scope: row.get(31)?,
-                applicability_specificity: row.get(32)?, min_value: row.get(33)?, max_value: row.get(34)?,
-            }),
+            read_candidate,
         ).map_err(|error| error.to_string())?;
         let candidates = candidates.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
         Ok(OemCatalogPage { total, offset, limit, candidates })
+    }
+
+    pub fn candidate_for_try(&self, candidate_id: &str) -> Result<OemCandidateTrySpec, String> {
+        let candidate_id = candidate_id.trim();
+        if candidate_id.is_empty() || candidate_id.len() > 128 {
+            return Err("Choose a valid OEM candidate".into());
+        }
+        let connection = open_read_only(&self.path)?;
+        let mut statement = connection.prepare(
+            "SELECT c.candidate_id,c.source_id,c.family,c.brand,c.model_scope,c.service,c.identifier,
+                    c.request_header,c.response_header,c.frequency_hz,c.module_type,c.category,c.name,
+                    c.signal_source_id,c.bit_offset,c.bit_length,c.formula,c.unit,c.year_filter_json,c.ecu_filter,
+                    c.source_blob_sha,c.research_state,c.vehicle_validation,c.auto_request,c.confidence,c.notes,
+                    s.source_url,s.license,s.license_url,c.decoder_json,c.suggested_metric,c.source_scope,
+                    c.applicability_specificity,c.min_value,c.max_value,c.value_format,s.blob_sha
+             FROM oem_candidates c JOIN source_corpora s ON s.source_id=c.source_id
+             WHERE c.candidate_id=?1",
+        ).map_err(|error| error.to_string())?;
+        let mut rows = statement.query([candidate_id]).map_err(|error| error.to_string())?;
+        let row = rows.next().map_err(|error| error.to_string())?
+            .ok_or_else(|| "OEM candidate or its source record is unavailable".to_owned())?;
+        let candidate = read_candidate(row).map_err(|error| error.to_string())?;
+        let value_format: String = row.get(35).map_err(|error| error.to_string())?;
+        let corpus_blob_sha: String = row.get(36).map_err(|error| error.to_string())?;
+        if rows.next().map_err(|error| error.to_string())?.is_some() {
+            return Err("OEM candidate ID is ambiguous in the source catalog".into());
+        }
+        if candidate.source_blob_sha.is_empty() || candidate.source_blob_sha != corpus_blob_sha
+            || candidate.source_url.as_deref().is_none_or(str::is_empty)
+            || candidate.license.as_deref().is_none_or(str::is_empty)
+            || candidate.license_url.as_deref().is_none_or(str::is_empty)
+        {
+            return Err("OEM candidate source revision or license metadata is incomplete".into());
+        }
+        let identifier_width = match candidate.service.as_str() {
+            "21" => 2,
+            "22" => 4,
+            _ => return Err("Only source-backed read services 21 and 22 can be tried".into()),
+        };
+        if !is_hex_width(&candidate.identifier, identifier_width)
+            || !is_standard_can_header(&candidate.request_header)
+            || !is_standard_can_header(&candidate.response_header)
+        {
+            return Err("OEM candidate needs a one-byte service 21 PID or two-byte service 22 DID and exact 11-bit CAN headers".into());
+        }
+        Ok(OemCandidateTrySpec { candidate, value_format })
     }
 
     pub fn scion_xb_mode21_probe(&self) -> Result<ScionMode21ProbeSpec, String> {
@@ -242,6 +281,32 @@ impl OemCatalog {
     }
 }
 
+fn read_candidate(row: &Row<'_>) -> rusqlite::Result<OemCandidate> {
+    Ok(OemCandidate {
+        candidate_id: row.get(0)?, source_id: row.get(1)?, family: row.get(2)?,
+        brand: row.get(3)?, model_scope: row.get(4)?, service: row.get(5)?,
+        identifier: row.get(6)?, request_header: row.get(7)?, response_header: row.get(8)?,
+        frequency_hz: row.get(9)?, module_type: row.get(10)?, category: row.get(11)?,
+        name: row.get(12)?, signal_source_id: row.get(13)?, bit_offset: row.get(14)?,
+        bit_length: row.get(15)?, formula: row.get(16)?, unit: row.get(17)?,
+        year_filter_json: row.get(18)?, ecu_filter: row.get(19)?, source_blob_sha: row.get(20)?,
+        research_state: row.get(21)?, vehicle_validation: row.get(22)?,
+        auto_request: row.get::<_, i64>(23)? != 0, confidence: row.get(24)?, notes: row.get(25)?,
+        source_url: row.get(26)?, license: row.get(27)?, license_url: row.get(28)?,
+        decoder_json: row.get(29)?, suggested_metric: row.get(30)?, source_scope: row.get(31)?,
+        applicability_specificity: row.get(32)?, min_value: row.get(33)?, max_value: row.get(34)?,
+    })
+}
+
+fn is_hex_width(value: &str, width: usize) -> bool {
+    value.len() == width && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_standard_can_header(value: &str) -> bool {
+    is_hex_width(value, 3)
+        && u16::from_str_radix(value, 16).is_ok_and(|header| header <= 0x7ff)
+}
+
 fn like_filter(value: &str) -> String {
     let value = value.trim();
     if value.is_empty() { "%%".into() } else { format!("%{value}%") }
@@ -292,7 +357,7 @@ mod tests {
                     candidate_id TEXT, source_id TEXT, family TEXT, brand TEXT, model_scope TEXT,
                     service TEXT, identifier TEXT, request_header TEXT, response_header TEXT,
                     frequency_hz REAL, module_type TEXT, category TEXT, name TEXT, signal_source_id TEXT,
-                    bit_offset INTEGER, bit_length INTEGER, formula TEXT, unit TEXT, year_filter_json TEXT,
+                    bit_offset INTEGER, bit_length INTEGER, value_format TEXT, formula TEXT, unit TEXT, year_filter_json TEXT,
                     ecu_filter TEXT, source_blob_sha TEXT, research_state TEXT, vehicle_validation TEXT,
                     auto_request INTEGER, confidence TEXT, notes TEXT, applicability_specificity INTEGER,
                     decoder_json TEXT, min_value REAL, max_value REAL, suggested_metric TEXT, source_scope TEXT);")
@@ -302,21 +367,21 @@ mod tests {
                 [SCION_XB_BLOB_SHA],
             ).unwrap();
             let channels = [
-                ("Intake air temperature", 48, 8, "celsius", "{\"bix\":48,\"len\":8,\"add\":-40,\"unit\":\"celsius\"}", "(raw*(1)/(1))+(-40)"),
-                ("Coolant temperature", 64, 8, "celsius", "{\"bix\":64,\"len\":8,\"add\":-40,\"unit\":\"celsius\"}", "(raw*(1)/(1))+(-40)"),
-                ("Engine speed", 72, 16, "rpm", "{\"bix\":72,\"len\":16,\"div\":4,\"unit\":\"rpm\"}", "(raw*(1)/(4))+(0)"),
-                ("Vehicle speed", 88, 8, "kilometersPerHour", "{\"bix\":88,\"len\":8,\"unit\":\"kilometersPerHour\"}", "(raw*(1)/(1))+(0)"),
-                ("Throttle sensor position", 112, 8, "percent", "{\"bix\":112,\"len\":8,\"mul\":100,\"div\":255,\"unit\":\"percent\"}", "(raw*(100)/(255))+(0)"),
+                ("Intake air temperature", 48, 8, "uint", "celsius", "{\"bix\":48,\"len\":8,\"add\":-40,\"unit\":\"celsius\"}", "(raw*(1)/(1))+(-40)"),
+                ("Coolant temperature", 64, 8, "uint", "celsius", "{\"bix\":64,\"len\":8,\"add\":-40,\"unit\":\"celsius\"}", "(raw*(1)/(1))+(-40)"),
+                ("Engine speed", 72, 16, "uint", "rpm", "{\"bix\":72,\"len\":16,\"div\":4,\"unit\":\"rpm\"}", "(raw*(1)/(4))+(0)"),
+                ("Vehicle speed", 88, 8, "uint", "kilometersPerHour", "{\"bix\":88,\"len\":8,\"unit\":\"kilometersPerHour\"}", "(raw*(1)/(1))+(0)"),
+                ("Throttle sensor position", 112, 8, "uint", "percent", "{\"bix\":112,\"len\":8,\"mul\":100,\"div\":255,\"unit\":\"percent\"}", "(raw*(100)/(255))+(0)"),
             ];
-            for (index, (name, offset, length, unit, decoder, formula)) in channels.into_iter().enumerate() {
+            for (index, (name, offset, length, value_format, unit, decoder, formula)) in channels.into_iter().enumerate() {
                 connection.execute(
-                    "INSERT INTO oem_candidates VALUES(?1,'OBDB_SCION_XB_DEFAULT','Toyota','Scion','xB','21','01','7E0','7E8',1.0,'Engine','Engine',?2,'XB_2101',?3,?4,?5,?6,'{}','',?7,'research','not_tested',0,'research','',60,?8,NULL,NULL,'','')",
-                    rusqlite::params![format!("scion-{index}"), name, offset, length, formula, unit, SCION_XB_BLOB_SHA, decoder],
+                    "INSERT INTO oem_candidates VALUES(?1,'OBDB_SCION_XB_DEFAULT','Toyota','Scion','xB','21','01','7E0','7E8',1.0,'Engine','Engine',?2,'XB_2101',?3,?4,?5,?6,?7,'{}','',?8,'research','not_tested',0,'research','',60,?9,NULL,NULL,'','')",
+                    rusqlite::params![format!("scion-{index}"), name, offset, length, value_format, formula, unit, SCION_XB_BLOB_SHA, decoder],
                 ).unwrap();
             }
             for index in 0..3 {
                 connection.execute(
-                    "INSERT INTO oem_candidates VALUES(?1,'OTHER','Toyota','Toyota','Camry','22','1234','7E0','7E8',1.0,'Engine','Engine',?2,'OTHER',0,8,'','rpm','{}','',?3,'research','not_tested',0,'research','',10,'{}',NULL,NULL,'','')",
+                    "INSERT INTO oem_candidates VALUES(?1,'OTHER','Toyota','Toyota','Camry','22','1234','7E0','7E8',1.0,'Engine','Engine',?2,'OTHER',0,8,'uint','','rpm','{}','',?3,'research','not_tested',0,'research','',10,'{}',NULL,NULL,'','')",
                     rusqlite::params![format!("other-{index}"), format!("Camry signal {index}"), SCION_XB_BLOB_SHA],
                 ).unwrap();
             }
@@ -358,6 +423,61 @@ mod tests {
         assert_eq!(spec.identifier, 0x01);
         assert_eq!(spec.channels.len(), 5);
         assert!(spec.channels.iter().any(|channel| channel.name == "Engine speed" && channel.bit_offset == 72));
+    }
+
+    #[test]
+    fn try_candidate_loads_the_exact_row_and_checks_its_source_revision() {
+        let db = TestDatabase::new();
+        let spec = OemCatalog::new(&db.0).candidate_for_try("scion-0").unwrap();
+
+        assert_eq!(spec.candidate.candidate_id, "scion-0");
+        assert_eq!(spec.candidate.service, "21");
+        assert_eq!(spec.candidate.identifier, "01");
+        assert_eq!(spec.candidate.request_header, "7E0");
+        assert_eq!(spec.candidate.response_header, "7E8");
+        assert_eq!(spec.candidate.source_blob_sha, SCION_XB_BLOB_SHA);
+        assert_eq!(spec.value_format, "uint");
+        assert!(!spec.candidate.auto_request);
+    }
+
+    #[test]
+    fn try_candidate_accepts_source_backed_two_byte_service_22_did() {
+        let db = TestDatabase::new();
+        let connection = Connection::open(&db.0).unwrap();
+        connection.execute(
+            "UPDATE oem_candidates SET service='22',identifier='1234' WHERE candidate_id='scion-0'",
+            [],
+        ).unwrap();
+        drop(connection);
+
+        let spec = OemCatalog::new(&db.0).candidate_for_try("scion-0").unwrap();
+        assert_eq!(spec.candidate.service, "22");
+        assert_eq!(spec.candidate.identifier, "1234");
+    }
+
+    #[test]
+    fn try_candidate_rejects_invalid_service_identifier_route_and_provenance() {
+        for (column, value) in [
+            ("service", "10"),
+            ("identifier", "123"),
+            ("request_header", "7EX"),
+            ("request_header", "800"),
+            ("response_header", "7E8X"),
+            ("response_header", "800"),
+            ("source_blob_sha", "changed"),
+        ] {
+            let db = TestDatabase::new();
+            let connection = Connection::open(&db.0).unwrap();
+            connection.execute(
+                &format!("UPDATE oem_candidates SET {column}=?1 WHERE candidate_id='scion-0'"),
+                [value],
+            ).unwrap();
+            drop(connection);
+            assert!(
+                OemCatalog::new(&db.0).candidate_for_try("scion-0").is_err(),
+                "candidate should reject {column}={value}"
+            );
+        }
     }
 
     #[test]

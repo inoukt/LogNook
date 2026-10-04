@@ -33,16 +33,18 @@ pub use model::{
     SampleQuality, SignalDefinition, TriggerDirection,
 };
 pub use obdlink_sx::{
-    ObdLinkSxAdapter, ScionMode21DecodedSignal, ScionMode21ProbeResult, available_obdlink_sx_ports,
-    identify_obdlink_sx, probe_scion_xb_mode21,
+    ObdLinkSxAdapter, OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse,
+    OemCandidateTryResult, ScionMode21DecodedSignal, ScionMode21ProbeResult,
+    available_obdlink_sx_ports, build_oem_candidate_command, decode_oem_candidate_response,
+    identify_obdlink_sx, probe_scion_xb_mode21, try_oem_candidate,
 };
 pub use obdlink_sx_protocol::{
     Mode01Response, SupportedPidRange, decode_signal, parse_mode01_payload,
     parse_supported_pid_payload,
 };
 pub use oem_catalog::{
-    OemCandidate, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA, ScionMode21ProbeSpec,
-    ScionProbeChannel,
+    OemCandidate, OemCandidateTrySpec, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA,
+    ScionMode21ProbeSpec, ScionProbeChannel,
 };
 pub use openport2::{OpenPort2Adapter, available_openport2_providers, identify_openport2};
 pub use recording::{RecordingWriter, read_recording};

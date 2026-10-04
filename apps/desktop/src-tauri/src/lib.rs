@@ -9,6 +9,7 @@ pub(crate) struct AppState {
     pub recordings_dir: PathBuf,
     pub pid_catalog_path: PathBuf,
     pub oem_validation_log: PathBuf,
+    pub oem_candidate_try_log: PathBuf,
 }
 
 pub fn run() {
@@ -42,6 +43,7 @@ pub fn run() {
                 recordings_dir,
                 pid_catalog_path,
                 oem_validation_log: oem_validation_dir.join("scion-xb-mode21.jsonl"),
+                oem_candidate_try_log: oem_validation_dir.join("oem-candidate-tries.jsonl"),
             });
             Ok(())
         })
@@ -49,6 +51,7 @@ pub fn run() {
             commands::available_signals,
             commands::search_oem_catalog,
             commands::probe_scion_xb_mode21,
+            commands::try_oem_candidate,
             commands::available_obdlink_sx_ports,
             commands::identify_obdlink_sx,
             commands::available_openport2_providers,
