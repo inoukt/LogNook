@@ -1076,7 +1076,7 @@
           </div>
           <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
         {:else}
-          <OemCatalogPanel selectedPort={selectedSxPort} disabled={busy || connected || recording || replaying || session !== null} />
+          <OemCatalogPanel selectedPort={selectedAdapter === "obdlink_sx" ? selectedSxPort : ""} disabled={busy || connected || recording || replaying || session !== null} />
         {/if}
       </aside>
 

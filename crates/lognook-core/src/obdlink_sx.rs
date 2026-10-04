@@ -1,7 +1,12 @@
 mod serial;
 mod scion_probe;
+mod oem_probe;
 #[cfg(test)]
 use scion_probe::{build_scion_probe_command, decode_scion_mode21_response};
+pub use oem_probe::{
+    OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse, OemCandidateTryResult,
+    build_oem_candidate_command, decode_oem_candidate_response, try_oem_candidate,
+};
 pub use scion_probe::{ScionMode21DecodedSignal, ScionMode21ProbeResult, probe_scion_xb_mode21};
 #[cfg(test)]
 #[path = "obdlink_sx/tests.rs"]

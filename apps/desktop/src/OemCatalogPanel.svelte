@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import type { OemCatalogPage, OemCandidate, ScionMode21ProbeResult } from "./types";
+  import { oemCandidateTryState } from "./oemCandidateControls";
+  import type { OemCandidateTryResult, OemCatalogPage, OemCandidate, ScionMode21ProbeResult } from "./types";
 
   export let selectedPort = "";
   export let disabled = false;
@@ -15,6 +16,9 @@
   let page: OemCatalogPage | null = null;
   let loading = false;
   let probing = false;
+  let probingCandidateId: string | null = null;
+  let candidateTryResults: Record<string, OemCandidateTryResult> = {};
+  let candidateTryErrors: Record<string, string> = {};
   let error = "";
   let probeError = "";
   let probe: ScionMode21ProbeResult | null = null;
@@ -53,7 +57,7 @@
   }
 
   async function runScionProbe() {
-    if (!selectedPort || disabled || probing) return;
+    if (!selectedPort || disabled || probing || probingCandidateId !== null) return;
     probing = true;
     probe = null;
     probeError = "";
@@ -63,6 +67,24 @@
       probeError = String(caught);
     } finally {
       probing = false;
+    }
+  }
+
+  async function tryCandidate(candidate: OemCandidate) {
+    const state = oemCandidateTryState(candidate, selectedPort, disabled || probing || probingCandidateId !== null);
+    if (state.disabled) return;
+    probingCandidateId = candidate.candidate_id;
+    candidateTryErrors = { ...candidateTryErrors, [candidate.candidate_id]: "" };
+    try {
+      const result = await invoke<OemCandidateTryResult>("try_oem_candidate", {
+        portName: selectedPort,
+        candidateId: candidate.candidate_id,
+      });
+      candidateTryResults = { ...candidateTryResults, [candidate.candidate_id]: result };
+    } catch (caught) {
+      candidateTryErrors = { ...candidateTryErrors, [candidate.candidate_id]: String(caught) };
+    } finally {
+      probingCandidateId = null;
     }
   }
 
@@ -93,7 +115,7 @@
 
   <div class="scion-probe-card">
     <div><strong>Scion xB 2014 · 21 01</strong><p>One source-backed read via the selected OBDLink SX. Only use on the 2AZ-FE Scion xB, stationary in Park with the parking brake set, ignition on and engine off. Close other diagnostic apps.</p></div>
-    <button class="button secondary" onclick={runScionProbe} disabled={disabled || !selectedPort || probing}>
+    <button class="button secondary" onclick={runScionProbe} disabled={disabled || !selectedPort || probing || probingCandidateId !== null}>
       {probing ? "Reading once…" : "Read 21 01 once"}
     </button>
   </div>
@@ -122,8 +144,12 @@
   {:else if page}
     <div class="oem-catalog-list" aria-busy={loading}>
       {#each page.candidates as candidate (candidate.candidate_id)}
+        {@const tryState = oemCandidateTryState(candidate, selectedPort, disabled || probing || probingCandidateId !== null)}
         <article class="oem-candidate">
-          <header><strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span></header>
+          <header>
+            <strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
+            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through OBDLink SX`} aria-label={`Try ${candidate.name} once`}>{probingCandidateId === candidate.candidate_id ? "Trying…" : "Try once"}</button>
+          </header>
           <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
           <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
             {#if candidate.bit_offset !== null && candidate.bit_length !== null} · bits {candidate.bit_offset}–{candidate.bit_offset + candidate.bit_length - 1}{/if}
@@ -145,6 +171,23 @@
             {#if candidate.source_url}<a href={candidate.source_url} target="_blank" rel="noreferrer">Open source record</a>{/if}
             {#if candidate.license_url}<a href={candidate.license_url} target="_blank" rel="noreferrer">Open source license</a>{/if}
           </details>
+          {#if candidateTryErrors[candidate.candidate_id]}<p class="oem-error" role="alert">Try failed: {candidateTryErrors[candidate.candidate_id]}</p>{/if}
+          {#if candidateTryResults[candidate.candidate_id]}
+            {@const result = candidateTryResults[candidate.candidate_id]}
+            <div class="candidate-try-result" aria-live="polite">
+              <strong>Try result: {result.outcome.replaceAll("_", " ")} · {result.latency_ms} ms</strong>
+              <p>{result.adapter.hardware_family} · {result.adapter.stable_id} · {result.responder_header ?? "no responding ECU"}</p>
+              <code>{result.exact_adapter_command}</code>
+              {#if result.decoded_value}
+                <p>Raw {result.decoded_value.raw_value}{result.decoded_value.enum_value ? ` · ${result.decoded_value.enum_value}` : result.decoded_value.value === null ? "" : ` · ${result.decoded_value.value.toFixed(2)} ${displayUnit(result.decoded_value.unit)}`}</p>
+                {#if result.decoded_value.within_catalog_range === false}<p class="oem-error">Decoded value is outside the catalog range; treat this as research evidence.</p>{/if}
+              {/if}
+              {#if result.error}<p class="oem-error">{result.error}</p>{/if}
+              {#if result.decode_error}<p class="oem-error">Response received but not decoded: {result.decode_error}</p>{/if}
+              {#if result.evidence_saved}<p>One-shot evidence saved outside the read-only catalog.</p>{:else if result.evidence_save_error}<p class="oem-error">Evidence save failed: {result.evidence_save_error}</p>{/if}
+              <details><summary>Raw response</summary><pre>{result.raw_response || "No response text received"}</pre></details>
+            </div>
+          {/if}
         </article>
       {:else}
         <p class="oem-empty">No candidates match these filters.</p>
@@ -175,6 +218,10 @@
   .oem-candidate { padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: #19242e; }
   .oem-candidate > header strong { min-width: 0; font-size: 11px; }
   .oem-candidate > header span { color: var(--text); font-size: 10px; white-space: nowrap; }
+  .oem-try-button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
+  .candidate-try-result { margin-top: 5px; padding: 6px; border-radius: 5px; background: #202d37; }
+  .candidate-try-result > strong { color: var(--text); font-size: 9px; }
+  .candidate-try-result code { color: var(--text-muted); font-size: 8px; overflow-wrap: anywhere; }
   .oem-address { color: #b8c9d3 !important; }
   .oem-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
   .oem-badges span { padding: 2px 5px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; }
