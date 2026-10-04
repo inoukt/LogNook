@@ -31,6 +31,8 @@ Use current primary sources from OBDLink/ScanTool and official Windows driver ma
 - Do not claim Ford enhanced/MS-CAN coverage for the SX.
 - Cite each technical claim with a direct primary-source link and the relevant section or page.
 
+This completed research task's no-vehicle-contact constraint applied to that assignment. Future vehicle tests follow the current root `AGENTS.md` policy.
+
 ## Deliverable
 
 Write `results/OBDLink-SX-serial-research.md` with a concise implementation checklist, a confirmed/unknown table, and a physical-test record template (OS, driver, USB identity, COM port, adapter firmware, vehicle/ECU, PID set, response trace, and measured rate).

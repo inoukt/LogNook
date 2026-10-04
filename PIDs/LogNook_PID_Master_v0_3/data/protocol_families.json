@@ -1,0 +1,53 @@
+[
+  {
+    "family": "SAE_MODE01",
+    "id": "1-byte PID",
+    "description": "Current emissions diagnostics",
+    "read_only": true
+  },
+  {
+    "family": "SAE_MODE02",
+    "id": "1-byte PID plus freeze-frame selector",
+    "description": "Contextual stored freeze-frame values",
+    "read_only": true
+  },
+  {
+    "family": "SAE_MODE09",
+    "id": "1-byte InfoType",
+    "description": "VIN CALID CVN and ECU identity",
+    "read_only": true
+  },
+  {
+    "family": "OEM_DID",
+    "id": "service+16-bit DID+ECU+variant",
+    "description": "Manufacturer-specific diagnostic IDs",
+    "read_only": "authorization_required"
+  },
+  {
+    "family": "SSM_MEMORY",
+    "id": "ECU-specific offset",
+    "description": "Subaru SSM memory read (not PID 01 nor UDS DID)",
+    "read_only": "authorized_protocol_only"
+  },
+  {
+    "family": "CAN_DBC",
+    "id": "network+CAN ID+bitfield+multiplexor",
+    "description": "Passive raw network signals",
+    "read_only": true,
+    "seed": "NOT_INCLUDED_NO_SYNTHETIC_IDS"
+  },
+  {
+    "family": "J1939",
+    "id": "PGN/SPN+ECU source address",
+    "description": "Future heavy-duty diagnostics and broadcast data",
+    "read_only": "not_implemented",
+    "seed": "REQUIRES_SAE_LICENSE_AND_DECODER"
+  },
+  {
+    "family": "ODX_A2L",
+    "id": "OEM dataset + ECU version",
+    "description": "Future manufacturer-sourced structured data",
+    "read_only": "not_implemented",
+    "seed": "OEM_PERMISSION_REQUIRED"
+  }
+]

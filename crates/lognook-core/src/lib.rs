@@ -6,6 +6,7 @@ mod derived;
 mod engine;
 mod graph_window;
 mod model;
+mod oem_catalog;
 mod obdlink_sx;
 mod obdlink_sx_protocol;
 mod pipeline;
@@ -26,7 +27,14 @@ pub use model::{
     EngineEvent, LogNookError, Marker, PlaybackState, Recording, RecordingInfo, RecordingSignal,
     RecordingSummary, Sample, SampleOrigin, SampleQuality, SignalDefinition, TriggerDirection,
 };
-pub use obdlink_sx::{ObdLinkSxAdapter, available_obdlink_sx_ports, identify_obdlink_sx};
+pub use oem_catalog::{
+    OemCandidate, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA,
+    ScionMode21ProbeSpec, ScionProbeChannel,
+};
+pub use obdlink_sx::{
+    ObdLinkSxAdapter, ScionMode21DecodedSignal, ScionMode21ProbeResult,
+    available_obdlink_sx_ports, identify_obdlink_sx, probe_scion_xb_mode21,
+};
 pub use recording::{RecordingWriter, read_recording};
 pub use recording_view::{
     add_recording_marker, delete_recording_marker, inspect_recording, update_recording_marker,

@@ -1,0 +1,130 @@
+﻿category,desired_signal,kind,scope,availability,warning
+Engine,RPM,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,calculated load,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,absolute load,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,engine torque,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,torque demand,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,engine hours,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,misfire count total,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,misfire count per cylinder,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,roughness per cylinder,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,oil temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,oil pressure,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,coolant temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,camshaft timing actual,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,camshaft timing target,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,camshaft duty,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,variable valve timing error,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,crank cam sync,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,EGR command,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Engine,EGR actual,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,MAP absolute,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,boost gauge,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,boost target,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,boost control error,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,barometric pressure,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,MAF airflow,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,MAF sensor voltage,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,intake air temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,post-intercooler charge air temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,intercooler efficiency,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,throttle actual,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,throttle command,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,throttle actuator duty,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,accelerator pedal,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,wastegate duty,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,wastegate feedback,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,turbo shaft speed,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,compressor inlet pressure,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Intake,turbo intake and outlet pressure,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,short term trim B1,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,long term trim B1,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,short term trim B2,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,long term trim B2,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,injector pulsewidth,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,injector duty,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,injector balance,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,fuel rail high-pressure target,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,fuel rail high-pressure actual,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,fuel rail low-pressure actual,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,low-pressure pump duty,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,fuel pump state,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,fuel ethanol content,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,injection start angle,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,fuel rate,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,commanded lambda,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,wideband lambda measured B1,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,wideband lambda measured B2,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,equivalence ratio,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,oxygen sensor voltage,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Fuel,oxygen sensor current,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,spark advance,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,knock retard,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,knock correction per cylinder,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,learned knock correction,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,ignition advance multiplier,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,dynamic advance,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,IAM/DAM,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,FBKC,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,FLKC,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,spark knock counter,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,coil dwell,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Ignition / knock,spark misfire,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,selected gear,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,actual gear,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,torque converter lock,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,torque converter slip,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,transmission fluid temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,clutch A slip,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,clutch B slip,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,gear ratio,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,transmission input speed,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,transmission output speed,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,line pressure,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Transmission,shift solenoid command,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,wheel speed front left,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,wheel speed front right,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,wheel speed rear left,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,wheel speed rear right,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,ABS module voltage,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,brake pressure,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,steering angle,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,yaw rate,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,lateral acceleration,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,longitudinal acceleration,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,parking brake,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,tire pressure per wheel,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,tire temp per wheel,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Chassis,TPMS IDs,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,battery state of charge,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,battery state of health,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,pack voltage,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,pack current,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,pack power,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,max cell voltage,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,min cell voltage,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,cell delta,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,min cell temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,max cell temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,inverter temp,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,motor temp,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,motor RPM,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,charge state,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,charge power,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,regen power,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,12V converter output,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+EV/Hybrid,cell balance state,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,DPF soot load,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,DPF pressure differential,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,DPF temperature,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,DPF regen state,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,EGR target,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,EGR actual,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,NOx upstream,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,NOx downstream,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,SCR efficiency,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,DEF level,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,DEF dosing,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,EGT banks,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,PM sensor,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition
+Diesel / emissions,emission inducement status,measurement concept; NOT a PID,ALL brands as applicable,research target only,Do not create request bytes without sourced ECU-specific definition

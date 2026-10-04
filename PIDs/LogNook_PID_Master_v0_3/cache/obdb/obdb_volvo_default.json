@@ -1,0 +1,2326 @@
+{ "ecu": [
+    { "hdr": "7E0",  "type": "engine" },
+    { "hdr": "7E1",  "type": "transmission" },
+    { "hdr": "7E3",  "type": "motor" },
+    { "hdr": "DA10", "type": "engine" },
+    { "hdr": "DA18", "type": "transmission" }
+  ],
+  "commands": [
+{ "hdr": "61A", "rax": "483", "fcm1": true, "dbg": true, "cmd": {"22": "0223"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_OBL_PLATE_T",  "path": "Battery", "fmt": {"bix": 8,  "len": 8, "max": 215, "min": -40, "add": -40, "nullmax": 215, "unit": "celsius" }, "name": "Charger cooling plate temperature"},
+    {"id": "VOLVO_ED_OBL_T",        "path": "Battery", "fmt": {"bix": 24, "len": 8, "max": 215, "min": -40, "add": -40, "nullmax": 215, "unit": "celsius" }, "name": "Charger temperature"},
+    {"id": "VOLVO_ED_OBL_SOCKET_T", "path": "Battery", "fmt": {"bix": 40, "len": 8, "max": 215, "min": -40, "add": -40, "nullmax": 215, "unit": "celsius" }, "name": "Charging socket temperature"}
+  ]},
+{ "hdr": "61A", "rax": "483", "fcm1": true, "dbg": true, "cmd": {"22": "0225"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_ED_OBL_MAINS_A", "path": "Battery", "fmt": {"bix": 16,  "len": 16, "max": 204.7,  "div": 10, "nullmax": 204.7, "unit": "amps" }, "name": "Charger mains current"},
+    {"id": "VOLVO_ED_OBL_CABLE_A", "path": "Battery", "fmt": {"bix": 32,  "len": 16, "max": 6553.5, "div": 10,                   "unit": "amps" }, "name": "Charging cable current code"},
+    {"id": "VOLVO_ED_OBL_HV_A",    "path": "Battery", "fmt": {"bix": 112, "len": 16, "max": 204.7,  "div": 10, "nullmax": 204.7, "unit": "amps" }, "name": "Charger HV output current"}
+  ]},
+{ "hdr": "61A", "rax": "483", "fcm1": true, "dbg": true, "cmd": {"22": "0226"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_ED_OBL_LV",      "path": "Battery", "fmt": {"bix": 16, "len": 8,  "max": 25.5, "div": 10,                 "unit": "volts" }, "name": "Charger 12V output voltage"},
+    {"id": "VOLVO_ED_OBL_HV",      "path": "Battery", "fmt": {"bix": 40, "len": 16, "max": 819,  "div": 10, "nullmax": 819, "unit": "volts" }, "name": "Charger HV output voltage"},
+    {"id": "VOLVO_ED_OBL_MAINS_V", "path": "Battery", "fmt": {"bix": 56, "len": 16, "max": 819,  "div": 10, "nullmax": 819, "unit": "volts" }, "name": "Charger mains voltage"}
+  ]},
+{ "hdr": "61A", "rax": "483", "fcm1": true, "dbg": true, "cmd": {"22": "022A"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_OBL_A_SET", "path": "Battery", "fmt": {"bix": 24, "len": 8, "max": 255, "unit": "amps" }, "name": "Charger current set point"}
+  ]},
+{ "hdr": "624", "rax": "5A4", "fcm1": true, "dbg": true, "cmd": {"22": "0201"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_AUX_V_HD", "path": "Battery", "fmt": {"bix": 16, "len": 16, "max": 100, "mul": 1000, "div": 10000, "unit": "volts" }, "name": "12V system voltage, hd", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "61CC"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_LAST_SERVICE_720", "path": "Trips",  "fmt": {           "len": 24, "max": 16777215,           "unit": "kilometers" }, "name": "Odometer at last service"},
+    {"id": "VOLVO_TOT_MONTHS_LAST",      "path": "Engine", "fmt": {"bix": 24, "len": 16, "max": 393210,   "mul": 6, "unit": "unknown"    }, "name": "Total months at last service"},
+    {"id": "VOLVO_TOT_ENG_RUNNING_TIME", "path": "Engine", "fmt": {"bix": 40, "len": 16, "max": 65535,              "unit": "unknown"    }, "name": "Total engine running time at last service"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "61D0"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DIM_FLI_2_2_EJECTOR", "path": "Fuel", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "liters" }, "name": "Fuel level 2 of 2 ejector side saddle tank"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "61D1"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DIM_FLI_1_2", "path": "Fuel", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "liters" }, "name": "Fuel level 1 of 2"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "630E"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DIST_SINCE_SERVICE_720", "path": "Trips",  "fmt": {           "len": 16, "max": 65535,             "unit": "kilometers" }, "name": "Distance since last service"},
+    {"id": "VOLVO_MONTHS_SINCE_SERVICE",   "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 546,   "div": 120, "unit": "scalar"     }, "name": "Months since last service"},
+    {"id": "VOLVO_ENG_TIME_SINCE",         "path": "Engine", "fmt": {"bix": 32, "len": 16, "max": 65535,             "unit": "unknown"    }, "name": "Engine time since last service"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "D936"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_TRIP_1", "path": "Engine", "fmt": {"bix": 24, "len": 16, "max": 6553, "div": 10, "unit": "kilometers" }, "name": "Trip 1"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "D937"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_TRIP_2", "path": "Engine", "fmt": {"bix": 24, "len": 16, "max": 6553, "div": 10, "unit": "kilometers" }, "name": "Trip 2"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "DA10"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ACC_SETSPEED", "path": "Movement", "fmt": {"bix": 16, "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Adaptive cruise set speed"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "DA11"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ACC_TIMEGAP", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 128, "div": 2, "add": 0.5, "unit": "seconds" }, "name": "Adaptive cruise time gap"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "DA12"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ACC_TARGETVEHICLE", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Adaptive cruise target vehicle"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "DA18"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_TSI_SPD", "path": "Movement", "fmt": {"bix": 8, "len": 16, "max": 327675, "mul": 5, "unit": "kilometersPerHour" }, "name": "Traffic sign speed limit"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_DIM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "DD04"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CAR_T_720", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "In-car temperature"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "EE11"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DIM_FLI_DAMPED", "path": "Fuel", "fmt": { "len": 16, "max": 13107, "div": 5, "unit": "liters" }, "name": "Fuel level damped"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "EE12"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FLI_DAMPED", "path": "Fuel", "fmt": { "len": 16, "max": 13107, "div": 5, "unit": "liters" }, "name": "Fuel level damped"}
+  ]},
+{ "hdr": "720", "dbg": true, "cmd": {"22": "EEFD"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DIST_EMPTY_MS_CAN", "path": "Trips", "fmt": { "len": 16, "max": 65535, "unit": "kilometers" }, "name": "Distance to empty", "suggestedMetric": "fuelRange"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "3B71"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FRONT_AXLE_SENS", "path": "Engine", "fmt": { "len": 8, "max": 6.37, "div": 40, "unit": "volts" }, "name": "Front axle sensor"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "3B73"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_REAR_AXLE_SENS", "path": "Engine", "fmt": { "len": 8, "max": 6.37, "div": 40, "unit": "volts" }, "name": "Rear axle sensor"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4025"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_QUIESCENT_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 31767, "min": -1000, "div": 2, "add": -1000, "unit": "milliamps" }, "name": "Quiescent current average"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4027"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_BAT_OPERATION_TIME", "path": "Battery", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Battery operation time since battery monitoring sensor reset, days"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4028"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_ST_CHG_726", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "percent" }, "name": "Battery state of charge"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4029"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_BAT_T", "path": "Battery", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Battery temperature"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "402A"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_BAT_V_726", "path": "Battery", "fmt": { "len": 8, "max": 18.75, "div": 20, "add": 6, "unit": "volts" }, "name": "Battery voltage", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4090"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_CHG_AMPS", "path": "Battery", "fmt": { "len": 16, "max": 3584, "min": -511, "div": 16, "add": -511.7, "unit": "amps" }, "name": "Battery charge, amps"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "40D1"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ALTERNATOR_CTRL_MODE", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Alternator control mode"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4117"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FLI_SENS", "path": "Fuel", "fmt": { "len": 16, "max": 320, "mul": 100, "div": 20459, "unit": "volts" }, "name": "Fuel level sensor"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "4118"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FLI_SENS_EJECTOR", "path": "Fuel", "fmt": { "len": 16, "max": 320, "mul": 100, "div": 20459, "unit": "volts" }, "name": "Fuel level sensor ejector side saddle tank"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "411D"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ALTERNATOR_CHG_V_REQ", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Alternator charge voltage request"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "412A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TWILIGHT_SENS", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "volts" }, "name": "Twilight sensor"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "412D"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_REMOTE_KEY", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Remote key"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "417E"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_V", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Secondary battery voltage"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "419C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_RELAY", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Secondary battery relay"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "41A5"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_CHG_BALANCE_AH", "path": "Battery", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Battery charge balance, ah"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "41A7"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_MANAGEMENT_SENS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Battery management sensor reliable"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "7151"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DIPPED_BEAM",    "path": "Engine", "fmt": {           "len": 8, "max": 255, "unit": "scalar" }, "name": "Dipped beam"},
+    {"id": "VOLVO_HIGH_BEAM",      "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 255, "unit": "scalar" }, "name": "High beam"},
+    {"id": "VOLVO_PARKING_LIGHTS", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 255, "unit": "scalar" }, "name": "Parking lights"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "C150"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BOOT_LID_SENS", "path": "Engine", "fmt": { "len": 8, "max": 3.98, "div": 64, "unit": "scalar" }, "name": "Boot lid sensor"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "C154"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BONNET_CLOSED", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Bonnet closed"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "C259"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CENTRAL_LOCK", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "scalar" }, "name": "Central lock"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_CEM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "DD04"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CAR_T", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "In car temperature"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "DD06"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_POWER_MODE", "path": "Engine", "fmt": { "len": 8, "max": 63, "min": -192, "add": -192, "unit": "scalar" }, "name": "Power mode"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EEA2"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_V_POWER_SENSITIVE", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Voltage/power sensitive loads connected"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EED2"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_T_25_C", "path": "Battery", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Secondary battery temperature"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EED3"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_CHG", "path": "Battery", "fmt": { "len": 16, "max": 65535, "unit": "seconds" }, "name": "Secondary battery charge time"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EED4"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_V_LATEST", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Secondary battery voltage latest stored"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EED5"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_NEEDED", "path": "Battery", "fmt": { "len": 16, "max": 65535, "unit": "seconds" }, "name": "Secondary battery needed charge time"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EED6"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DOWNTIME", "path": "Engine", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Downtime"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "EED7"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_SECONDARY_BAT_V_AVG", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Secondary battery voltage average value"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "3301"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_STEER_WHL_ANG", "path": "Tires", "fmt": { "len": 8, "max": 1020, "mul": 4, "unit": "unknown" }, "name": "Steering wheel angle velocity"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "330C"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_STEER_SHFT_TQ", "path": "Engine", "fmt": { "len": 8, "max": 12.8, "min": -12.7, "div": 10, "add": -12.7, "unit": "newtonMeters" }, "name": "Steering shaft torque"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "4139"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SERVO_PMP_ENG_POWER", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "amps" }, "name": "Servo pump engine power consumption"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "413A"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_SERVO_PMP_SPD_DES", "path": "Movement", "fmt": { "len": 8, "max": 5100, "mul": 20, "unit": "rpm" }, "name": "Servo pump speed, desired value"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "413C"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_SERVO_PMP_SPD", "path": "Movement", "fmt": { "len": 8, "max": 5100, "mul": 20, "unit": "rpm" }, "name": "Servo pump speed"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "413D"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_SERVO_SUP_V", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Servo supply voltage"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "D11C"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_SERVO_CTRL_MODULE_T", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Servo control module temperature"}
+  ]},
+{ "hdr": "730", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_PSCM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "9A1B"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CAR_T_MS_CAN", "path": "Engine", "fmt": { "len": 16, "max": 923, "min": -100, "div": 64, "add": -100, "unit": "celsius" }, "name": "In-car temperature"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "9A21"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_LEFT_SEAT_HEATER_MS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "celsius" }, "name": "Left seat heater"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "9A22"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_RIGHT_SEAT_HEATER_MS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "celsius" }, "name": "Right seat heater"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "9A23"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_RL_SEAT_HEATER_MS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "celsius" }, "name": "Rear left seat heater"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "9A24"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_RR_SEAT_HEATER_MS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "celsius" }, "name": "Rear right seat heater"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D111"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CTRL_MODULE_POWER", "path": "Engine", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Control module power supply"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D900"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DEFROSTER_DAMPER", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Defroster damper motor wanted position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D901"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_RECIRCULATION_DAMPER", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Recirculation damper motor wanted position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D902"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_LEFT_T_DAMPER_MOTOR", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Left temperature damper motor wanted position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D903"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_RIGHT_T_DAMPER_MOTOR", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Right temperature damper motor wanted position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D904"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AIR_DISTRIBUTION", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Air distribution damper motor wanted position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D905"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DEFROSTER_DAMPER_ACT", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Defroster damper motor, actual position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D906"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_RECIRCULATION_DAMPER_ACT", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Recirculation damper motor, actual position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D907"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_LEFT_T_DAMPER_MOTOR_ACT", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Left temperature damper motor, actual position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D908"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_RIGHT_T_DAMPER_MOTOR_ACT", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Right temperature damper motor, actual position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D909"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AIR_DISTRIBUTION_ACT", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Air distribution damper motor, actual position"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D918"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_REAR_DEFROSTER", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Rear defroster automatic"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D930"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_T_LEFT_SETTING_MS", "path": "Engine", "fmt": { "len": 16, "max": 32767, "div": 2, "unit": "celsius" }, "name": "Temperature left setting"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D931"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_T_RIGHT_SETTING_MS", "path": "Engine", "fmt": { "len": 16, "max": 32767, "div": 2, "unit": "celsius" }, "name": "Temperature right setting"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D950"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_CABIN_FAN_SPD_REQ_MS", "path": "Movement", "fmt": { "len": 16, "max": 1023, "div": 64, "unit": "percent" }, "name": "Cabin fan speed, requested"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D998"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EVAPORATOR_T_MS_CAN", "path": "Engine", "fmt": { "len": 16, "max": 923, "min": -100, "div": 64, "add": -100, "unit": "celsius" }, "name": "Evaporator temperature"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "D9FE"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_CEM_COLD_ZONE", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cold zone count"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "DCF9"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AIR_QUALITY_SENS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Air quality sensor status"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B112"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_RL_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Rear left distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B113"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_RR_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Rear right distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B114"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_RL_INNER_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Rear left inner distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B115"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_RR_INNER_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Rear right inner distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B116"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FL_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Front left distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B117"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FR_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Front right distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B118"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FL_INNER_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Front left inner distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "B119"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FR_INNER_DIST", "path": "Trips", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Front right inner distance"}
+  ]},
+{ "hdr": "736", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_PAM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B19"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SEAT_BUCKLE_DRIVER", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "scalar" }, "name": "Seat buckle driver locked"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B1A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SEAT_BUCKLE", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "scalar" }, "name": "Seat buckle passenger locked"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B28"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_PASSENGER_AIRBAG", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "scalar" }, "name": "Passenger airbag cutoff switch"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B29"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_PASSENGER_AIRBAG_ACTIVATED", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Passenger airbag activated"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B46"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SEAT_BUCKLE_RL", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Seat buckle rear left locked"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B47"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SEAT_BUCKLE_REAR", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Seat buckle rear center locked"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "5B48"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SEAT_BUCKLE_RR", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Seat buckle rear right locked"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "61A5"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_PASSENGER_AIRBAG_OFF", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 7.96, "div": 32, "unit": "scalar" }, "name": "Passenger airbag OFF lamp"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "D901"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_V_SUP", "path": "Battery", "fmt": { "len": 8, "max": 20.4, "mul": 2, "div": 25, "unit": "volts" }, "name": "Voltage supply"}
+  ]},
+{ "hdr": "737", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_SRS", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "740", "dbg": true, "cmd": {"22": "A4A7"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DRIVERS_DOOR_REAR_X", "path": "Doors", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "Drivers door rear mirror x-axis"}
+  ]},
+{ "hdr": "740", "dbg": true, "cmd": {"22": "A4A8"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DRIVERS_DOOR_REAR_Y", "path": "Doors", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "Drivers door rear mirror y-axis"}
+  ]},
+{ "hdr": "740", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_DDM_MS_CAN", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "741", "dbg": true, "cmd": {"22": "A4A7"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_PASSENGER_DOOR_REAR_X", "path": "Doors", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "Passenger door rear mirror x-axis"}
+  ]},
+{ "hdr": "741", "dbg": true, "cmd": {"22": "A4A8"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_PASSENGER_DOOR_REAR_MIRROR_X", "path": "Doors", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "Passenger door rear mirror x-axis"}
+  ]},
+{ "hdr": "741", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_PDM_MS_CAN", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "0188"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_SVC_LEVEL", "path": "Details", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Service level"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "01A0"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_TRIP_START_DIST", "path": "Trips", "fmt": { "len": 16, "max": 65535, "unit": "kilometers" }, "name": "Distance at trip start"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "01A2"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_TRIP_START_TIME", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "seconds" }, "name": "Time at trip start"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "0203"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_SVC_DIST", "path": "Details", "fmt": { "len": 16, "max": 65535, "unit": "kilometers" }, "name": "Distance to next service"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "0204"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_SVC_DAYS", "path": "Details", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Days to next service"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "200C"}, "freq": 20,
+  "signals": [
+    {"id": "VOLVO_AAT", "path": "Climate", "fmt": {"bix": 16, "len": 16, "max": 6513.5, "min": -40, "div": 10, "add": -40, "unit": "celsius" }, "name": "Outside temperature"}
+  ]},
+{ "hdr": "743", "rax": "763", "dbg": true, "cmd": {"22": "2104"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_TRIP_TIME", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "seconds" }, "name": "Trip time"}
+  ]},
+{ "hdr": "745", "rax": "765", "fcm1": true, "dbg": true, "cmd": {"21": "25"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DRIVER_LOCKED", "path": "Doors", "fmt": { "len": 8, "max": 1, "unit": "yesno" }, "name": "Driver door locked"}
+  ]},
+{ "hdr": "745", "rax": "765", "fcm1": true, "dbg": true, "cmd": {"21": "74"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_TP_1",          "path": "Tires", "fmt": {"bix": 64,  "len": 16, "max": 49151.25,             "mul": 0.75,             "unit": "kilopascal" }, "name": "Tire sensor 1 pressure"},
+    {"id": "VOLVO_TP_2",          "path": "Tires", "fmt": {"bix": 80,  "len": 16, "max": 49151.25,             "mul": 0.75,             "unit": "kilopascal" }, "name": "Tire sensor 2 pressure"},
+    {"id": "VOLVO_TP_3",          "path": "Tires", "fmt": {"bix": 96,  "len": 16, "max": 49151.25,             "mul": 0.75,             "unit": "kilopascal" }, "name": "Tire sensor 3 pressure"},
+    {"id": "VOLVO_TP_4",          "path": "Tires", "fmt": {"bix": 112, "len": 16, "max": 49151.25,             "mul": 0.75,             "unit": "kilopascal" }, "name": "Tire sensor 4 pressure"},
+    {"id": "VOLVO_TT_1",          "path": "Tires", "fmt": {"bix": 128, "len": 8,  "max": 225,      "min": -30,              "add": -30, "unit": "celsius"    }, "name": "Tire sensor 1 temperature"},
+    {"id": "VOLVO_TT_2",          "path": "Tires", "fmt": {"bix": 136, "len": 8,  "max": 225,      "min": -30,              "add": -30, "unit": "celsius"    }, "name": "Tire sensor 2 temperature"},
+    {"id": "VOLVO_TT_3",          "path": "Tires", "fmt": {"bix": 144, "len": 8,  "max": 225,      "min": -30,              "add": -30, "unit": "celsius"    }, "name": "Tire sensor 3 temperature"},
+    {"id": "VOLVO_TT_4",          "path": "Tires", "fmt": {"bix": 152, "len": 8,  "max": 225,      "min": -30,              "add": -30, "unit": "celsius"    }, "name": "Tire sensor 4 temperature"},
+    {"id": "VOLVO_TPMS_LOWBAT_4", "path": "Tires", "fmt": {"bix": 172, "len": 1,  "max": 1,                                             "unit": "yesno"      }, "name": "Tire sensor 4 battery low"},
+    {"id": "VOLVO_TPMS_LOWBAT_3", "path": "Tires", "fmt": {"bix": 173, "len": 1,  "max": 1,                                             "unit": "yesno"      }, "name": "Tire sensor 3 battery low"},
+    {"id": "VOLVO_TPMS_LOWBAT_2", "path": "Tires", "fmt": {"bix": 174, "len": 1,  "max": 1,                                             "unit": "yesno"      }, "name": "Tire sensor 2 battery low"},
+    {"id": "VOLVO_TPMS_LOWBAT_1", "path": "Tires", "fmt": {"bix": 175, "len": 1,  "max": 1,                                             "unit": "yesno"      }, "name": "Tire sensor 1 battery low"}
+  ]},
+{ "hdr": "745", "rax": "765", "fcm1": true, "dbg": true, "cmd": {"21": "79"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_TPMS_MISSING_4", "path": "Tires", "fmt": {"bix": 204, "len": 1, "max": 1, "unit": "yesno" }, "name": "Tire sensor 4 missing"},
+    {"id": "VOLVO_TPMS_MISSING_3", "path": "Tires", "fmt": {"bix": 205, "len": 1, "max": 1, "unit": "yesno" }, "name": "Tire sensor 3 missing"},
+    {"id": "VOLVO_TPMS_MISSING_2", "path": "Tires", "fmt": {"bix": 206, "len": 1, "max": 1, "unit": "yesno" }, "name": "Tire sensor 2 missing"},
+    {"id": "VOLVO_TPMS_MISSING_1", "path": "Tires", "fmt": {"bix": 207, "len": 1, "max": 1, "unit": "yesno" }, "name": "Tire sensor 1 missing"}
+  ]},
+{ "hdr": "756", "dbg": true, "cmd": {"22": "2B14"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_PARK_BRAKE_SWITCH", "path": "Control", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Park brake switch"}
+  ]},
+{ "hdr": "756", "dbg": true, "cmd": {"22": "2B1A"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_LEFT_PARKING_BRAKE",  "path": "Control", "fmt": {"bix": 8,  "len": 8, "max": 255, "unit": "scalar" }, "name": "Left parking brake pad"},
+    {"id": "VOLVO_RIGHT_PARKING_BRAKE", "path": "Control", "fmt": {"bix": 16, "len": 8, "max": 255, "unit": "scalar" }, "name": "Right parking brake pad"}
+  ]},
+{ "hdr": "756", "dbg": true, "cmd": {"22": "2B20"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_PARKING_BRAKE_CNT", "path": "Control", "fmt": {"bix": 16, "len": 16, "max": 65535, "unit": "scalar" }, "name": "Parking brake static use count"}
+  ]},
+{ "hdr": "756", "dbg": true, "cmd": {"22": "2B21"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_PARKING_BRAKE_CNT_DYNAMIC", "path": "Control", "fmt": {"bix": 16, "len": 16, "max": 65535, "unit": "scalar" }, "name": "Parking brake dynamic use count"}
+  ]},
+{ "hdr": "756", "dbg": true, "cmd": {"22": "2B24"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_PARKING_BRAKE_NORMAL_0_32", "path": "Control", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "scalar" }, "name": "Parking brake normal 0 /maintenance 32"}
+  ]},
+{ "hdr": "756", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_PBM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B00"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_BRAKE_LIGHT_SWITCH", "path": "Lights", "fmt": { "len": 1, "max": 1, "unit": "offon" }, "name": "Brake light switch"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B05"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DTSC_SWITCH", "path": "Engine", "fmt": { "len": 8, "max": 2.98, "min": -1, "div": 64, "add": -1, "unit": "scalar" }, "name": "Traction control switch indicator"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B06"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FL_WHL_SPD_760", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B07"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FR_WHL_SPD_760", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B08"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RL_WHL_SPD_760", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B09"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RR_WHL_SPD_760", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B0B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_YAW_RATE_SIG", "path": "Engine", "fmt": { "len": 16, "max": 6553, "min": -6553, "div": 5, "sign": true, "unit": "unknown" }, "name": "Yaw rate signal"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B0C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LATERAL_ANG", "path": "Engine", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "degrees" }, "name": "Lateral angle"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B0D"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_BRAKE_P", "path": "Control", "fmt": { "len": 16, "max": 21845, "div": 3, "unit": "bars" }, "name": "Brake pressure"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "2B35"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_PEDAL_POS_SENS", "path": "Engine", "fmt": { "len": 16, "max": 2621, "div": 25, "unit": "millimeters" }, "name": "- pedal position sensor"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "3302"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_STEER_ANG_ACT", "path": "Engine", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "unknown" }, "name": "Steering angle, actual value"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_BCM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "DD05"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_OUTDOOR_T_BCM", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Outdoor temperature, BCM"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "EE03"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_SAS_STEER_WHL_ANG",    "path": "Tires",    "fmt": {           "len": 16, "max": 1433,  "min": -1433, "div": 22.8533, "sign": true, "unit": "degrees"                }, "name": "Steering wheel angle sensor offset"},
+    {"id": "VOLVO_BRAKE_P_SENS_OFFSET",  "path": "Control",  "fmt": {"bix": 32, "len": 16, "max": 40.95,               "div": 1600,                  "unit": "bars"                   }, "name": "Brake pressure sensor offset"},
+    {"id": "VOLVO_LATERAL",              "path": "Movement", "fmt": {"bix": 48, "len": 16, "max": 0.579,               "div": 113000,                "unit": "metersPerSecondSquared" }, "name": "Lateral acceleration sensor offset"},
+    {"id": "VOLVO_YAW_RATE_SENS_OFFSET", "path": "Engine",   "fmt": {"bix": 64, "len": 16, "max": 18.72,               "div": 3500,                  "unit": "unknown"                }, "name": "Yaw rate sensor offset"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "EE04"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_SAS_STEER_WHL_ANG_SENS", "path": "Tires",    "fmt": {           "len": 16, "max": 22.42,  "min": -22.42, "div": 1461,    "sign": true, "unit": "degrees"                }, "name": "Steering wheel angle sensor stored offset"},
+    {"id": "VOLVO_LATERAL_ACCELEROMETER",  "path": "Movement", "fmt": {"bix": 48, "len": 16, "max": 0.0588,                "div": 1113000,               "unit": "metersPerSecondSquared" }, "name": "Lateral acceleration sensor stored offset"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "EE07"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_FL_BRAKE_DISC_T_CALC", "path": "Control", "fmt": {           "len": 8, "max": 918, "mul": 18, "div": 5, "unit": "celsius" }, "name": "Front left brake disc temperature, calculated"},
+    {"id": "VOLVO_FR_BRAKE_DISC_T_CALC", "path": "Control", "fmt": {"bix": 8,  "len": 8, "max": 918, "mul": 18, "div": 5, "unit": "celsius" }, "name": "Front right brake disc temperature, calculated"},
+    {"id": "VOLVO_RL_BRAKE_DISC_T_CALC", "path": "Control", "fmt": {"bix": 16, "len": 8, "max": 918, "mul": 18, "div": 5, "unit": "celsius" }, "name": "Rear left brake disc temperature, calculated"},
+    {"id": "VOLVO_RR_BRAKE_DISC_T_CALC", "path": "Control", "fmt": {"bix": 24, "len": 8, "max": 918, "mul": 18, "div": 5, "unit": "celsius" }, "name": "Rear right brake disc temperature, calculated"}
+  ]},
+{ "hdr": "760", "dbg": true, "cmd": {"22": "FDC6"}, "freq": 15,
+  "signals": [
+    {"id": "VOLVO_ITPMS_LOW_SPD",  "path": "Movement", "fmt": {          "len": 8, "max": 255, "unit": "percent" }, "name": "Indirect tire pressure monitoring low speed calibration"},
+    {"id": "VOLVO_ITPMS_HIGH_SPD", "path": "Movement", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "percent" }, "name": "Indirect tire pressure monitoring high speed calibration"}
+  ]},
+{ "hdr": "764", "dbg": true, "cmd": {"22": "9969"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_FRONT_CAMERA_V_SUP", "path": "Battery", "fmt": { "len": 8, "max": 20.4, "mul": 2, "div": 25, "unit": "volts" }, "name": "Front camera voltage supply"}
+  ]},
+{ "hdr": "764", "dbg": true, "cmd": {"22": "A220"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AUTOMATIC_ALIGNMENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "degrees" }, "name": "Automatic alignment offset"}
+  ]},
+{ "hdr": "764", "dbg": true, "cmd": {"22": "A223"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_PRIMARY_TGT_RANGE_M", "path": "Trips", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Primary, target range, m"}
+  ]},
+{ "hdr": "764", "dbg": true, "cmd": {"22": "D112"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_V_SUP_764", "path": "Battery", "fmt": { "len": 8, "max": 20.4, "mul": 2, "div": 25, "unit": "volts" }, "name": "Voltage supply"}
+  ]},
+{ "hdr": "764", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_FSM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D111"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_POWER_SUP", "path": "Engine", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Tailgate power supply"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D900"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_HANDLE", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Tailgate handle button"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D901"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_SWITCH_1_2", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Tailgate switch 1-2"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D904"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_HALL_SENS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Tailgate hall sensor signal"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D907"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_OPENING", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Tailgate opening motor"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D908"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_CLOSING", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Tailgate closing motor"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "D909"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_OPENING_POS", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Tailgate opening position"}
+  ]},
+{ "hdr": "775", "dbg": true, "cmd": {"22": "EE04"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TAILGATE_MOTOR", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Tailgate motor protection"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "8012"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SENSUS_CONNECT_GPS",         "path": "Engine", "fmt": {            "len": 16, "max": 364,   "div": 180, "unit": "degrees" }, "name": "Navigation altitude"},
+    {"id": "VOLVO_SENSUS_CONNECT_GPS_FIX_MS",  "path": "Engine", "fmt": {"bix": 80,  "len": 8,  "max": 255,               "unit": "degrees" }, "name": "Navigation fix"},
+    {"id": "VOLVO_SENSUS_CONNECT_GPS_HEADING", "path": "Engine", "fmt": {"bix": 104, "len": 16, "max": 65535,             "unit": "degrees" }, "name": "Navigation heading"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "8035"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_SENSUS_CONNECT_GPS_NUM", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Navigation number of satellites"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "831F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MOST_OPTICAL_FIBRE", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Infotainment ring optical fiber test"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "8335"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_MOST_NETWORK_NUM", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "MOST network number of modules"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "D904"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CTRL_MODULE_V_MS_CAN", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "Control module voltage"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "D906"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_DISPLAY_T_MS_CAN", "path": "Engine", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "scalar" }, "name": "Display temperature"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "DB01"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LCD_ILUMINATION", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "percent" }, "name": "Display illumination intensity"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "DB16"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MOST_LOCK_MS_CAN", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "MOST lock"}
+  ]},
+{ "hdr": "784", "dbg": true, "cmd": {"22": "DD07"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_POWER_MODE_MS_CAN", "path": "Engine", "fmt": { "len": 8, "max": 156, "min": -99, "add": -99, "unit": "scalar" }, "name": "Power mode"}
+  ]},
+{ "hdr": "791", "dbg": true, "cmd": {"22": "D111"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_V_SUP_MS_CAN", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Voltage supply"}
+  ]},
+{ "hdr": "791", "dbg": true, "cmd": {"22": "D901"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CHG_MS_CAN", "path": "Engine", "fmt": { "len": 8, "max": 254, "min": -1, "add": -1, "unit": "scalar" }, "name": "Charging"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "503A"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_A_2", "path": "Battery", "fmt": { "len": 16, "max": 3895.9375, "min": -200, "div": 16, "add": -200, "unit": "amps" }, "name": "Mains current, phase 2"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "503B"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_A_3", "path": "Battery", "fmt": { "len": 16, "max": 3895.9375, "min": -200, "div": 16, "add": -200, "unit": "amps" }, "name": "Mains current, phase 3"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "503F"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_V_12", "path": "Battery", "fmt": { "len": 16, "max": 32767.5, "div": 2, "unit": "volts" }, "name": "Mains voltage, phases 1-2"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5041"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_V_23", "path": "Battery", "fmt": { "len": 16, "max": 32767.5, "div": 2, "unit": "volts" }, "name": "Mains voltage, phases 2-3"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5042"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_V_31", "path": "Battery", "fmt": { "len": 16, "max": 32767.5, "div": 2, "unit": "volts" }, "name": "Mains voltage, phases 3-1"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5049"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_HZ", "path": "Battery", "fmt": { "len": 16, "max": 521.9921, "min": 10, "div": 128, "add": 10, "unit": "hertz" }, "name": "Mains frequency"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "504A"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_MAINS_P", "path": "Battery", "fmt": { "len": 16, "max": 45.5349, "min": -20, "div": 1000, "add": -20, "unit": "kilowatts" }, "name": "Mains active power"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5062"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_MAINS_GND_R", "path": "Battery", "fmt": { "len": 16, "max": 32.7669, "min": -32.768, "div": 1000, "add": -32.768, "unit": "scalar" }, "name": "Mains ground resistance"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5064"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_LEAK_DIAG", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Leakage diagnostic code"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5065"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_LEAK_DC", "path": "Battery", "fmt": { "len": 16, "max": 32.7669, "min": -32.768, "div": 1000, "add": -32.768, "unit": "scalar" }, "name": "Leakage DC current"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5066"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_LEAK_HF10", "path": "Battery", "fmt": { "len": 16, "max": 32.7669, "min": -32.768, "div": 1000, "add": -32.768, "unit": "scalar" }, "name": "Leakage current, 10 kilohertz"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5067"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_LEAK_HF", "path": "Battery", "fmt": { "len": 16, "max": 32.7669, "min": -32.768, "div": 1000, "add": -32.768, "unit": "scalar" }, "name": "Leakage high-frequency current"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5068"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_LEAK_LF", "path": "Battery", "fmt": { "len": 16, "max": 32.7669, "min": -32.768, "div": 1000, "add": -32.768, "unit": "scalar" }, "name": "Leakage low-frequency current"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "5070"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_MAINS_A_LIMIT", "path": "Battery", "fmt": { "len": 16, "max": 32.7669, "min": -32.768, "div": 1000, "add": -32.768, "unit": "scalar" }, "name": "Mains current limit"}
+  ]},
+{ "hdr": "792", "rax": "793", "dbg": true, "cmd": {"22": "7303"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_OBL_V",  "path": "Battery", "fmt": {            "len": 16, "max": 5990.4, "div": 10,   "nullmax": 5990.4, "unit": "volts"     }, "name": "Charger mains voltage"},
+    {"id": "VOLVO_OBL_A1", "path": "Battery", "fmt": {"bix": 48,  "len": 16, "max": 5990.4, "div": 10,   "nullmax": 5990.4, "unit": "amps"      }, "name": "Charger mains current, phase 1"},
+    {"id": "VOLVO_OBL_A2", "path": "Battery", "fmt": {"bix": 64,  "len": 16, "max": 5990.4, "div": 10,   "nullmax": 5990.4, "unit": "amps"      }, "name": "Charger mains current, phase 2"},
+    {"id": "VOLVO_OBL_P1", "path": "Battery", "fmt": {"bix": 96,  "len": 16, "max": 29.952, "div": 2000, "nullmax": 29.952, "unit": "kilowatts" }, "name": "Charger power 1"},
+    {"id": "VOLVO_OBL_P2", "path": "Battery", "fmt": {"bix": 112, "len": 16, "max": 29.952, "div": 2000, "nullmax": 29.952, "unit": "kilowatts" }, "name": "Charger power 2"}
+  ]},
+{ "hdr": "793", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_CVM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "794", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_PPM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "1944"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HALDEX_P", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "unknown" }, "name": "All-wheel drive coupling pressure"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "1945"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HALDEX_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "All-wheel drive coupling current"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "1946"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HALDEX_CURRENT_795", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "All-wheel drive coupling current"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "2B06"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FL_WHL_SPD_795", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "2B07"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FR_WHL_SPD_795", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "2B08"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RL_WHL_SPD_795", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "2B09"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RR_WHL_SPD_795", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "D116"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HALDEX_ECU_T_SENS_1", "path": "Engine", "fmt": { "len": 8, "max": 127, "min": -128, "sign": true, "unit": "celsius" }, "name": "All-wheel drive coupling module temperature sensor 1"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "D900"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HALDEX_ECU_T_SENS_2", "path": "Engine", "fmt": { "len": 8, "max": 127, "min": -128, "sign": true, "unit": "celsius" }, "name": "All-wheel drive coupling module temperature sensor 2"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "D930"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_HALDEX_REAR_AXLE_TQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "newtonMeters" }, "name": "All-wheel drive coupling rear axle torque"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "D953"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_HALDEX_REAR_AXLE_TQ_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "newtonMeters" }, "name": "All-wheel drive coupling rear axle torque, requested"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "D956"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_INPUT_TQ_REQ", "path": "Engine", "fmt": { "len": 16, "max": 507904, "min": -16376, "mul": 8, "add": -16376, "unit": "newtonMeters" }, "name": "Input torque, requested"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "D962"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_INPUT_TQ_CALC", "path": "Engine", "fmt": { "len": 16, "max": 507904, "min": -16376, "mul": 8, "add": -16376, "unit": "newtonMeters" }, "name": "Input torque calculated"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_HALDEX_DIST", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "All-wheel drive coupling distance"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "DD02"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_MECU_V", "path": "Battery", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "volts" }, "name": "All-wheel drive coupling module voltage"}
+  ]},
+{ "hdr": "795", "dbg": true, "cmd": {"22": "FD04"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HALDEX_OIL_T", "path": "Engine", "fmt": { "len": 8, "max": 195, "min": -60, "add": -60, "unit": "celsius" }, "name": "All-wheel drive coupling oil temperature"}
+  ]},
+{ "hdr": "797", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_SAS", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "02"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_HV_CONT_LEFT", "path": "Battery", "fmt": {           "len": 32, "max": 4294967295, "unit": "scalar" }, "name": "HV contactor cycles remaining"},
+    {"id": "VOLVO_HV_CONT_MAX",  "path": "Battery", "fmt": {"bix": 32, "len": 32, "max": 4294967295, "unit": "scalar" }, "name": "HV contactor cycles, maximum"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "04"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_HV_T_MIN", "path": "Battery", "fmt": {           "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "HV battery temperature, minimum"},
+    {"id": "VOLVO_HV_T_MAX", "path": "Battery", "fmt": {"bix": 16, "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "HV battery temperature, maximum"},
+    {"id": "VOLVO_HV_T_AVG", "path": "Battery", "fmt": {"bix": 32, "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "HV battery temperature, average"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "07"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CELL_V_MIN",        "path": "Battery",    "fmt": {            "len": 16, "max": 63.999,                                  "div": 1024,               "unit": "volts"  }, "name": "Lowest cell voltage"},
+    {"id": "VOLVO_CELL_V_MAX",        "path": "Battery",    "fmt": {"bix": 16,  "len": 16, "max": 63.999,                                  "div": 1024,               "unit": "volts"  }, "name": "Highest cell voltage"},
+    {"id": "VOLVO_HV_LINK_V",         "path": "Battery",    "fmt": {"bix": 32,  "len": 16, "max": 1023.9843,                               "div": 64,                 "unit": "volts"  }, "name": "HV link voltage"},
+    {"id": "VOLVO_HV_CELL_SUM_V",     "path": "Battery",    "fmt": {"bix": 48,  "len": 16, "max": 1023.9843,                               "div": 64,                 "unit": "volts"  }, "name": "Sum of cell voltages"},
+    {"id": "VOLVO_HV_V",              "path": "Battery",    "fmt": {"bix": 64,  "len": 16, "max": 1023.9843,                               "div": 64,                 "unit": "volts"  }, "name": "HV battery voltage",                     "suggestedMetric": "tractionBatteryVoltage"},
+    {"id": "VOLVO_HV_A",              "path": "Battery",    "fmt": {"bix": 80,  "len": 16, "max": 1024,      "min": -1023.9687, "mul": -1, "div": 32,   "sign": true, "unit": "amps"   }, "name": "HV battery current",                     "suggestedMetric": "tractionBatteryCurrent"},
+    {"id": "VOLVO_HV_CONTACTOR",      "path": "Battery",    "fmt": {"bix": 96,  "len": 8,  "max": 3,                                                                  "unit": "scalar" }, "name": "HV contactor state"},
+    {"id": "VOLVO_HV_INTERLOCK_PLUG", "path": "Battery",    "fmt": {"bix": 104, "len": 8,  "max": 1,                                                                  "unit": "yesno"  }, "name": "HV plug interlock closed"},
+    {"id": "VOLVO_HV_INTERLOCK_SVC",  "path": "Battery",    "fmt": {"bix": 112, "len": 8,  "max": 1,                                                                  "unit": "yesno"  }, "name": "Service interlock closed"},
+    {"id": "VOLVO_MOTOR_RPM",         "path": "Drivetrain", "fmt": {"bix": 136, "len": 16, "max": 32767.5,                                 "div": 2,                  "unit": "rpm"    }, "name": "Motor speed"},
+    {"id": "VOLVO_EV_MODE",           "path": "Battery",    "fmt": {"bix": 168, "len": 8,  "max": 7,                                                                  "unit": "scalar" }, "name": "Battery operating mode"},
+    {"id": "VOLVO_12V_V_BMS",         "path": "Electrical", "fmt": {"bix": 176, "len": 8,  "max": 31.875,                                  "div": 8,                  "unit": "volts"  }, "name": "12V supply voltage, battery controller"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "08"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_OCV",          "path": "Battery", "fmt": {            "len": 16, "max": 655.35,    "div": 100, "unit": "volts"       }, "name": "HV battery open-circuit voltage"},
+    {"id": "VOLVO_SOC_REAL_MIN", "path": "Battery", "fmt": {"bix": 16,  "len": 16, "max": 4095.9375, "div": 16,  "unit": "percent"     }, "name": "Real state of charge, minimum"},
+    {"id": "VOLVO_SOC_REAL_MAX", "path": "Battery", "fmt": {"bix": 32,  "len": 16, "max": 4095.9375, "div": 16,  "unit": "percent"     }, "name": "Real state of charge, maximum"},
+    {"id": "VOLVO_SOC_V2",       "path": "Battery", "fmt": {"bix": 48,  "len": 16, "max": 4095.9375, "div": 16,  "unit": "percent"     }, "name": "State of charge",                 "suggestedMetric": "stateOfCharge"},
+    {"id": "VOLVO_CAP_LOSS",     "path": "Battery", "fmt": {"bix": 64,  "len": 16, "max": 4095.9375, "div": 16,  "unit": "percent"     }, "name": "Capacity loss"},
+    {"id": "VOLVO_CAP_INIT",     "path": "Battery", "fmt": {"bix": 80,  "len": 16, "max": 182.0416,  "div": 360, "unit": "ampereHours" }, "name": "Initial capacity"},
+    {"id": "VOLVO_CAP_EST",      "path": "Battery", "fmt": {"bix": 96,  "len": 16, "max": 182.0416,  "div": 360, "unit": "ampereHours" }, "name": "Estimated capacity"},
+    {"id": "VOLVO_OCV_STATE",    "path": "Battery", "fmt": {"bix": 112, "len": 8,  "max": 4,                     "unit": "scalar"      }, "name": "Open-circuit voltage state"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "25"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_SOC_RECAL",   "path": "Battery", "fmt": {          "len": 8,  "max": 3,                    "unit": "scalar"  }, "name": "State of charge recalibration state"},
+    {"id": "VOLVO_SOC_DISPLAY", "path": "Battery", "fmt": {"bix": 8, "len": 16, "max": 4095.9375, "div": 16, "unit": "percent" }, "name": "State of charge, displayed"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "41"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_CELL_V1",  "path": "Battery.Cells", "fmt": {            "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 1 voltage"},
+    {"id": "VOLVO_CELL_V2",  "path": "Battery.Cells", "fmt": {"bix": 16,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 2 voltage"},
+    {"id": "VOLVO_CELL_V3",  "path": "Battery.Cells", "fmt": {"bix": 32,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 3 voltage"},
+    {"id": "VOLVO_CELL_V4",  "path": "Battery.Cells", "fmt": {"bix": 48,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 4 voltage"},
+    {"id": "VOLVO_CELL_V5",  "path": "Battery.Cells", "fmt": {"bix": 64,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 5 voltage"},
+    {"id": "VOLVO_CELL_V6",  "path": "Battery.Cells", "fmt": {"bix": 80,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 6 voltage"},
+    {"id": "VOLVO_CELL_V7",  "path": "Battery.Cells", "fmt": {"bix": 96,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 7 voltage"},
+    {"id": "VOLVO_CELL_V8",  "path": "Battery.Cells", "fmt": {"bix": 112, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 8 voltage"},
+    {"id": "VOLVO_CELL_V9",  "path": "Battery.Cells", "fmt": {"bix": 128, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 9 voltage"},
+    {"id": "VOLVO_CELL_V10", "path": "Battery.Cells", "fmt": {"bix": 144, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 10 voltage"},
+    {"id": "VOLVO_CELL_V11", "path": "Battery.Cells", "fmt": {"bix": 160, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 11 voltage"},
+    {"id": "VOLVO_CELL_V12", "path": "Battery.Cells", "fmt": {"bix": 176, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 12 voltage"},
+    {"id": "VOLVO_CELL_V13", "path": "Battery.Cells", "fmt": {"bix": 192, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 13 voltage"},
+    {"id": "VOLVO_CELL_V14", "path": "Battery.Cells", "fmt": {"bix": 208, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 14 voltage"},
+    {"id": "VOLVO_CELL_V15", "path": "Battery.Cells", "fmt": {"bix": 224, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 15 voltage"},
+    {"id": "VOLVO_CELL_V16", "path": "Battery.Cells", "fmt": {"bix": 240, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 16 voltage"},
+    {"id": "VOLVO_CELL_V17", "path": "Battery.Cells", "fmt": {"bix": 256, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 17 voltage"},
+    {"id": "VOLVO_CELL_V18", "path": "Battery.Cells", "fmt": {"bix": 272, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 18 voltage"},
+    {"id": "VOLVO_CELL_V19", "path": "Battery.Cells", "fmt": {"bix": 288, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 19 voltage"},
+    {"id": "VOLVO_CELL_V20", "path": "Battery.Cells", "fmt": {"bix": 304, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 20 voltage"},
+    {"id": "VOLVO_CELL_V21", "path": "Battery.Cells", "fmt": {"bix": 320, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 21 voltage"},
+    {"id": "VOLVO_CELL_V22", "path": "Battery.Cells", "fmt": {"bix": 336, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 22 voltage"},
+    {"id": "VOLVO_CELL_V23", "path": "Battery.Cells", "fmt": {"bix": 352, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 23 voltage"},
+    {"id": "VOLVO_CELL_V24", "path": "Battery.Cells", "fmt": {"bix": 368, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 24 voltage"},
+    {"id": "VOLVO_CELL_V25", "path": "Battery.Cells", "fmt": {"bix": 384, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 25 voltage"},
+    {"id": "VOLVO_CELL_V26", "path": "Battery.Cells", "fmt": {"bix": 400, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 26 voltage"},
+    {"id": "VOLVO_CELL_V27", "path": "Battery.Cells", "fmt": {"bix": 416, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 27 voltage"},
+    {"id": "VOLVO_CELL_V28", "path": "Battery.Cells", "fmt": {"bix": 432, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 28 voltage"},
+    {"id": "VOLVO_CELL_V29", "path": "Battery.Cells", "fmt": {"bix": 448, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 29 voltage"},
+    {"id": "VOLVO_CELL_V30", "path": "Battery.Cells", "fmt": {"bix": 464, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 30 voltage"},
+    {"id": "VOLVO_CELL_V31", "path": "Battery.Cells", "fmt": {"bix": 480, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 31 voltage"},
+    {"id": "VOLVO_CELL_V32", "path": "Battery.Cells", "fmt": {"bix": 496, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 32 voltage"},
+    {"id": "VOLVO_CELL_V33", "path": "Battery.Cells", "fmt": {"bix": 512, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 33 voltage"},
+    {"id": "VOLVO_CELL_V34", "path": "Battery.Cells", "fmt": {"bix": 528, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 34 voltage"},
+    {"id": "VOLVO_CELL_V35", "path": "Battery.Cells", "fmt": {"bix": 544, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 35 voltage"},
+    {"id": "VOLVO_CELL_V36", "path": "Battery.Cells", "fmt": {"bix": 560, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 36 voltage"},
+    {"id": "VOLVO_CELL_V37", "path": "Battery.Cells", "fmt": {"bix": 576, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 37 voltage"},
+    {"id": "VOLVO_CELL_V38", "path": "Battery.Cells", "fmt": {"bix": 592, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 38 voltage"},
+    {"id": "VOLVO_CELL_V39", "path": "Battery.Cells", "fmt": {"bix": 608, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 39 voltage"},
+    {"id": "VOLVO_CELL_V40", "path": "Battery.Cells", "fmt": {"bix": 624, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 40 voltage"},
+    {"id": "VOLVO_CELL_V41", "path": "Battery.Cells", "fmt": {"bix": 640, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 41 voltage"},
+    {"id": "VOLVO_CELL_V42", "path": "Battery.Cells", "fmt": {"bix": 656, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 42 voltage"},
+    {"id": "VOLVO_CELL_V43", "path": "Battery.Cells", "fmt": {"bix": 672, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 43 voltage"},
+    {"id": "VOLVO_CELL_V44", "path": "Battery.Cells", "fmt": {"bix": 688, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 44 voltage"},
+    {"id": "VOLVO_CELL_V45", "path": "Battery.Cells", "fmt": {"bix": 704, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 45 voltage"},
+    {"id": "VOLVO_CELL_V46", "path": "Battery.Cells", "fmt": {"bix": 720, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 46 voltage"},
+    {"id": "VOLVO_CELL_V47", "path": "Battery.Cells", "fmt": {"bix": 736, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 47 voltage"},
+    {"id": "VOLVO_CELL_V48", "path": "Battery.Cells", "fmt": {"bix": 752, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 48 voltage"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "42"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_CELL_V49", "path": "Battery.Cells", "fmt": {            "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 49 voltage"},
+    {"id": "VOLVO_CELL_V50", "path": "Battery.Cells", "fmt": {"bix": 16,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 50 voltage"},
+    {"id": "VOLVO_CELL_V51", "path": "Battery.Cells", "fmt": {"bix": 32,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 51 voltage"},
+    {"id": "VOLVO_CELL_V52", "path": "Battery.Cells", "fmt": {"bix": 48,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 52 voltage"},
+    {"id": "VOLVO_CELL_V53", "path": "Battery.Cells", "fmt": {"bix": 64,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 53 voltage"},
+    {"id": "VOLVO_CELL_V54", "path": "Battery.Cells", "fmt": {"bix": 80,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 54 voltage"},
+    {"id": "VOLVO_CELL_V55", "path": "Battery.Cells", "fmt": {"bix": 96,  "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 55 voltage"},
+    {"id": "VOLVO_CELL_V56", "path": "Battery.Cells", "fmt": {"bix": 112, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 56 voltage"},
+    {"id": "VOLVO_CELL_V57", "path": "Battery.Cells", "fmt": {"bix": 128, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 57 voltage"},
+    {"id": "VOLVO_CELL_V58", "path": "Battery.Cells", "fmt": {"bix": 144, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 58 voltage"},
+    {"id": "VOLVO_CELL_V59", "path": "Battery.Cells", "fmt": {"bix": 160, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 59 voltage"},
+    {"id": "VOLVO_CELL_V60", "path": "Battery.Cells", "fmt": {"bix": 176, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 60 voltage"},
+    {"id": "VOLVO_CELL_V61", "path": "Battery.Cells", "fmt": {"bix": 192, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 61 voltage"},
+    {"id": "VOLVO_CELL_V62", "path": "Battery.Cells", "fmt": {"bix": 208, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 62 voltage"},
+    {"id": "VOLVO_CELL_V63", "path": "Battery.Cells", "fmt": {"bix": 224, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 63 voltage"},
+    {"id": "VOLVO_CELL_V64", "path": "Battery.Cells", "fmt": {"bix": 240, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 64 voltage"},
+    {"id": "VOLVO_CELL_V65", "path": "Battery.Cells", "fmt": {"bix": 256, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 65 voltage"},
+    {"id": "VOLVO_CELL_V66", "path": "Battery.Cells", "fmt": {"bix": 272, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 66 voltage"},
+    {"id": "VOLVO_CELL_V67", "path": "Battery.Cells", "fmt": {"bix": 288, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 67 voltage"},
+    {"id": "VOLVO_CELL_V68", "path": "Battery.Cells", "fmt": {"bix": 304, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 68 voltage"},
+    {"id": "VOLVO_CELL_V69", "path": "Battery.Cells", "fmt": {"bix": 320, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 69 voltage"},
+    {"id": "VOLVO_CELL_V70", "path": "Battery.Cells", "fmt": {"bix": 336, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 70 voltage"},
+    {"id": "VOLVO_CELL_V71", "path": "Battery.Cells", "fmt": {"bix": 352, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 71 voltage"},
+    {"id": "VOLVO_CELL_V72", "path": "Battery.Cells", "fmt": {"bix": 368, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 72 voltage"},
+    {"id": "VOLVO_CELL_V73", "path": "Battery.Cells", "fmt": {"bix": 384, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 73 voltage"},
+    {"id": "VOLVO_CELL_V74", "path": "Battery.Cells", "fmt": {"bix": 400, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 74 voltage"},
+    {"id": "VOLVO_CELL_V75", "path": "Battery.Cells", "fmt": {"bix": 416, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 75 voltage"},
+    {"id": "VOLVO_CELL_V76", "path": "Battery.Cells", "fmt": {"bix": 432, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 76 voltage"},
+    {"id": "VOLVO_CELL_V77", "path": "Battery.Cells", "fmt": {"bix": 448, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 77 voltage"},
+    {"id": "VOLVO_CELL_V78", "path": "Battery.Cells", "fmt": {"bix": 464, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 78 voltage"},
+    {"id": "VOLVO_CELL_V79", "path": "Battery.Cells", "fmt": {"bix": 480, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 79 voltage"},
+    {"id": "VOLVO_CELL_V80", "path": "Battery.Cells", "fmt": {"bix": 496, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 80 voltage"},
+    {"id": "VOLVO_CELL_V81", "path": "Battery.Cells", "fmt": {"bix": 512, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 81 voltage"},
+    {"id": "VOLVO_CELL_V82", "path": "Battery.Cells", "fmt": {"bix": 528, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 82 voltage"},
+    {"id": "VOLVO_CELL_V83", "path": "Battery.Cells", "fmt": {"bix": 544, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 83 voltage"},
+    {"id": "VOLVO_CELL_V84", "path": "Battery.Cells", "fmt": {"bix": 560, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 84 voltage"},
+    {"id": "VOLVO_CELL_V85", "path": "Battery.Cells", "fmt": {"bix": 576, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 85 voltage"},
+    {"id": "VOLVO_CELL_V86", "path": "Battery.Cells", "fmt": {"bix": 592, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 86 voltage"},
+    {"id": "VOLVO_CELL_V87", "path": "Battery.Cells", "fmt": {"bix": 608, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 87 voltage"},
+    {"id": "VOLVO_CELL_V88", "path": "Battery.Cells", "fmt": {"bix": 624, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 88 voltage"},
+    {"id": "VOLVO_CELL_V89", "path": "Battery.Cells", "fmt": {"bix": 640, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 89 voltage"},
+    {"id": "VOLVO_CELL_V90", "path": "Battery.Cells", "fmt": {"bix": 656, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 90 voltage"},
+    {"id": "VOLVO_CELL_V91", "path": "Battery.Cells", "fmt": {"bix": 672, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 91 voltage"},
+    {"id": "VOLVO_CELL_V92", "path": "Battery.Cells", "fmt": {"bix": 688, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 92 voltage"},
+    {"id": "VOLVO_CELL_V93", "path": "Battery.Cells", "fmt": {"bix": 704, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 93 voltage"},
+    {"id": "VOLVO_CELL_V94", "path": "Battery.Cells", "fmt": {"bix": 720, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 94 voltage"},
+    {"id": "VOLVO_CELL_V95", "path": "Battery.Cells", "fmt": {"bix": 736, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 95 voltage"},
+    {"id": "VOLVO_CELL_V96", "path": "Battery.Cells", "fmt": {"bix": 752, "len": 16, "max": 63.999, "div": 1024, "unit": "volts" }, "name": "Cell 96 voltage"}
+  ]},
+{ "hdr": "79B", "rax": "7BB", "fcm1": true, "dbg": true, "cmd": {"21": "61"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_CAP_FULL", "path": "Battery", "fmt": {"bix": 48, "len": 16, "max": 91.0194,    "min": -91.0222, "div": 360, "sign": true, "unit": "ampereHours" }, "name": "Usable capacity, full"},
+    {"id": "VOLVO_SOH",      "path": "Battery", "fmt": {"bix": 64, "len": 8,  "max": 127.5,                       "div": 2,                 "unit": "percent"     }, "name": "State of health",              "suggestedMetric": "stateOfHealth"},
+    {"id": "VOLVO_BMS_ODO",  "path": "Trips",   "fmt": {"bix": 72, "len": 32, "max": 4294967295,                                            "unit": "kilometers"  }, "name": "Distance, battery controller"}
+  ]},
+{ "hdr": "7C0", "dbg": true, "cmd": {"22": "D904"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_M3_ADM_ADDITIVE_PMP", "path": "Engine", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "Diesel particulate filter additive pump"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "033E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BOOST_P_AFTER", "path": "Battery", "fmt": { "len": 16, "max": 500, "min": -0.0534, "div": 131, "add": -0.053435, "unit": "kilopascal" }, "name": "Boost pressure after turbocharger"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "0341"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_BOOST_AIR_T_7E0", "path": "Engine", "fmt": { "len": 8, "max": 119, "min": -40, "mul": 5, "div": 8, "add": -40, "unit": "celsius" }, "name": "Boost air temperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "0707"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_GRILL_SHUTTER_OPEN", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Grill shutter open"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D900"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AC_P_V2", "path": "Engine", "fmt": { "len": 16, "max": 13107, "div": 5, "unit": "kilopascal" }, "name": "Air conditioning pressure"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D909"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AC_RELAY", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Air conditioning relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D916"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AIR_FLOW_CYCLE_MG_S", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "scalar" }, "name": "Air flow/cycle, mg/s"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D91C"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_M3_IAT_MAF", "path": "Engine", "fmt": { "len": 16, "max": 65.53, "div": 1000, "unit": "celsius" }, "name": "M3 IAT, MAF"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D91F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AIR_MASS_DES", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "unknown" }, "name": "Air mass, desired"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D924"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ALTERNATOR_AMPS", "path": "Engine", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "amps" }, "name": "Alternator, amps"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D941"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BOOST_P", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "kilopascal" }, "name": "Boost pressure"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D943"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_BRAKE_SWITCH", "path": "Control", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "scalar" }, "name": "Brake switch"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D94F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SYSTEM_RELAY", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "System relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D950"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_STARTER_RELAY", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Starter relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D953"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_RELAY", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Battery relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D95B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CLT_PMP_RELAY", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Coolant pump relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D96C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_M3_EGR_DC", "path": "Engine", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "M3 EGR DC"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D96D"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EGR_VLV_CMD_POS_II", "path": "Engine", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Exhaust gas recirculation valve, commanded position II"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D99C"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_FUEL_T", "path": "Fuel", "fmt": { "len": 16, "max": 3003, "min": -3549, "div": 10, "add": -273, "sign": true, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9A0"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_GLOW_PLUGS", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Glow plugs"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9A1"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_VAR_3", "path": "Transmission", "fmt": { "len": 8, "max": 195, "min": -60, "add": -60, "unit": "celsius" }, "name": "Transmission fluid temperature, variant 3"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9AB"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_TMAP_IAT", "path": "Engine", "fmt": { "len": 16, "max": 3003, "min": -3549, "div": 10, "add": -273.14, "sign": true, "unit": "celsius" }, "name": "Intake air temperature, manifold sensor"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9B8"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CTRL_MODULE_T", "path": "Engine", "fmt": { "len": 8, "max": 119, "min": -40, "mul": 5, "div": 8, "add": -40, "unit": "celsius" }, "name": "Control module temperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9DC"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EOT_V2", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Engine oil temperature", "suggestedMetric": "engineOilTemperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9E4"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BOOST_P_DES", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "kilopascal" }, "name": "Boost pressure, desired value"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9EE"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_P_REGULATOR_VLV", "path": "Fuel", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Fuel pressure regulator valve current"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9F2"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DPF_SOOT",    "path": "Engine", "fmt": {           "len": 16, "max": 655,  "div": 100,   "unit": "unknown" }, "name": "Diesel particulate filter soot"},
+    {"id": "VOLVO_M3_DPF_SOOT", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 6.55, "div": 10000, "unit": "gravity" }, "name": "M3 DPF soot"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9F3"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_M3_DIFF_PRESS", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "unknown" }, "name": "M3 diff.press."}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9F9"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_DPF_T", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Diesel particulate filter temperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "D9FF"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_P_NOMINAL", "path": "Fuel", "fmt": { "len": 16, "max": 6553500, "mul": 100, "unit": "unknown" }, "name": "Fuel pressure nominal value"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DA03"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_CATALYTIC_DAMAGE", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Misfire catalytic damage total - petrol"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DA04"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_EMISSION_RELATED", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Misfire emission related total - petrol"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DA12"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_STARTER_RELAY_1", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Starter relay 1"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DA40"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_POS", "path": "Transmission", "fmt": { "len": 8, "max": 127, "min": -128, "sign": true, "unit": "scalar" }, "name": "Gear, AT position"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DA59"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FRONT_OXYGEN_SENS", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "milliseconds" }, "name": "Front oxygen sensor heating"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DAAD"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EGR_VLV_POS_SENS", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "percent" }, "name": "Exhaust gas recirculation valve position sensor"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DAB6"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_AVG_1", "path": "Engine", "fmt": {            "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 1 misfire average"},
+    {"id": "VOLVO_MIS_AVG_2", "path": "Engine", "fmt": {"bix": 16,  "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 2 misfire average"},
+    {"id": "VOLVO_MIS_AVG_3", "path": "Engine", "fmt": {"bix": 32,  "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 3 misfire average"},
+    {"id": "VOLVO_MIS_AVG_4", "path": "Engine", "fmt": {"bix": 48,  "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 4 misfire average"},
+    {"id": "VOLVO_MIS_AVG_5", "path": "Engine", "fmt": {"bix": 64,  "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 5 misfire average"},
+    {"id": "VOLVO_MIS_AVG_6", "path": "Engine", "fmt": {"bix": 80,  "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 6 misfire average"},
+    {"id": "VOLVO_MIS_AVG_7", "path": "Engine", "fmt": {"bix": 96,  "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 7 misfire average"},
+    {"id": "VOLVO_MIS_AVG_8", "path": "Engine", "fmt": {"bix": 112, "len": 16, "max": 65535, "unit": "scalar" }, "name": "Cylinder 8 misfire average"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DAC8"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DPF_P", "path": "Engine", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "unknown" }, "name": "Diesel particulate filter pressure"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DAD2"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EGR_COOLER_BYPASS", "path": "Engine", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Exhaust gas recirculation cooler bypass actuator position"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DAD5"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_VOLUME_CTRL_VLV", "path": "Fuel", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Fuel volume control valve"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DB35"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_FLT_HEATER_7E0", "path": "Fuel", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Fuel filter heater"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DB77"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_REAR_OXYGEN_SENS", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "milliseconds" }, "name": "Rear oxygen sensor heating"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DC00"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TURBO_CTRL_VLV", "path": "Engine", "fmt": { "len": 16, "max": 800, "mul": 100, "div": 8191, "unit": "percent" }, "name": "Turbo control valve, bypass or variable nozzle"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DC01"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EGR_VLV_CMD_POS", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "percent" }, "name": "Exhaust gas recirculation valve, commanded position"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DC02"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FAN", "path": "Engine", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Fan"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DC10"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TURBO_CTRL_VLV_WASTEGATE", "path": "Engine", "fmt": { "len": 16, "max": 800, "mul": 100, "div": 8191, "unit": "percent" }, "name": "Turbo control valve wastegate"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DC13"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_VOLUME_CTRL_VLV_7E0", "path": "Fuel", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Fuel volume control valve"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DC14"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_FLT_HEATER", "path": "Fuel", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Fuel filter heater"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_MILEAGE_ODO", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EE7F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EGR_BYPASS_VLV", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "percent" }, "name": "Exhaust gas recirculation bypass valve"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EE84"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SUPERCHARGER_CLU_REQ", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Supercharger clutch, requested position"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EEEB"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_STARTER_RELAY_2", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Starter relay 2"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EF44"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_START_STOP_BRAKE_P", "path": "Control", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "kilopascal" }, "name": "Start/stop brake booster pressure"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EF4E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EOP_V2", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "kilopascal" }, "name": "Engine oil pressure"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EF51"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_START_STOP_BAT_RELAY", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Start/stop battery relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EF52"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_START_STOP_SECONDARY", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Start/stop secondary battery relay"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "EF59"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_PMP_LOW_P_SIDE", "path": "Fuel", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Fuel pump low pressure side duty cycle"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F404"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CALC_LOAD", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Calculated load", "suggestedMetric": "engineLoad"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F40E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_IGN_ANG_BTDC", "path": "Engine", "fmt": { "len": 8, "max": 63.5, "min": -64, "div": 2, "add": -64, "unit": "scalar" }, "name": "Ignition angle before top dead center"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F40F"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_M3_IAT_BUTTERFLY", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "M3 IAT, butterfly"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F411"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_THROTTLE_ABS_POS", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Throttle absolute position", "suggestedMetric": "throttlePosition"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F41F"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_TIME_SINCE_ENG_START", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "seconds" }, "name": "Time since engine start"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F423"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_P", "path": "Fuel", "fmt": { "len": 16, "max": 6553500, "mul": 100, "unit": "unknown" }, "name": "Fuel pressure"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F42F"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_FLI_INPUT", "path": "Fuel", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Fuel level input", "suggestedMetric": "fuelTankLevel"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F443"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LOAD", "path": "Engine", "fmt": { "len": 16, "max": 25700, "mul": 20, "div": 51, "unit": "percent" }, "name": "Load"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F449"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_M3_APP_ECM", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Accelerator pedal position"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F44A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_M3_APP_CAN", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "M3 APP, CAN"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F6A2"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_1", "path": "Engine", "fmt": {"bix": 96, "len": 8, "max": 255, "unit": "scalar" }, "name": "Cylinder 1 misfire"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F6A3"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_2_V2", "path": "Engine", "fmt": {"bix": 96, "len": 8, "max": 255, "unit": "scalar" }, "name": "Cylinder 2 misfire"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F6A4"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_3_V2", "path": "Engine", "fmt": {"bix": 96, "len": 8, "max": 255, "unit": "scalar" }, "name": "Cylinder 3 misfire"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "F6A5"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MIS_4", "path": "Engine", "fmt": {"bix": 96, "len": 8, "max": 255, "unit": "scalar" }, "name": "Cylinder 4 misfire"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E14"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_T_CONV", "path": "Transmission", "fmt": { "len": 16, "max": 65535, "unit": "percent" }, "name": "A/T converter"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E16"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ACT_GEAR_RAT", "path": "Transmission", "fmt": { "len": 16, "max": 15.99, "div": 4096, "unit": "scalar" }, "name": "AT, actual gear ratio"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E19"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_EXPECTED_GEAR_RAT", "path": "Transmission", "fmt": { "len": 16, "max": 65.53, "div": 1000, "unit": "scalar" }, "name": "Transmission expected gear ratio"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E1B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SLAVE_T", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "rpm" }, "name": "Slave A/T"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E1E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission line pressure solenoid current, requested"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E24"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FIXED_LOCK_UP", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Transmission fixed lock-up"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E2F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LEADING_T", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "rpm" }, "name": "Leading A/T"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E3F"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_7E1", "path": "Transmission", "fmt": { "len": 16, "max": 8191, "min": -8192, "div": 4, "sign": true, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E40"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission line pressure solenoid current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E41"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LOCK_UP_SOLENOID_SLU", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Torque converter lock-up solenoid current, requested"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E42"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLC1_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLC1, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E43"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLC2_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLC2, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E44"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLC3_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLC3, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E45"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLB1_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLB1, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E47"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LOCK_UP_SOLENOID_SLU_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Torque converter lock-up solenoid current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E48"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLC1", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLC1 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E49"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLC2", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLC2 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E4A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLC3", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SLC3 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "6310"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_SELECTOR_P_0_R_1_N_2_D_3", "path": "Transmission", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Transmission gear selector p, 0 r, 1 n, 2 d, 3"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "D904"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_VAR_2", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Transmission fluid temperature, variant 2"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "D90C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SLC1_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "SLC1 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "D90F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SLC2_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "SLC2 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "D910"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SLC3_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "SLC3 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA34"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_RAT_ACT_7E1", "path": "Transmission", "fmt": { "len": 16, "max": 15.99, "div": 4096, "unit": "scalar" }, "name": "Gear ratio, actual"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA3B"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_VAR_2_7E1", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Transmission fluid temperature, variant 2"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA3C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LOCK_UP_FUNCTION", "path": "Engine", "fmt": { "len": 8, "max": 84.66, "min": -0.333, "div": 3, "add": -0.333333, "unit": "scalar" }, "name": "Transmission lock-up function"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA47"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_RAT_EXPECTED", "path": "Transmission", "fmt": { "len": 16, "max": 65.53, "div": 1000, "unit": "scalar" }, "name": "Gear ratio expected"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA49"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLT_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission line pressure solenoid current, requested"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA4A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SLT_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission line pressure solenoid current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA4B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LOCK_UP_SOLENOID_SLU_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Torque converter lock-up solenoid, requested"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA4C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LOCK_UP_SOLENOID_SLU_7E1", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Torque converter lock-up solenoid"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA4D"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SL1_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SL1, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA4E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SL1", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SL1 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA4F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SL2_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SL2, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA50"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SL2", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SL2 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA51"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SL3_REQ", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SL3, requested, current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DA52"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_LINEAR_P_SOLENOID_SL3", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Transmission linear pressure solenoid SL3 current"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DCE4"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_KICKDOWN", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Transmission kickdown"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DCEA"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SELECTOR", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "scalar" }, "name": "Transmission selector"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DCF0"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_TQ_LIMITING", "path": "Engine", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "newtonMeters" }, "name": "Transmission torque limiting"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_TCM", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD02"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_MECU_SUP_V", "path": "Battery", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "volts" }, "name": "Transmission control module supply voltage"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD81"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_7E1", "path": "Transmission", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "scalar" }, "name": "Transmission gear"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD89"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SOLENOID_S1_STAT", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Transmission solenoid S1 status"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD8A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_SOLENOID_S2_STAT", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Transmission solenoid S2 status"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD8D"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_TQ", "path": "Engine", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "newtonMeters" }, "name": "Transmission torque"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DD8E"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ACCEL_PEDAL_POS", "path": "Movement", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Accelerator pedal position"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "DF08"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_START_LOCK_START", "path": "Engine", "fmt": { "len": 8, "max": 1, "div": 255, "unit": "scalar" }, "name": "Transmission start lock - start approved"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "E504"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_BRAKE_PEDAL_POS", "path": "Control", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Brake pedal position"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A03"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_HEATER_FAN_ADJ", "path": "Fuel", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Fuel heater fan adjustment"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A04"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_GLOW_PLUG_RAT_MS_CAN", "path": "Engine", "fmt": { "len": 8, "max": 100, "div": 2.55, "unit": "percent" }, "name": "Glow plug pulse ratio"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A06"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_COMBUSTION_AIR_FAN", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Combustion air fan"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A08"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_OP_ST_MS_CAN", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Operating state"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A0B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BURNING_TIME_HOURS",   "path": "Engine", "fmt": {           "len": 16, "max": 65535, "unit": "unknown" }, "name": "Burning time, hours"},
+    {"id": "VOLVO_BURNING_TIME_MINUTES", "path": "Engine", "fmt": {"bix": 16, "len": 8,  "max": 255,   "unit": "scalar"  }, "name": "Burning time, minutes"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A0C"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_RUNNING_TIME_HOURS",   "path": "Engine", "fmt": {           "len": 16, "max": 65535, "unit": "unknown" }, "name": "Running time, hours"},
+    {"id": "VOLVO_RUNNING_TIME_MINUTES", "path": "Engine", "fmt": {"bix": 16, "len": 8,  "max": 255,   "unit": "scalar"  }, "name": "Running time, minutes"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A0D"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_CNT_MS_CAN", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Counter"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A0E"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_PARKING_HEATER_CNT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Parking heater counter"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "9A0F"}, "freq": 3600,
+  "signals": [
+    {"id": "VOLVO_SUPPLEMENTARY_HEATER", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Supplementary heater counter"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "DD04"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CAR_T_MS_CAN_7E3", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "In car temperature"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "DD06"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_POWER_MODE_MS_CAN_7E3", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Power mode"}
+  ]},
+{ "hdr": "7E3", "dbg": true, "cmd": {"22": "F405"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_WATER_T_MS_CAN", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Water temperature"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3022"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DCDC_REQ", "path": "Electrical", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "DC/DC activation request"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3023"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DCDC_V_REQ", "path": "Electrical", "fmt": { "len": 8, "max": 24.75, "min": 12, "div": 20, "add": 12, "unit": "volts" }, "name": "DC/DC voltage request"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3024"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DCDC_V", "path": "Electrical", "fmt": { "len": 8, "max": 29.5, "min": 4, "div": 10, "add": 4, "unit": "volts" }, "name": "DC/DC output voltage"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3025"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DCDC_A", "path": "Electrical", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "amps" }, "name": "DC/DC output current"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "320C"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_HV_E", "path": "Battery", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "kilowattHours" }, "name": "HV battery available energy"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3301"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_USM_V", "path": "Electrical", "fmt": { "len": 8, "max": 21.2999, "min": 6, "mul": 0.06, "add": 6, "unit": "volts" }, "name": "Power distribution 12V voltage"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "339D"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_PLUG", "path": "Battery", "fmt": {"bix": 4, "len": 4, "max": 1, "unit": "yesno" }, "name": "Charging plug detected", "suggestedMetric": "pluggedIn"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3494"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DCDC_P", "path": "Electrical", "fmt": { "len": 16, "max": 655350, "mul": 10, "unit": "watts" }, "name": "DC/DC output power"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "3495"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_DCDC_LOAD", "path": "Electrical", "fmt": { "len": 8, "max": 99.21875, "div": 2.56, "nullmax": 99.21875, "unit": "percent" }, "name": "DC/DC load"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "34CB"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_BLOWER", "path": "Climate", "fmt": { "len": 8, "max": 100, "mul": 2, "unit": "percent" }, "name": "Cabin blower command"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "2005"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_AUX_V", "path": "Battery", "fmt": { "len": 8, "max": 25.9, "mul": 25.9, "div": 255, "unit": "volts" }, "name": "Auxiliary battery voltage", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "2526"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EQA_HV_COOLANT_T", "path": "Battery", "fmt": { "len": 16, "max": 100, "mul": 1250, "div": 10000, "sign": true, "unit": "celsius" }, "name": "HV battery coolant temperature"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6050"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_HV_SOC", "path": "Battery", "fmt": { "len": 16, "max": 100, "div": 100, "unit": "percent" }, "name": "HV battery state of charge", "suggestedMetric": "stateOfCharge"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6053"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_HV_A", "path": "Battery", "fmt": { "len": 16, "max": 100, "div": 10, "sign": true, "unit": "amps" }, "name": "HV battery amperage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6071"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_CNVRTR_REQ_V", "path": "Battery", "fmt": { "len": 16, "max": 100, "mul": 250, "div": 10000, "unit": "volts" }, "name": "DC converter requested voltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6075"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_HV_V", "path": "Battery", "fmt": { "len": 16, "max": 100, "mul": 25, "div": 1000, "unit": "volts" }, "name": "HV battery voltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6502"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_HV_RANGE", "path": "Trips", "fmt": { "len": 32, "max": 1000, "unit": "kilometers" }, "name": "HV battery remaining distance", "suggestedMetric": "electricRange"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6504"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EQA_SERVICE_DIST", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "kilometers" }, "name": "Distance to next service"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "2041"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_VAC_P1", "path": "Brakes", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "scalar" }, "name": "Vacuum pump pressure 1"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "2043"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_VAC_P2", "path": "Brakes", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "scalar" }, "name": "Vacuum pump pressure 2"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "2047"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_COOLANT_T", "path": "Engine", "fmt": { "len": 16, "max": 8191.875, "div": 8, "unit": "celsius" }, "name": "Coolant temperature"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "2308"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_PUMP_V", "path": "Engine", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Coolant pump voltage"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "2309"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_PUMP_A", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 51, "div": 5, "unit": "amps" }, "name": "Coolant pump current"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "230A"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_PUMP_T", "path": "Engine", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Coolant pump temperature"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "6308"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_ED_BAT_AGE", "path": "Battery", "fmt": { "len": 8, "max": 127.5, "div": 2, "unit": "percent" }, "name": "Battery age condition"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "6309"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_ED_PUMP_HOURS", "path": "Stats", "fmt": { "len": 16, "max": 65535, "unit": "hours" }, "name": "Coolant pump operating time"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "630A"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_ED_FAN_HOURS", "path": "Stats", "fmt": { "len": 16, "max": 65535, "unit": "hours" }, "name": "Cooling fan operating time"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "6321"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_ED_HEATER_HOURS", "path": "Stats", "fmt": { "len": 16, "max": 65535, "unit": "hours" }, "name": "Battery heater operating time"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "D032"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_PUMP_DUTY", "path": "Engine", "fmt": { "len": 8, "max": 100, "div": 2.55, "unit": "percent" }, "name": "Coolant pump speed"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "D041"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_FAN_DUTY", "path": "Engine", "fmt": { "len": 8, "max": 100, "div": 2.55, "unit": "percent" }, "name": "Cooling fan speed"}
+  ]},
+{ "hdr": "7E5", "rax": "7ED", "dbg": true, "cmd": {"22": "D302"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_HEATER_ON", "path": "Battery", "fmt": { "len": 8, "max": 1, "unit": "offon" }, "name": "Battery heater on"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0201"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_HV_T", "path": "Battery", "fmt": { "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "HV battery temperature"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0202"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_MOD_T1", "path": "Battery", "fmt": {            "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 1 temperature"},
+    {"id": "VOLVO_ED_MOD_T2", "path": "Battery", "fmt": {"bix": 16,  "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 2 temperature"},
+    {"id": "VOLVO_ED_MOD_T3", "path": "Battery", "fmt": {"bix": 32,  "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 3 temperature"},
+    {"id": "VOLVO_ED_MOD_T4", "path": "Battery", "fmt": {"bix": 48,  "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 4 temperature"},
+    {"id": "VOLVO_ED_MOD_T5", "path": "Battery", "fmt": {"bix": 64,  "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 5 temperature"},
+    {"id": "VOLVO_ED_MOD_T6", "path": "Battery", "fmt": {"bix": 80,  "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 6 temperature"},
+    {"id": "VOLVO_ED_MOD_T7", "path": "Battery", "fmt": {"bix": 96,  "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 7 temperature"},
+    {"id": "VOLVO_ED_MOD_T8", "path": "Battery", "fmt": {"bix": 112, "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 8 temperature"},
+    {"id": "VOLVO_ED_MOD_T9", "path": "Battery", "fmt": {"bix": 128, "len": 16, "max": 511.9843, "min": -512, "div": 64, "sign": true, "unit": "celsius" }, "name": "Battery module 9 temperature"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0203"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ED_HV_A", "path": "Battery", "fmt": { "len": 16, "max": 1023.9687, "min": -1024, "div": 32, "sign": true, "unit": "amps" }, "name": "HV battery current"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0204"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_ED_HV_V", "path": "Battery", "fmt": {"bix": 64, "len": 16, "max": 1023.9843, "div": 64, "unit": "volts" }, "name": "HV battery voltage"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0207"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_ADC_V_MAX", "path": "Battery", "fmt": {           "len": 16, "max": 67035, "min": 1500, "add": 1500, "unit": "millivolts" }, "name": "Cell voltage reference, maximum"},
+    {"id": "VOLVO_ED_ADC_V_MIN", "path": "Battery", "fmt": {"bix": 16, "len": 16, "max": 67035, "min": 1500, "add": 1500, "unit": "millivolts" }, "name": "Cell voltage reference, minimum"},
+    {"id": "VOLVO_ED_ADC_V_AVG", "path": "Battery", "fmt": {"bix": 32, "len": 16, "max": 65535,                           "unit": "millivolts" }, "name": "Cell voltage reference, average"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0208"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_CELL_V1",  "path": "Battery.Cells", "fmt": {             "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 1 voltage"},
+    {"id": "VOLVO_ED_CELL_V2",  "path": "Battery.Cells", "fmt": {"bix": 16,   "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 2 voltage"},
+    {"id": "VOLVO_ED_CELL_V3",  "path": "Battery.Cells", "fmt": {"bix": 32,   "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 3 voltage"},
+    {"id": "VOLVO_ED_CELL_V4",  "path": "Battery.Cells", "fmt": {"bix": 48,   "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 4 voltage"},
+    {"id": "VOLVO_ED_CELL_V5",  "path": "Battery.Cells", "fmt": {"bix": 64,   "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 5 voltage"},
+    {"id": "VOLVO_ED_CELL_V6",  "path": "Battery.Cells", "fmt": {"bix": 80,   "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 6 voltage"},
+    {"id": "VOLVO_ED_CELL_V7",  "path": "Battery.Cells", "fmt": {"bix": 96,   "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 7 voltage"},
+    {"id": "VOLVO_ED_CELL_V8",  "path": "Battery.Cells", "fmt": {"bix": 112,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 8 voltage"},
+    {"id": "VOLVO_ED_CELL_V9",  "path": "Battery.Cells", "fmt": {"bix": 128,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 9 voltage"},
+    {"id": "VOLVO_ED_CELL_V10", "path": "Battery.Cells", "fmt": {"bix": 144,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 10 voltage"},
+    {"id": "VOLVO_ED_CELL_V11", "path": "Battery.Cells", "fmt": {"bix": 160,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 11 voltage"},
+    {"id": "VOLVO_ED_CELL_V12", "path": "Battery.Cells", "fmt": {"bix": 176,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 12 voltage"},
+    {"id": "VOLVO_ED_CELL_V13", "path": "Battery.Cells", "fmt": {"bix": 192,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 13 voltage"},
+    {"id": "VOLVO_ED_CELL_V14", "path": "Battery.Cells", "fmt": {"bix": 208,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 14 voltage"},
+    {"id": "VOLVO_ED_CELL_V15", "path": "Battery.Cells", "fmt": {"bix": 224,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 15 voltage"},
+    {"id": "VOLVO_ED_CELL_V16", "path": "Battery.Cells", "fmt": {"bix": 240,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 16 voltage"},
+    {"id": "VOLVO_ED_CELL_V17", "path": "Battery.Cells", "fmt": {"bix": 256,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 17 voltage"},
+    {"id": "VOLVO_ED_CELL_V18", "path": "Battery.Cells", "fmt": {"bix": 272,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 18 voltage"},
+    {"id": "VOLVO_ED_CELL_V19", "path": "Battery.Cells", "fmt": {"bix": 288,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 19 voltage"},
+    {"id": "VOLVO_ED_CELL_V20", "path": "Battery.Cells", "fmt": {"bix": 304,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 20 voltage"},
+    {"id": "VOLVO_ED_CELL_V21", "path": "Battery.Cells", "fmt": {"bix": 320,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 21 voltage"},
+    {"id": "VOLVO_ED_CELL_V22", "path": "Battery.Cells", "fmt": {"bix": 336,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 22 voltage"},
+    {"id": "VOLVO_ED_CELL_V23", "path": "Battery.Cells", "fmt": {"bix": 352,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 23 voltage"},
+    {"id": "VOLVO_ED_CELL_V24", "path": "Battery.Cells", "fmt": {"bix": 368,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 24 voltage"},
+    {"id": "VOLVO_ED_CELL_V25", "path": "Battery.Cells", "fmt": {"bix": 384,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 25 voltage"},
+    {"id": "VOLVO_ED_CELL_V26", "path": "Battery.Cells", "fmt": {"bix": 400,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 26 voltage"},
+    {"id": "VOLVO_ED_CELL_V27", "path": "Battery.Cells", "fmt": {"bix": 416,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 27 voltage"},
+    {"id": "VOLVO_ED_CELL_V28", "path": "Battery.Cells", "fmt": {"bix": 432,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 28 voltage"},
+    {"id": "VOLVO_ED_CELL_V29", "path": "Battery.Cells", "fmt": {"bix": 448,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 29 voltage"},
+    {"id": "VOLVO_ED_CELL_V30", "path": "Battery.Cells", "fmt": {"bix": 464,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 30 voltage"},
+    {"id": "VOLVO_ED_CELL_V31", "path": "Battery.Cells", "fmt": {"bix": 480,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 31 voltage"},
+    {"id": "VOLVO_ED_CELL_V32", "path": "Battery.Cells", "fmt": {"bix": 496,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 32 voltage"},
+    {"id": "VOLVO_ED_CELL_V33", "path": "Battery.Cells", "fmt": {"bix": 512,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 33 voltage"},
+    {"id": "VOLVO_ED_CELL_V34", "path": "Battery.Cells", "fmt": {"bix": 528,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 34 voltage"},
+    {"id": "VOLVO_ED_CELL_V35", "path": "Battery.Cells", "fmt": {"bix": 544,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 35 voltage"},
+    {"id": "VOLVO_ED_CELL_V36", "path": "Battery.Cells", "fmt": {"bix": 560,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 36 voltage"},
+    {"id": "VOLVO_ED_CELL_V37", "path": "Battery.Cells", "fmt": {"bix": 576,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 37 voltage"},
+    {"id": "VOLVO_ED_CELL_V38", "path": "Battery.Cells", "fmt": {"bix": 592,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 38 voltage"},
+    {"id": "VOLVO_ED_CELL_V39", "path": "Battery.Cells", "fmt": {"bix": 608,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 39 voltage"},
+    {"id": "VOLVO_ED_CELL_V40", "path": "Battery.Cells", "fmt": {"bix": 624,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 40 voltage"},
+    {"id": "VOLVO_ED_CELL_V41", "path": "Battery.Cells", "fmt": {"bix": 640,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 41 voltage"},
+    {"id": "VOLVO_ED_CELL_V42", "path": "Battery.Cells", "fmt": {"bix": 656,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 42 voltage"},
+    {"id": "VOLVO_ED_CELL_V43", "path": "Battery.Cells", "fmt": {"bix": 672,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 43 voltage"},
+    {"id": "VOLVO_ED_CELL_V44", "path": "Battery.Cells", "fmt": {"bix": 688,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 44 voltage"},
+    {"id": "VOLVO_ED_CELL_V45", "path": "Battery.Cells", "fmt": {"bix": 704,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 45 voltage"},
+    {"id": "VOLVO_ED_CELL_V46", "path": "Battery.Cells", "fmt": {"bix": 720,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 46 voltage"},
+    {"id": "VOLVO_ED_CELL_V47", "path": "Battery.Cells", "fmt": {"bix": 736,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 47 voltage"},
+    {"id": "VOLVO_ED_CELL_V48", "path": "Battery.Cells", "fmt": {"bix": 752,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 48 voltage"},
+    {"id": "VOLVO_ED_CELL_V49", "path": "Battery.Cells", "fmt": {"bix": 768,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 49 voltage"},
+    {"id": "VOLVO_ED_CELL_V50", "path": "Battery.Cells", "fmt": {"bix": 784,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 50 voltage"},
+    {"id": "VOLVO_ED_CELL_V51", "path": "Battery.Cells", "fmt": {"bix": 800,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 51 voltage"},
+    {"id": "VOLVO_ED_CELL_V52", "path": "Battery.Cells", "fmt": {"bix": 816,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 52 voltage"},
+    {"id": "VOLVO_ED_CELL_V53", "path": "Battery.Cells", "fmt": {"bix": 832,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 53 voltage"},
+    {"id": "VOLVO_ED_CELL_V54", "path": "Battery.Cells", "fmt": {"bix": 848,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 54 voltage"},
+    {"id": "VOLVO_ED_CELL_V55", "path": "Battery.Cells", "fmt": {"bix": 864,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 55 voltage"},
+    {"id": "VOLVO_ED_CELL_V56", "path": "Battery.Cells", "fmt": {"bix": 880,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 56 voltage"},
+    {"id": "VOLVO_ED_CELL_V57", "path": "Battery.Cells", "fmt": {"bix": 896,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 57 voltage"},
+    {"id": "VOLVO_ED_CELL_V58", "path": "Battery.Cells", "fmt": {"bix": 912,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 58 voltage"},
+    {"id": "VOLVO_ED_CELL_V59", "path": "Battery.Cells", "fmt": {"bix": 928,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 59 voltage"},
+    {"id": "VOLVO_ED_CELL_V60", "path": "Battery.Cells", "fmt": {"bix": 944,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 60 voltage"},
+    {"id": "VOLVO_ED_CELL_V61", "path": "Battery.Cells", "fmt": {"bix": 960,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 61 voltage"},
+    {"id": "VOLVO_ED_CELL_V62", "path": "Battery.Cells", "fmt": {"bix": 976,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 62 voltage"},
+    {"id": "VOLVO_ED_CELL_V63", "path": "Battery.Cells", "fmt": {"bix": 992,  "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 63 voltage"},
+    {"id": "VOLVO_ED_CELL_V64", "path": "Battery.Cells", "fmt": {"bix": 1008, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 64 voltage"},
+    {"id": "VOLVO_ED_CELL_V65", "path": "Battery.Cells", "fmt": {"bix": 1024, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 65 voltage"},
+    {"id": "VOLVO_ED_CELL_V66", "path": "Battery.Cells", "fmt": {"bix": 1040, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 66 voltage"},
+    {"id": "VOLVO_ED_CELL_V67", "path": "Battery.Cells", "fmt": {"bix": 1056, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 67 voltage"},
+    {"id": "VOLVO_ED_CELL_V68", "path": "Battery.Cells", "fmt": {"bix": 1072, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 68 voltage"},
+    {"id": "VOLVO_ED_CELL_V69", "path": "Battery.Cells", "fmt": {"bix": 1088, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 69 voltage"},
+    {"id": "VOLVO_ED_CELL_V70", "path": "Battery.Cells", "fmt": {"bix": 1104, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 70 voltage"},
+    {"id": "VOLVO_ED_CELL_V71", "path": "Battery.Cells", "fmt": {"bix": 1120, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 71 voltage"},
+    {"id": "VOLVO_ED_CELL_V72", "path": "Battery.Cells", "fmt": {"bix": 1136, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 72 voltage"},
+    {"id": "VOLVO_ED_CELL_V73", "path": "Battery.Cells", "fmt": {"bix": 1152, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 73 voltage"},
+    {"id": "VOLVO_ED_CELL_V74", "path": "Battery.Cells", "fmt": {"bix": 1168, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 74 voltage"},
+    {"id": "VOLVO_ED_CELL_V75", "path": "Battery.Cells", "fmt": {"bix": 1184, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 75 voltage"},
+    {"id": "VOLVO_ED_CELL_V76", "path": "Battery.Cells", "fmt": {"bix": 1200, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 76 voltage"},
+    {"id": "VOLVO_ED_CELL_V77", "path": "Battery.Cells", "fmt": {"bix": 1216, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 77 voltage"},
+    {"id": "VOLVO_ED_CELL_V78", "path": "Battery.Cells", "fmt": {"bix": 1232, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 78 voltage"},
+    {"id": "VOLVO_ED_CELL_V79", "path": "Battery.Cells", "fmt": {"bix": 1248, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 79 voltage"},
+    {"id": "VOLVO_ED_CELL_V80", "path": "Battery.Cells", "fmt": {"bix": 1264, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 80 voltage"},
+    {"id": "VOLVO_ED_CELL_V81", "path": "Battery.Cells", "fmt": {"bix": 1280, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 81 voltage"},
+    {"id": "VOLVO_ED_CELL_V82", "path": "Battery.Cells", "fmt": {"bix": 1296, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 82 voltage"},
+    {"id": "VOLVO_ED_CELL_V83", "path": "Battery.Cells", "fmt": {"bix": 1312, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 83 voltage"},
+    {"id": "VOLVO_ED_CELL_V84", "path": "Battery.Cells", "fmt": {"bix": 1328, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 84 voltage"},
+    {"id": "VOLVO_ED_CELL_V85", "path": "Battery.Cells", "fmt": {"bix": 1344, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 85 voltage"},
+    {"id": "VOLVO_ED_CELL_V86", "path": "Battery.Cells", "fmt": {"bix": 1360, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 86 voltage"},
+    {"id": "VOLVO_ED_CELL_V87", "path": "Battery.Cells", "fmt": {"bix": 1376, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 87 voltage"},
+    {"id": "VOLVO_ED_CELL_V88", "path": "Battery.Cells", "fmt": {"bix": 1392, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 88 voltage"},
+    {"id": "VOLVO_ED_CELL_V89", "path": "Battery.Cells", "fmt": {"bix": 1408, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 89 voltage"},
+    {"id": "VOLVO_ED_CELL_V90", "path": "Battery.Cells", "fmt": {"bix": 1424, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 90 voltage"},
+    {"id": "VOLVO_ED_CELL_V91", "path": "Battery.Cells", "fmt": {"bix": 1440, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 91 voltage"},
+    {"id": "VOLVO_ED_CELL_V92", "path": "Battery.Cells", "fmt": {"bix": 1456, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 92 voltage"},
+    {"id": "VOLVO_ED_CELL_V93", "path": "Battery.Cells", "fmt": {"bix": 1472, "len": 16, "max": 65.535, "div": 1000, "unit": "volts" }, "name": "Cell 93 voltage"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0209"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_ISO",      "path": "Battery", "fmt": {           "len": 16, "max": 65534, "nullmax": 65534, "unit": "kiloohms" }, "name": "HV isolation resistance"},
+    {"id": "VOLVO_ED_DC_FAULT", "path": "Battery", "fmt": {"bix": 16, "len": 8,  "max": 255,                     "unit": "scalar"   }, "name": "HV DC fault code"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "030B"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_ED_CONT_LEFT", "path": "Battery", "fmt": {"bix": 8, "len": 24, "max": 16777215, "unit": "scalar" }, "name": "HV contactor cycles remaining"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "030C"}, "freq": 600,
+  "signals": [
+    {"id": "VOLVO_ED_CONT_MAX", "path": "Battery", "fmt": {"bix": 8, "len": 24, "max": 16777215, "unit": "scalar" }, "name": "HV contactor cycles, maximum"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "0310"}, "freq": 60,
+  "signals": [
+    {"id": "VOLVO_ED_HV_OFF_TIME", "path": "Battery", "fmt": {"bix": 8,   "len": 24, "max": 16777215,              "unit": "seconds"     }, "name": "Time with HV off"},
+    {"id": "VOLVO_ED_SOH",         "path": "Battery", "fmt": {"bix": 80,  "len": 8,  "max": 255,                   "unit": "scalar"      }, "name": "State of health, raw"},
+    {"id": "VOLVO_ED_CAP_AS_MAX",  "path": "Battery", "fmt": {"bix": 104, "len": 16, "max": 18.2041,  "div": 3600, "unit": "ampereHours" }, "name": "Cell capacity, maximum"},
+    {"id": "VOLVO_ED_CAP_AS_MIN",  "path": "Battery", "fmt": {"bix": 136, "len": 16, "max": 18.2041,  "div": 3600, "unit": "ampereHours" }, "name": "Cell capacity, minimum"},
+    {"id": "VOLVO_ED_CAP_AS_AVG",  "path": "Battery", "fmt": {"bix": 152, "len": 16, "max": 18.2041,  "div": 3600, "unit": "ampereHours" }, "name": "Cell capacity, average"}
+  ]},
+{ "hdr": "7E7", "rax": "7EF", "fcm1": true, "dbg": true, "cmd": {"22": "D000"}, "freq": 10,
+  "signals": [
+    {"id": "VOLVO_ED_CONTACTOR", "path": "Battery", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "HV contactor state"}
+  ]},
+{ "hdr": "D016", "rax": "1EC02E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "2B06"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FL_WHL_SPD_V2", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC02E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "2B07"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FR_WHL_SPD_V2", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC02E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "2B08"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RL_WHL_SPD_V2", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC02E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "2B09"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RR_WHL_SPD_V2", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC04E80", "pri": "1D", "tst": "02", "fcm1": true, "dbg": true, "cmd": {"22": "0303"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_COMP_INLET_SENS_P",      "path": "Engine", "fmt": {           "len": 16, "max": 65.53,             "div": 1000,             "unit": "bars"    }, "name": "Compressor inlet sensor pressure"},
+    {"id": "VOLVO_COMP_INLET_SENS_T_D016", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 615,   "min": -40, "div": 100,  "add": -40, "unit": "celsius" }, "name": "Compressor inlet sensor temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC04E80", "pri": "1D", "tst": "02", "fcm1": true, "dbg": true, "cmd": {"22": "0329"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_COMP_OUTLET_SENS_P",      "path": "Engine", "fmt": {           "len": 16, "max": 65.53,             "div": 1000,             "unit": "bars"    }, "name": "Compressor outlet sensor pressure"},
+    {"id": "VOLVO_COMP_OUTLET_SENS_T_D016", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 615,   "min": -40, "div": 100,  "add": -40, "unit": "celsius" }, "name": "Compressor outlet sensor temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC04E80", "pri": "1D", "tst": "02", "fcm1": true, "dbg": true, "cmd": {"22": "032B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_CLT_HEATER_T",        "path": "Engine", "fmt": {           "len": 16, "max": 615, "min": -40, "div": 100, "add": -40, "unit": "celsius" }, "name": "High voltage coolant heater A, inlet temperature"},
+    {"id": "VOLVO_HIGH_V_CLT_HEATER_OUTLET_T", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 615, "min": -40, "div": 100, "add": -40, "unit": "celsius" }, "name": "High voltage coolant heater A, outlet temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC04E80", "pri": "1D", "tst": "02", "fcm1": true, "dbg": true, "cmd": {"22": "032F"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_AC_COMP_MODULE_SPD",  "path": "Movement", "fmt": {"bix": 16, "len": 8, "max": 12750, "mul": 50, "unit": "rpm"    }, "name": "Air conditioning compressor module a speed"},
+    {"id": "VOLVO_AC_COMP_MODULE_STAT", "path": "Engine",   "fmt": {"bix": 24, "len": 8, "max": 255,              "unit": "scalar" }, "name": "Air conditioning compressor module a status"}
+  ]},
+{ "hdr": "D016", "rax": "1EC04E80", "pri": "1D", "tst": "02", "fcm1": true, "dbg": true, "cmd": {"22": "0331"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AC_COMP_MODULE", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "amps" }, "name": "Air conditioning compressor module A current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "033E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BOOST_AIR_P_AFTER", "path": "Engine", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "kilopascal" }, "name": "Boost air pressure after turbocharger"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "0341"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_BOOST_AIR_T", "path": "Engine", "fmt": { "len": 8, "max": 119, "min": -40, "mul": 5, "div": 8, "add": -40, "unit": "celsius" }, "name": "Boost air temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "D9EE"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_TURBO_BYPASS_VLV", "path": "Engine", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "Turbo bypass valve opened"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "DC80"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_WASTEGATE_POS", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Wastegate position"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE34"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AC_P", "path": "Engine", "fmt": { "len": 16, "max": 65534, "min": -65536, "mul": 2, "sign": true, "unit": "kilopascal" }, "name": "Air conditioning pressure"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE36"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_COMP_INLET_SENS_T", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Compressor inlet sensor temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE37"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_EOP", "path": "Engine", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "kilopascal" }, "name": "Engine oil pressure"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE38"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_COMP_OUTLET_SENS_T", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Compressor outlet sensor temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE3E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CHG_AIR_P", "path": "Battery", "fmt": { "len": 16, "max": 511, "mul": 0.007812, "unit": "kilopascal" }, "name": "Charge air pressure"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE40"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_WATER_COOLED_T", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Water cooled condenser outlet sensor temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE46"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EXTERNAL_T_SENS", "path": "Battery", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "External temperature sensor, HV battery cooling module"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE47"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_OUTSIDE_HEAT_T", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Outside heat exchanger outlet sensor temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE48"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_OUTSIDE_HEAT_P", "path": "Engine", "fmt": { "len": 32, "max": 2147483647, "min": -2147483648, "sign": true, "unit": "unknown" }, "name": "Outside heat exchanger outlet sensor pressure"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE4F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_HIGH_P", "path": "Fuel", "fmt": { "len": 16, "max": 32.76, "div": 2000, "unit": "unknown" }, "name": "Fuel high pressure"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE57"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_LOW_P", "path": "Fuel", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "kilopascal" }, "name": "Fuel low pressure"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE58"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EOT", "path": "Engine", "fmt": { "len": 16, "max": 6280, "min": -273, "div": 10, "add": -273.14, "unit": "celsius" }, "name": "Engine oil temperature", "suggestedMetric": "engineOilTemperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE62"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RADIATOR_COOLING_FAN_1", "path": "Movement", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "percent" }, "name": "Radiator cooling fan 1, requested speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EE6F"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ENG_CLT_FAN", "path": "Engine",         "fmt": { "len": 16, "max": 655,             "div": 100, "unit": "percent" }, "name": "Engine coolant fan"},
+    {"id": "VOLVO_APP_POS",     "path": "Control.Pedals", "fmt": { "len": 8,  "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Accelerator pedal position"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EF71"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_MOTOR_CLT_PMP", "path": "Engine", "fmt": {           "len": 8,  "max": 127,   "min": -128, "sign": true, "unit": "rpm"    }, "name": "High voltage motor coolant pump"},
+    {"id": "VOLVO_MIS_3",                "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 65535,                            "unit": "scalar" }, "name": "Misfires, cylinder 3"},
+    {"id": "VOLVO_MIS_2",                "path": "Engine", "fmt": {"bix": 32, "len": 16, "max": 65535,                            "unit": "scalar" }, "name": "Misfires, cylinder 2"}
+  ]},
+{ "hdr": "D016", "rax": "1EC60E80", "pri": "1D", "tst": "30", "fcm1": true, "dbg": true, "cmd": {"22": "EF73"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_ED_ECT_2", "path": "Engine", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "High voltage ED coolant temperature 2"}
+  ]},
+{ "hdr": "D016", "rax": "1EC62E80", "pri": "1D", "tst": "31", "fcm1": true, "dbg": true, "cmd": {"22": "2B06"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FL_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC62E80", "pri": "1D", "tst": "31", "fcm1": true, "dbg": true, "cmd": {"22": "2B07"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_FR_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC62E80", "pri": "1D", "tst": "31", "fcm1": true, "dbg": true, "cmd": {"22": "2B08"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RL_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC62E80", "pri": "1D", "tst": "31", "fcm1": true, "dbg": true, "cmd": {"22": "2B09"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_RR_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC62E80", "pri": "1D", "tst": "31", "fcm1": true, "dbg": true, "cmd": {"22": "FEE7"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_FL_BRAKE_DISC_T", "path": "Control", "fmt": {           "len": 16, "max": 6553, "div": 10, "unit": "celsius" }, "name": "Front left brake disc temperature"},
+    {"id": "VOLVO_FR_BRAKE_DISC_T", "path": "Control", "fmt": {"bix": 16, "len": 16, "max": 6553, "div": 10, "unit": "celsius" }, "name": "Front right brake disc temperature"},
+    {"id": "VOLVO_RL_BRAKE_DISC_T", "path": "Control", "fmt": {"bix": 32, "len": 16, "max": 6553, "div": 10, "unit": "celsius" }, "name": "Rear left brake disc temperature"},
+    {"id": "VOLVO_RR_BRAKE_DISC_T", "path": "Control", "fmt": {"bix": 48, "len": 16, "max": 6553, "div": 10, "unit": "celsius" }, "name": "Rear right brake disc temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "D900"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_D016_2", "path": "Transmission", "fmt": { "len": 16, "max": 32767000, "min": -32768000, "mul": 1000, "sign": true, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "D90D"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_D016", "path": "Transmission", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "D926"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CLU_1_T", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Clutch 1 temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "D940"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CLU_2_T", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Clutch 2 temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "D96B"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CLU_ACTUATOR_1_T", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Clutch actuator 1 temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "D974"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_CLU_ACTUATOR_2_T", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Clutch actuator 2 temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA34"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_RAT_ACT", "path": "Transmission", "fmt": { "len": 16, "max": 15.99, "mul": 61, "div": 250000, "unit": "scalar" }, "name": "Gear ratio, actual"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA38"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_DRIVEN_SHFT_SPD", "path": "Movement", "fmt": { "len": 16, "max": 65535, "unit": "rpm" }, "name": "Driven shaft speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA3B"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA3C"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_TQ_CONV_LOCK", "path": "Transmission", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Torque converter lock"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA47"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR_RAT_REQ", "path": "Transmission", "fmt": { "len": 16, "max": 65.53, "div": 1000, "unit": "scalar" }, "name": "Gear ratio, requested"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA85"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_GEAR", "path": "Transmission", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "scalar" }, "name": "Gear"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DA89"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ENG_TQ", "path": "Engine", "fmt": { "len": 16, "max": 6041, "min": -512, "div": 10, "add": -512, "unit": "newtonMeters" }, "name": "Engine torque"}
+  ]},
+{ "hdr": "D016", "rax": "1EC64E80", "pri": "1D", "tst": "32", "fcm1": true, "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE15"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MAIN_CHARGER_CURRENT", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "amps" }, "name": "Main charger current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE16"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DC_CHARGER_CURRENT", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "amps" }, "name": "DC charger current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE17"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DC_CHARGER_V", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "volts" }, "name": "DC charger voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE19"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_OBC_T", "path": "Engine", "fmt": { "len": 8, "max": 127, "min": -128, "sign": true, "unit": "celsius" }, "name": "On-board charger module temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE1C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MAIN_CHARGER_V", "path": "Battery", "fmt": { "len": 16, "max": 65535, "unit": "volts" }, "name": "Main charger voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE1D"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CHG_ST", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Charging state"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE8C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CHG_SOCKET_LOCKED", "path": "Battery", "name": "Charging socket lock", "fmt": {"len": 8, "map": {
+          "1": { "description": "Unlocked", "value": "UNLOCKED" },
+          "2": { "description": "Locked",   "value": "LOCKED" }
+        }}
+    }
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EE8D"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CHARGER_CABLE", "path": "Battery", "fmt": { "len": 16, "max": 6143, "min": -410, "div": 10, "add": -410, "unit": "amps" }, "name": "Charger cable current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC68E80", "pri": "1D", "tst": "34", "fcm1": true, "dbg": true, "cmd": {"22": "EEB6"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AVG_CHG_TIME_LEFT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "minutes" }, "name": "Average charging time left"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4801"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_ST_CHG", "path": "Battery", "fmt": { "len": 16, "max": 131, "div": 500, "unit": "percent" }, "name": "High voltage battery state of charge", "suggestedMetric": "stateOfCharge"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4802"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_CURRENT", "path": "Battery", "fmt": { "len": 16, "max": 655, "min": -655, "div": 50, "sign": true, "unit": "amps" }, "name": "High voltage battery current", "suggestedMetric": "tractionBatteryCurrent"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4803"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HVBAT_V", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "High voltage battery voltage", "suggestedMetric": "tractionBatteryVoltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4804"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_INLET_ECT",   "path": "Battery", "fmt": { "len": 8,  "max": 205,  "min": -50,              "add": -50,               "unit": "celsius" }, "name": "High voltage battery, inlet coolant temperature"},
+    {"id": "VOLVO_HVBAT_CLT_INLET_T", "path": "Battery", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10,             "sign": true, "unit": "celsius" }, "name": "High voltage battery coolant inlet temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4808"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_IEM_FUSE_V", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "High voltage battery, IEM fuse voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4809"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_IGM_FUSE_V", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "High voltage battery, IGM fuse voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "480A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_HVCH_FUSE_V", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "High voltage battery, high-voltage coolant heater fuse voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "480B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_OBC_FUSE_V", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "High voltage battery, OBC fuse voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4857"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_CONTACTOR_V", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "volts" }, "name": "High voltage battery contactor voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4858"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_V_IHFA_FUSE", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "volts" }, "name": "High voltage battery - voltage at IHFA fuse"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4859"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_V_IEM_FUSE", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "volts" }, "name": "High voltage battery - voltage at IEM fuse"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4866"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_CLT_PMP_SPD", "path": "Battery", "fmt": { "len": 8, "max": 6120, "mul": 24, "unit": "rpm" }, "name": "High voltage battery, coolant pump speed, requested"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4867"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_CLT_PMP_SPD_ACT", "path": "Battery", "fmt": { "len": 8, "max": 6120, "mul": 24, "unit": "rpm" }, "name": "High voltage battery, coolant pump speed, actual"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "489C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CHG_POWER_LIM", "path": "Battery", "fmt": { "len": 24, "max": 4294, "mul": 4, "div": 15625, "unit": "kilowatts" }, "name": "Charge power limit"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "489E"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_DCHG_POWER_LIM", "path": "Battery", "fmt": { "len": 24, "max": 4294, "mul": 4, "div": 15625, "unit": "kilowatts" }, "name": "Discharge power limit"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "491B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_AVG_T", "path": "Battery", "fmt": { "len": 16, "max": 605, "min": -50, "div": 100, "add": -50, "unit": "celsius" }, "name": "High voltage battery, average temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4945"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_MAX_T", "path": "Battery", "fmt": {"bix": 8, "len": 16, "max": 605, "min": -50, "div": 100, "add": -50, "unit": "celsius" }, "name": "High voltage battery, max temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4946"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_12V_BAT_ST_CHG", "path": "Battery", "fmt": { "len": 16, "max": 4294, "mul": 1024, "div": 15625, "unit": "percent" }, "name": "12V battery state of charge"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "496D"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_ST_HEALTH", "path": "Battery", "fmt": { "len": 32, "max": 42949672, "div": 100, "unit": "percent" }, "name": "High voltage battery state of health", "suggestedMetric": "stateOfHealth"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "497C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_CELL_VOLTAGES", "path": "Battery", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "volts" }, "name": "High voltage battery cell voltage sum"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "498B"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUSE_DC_CHG_V", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "volts" }, "name": "Fuse DC charging voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4990"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_CLT_OUTLET_T", "path": "Battery", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "celsius" }, "name": "High voltage battery coolant outlet temperature"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4A58"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVBAT_NEGATIVE_V", "path": "Battery", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "volts" }, "name": "High voltage battery negative contactor voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "4A88"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_ACT_POWER", "path": "Engine", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "kilowatts" }, "name": "Actual power"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6AE80", "pri": "1D", "tst": "35", "fcm1": true, "dbg": true, "cmd": {"22": "F442"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ENG_CTRL_MODULE_SUP_V", "path": "Battery", "fmt": { "len": 16, "max": 65.53, "div": 1000, "unit": "volts" }, "name": "Control module supply voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "4A00"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ERAD_MOTOR_WINDING_T_1", "path": "Engine", "fmt": { "len": 32, "max": 214748364, "min": -214748364, "div": 10, "sign": true, "unit": "celsius" }, "name": "Electric rear axle drive motor winding temperature sensor 1"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "4A01"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ERAD_MOTOR_WINDING_T_2", "path": "Engine", "fmt": { "len": 32, "max": 214748364, "min": -214748364, "div": 10, "sign": true, "unit": "celsius" }, "name": "Electric rear axle drive motor winding temperature sensor 2"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "4A0E"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ERAD_MOTOR_SPD", "path": "Movement", "fmt": { "len": 32, "max": 214748364, "min": -214748364, "div": 10, "sign": true, "unit": "rpm" }, "name": "Electric rear axle drive motor speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "985C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_SYSTEM_V", "path": "Battery", "fmt": { "len": 16, "max": 16383, "div": 4, "unit": "volts" }, "name": "High voltage system voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "985E"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ELEC_DRIVETRAIN_ECT",     "path": "Engine", "fmt": {           "len": 32, "max": 2147483607, "min": -2147483688, "add": -40, "sign": true, "unit": "celsius" }, "name": "Electric drivetrain coolant temperature, IEM inlet"},
+    {"id": "VOLVO_ELEC_DRIVETRAIN_ECT_IEM", "path": "Engine", "fmt": {"bix": 32, "len": 32, "max": 2147483607, "min": -2147483688, "add": -40, "sign": true, "unit": "celsius" }, "name": "Electric drivetrain coolant temperature, IEM outlet"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "9861"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_SYSTEM_V2", "path": "Engine", "fmt": { "len": 16, "max": 3316, "min": -3236, "div": 10, "add": 40, "sign": true, "unit": "amps" }, "name": "High voltage system current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_TOT_DIST", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Total distance"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "EE09"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ERAD_CALC_TQ_D016", "path": "Engine", "fmt": { "len": 16, "max": 253952, "min": -8188, "mul": 4, "add": -8188, "unit": "newtonMeters" }, "name": "ERAD calculated torque"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "EF12"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ERAD_CALC_TQ", "path": "Engine", "fmt": { "len": 16, "max": 253952, "min": -8188, "mul": 4, "add": -8188, "unit": "newtonMeters" }, "name": "Electric rear axle drive calculated torque"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "EF13"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_SYSTEM", "path": "Engine", "fmt": { "len": 8, "max": 260, "min": -250, "mul": 2, "add": -250, "unit": "amps" }, "name": "High voltage system current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC6EE80", "pri": "1D", "tst": "37", "fcm1": true, "dbg": true, "cmd": {"22": "F40D"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_VSS", "path": "Movement", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Vehicle speed"}
+  ]},
+{ "hdr": "D016", "rax": "1EC70E80", "pri": "1D", "tst": "38", "fcm1": true, "dbg": true, "cmd": {"22": "1946"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_MODULE_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Module current"}
+  ]},
+{ "hdr": "D016", "rax": "1EC70E80", "pri": "1D", "tst": "38", "fcm1": true, "dbg": true, "cmd": {"22": "D111"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_MODULE_V", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Module voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1EC70E80", "pri": "1D", "tst": "38", "fcm1": true, "dbg": true, "cmd": {"22": "D920"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_CLU_PMP_DUTY", "path": "Transmission", "fmt": { "len": 8, "max": 255, "unit": "percent" }, "name": "Clutch pump duty"}
+  ]},
+{ "hdr": "D016", "rax": "1EC70E80", "pri": "1D", "tst": "38", "fcm1": true, "dbg": true, "cmd": {"22": "DD01"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DEM_ODO", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Total distance", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "D016", "rax": "1ED24E80", "pri": "1D", "tst": "92", "fcm1": true, "dbg": true, "cmd": {"22": "49D4"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_ELECTRICAL_FRONT", "path": "Engine", "fmt": { "len": 32, "max": 2147482623, "min": -2147484672, "add": -1024, "sign": true, "unit": "newtonMeters" }, "name": "Electric front axle drive torque"}
+  ]},
+{ "hdr": "D016", "rax": "1ED24E80", "pri": "1D", "tst": "92", "fcm1": true, "dbg": true, "cmd": {"22": "985C"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_SYSTEM_V_D016", "path": "Battery", "fmt": { "len": 16, "max": 16383, "div": 4, "unit": "volts" }, "name": "High voltage system voltage"}
+  ]},
+{ "hdr": "D016", "rax": "1ED24E80", "pri": "1D", "tst": "92", "fcm1": true, "dbg": true, "cmd": {"22": "985E"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ELEC_DRIVETRAIN_ECT_IHFA",        "path": "Engine", "fmt": {           "len": 32, "max": 2147483607, "min": -2147483688, "add": -40, "sign": true, "unit": "celsius" }, "name": "Electric drivetrain coolant temperature, IHFA inlet"},
+    {"id": "VOLVO_ELEC_DRIVETRAIN_ECT_IHFA_OUTLET", "path": "Engine", "fmt": {"bix": 32, "len": 32, "max": 2147483607, "min": -2147483688, "add": -40, "sign": true, "unit": "celsius" }, "name": "Electric drivetrain coolant temperature, IHFA outlet"}
+  ]},
+{ "hdr": "D016", "rax": "1ED24E80", "pri": "1D", "tst": "92", "fcm1": true, "dbg": true, "cmd": {"22": "9861"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HIGH_V_SYSTEM_CURRENT", "path": "Engine", "fmt": { "len": 16, "max": 3316, "min": -3236, "div": 10, "add": 40, "sign": true, "unit": "amps" }, "name": "High voltage system current"}
+  ]},
+{ "hdr": "D018", "rax": "1F002E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "61BB"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_V2", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "D018", "rax": "1F002E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "D903"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_DIST_SINCE_SERVICE", "path": "Trips",  "fmt": {           "len": 16, "max": 65535, "unit": "kilometers" }, "name": "Distance since last service"},
+    {"id": "VOLVO_DAYS_SINCE_SERVICE", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 65535, "unit": "unknown"    }, "name": "Days since last service"},
+    {"id": "VOLVO_MOTOR_HOURS_SINCE",  "path": "Engine", "fmt": {"bix": 32, "len": 16, "max": 65535, "unit": "hours"      }, "name": "Motor hours since last service"}
+  ]},
+{ "hdr": "D018", "rax": "1F002E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "D906"}, "freq": 30,
+  "signals": [
+    {"id": "VOLVO_ODO_LAST_SERVICE", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer at last service"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "4025"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AVG_STATIC_LOW_RANGE", "path": "Battery", "fmt": { "len": 16, "max": 65024, "min": -511, "add": -511, "unit": "milliamps" }, "name": "Average static low range battery current"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "4028"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_ST_CHG", "path": "Battery", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "percent" }, "name": "Battery state of charge"},
+    {"id": "VOLVO_SOC",        "path": "Battery", "fmt": { "len": 16, "max": 100,  "div": 10, "unit": "percent" }, "name": "State of charge"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "4090"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_BAT_CURRENT", "path": "Battery", "fmt": { "len": 16, "max": 3583, "min": -512, "div": 16, "add": -512, "unit": "amps" }, "name": "Battery current"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "40CD"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_BAT_V", "path": "Battery", "fmt": { "len": 16, "max": 1643, "div": 40, "add": 5, "unit": "volts" }, "name": "Battery voltage", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "40D3"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_AUXILIARY_BAT_T", "path": "Battery", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Auxiliary battery temperature"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "4112"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AUXILIARY_BAT", "path": "Battery", "fmt": { "len": 8, "max": 128, "min": -127, "add": -127, "unit": "amps" }, "name": "Auxiliary battery current"}
+  ]},
+{ "hdr": "D01A", "rax": "1F402E80", "pri": "1D", "tst": "01", "fcm1": true, "dbg": true, "cmd": {"22": "417E"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_AUXILIARY_BAT_V", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Auxiliary battery voltage"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "4336"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_AUXILIARY_WATER_PMP", "path": "Climate", "fmt": { "len": 8, "max": 255, "unit": "percent" }, "name": "Auxiliary water pump duty cycle"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "4337"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HEAT_EXCHANGER_T_V_2", "path": "Climate", "fmt": { "len": 8, "max": 406, "min": -409, "mul": 16, "div": 5, "sign": true, "unit": "celsius" }, "name": "Heat exchanger temperature v.2"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "4344"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HVCH_CLT_INLET_T",  "path": "Climate", "fmt": {          "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "High-voltage coolant heater coolant inlet temperature"},
+    {"id": "VOLVO_HVCH_CLT_OUTLET_T", "path": "Climate", "fmt": {"bix": 8, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "High-voltage coolant heater coolant outlet temperature"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "4345"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_HVCH_CURRENT_CONS",   "path": "Climate", "fmt": {           "len": 8,  "max": 63.75,              "div": 4, "unit": "amps"  }, "name": "High-voltage coolant heater current consumption"},
+    {"id": "VOLVO_HVCH_POWER_CONS",     "path": "Climate", "fmt": {"bix": 8,  "len": 16, "max": 1310700, "mul": 20,           "unit": "watts" }, "name": "High-voltage coolant heater power consumption"},
+    {"id": "VOLVO_HVCH_REQUIRED_POWER", "path": "Climate", "fmt": {"bix": 24, "len": 16, "max": 1310700, "mul": 20,           "unit": "watts" }, "name": "High-voltage coolant heater required power consumption"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "43BE"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_FOH_INLET_WATER_T",  "path": "Climate", "fmt": {          "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Fuel-operated heater, inlet water temperature"},
+    {"id": "VOLVO_FOH_OUTLET_WATER_T", "path": "Climate", "fmt": {"bix": 8, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Fuel-operated heater, outlet water temperature"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "9820"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EVAPORATOR_T_V_2", "path": "Climate", "fmt": { "len": 8, "max": 406, "min": -409, "mul": 16, "div": 5, "sign": true, "unit": "celsius" }, "name": "Evaporator temperature v.2"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "9843"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_INTERIOR_T", "path": "Climate", "fmt": { "len": 8, "max": 144, "min": -60, "mul": 4, "div": 5, "add": -60, "unit": "celsius" }, "name": "Interior temperature"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "984F"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_EVAPORATOR_T", "path": "Climate", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "celsius" }, "name": "Evaporator temperature"}
+  ]},
+{ "hdr": "D01A", "rax": "1F422E80", "pri": "1D", "tst": "11", "fcm1": true, "dbg": true, "cmd": {"22": "9850"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_HEAT_EXCHANGER_T", "path": "Climate", "fmt": { "len": 16, "max": 3276, "min": -3276, "div": 10, "sign": true, "unit": "celsius" }, "name": "Heat exchanger temperature"}
+  ]},
+{ "hdr": "DA10", "rax": "10", "dbg": true, "cmd": {"22": "F40A"}, "freq": 1,
+  "signals": [
+    {"id": "VOLVO_FUEL_P_DA10", "path": "Fuel", "fmt": { "len": 8, "max": 255, "unit": "kilopascal" }, "name": "Fuel pressure"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "E004"}, "freq": 5,
+  "signals": [
+    {"id": "VOLVO_ATF_T_DA18", "path": "Transmission", "fmt": { "len": 16, "max": 32767, "min": -32768, "sign": true, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "E501"}, "freq": 0.25,
+  "signals": [
+    {"id": "VOLVO_TQ_ENG", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "newtonMeters" }, "name": "Torque from engine"}
+  ]}
+]
+}

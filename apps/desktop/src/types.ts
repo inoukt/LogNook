@@ -11,6 +11,71 @@ export type SignalDefinition = {
   description: string;
 };
 
+export type OemCandidate = {
+  candidate_id: string;
+  source_id: string;
+  family: string;
+  brand: string;
+  model_scope: string;
+  service: string;
+  identifier: string;
+  request_header: string;
+  response_header: string;
+  frequency_hz: number | null;
+  module_type: string;
+  category: string;
+  name: string;
+  signal_source_id: string;
+  bit_offset: number | null;
+  bit_length: number | null;
+  formula: string;
+  decoder_json: string;
+  unit: string;
+  year_filter_json: string;
+  ecu_filter: string;
+  source_blob_sha: string;
+  research_state: string;
+  vehicle_validation: string;
+  auto_request: boolean;
+  confidence: string;
+  notes: string;
+  suggested_metric: string;
+  source_scope: string;
+  applicability_specificity: number;
+  min_value: number | null;
+  max_value: number | null;
+  source_url: string | null;
+  license: string | null;
+  license_url: string | null;
+};
+
+export type OemCatalogPage = { total: number; offset: number; limit: number; candidates: OemCandidate[] };
+
+export type ScionMode21ProbeResult = {
+  vehicle_profile_id: string;
+  source_id: string;
+  source_blob_sha: string;
+  source_url: string;
+  license: string;
+  license_url: string;
+  request_service: number;
+  request_identifier: number;
+  request_header: string;
+  expected_response_header: string;
+  exact_adapter_command: string;
+  adapter: DeviceDescriptor;
+  protocol: string;
+  started_at_unix_ms: number;
+  latency_ms: number;
+  outcome: "positive" | "negative_response" | "no_response" | "malformed_response" | "wrong_responder" | "wrong_length" | "bad_decoder";
+  raw_response: string;
+  response_payload: number[];
+  decoded_signals: { candidate_id: string; name: string; unit: string; bit_offset: number; bit_length: number; formula: string; raw_value: number; value: number }[];
+  error: string | null;
+  evidence_saved: boolean;
+  evidence_save_error: string | null;
+};
+
 export type Sample = {
   elapsed_ns: number;
   wall_time_unix_ns: number;

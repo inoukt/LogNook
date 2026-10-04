@@ -6,3 +6,5 @@
 LogNook.zip
 LogNookAfterConnect.zip
 *.lognook
+__pycache__/
+*.py[cod]

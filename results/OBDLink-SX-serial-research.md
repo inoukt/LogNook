@@ -7,7 +7,7 @@ question. Nothing is inferred from clone hardware.
 
 Reviewed 2026-10-02. Governing document: **OBDLink Family Reference and Programming Manual
 (FRPM), Revision F, August 29, 2025** (78 pages; the manual's own page footer is `N of 78`).
-Page numbers in this brief are the manual's printed page numbers, not PDF page indices.
+Page numbers in this brief are the manual's printed page numbers, not PDF page indices. This report records the original Mode 01 MVP scope; root `AGENTS.md` is the current project-wide physical-test policy.
 
 ---
 
@@ -109,10 +109,7 @@ command is subject to change in future firmware updates… users should review t
 documentation to ensure accurate interpretation of the command's output." Treat `STI`/`STSN` as
 the parseable identity and `STDIX` as capture-and-log-only text.
 
-**Never send:** `STSDI` (one-time reprogramming of the device ID string, FRPM §8.4 p. 31),
-`AT@3` (store device identifier, §7.1 p. 9), `STPX` (transmit arbitrary message on the OBD bus,
-§8.6 p. 35), `ATPP xx SV/ON/OFF`, `STSBR`/`STWBR` (persist settings). All of these mutate
-non-volatile state. They are out of scope for a read-only acquisition MVP even on the bench.
+**Persistent adapter writes are out of scope for the initial acquisition MVP:** `STSDI` (one-time device-ID reprogramming), `AT@3` (store device identifier), `ATPP xx SV/ON/OFF`, and `STWBR` (persist settings). `STSBR` is a volatile baud transition and must be restored by any scoped test that uses it. `STPX` is different: it transmits an arbitrary OBD-bus payload but is not itself an NVM-write command. Never expose unrestricted raw STPX input. A separate test may use it only for an exact reviewed read request under root `AGENTS.md`; a state-changing payload requires explicit approval for that exact test, and flashing/programming is prohibited.
 
 ### 2.5 OBD request format, timeouts and error strings
 
@@ -245,8 +242,7 @@ port alone, so this stage needs no car.
 6. Confirm `STPRS`/`STPBRR` behaviour with no protocol open (`STPBRR` is documented to answer
    `?` when the protocol is AUTO).
 
-**Stage B — stationary 2014 Scion xB (2AZ-FE), key-on engine-off, then idle.** Read-only Mode
-01 only. Never Mode 04, never a write/actuator service, never `STPX`.
+**Stage B — stationary 2014 Scion xB baseline.** This original bench procedure covers generic Mode 01 acquisition only; its exclusion of Mode 04, actuator commands, OEM traffic, and STPX is scope-specific, not a project-wide ban on reviewed read probes. For a separate source-backed OEM read, follow root `AGENTS.md`; do not add it to normal polling. Any state-changing request requires the exact per-test approval gate, and flashing/programming remains prohibited.
 
 1. Open the session, run the PID scan, and record **every** responder and its bitmap.
 2. Select the ECU with the largest supported set, as the QSG recommends.

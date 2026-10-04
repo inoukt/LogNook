@@ -1,0 +1,799 @@
+{ "ecu": [
+    { "hdr": "688",  "type": "hvac" },
+    { "hdr": "743",  "type": "bodyControl" },
+    { "hdr": "773",  "type": "tpms" },
+    { "hdr": "7E0",  "type": "engine" },
+    { "hdr": "7E1",  "type": "transmission" },
+    { "hdr": "DA15", "type": "engine" },
+    { "hdr": "DA18", "type": "transmission" }
+  ],
+  "commands": [
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "23"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TP_FL", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure front left",    "suggestedMetric": "frontLeftTirePressure"},
+    {"id": "MITSUBISHI_TT_FL", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature front left", "suggestedMetric": "frontLeftTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "24"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TP_RL", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure rear left",    "suggestedMetric": "rearLeftTirePressure"},
+    {"id": "MITSUBISHI_TT_RL", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature rear left", "suggestedMetric": "rearLeftTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "25"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TP_RR", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure rear right",    "suggestedMetric": "rearRightTirePressure"},
+    {"id": "MITSUBISHI_TT_RR", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature rear right", "suggestedMetric": "rearRightTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "26"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TP_FR", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure front right",    "suggestedMetric": "frontRightTirePressure"},
+    {"id": "MITSUBISHI_TT_FR", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature front right", "suggestedMetric": "frontRightTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "27"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TP_SPARE", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure spare tire"},
+    {"id": "MITSUBISHI_TT_SPARE", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature spare tire"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "10"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_AC_INTERIOR_T",     "path": "Climate", "fmt": {           "len": 8, "max": 47.75, "min": -16,             "div": 4,   "add": -16, "unit": "celsius" }, "name": "Interior temperature"},
+    {"id": "MITSUBISHI_AC_AIR_THERMO_SNS", "path": "Climate", "fmt": {"bix": 8,  "len": 8, "max": 47.75, "min": -16,             "div": 4,   "add": -16, "unit": "celsius" }, "name": "Air temperature sensor"},
+    {"id": "MITSUBISHI_AC_PRES",           "path": "Climate", "fmt": {"bix": 16, "len": 8, "max": 3.3,               "mul": 3.3, "div": 255,             "unit": "unknown" }, "name": "Pressure"},
+    {"id": "MITSUBISHI_AC_SOLAR_SNS",      "path": "Climate", "fmt": {"bix": 24, "len": 8, "max": 5.5,               "mul": 5.5, "div": 255,             "unit": "scalar"  }, "name": "Solar sensor"},
+    {"id": "MITSUBISHI_AC_ECT",            "path": "Climate", "fmt": {"bix": 32, "len": 8, "max": 215,   "min": -40,                         "add": -40, "unit": "celsius" }, "name": "Engine coolant temperature", "suggestedMetric": "engineCoolantTemperature"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "11"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_AC_AAT", "path": "Climate", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Ambient air temperature"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "13"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AC_RPM", "path": "Climate", "fmt": {"bix": 8,  "len": 16, "max": 7000, "unit": "rpm"               }, "name": "Engine RPM",    "suggestedMetric": "engineSpeed"},
+    {"id": "MITSUBISHI_AC_VSS", "path": "Climate", "fmt": {"bix": 24, "len": 16, "max": 250,  "unit": "kilometersPerHour" }, "name": "Vehicle speed", "suggestedMetric": "speed"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "22"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_AC_OUTPUT_VSS_DR", "path": "Climate", "fmt": {           "len": 8, "max": 16, "div": 2, "unit": "scalar" }, "name": "Driver side output speed"},
+    {"id": "MITSUBISHI_AC_OUTPUT_VSS_AS", "path": "Climate", "fmt": {"bix": 8,  "len": 8, "max": 16, "div": 2, "unit": "scalar" }, "name": "Passenger side output speed"},
+    {"id": "MITSUBISHI_AC_OUTPUT_MODE",   "path": "Climate", "fmt": {"bix": 16, "len": 8, "max": 16,           "unit": "scalar" }, "name": "Output mode"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "23"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_AC_SWITCH",                       "path": "Climate", "fmt": {"bix": 6, "len": 1, "max": 1,   "unit": "offon" }, "name": "Air conditioning switch"},
+    {"id": "MITSUBISHI_AC_A_C_COMPRESSOR_DRIVE_REQUEST", "path": "Climate", "fmt": {"bix": 7, "len": 1, "max": 1,   "unit": "offon" }, "name": "A/C compressor drive request"},
+    {"id": "MITSUBISHI_AC_IDLE_UP_REQUEST",              "path": "Climate", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "rpm"   }, "name": "Idle up request"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "32"}, "freq": 3600,
+  "signals": [
+    {"id": "MITSUBISHI_AC_LEAK_INDICATOR_20", "path": "Climate", "fmt": {"bix": 5, "len": 1, "max": 1, "unit": "offon" }, "name": "Leak indicator at 20%"},
+    {"id": "MITSUBISHI_AC_LEAK_INDICATOR",    "path": "Climate", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "Leak indicator"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "34"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_AC_DRIVER_T",         "path": "Climate", "fmt": {           "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Driver temperature setting"},
+    {"id": "MITSUBISHI_AC_PASSENGER_T",      "path": "Climate", "fmt": {"bix": 8,  "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Passenger temperature setting"},
+    {"id": "MITSUBISHI_AC_DRIVER_T_CORR",    "path": "Climate", "fmt": {"bix": 16, "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Corrected driver temperature setting"},
+    {"id": "MITSUBISHI_AC_PASSENGER_T_CORR", "path": "Climate", "fmt": {"bix": 24, "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Corrected passenger temperature setting"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "70"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_AC_A_C_COMPRESSOR_DRIVE_FLAG", "path": "Climate", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "A/C compressor drive flag"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "80"}, "freq": 3600,
+  "signals": [
+    {"id": "MITSUBISHI_AC_SYSTEM_WORK_TIME",           "path": "Climate", "fmt": {           "len": 24, "max": 83886075, "mul": 5, "unit": "scalar" }, "name": "System work time"},
+    {"id": "MITSUBISHI_AC_COMPRESSOR_ON_OFF_COUNT",    "path": "Climate", "fmt": {"bix": 24, "len": 24, "max": 16777215,           "unit": "scalar" }, "name": "Compressor ON/OFF count"},
+    {"id": "MITSUBISHI_AC_REAR_DEFOGGER_ON_OFF_COUNT", "path": "Climate", "fmt": {"bix": 48, "len": 16, "max": 65535,              "unit": "scalar" }, "name": "Rear defogger ON/OFF count"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "81"}, "freq": 3600,
+  "signals": [
+    {"id": "MITSUBISHI_AC_MAX_PRES",              "path": "Climate", "fmt": {"bix": 96,  "len": 8,  "max": 3.3,      "mul": 3.3, "div": 255, "unit": "unknown" }, "name": "Max pressure"},
+    {"id": "MITSUBISHI_AC_CONDITIONER_WORK_TIME", "path": "Climate", "fmt": {"bix": 104, "len": 24, "max": 83886075, "mul": 5,               "unit": "scalar"  }, "name": "Conditioner work time"},
+    {"id": "MITSUBISHI_AC_COMPRESSOR_WORK_TIME",  "path": "Climate", "fmt": {"bix": 128, "len": 24, "max": 83886075, "mul": 5,               "unit": "scalar"  }, "name": "Compressor work time"},
+    {"id": "MITSUBISHI_AC_RECIRCULATION_TIME",    "path": "Climate", "fmt": {"bix": 176, "len": 16, "max": 327675,   "mul": 5,               "unit": "minutes" }, "name": "Recirculation time"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "83"}, "freq": 3600,
+  "signals": [
+    {"id": "MITSUBISHI_AC_FAN_M1_WORK_TIME", "path": "Climate", "fmt": {"bix": 40, "len": 24, "max": 83886075, "mul": 5, "unit": "scalar" }, "name": "Fan M1 work time"},
+    {"id": "MITSUBISHI_AC_FAN_M2_WORK_TIME", "path": "Climate", "fmt": {"bix": 64, "len": 24, "max": 83886075, "mul": 5, "unit": "scalar" }, "name": "Fan M2 work time"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "A3"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_FLI", "path": "Fuel", "fmt": {"bix": 16, "len": 8, "max": 100, "add": -16, "unit": "percent" }, "name": "Fuel level", "suggestedMetric": "fuelTankLevel"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "AD"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_ODO", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "AF"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_DASHBOARD_V", "path": "Electrical", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Dashboard voltage"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "BC"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_MILEAGE_BEFORE_SERVICING",       "path": "Trips", "fmt": {           "len": 8, "max": 25500, "mul": 100, "unit": "kilometers" }, "name": "Mileage before servicing"},
+    {"id": "MITSUBISHI_PERIOD_BEFORE_SERVICING_MONTHS", "path": "Trips", "fmt": {"bix": 32, "len": 8, "max": 255,               "unit": "scalar"     }, "name": "Months before servicing"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E00"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_SPD_OUTPUT", "path": "Movement", "fmt": { "len": 16, "max": 655, "div": 100, "unit": "kilometersPerHour" }, "name": "Speed output"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E01"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_ODO_743", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E03"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_METER", "path": "Fuel", "fmt": { "len": 8, "max": 204, "mul": 4, "div": 5, "unit": "liters" }, "name": "Fuel meter"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E25"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_BCM_TP_FR", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Front right tire pressure", "suggestedMetric": "frontRightTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E26"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_BCM_TP_FL", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Front left tire pressure", "suggestedMetric": "frontLeftTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E27"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_BCM_TP_RR", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Rear right tire pressure", "suggestedMetric": "rearRightTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "0E28"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_BCM_TP_RL", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Rear left tire pressure", "suggestedMetric": "rearLeftTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "dbg": true, "cmd": {"22": "F40D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_SPD_METER", "path": "Movement", "fmt": { "len": 16, "max": 6553, "div": 10, "unit": "kilometersPerHour" }, "name": "Speed meter"}
+  ]},
+{ "hdr": "748", "rax": "768", "fcm1": true, "dbg": true, "cmd": {"22": "1002"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_POS", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "AT position"}
+  ]},
+{ "hdr": "748", "rax": "768", "fcm1": true, "dbg": true, "cmd": {"22": "100C"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_WHL_SPD_RL", "path": "Tires", "fmt": { "len": 16, "max": 2730, "mul": 41667, "div": 1000000, "unit": "rpm" }, "name": "Wheel speed RL"}
+  ]},
+{ "hdr": "748", "rax": "768", "fcm1": true, "dbg": true, "cmd": {"22": "100D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_WHL_SPD_RR", "path": "Tires", "fmt": { "len": 16, "max": 2730, "mul": 41667, "div": 1000000, "unit": "rpm" }, "name": "Wheel speed RR"}
+  ]},
+{ "hdr": "748", "rax": "768", "fcm1": true, "dbg": true, "cmd": {"22": "1013"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_WHL_SPD_FL", "path": "Tires", "fmt": { "len": 16, "max": 2730, "mul": 41667, "div": 1000000, "unit": "rpm" }, "name": "Wheel speed FL"}
+  ]},
+{ "hdr": "748", "rax": "768", "fcm1": true, "dbg": true, "cmd": {"22": "1014"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_WHL_SPD_FR", "path": "Tires", "fmt": { "len": 16, "max": 2730, "mul": 41667, "div": 1000000, "unit": "rpm" }, "name": "Wheel speed FR"}
+  ]},
+{ "hdr": "748", "rax": "768", "fcm1": true, "dbg": true, "cmd": {"22": "1106"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_T_F_STAT", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "T/F status"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A1"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TPMS_TP_FL", "path": "Tires",  "fmt": {"bix": 64, "len": 8, "max": 51,                            "div": 5,                  "unit": "psi"     }, "name": "Front left tire pressure",    "suggestedMetric": "frontLeftTirePressure"},
+    {"id": "MITSUBISHI_FL_P",       "path": "Engine", "fmt": {"bix": 64, "len": 8, "max": 3.51,             "mul": 1379, "div": 100000,             "unit": "bars"    }, "name": "Front left pressure"},
+    {"id": "MITSUBISHI_TPMS_TT_FL", "path": "Tires",  "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Front left tire temperature", "suggestedMetric": "frontLeftTireTemperature"},
+    {"id": "MITSUBISHI_FL_T",       "path": "Engine", "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Front left temperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A2"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TPMS_TP_RR", "path": "Tires",  "fmt": {"bix": 64, "len": 8, "max": 51,                            "div": 5,                  "unit": "psi"     }, "name": "Rear right tire pressure",    "suggestedMetric": "rearRightTirePressure"},
+    {"id": "MITSUBISHI_RR_P",       "path": "Engine", "fmt": {"bix": 64, "len": 8, "max": 3.51,             "mul": 1379, "div": 100000,             "unit": "bars"    }, "name": "Rear right pressure"},
+    {"id": "MITSUBISHI_TPMS_TT_RR", "path": "Tires",  "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Rear right tire temperature", "suggestedMetric": "rearRightTireTemperature"},
+    {"id": "MITSUBISHI_RR_T",       "path": "Engine", "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Rear right temperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A3"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TPMS_TP_RL", "path": "Tires",  "fmt": {"bix": 64, "len": 8, "max": 51,                            "div": 5,                  "unit": "psi"     }, "name": "Rear left tire pressure",    "suggestedMetric": "rearLeftTirePressure"},
+    {"id": "MITSUBISHI_RL_P",       "path": "Engine", "fmt": {"bix": 64, "len": 8, "max": 3.51,             "mul": 1379, "div": 100000,             "unit": "bars"    }, "name": "Rear left pressure"},
+    {"id": "MITSUBISHI_TPMS_TT_RL", "path": "Tires",  "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Rear left tire temperature", "suggestedMetric": "rearLeftTireTemperature"},
+    {"id": "MITSUBISHI_RL_T",       "path": "Engine", "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Rear left temperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A4"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TPMS_TP_SPARE", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,                            "div": 5,                  "unit": "psi"     }, "name": "Spare tire pressure"},
+    {"id": "MITSUBISHI_SPARE_TIRE_P",  "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 3.51,             "mul": 1379, "div": 100000,             "unit": "bars"    }, "name": "Spare tire pressure"},
+    {"id": "MITSUBISHI_TPMS_TT_SPARE", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Spare tire temperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A5"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TPMS_TP_FR", "path": "Tires",  "fmt": {"bix": 64, "len": 8, "max": 51,                            "div": 5,                  "unit": "psi"     }, "name": "Front right tire pressure",    "suggestedMetric": "frontRightTirePressure"},
+    {"id": "MITSUBISHI_FR_P",       "path": "Engine", "fmt": {"bix": 64, "len": 8, "max": 3.51,             "mul": 1379, "div": 100000,             "unit": "bars"    }, "name": "Front right pressure"},
+    {"id": "MITSUBISHI_TPMS_TT_FR", "path": "Tires",  "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Front right tire temperature", "suggestedMetric": "frontRightTireTemperature"},
+    {"id": "MITSUBISHI_FR_T",       "path": "Engine", "fmt": {"bix": 72, "len": 8, "max": 205,  "min": -50,                             "add": -50, "unit": "celsius" }, "name": "Front right temperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A8"}, "freq": 15,
+  "signals": [
+    {"id": "MITSUBISHI_TPMS_TP_1", "path": "Tires", "fmt": {"bix": 120, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #1 pressure"},
+    {"id": "MITSUBISHI_TPMS_TP_2", "path": "Tires", "fmt": {"bix": 128, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #2 pressure"},
+    {"id": "MITSUBISHI_TPMS_TP_3", "path": "Tires", "fmt": {"bix": 136, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #3 pressure"},
+    {"id": "MITSUBISHI_TPMS_TP_4", "path": "Tires", "fmt": {"bix": 144, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #4 pressure"},
+    {"id": "MITSUBISHI_TPMS_TT_1", "path": "Tires", "fmt": {"bix": 160, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #1 temperature"},
+    {"id": "MITSUBISHI_TPMS_TT_2", "path": "Tires", "fmt": {"bix": 168, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #2 temperature"},
+    {"id": "MITSUBISHI_TPMS_TT_3", "path": "Tires", "fmt": {"bix": 176, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #3 temperature"},
+    {"id": "MITSUBISHI_TPMS_TT_4", "path": "Tires", "fmt": {"bix": 184, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #4 temperature"}
+  ]},
+{ "hdr": "784", "rax": "785", "fcm1": true, "dbg": true, "cmd": {"21": "01"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ABS_FL_VSS", "path": "Movement", "fmt": {           "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Front left wheel speed sensor"},
+    {"id": "MITSUBISHI_ABS_FR_VSS", "path": "Movement", "fmt": {"bix": 16, "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Front right wheel speed sensor"},
+    {"id": "MITSUBISHI_ABS_RL_VSS", "path": "Movement", "fmt": {"bix": 32, "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed sensor"},
+    {"id": "MITSUBISHI_ABS_RR_VSS", "path": "Movement", "fmt": {"bix": 48, "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed sensor"}
+  ]},
+{ "hdr": "784", "rax": "785", "fcm1": true, "dbg": true, "cmd": {"21": "54"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_ODO_784", "path": "Trips", "fmt": {"bix": 24, "len": 16, "max": 1677696, "mul": 128, "div": 5, "unit": "kilometers" }, "name": "Odometer"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "01"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_4WD_MODE",                "path": "Drivetrain", "fmt": {           "len": 8, "max": 255,                           "unit": "scalar" }, "name": "4WD mode"},
+    {"id": "MITSUBISHI_AWC_CENTER_COUPLING_CUR_AMP", "path": "Drivetrain", "fmt": {"bix": 40, "len": 8, "max": 3.06, "mul": 3.06, "div": 255, "unit": "scalar" }, "name": "Center coupling current"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "04"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_STEERING_ANGLE",           "path": "Drivetrain", "fmt": {           "len": 16, "max": 30719.5, "min": -2048, "div": 2, "add": -2048, "unit": "degrees" }, "name": "Steering angle"},
+    {"id": "MITSUBISHI_AWC_STEERING_VSS_DEGREES_SEC", "path": "Drivetrain", "fmt": {"bix": 16, "len": 16, "max": 30719.5, "min": -2048, "div": 2, "add": -2048, "unit": "scalar"  }, "name": "Steering speed"},
+    {"id": "MITSUBISHI_AWC_STEERING_STS",             "path": "Drivetrain", "fmt": {"bix": 32, "len": 8,  "max": 255,                                           "unit": "scalar"  }, "name": "Steering status"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "05"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_ACCELERATOR_POSITION", "path": "Drivetrain", "fmt": {          "len": 8,  "max": 99.6,  "mul": 100, "div": 256, "unit": "percent" }, "name": "Accelerator position"},
+    {"id": "MITSUBISHI_AWC_RPM",                  "path": "Drivetrain", "fmt": {"bix": 8, "len": 16, "max": 65535,                         "unit": "rpm"     }, "name": "Engine RPM",           "suggestedMetric": "engineSpeed"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "07"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_FL_ROT", "path": "Drivetrain", "fmt": {            "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Front left wheel rotation"},
+    {"id": "MITSUBISHI_AWC_FR_ROT", "path": "Drivetrain", "fmt": {"bix": 16,  "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Front right wheel rotation"},
+    {"id": "MITSUBISHI_AWC_RL_ROT", "path": "Drivetrain", "fmt": {"bix": 32,  "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Rear left wheel rotation"},
+    {"id": "MITSUBISHI_AWC_RR_ROT", "path": "Drivetrain", "fmt": {"bix": 48,  "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Rear right wheel rotation"},
+    {"id": "MITSUBISHI_AWC_FL_VSS", "path": "Drivetrain", "fmt": {"bix": 64,  "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"},
+    {"id": "MITSUBISHI_AWC_FR_VSS", "path": "Drivetrain", "fmt": {"bix": 80,  "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"},
+    {"id": "MITSUBISHI_AWC_RL_VSS", "path": "Drivetrain", "fmt": {"bix": 96,  "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"},
+    {"id": "MITSUBISHI_AWC_RR_VSS", "path": "Drivetrain", "fmt": {"bix": 112, "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "0A"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_YAW_RATE_DEGREES_SEC", "path": "Drivetrain", "fmt": {           "len": 16, "max": 327.67, "min": -327.68, "div": 100, "add": -327.68, "unit": "scalar"                 }, "name": "Yaw rate"},
+    {"id": "MITSUBISHI_AWC_LATERAL_G",            "path": "Drivetrain", "fmt": {"bix": 16, "len": 8,  "max": 12.7,   "min": -12.8,   "div": 10,  "add": -12.8,   "unit": "metersPerSecondSquared" }, "name": "Lateral acceleration"},
+    {"id": "MITSUBISHI_AWC_LONGITUDINAL_G",       "path": "Drivetrain", "fmt": {"bix": 24, "len": 8,  "max": 12.7,   "min": -12.8,   "div": 10,  "add": -12.8,   "unit": "metersPerSecondSquared" }, "name": "Longitudinal acceleration"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "0D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_BRAKE_STS",     "path": "Control",    "fmt": {"bix": 7,  "len": 1,  "max": 1,                                            "unit": "offon"      }, "name": "Brake status"},
+    {"id": "MITSUBISHI_AWC_PARKING_BRAKE", "path": "Control",    "fmt": {"bix": 15, "len": 1,  "max": 1,                                            "unit": "offon"      }, "name": "Parking brake"},
+    {"id": "MITSUBISHI_AWC_IGN_STS",       "path": "Drivetrain", "fmt": {"bix": 16, "len": 8,  "max": 255,                                          "unit": "scalar"     }, "name": "Ignition status"},
+    {"id": "MITSUBISHI_AWC_ACC_V",         "path": "Drivetrain", "fmt": {"bix": 24, "len": 8,  "max": 25.5,                  "div": 10,             "unit": "volts"      }, "name": "Accessory voltage"},
+    {"id": "MITSUBISHI_AWC_IOD_FUSE",      "path": "Drivetrain", "fmt": {"bix": 39, "len": 1,  "max": 1,                                            "unit": "offon"      }, "name": "Ignition-off draw fuse"},
+    {"id": "MITSUBISHI_AWC_ODO",           "path": "Drivetrain", "fmt": {"bix": 40, "len": 24, "max": 1677721.5,             "div": 10,             "unit": "kilometers" }, "name": "Odometer",                "suggestedMetric": "odometer"},
+    {"id": "MITSUBISHI_AWC_AAT",           "path": "Drivetrain", "fmt": {"bix": 64, "len": 8,  "max": 87.5,      "min": -40, "div": 2,  "add": -40, "unit": "celsius"    }, "name": "Ambient air temperature"},
+    {"id": "MITSUBISHI_AWC_IGN_OFF_TIME",  "path": "Drivetrain", "fmt": {"bix": 72, "len": 8,  "max": 255,                                          "unit": "minutes"    }, "name": "Ignition off time"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "13"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_IG1",   "path": "Drivetrain", "fmt": {"bix": 7,  "len": 1,  "max": 1,               "unit": "offon" }, "name": "Ignition 1"},
+    {"id": "MITSUBISHI_AWC_ECU_V", "path": "Drivetrain", "fmt": {"bix": 8,  "len": 16, "max": 1023, "div": 64, "unit": "volts" }, "name": "Module voltage"},
+    {"id": "MITSUBISHI_AWC_EXT_V", "path": "Drivetrain", "fmt": {"bix": 24, "len": 16, "max": 1023, "div": 64, "unit": "volts" }, "name": "External voltage"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "16"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_SAS", "path": "Drivetrain", "fmt": {"bix": 8, "len": 8, "max": 15.875, "min": -16, "div": 8, "add": -16, "unit": "degrees" }, "name": "Steering angle sensor"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "30"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_AWC_MILEAGE", "path": "Drivetrain", "fmt": {"bix": 16, "len": 24, "max": 1677721.5, "div": 10, "unit": "kilometers" }, "name": "Mileage"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "01"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_BATTERY_V",       "path": "Engine", "fmt": {           "len": 8,  "max": 18,   "mul": 18,   "div": 255, "unit": "volts"             }, "name": "Battery voltage",    "suggestedMetric": "starterBatteryVoltage"},
+    {"id": "MITSUBISHI_MPI_VSS",             "path": "Engine", "fmt": {"bix": 8,  "len": 8,  "max": 200,  "mul": 2,                "unit": "kilometersPerHour" }, "name": "Vehicle speed",      "suggestedMetric": "speed"},
+    {"id": "MITSUBISHI_MPI_CRANK_ANGLE_SNS", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 8000,              "div": 8,   "unit": "rpm"               }, "name": "Crank angle sensor"},
+    {"id": "MITSUBISHI_MPI_TGT_IDLE_RPM",    "path": "Engine", "fmt": {"bix": 32, "len": 8,  "max": 2000, "mul": 2000, "div": 255, "unit": "rpm"               }, "name": "Target idle RPM"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "02"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_IAT", "path": "Engine", "fmt": {           "len": 8, "max": 120,   "min": -40,                 "add": -40, "unit": "celsius" }, "name": "Intake air temperature"},
+    {"id": "MITSUBISHI_MPI_ECT", "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 215,   "min": -40,                 "add": -40, "unit": "celsius" }, "name": "Engine coolant temperature", "suggestedMetric": "engineCoolantTemperature"},
+    {"id": "MITSUBISHI_BP",      "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 49.17,             "mul": 0.19285,             "unit": "psi"     }, "name": "Boost pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "03"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_MANIFOLD_PRES",  "path": "Engine", "fmt": {           "len": 16, "max": 126,             "div": 512, "unit": "kilopascal" }, "name": "Manifold pressure"},
+    {"id": "MITSUBISHI_MPI_AIR_FLOW_SNS_V", "path": "Engine", "fmt": {"bix": 16, "len": 8,  "max": 5,   "mul": 5,   "div": 255, "unit": "volts"      }, "name": "Air flow sensor voltage"},
+    {"id": "MITSUBISHI_MPI_ENGINE_LOAD",    "path": "Engine", "fmt": {"bix": 32, "len": 8,  "max": 100, "mul": 100, "div": 255, "unit": "percent"    }, "name": "Engine load",             "suggestedMetric": "engineLoad"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "04"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_THROTTLE_POSITION_MAIN",     "path": "Engine", "fmt": {           "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Main throttle position"},
+    {"id": "MITSUBISHI_MPI_THROTTLE_POSITION_SUB",      "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Sub throttle position"},
+    {"id": "MITSUBISHI_MPI_TGT_THROTTLE_POSITION_MAIN", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Target main throttle position"},
+    {"id": "MITSUBISHI_MPI_ACCELERATOR_POSITION_MAIN",  "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Main accelerator position"},
+    {"id": "MITSUBISHI_MPI_ACCELERATOR_POSITION_SUB",   "path": "Engine", "fmt": {"bix": 32, "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Sub accelerator position"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "05"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_IGN_ADVANCE",         "path": "Engine", "fmt": {          "len": 8, "max": 235,   "min": -20,           "add": -20, "unit": "scalar"       }, "name": "Ignition advance"},
+    {"id": "MITSUBISHI_MPI_INJECTOR_DRIVE_TIME", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 63.75,             "div": 4,             "unit": "milliseconds" }, "name": "Injector drive time"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "07"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_SHORT_TERM_FUEL_CORRECTION", "path": "Fuel", "fmt": {"bix": 8,  "len": 8, "max": 49.8, "min": -50.19, "mul": 20, "div": 51, "add": -50.196078, "unit": "percent" }, "name": "Short term fuel correction", "suggestedMetric": "shortTermFuelTrim"},
+    {"id": "MITSUBISHI_MPI_LONG_TERM_FUEL_CORRECTION",  "path": "Fuel", "fmt": {"bix": 16, "len": 8, "max": 49.8, "min": -50.19, "mul": 20, "div": 51, "add": -50.196078, "unit": "percent" }, "name": "Long term fuel correction"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "08"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_DETONATION_RETARD",       "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 90,  "mul": 90,  "div": 255, "unit": "scalar"  }, "name": "Detonation retard"},
+    {"id": "MITSUBISHI_MPI_DETONATION_CTRL_LEARNED", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Detonation control learned"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "0A"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_VVT_PHASE_ANGLE", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 79.375, "min": -80, "div": 1.6, "add": -80, "unit": "degrees" }, "name": "Variable valve timing phase angle"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "0E"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_COOLING_FAN_DUTY", "path": "Engine", "fmt": { "len": 8, "max": 100.011, "mul": 0.3922, "unit": "percent" }, "name": "Cooling fan duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "0F"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_PURGE_VALVE_CTRL", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Purge valve control"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "12"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_TGT_THROTTLE_CTRL",   "path": "Engine", "fmt": {           "len": 16, "max": 5,               "div": 512, "unit": "volts"   }, "name": "Target throttle control"},
+    {"id": "MITSUBISHI_MPI_THROTTLE_CTRL_SERVO", "path": "Engine", "fmt": {"bix": 16, "len": 8,  "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Throttle control servo"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "1A"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_CALCULATED_LOAD", "path": "Engine", "fmt": {          "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Calculated load", "suggestedMetric": "engineLoad"},
+    {"id": "MITSUBISHI_MPI_ABSOLUTE_LOAD",   "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Absolute load",   "suggestedMetric": "absoluteEngineLoad"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "1D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_IDLE_STS",                "path": "Engine",  "fmt": {           "len": 1, "max": 1, "unit": "offon" }, "name": "Idle status"},
+    {"id": "MITSUBISHI_MPI_CRANKING_SIG_ST",         "path": "Engine",  "fmt": {"bix": 1,  "len": 1, "max": 1, "unit": "offon" }, "name": "Cranking signal"},
+    {"id": "MITSUBISHI_MPI_OFF_COND",                "path": "Engine",  "fmt": {"bix": 4,  "len": 1, "max": 1, "unit": "offon" }, "name": "Off condition"},
+    {"id": "MITSUBISHI_MPI_NEUTRAL_STS",             "path": "Engine",  "fmt": {"bix": 6,  "len": 1, "max": 1, "unit": "offon" }, "name": "Neutral status"},
+    {"id": "MITSUBISHI_MPI_IGN_SWITCH",              "path": "Engine",  "fmt": {"bix": 15, "len": 1, "max": 1, "unit": "offon" }, "name": "Ignition switch"},
+    {"id": "MITSUBISHI_MPI_NORMAL_BRAKE_CLOSED_STS", "path": "Control", "fmt": {"bix": 30, "len": 1, "max": 1, "unit": "offon" }, "name": "Normal brake closed status"},
+    {"id": "MITSUBISHI_MPI_BRAKE_SWITCH",            "path": "Control", "fmt": {"bix": 31, "len": 1, "max": 1, "unit": "offon" }, "name": "Brake switch"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "1E"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_MPI_ENGINE_CTRL_RELAY",    "path": "Engine", "fmt": {"bix": 2, "len": 1, "max": 1, "unit": "offon" }, "name": "Engine control relay"},
+    {"id": "MITSUBISHI_MPI_THROTTLE_CTRL_RELAY",  "path": "Engine", "fmt": {"bix": 5, "len": 1, "max": 1, "unit": "offon" }, "name": "Throttle control relay"},
+    {"id": "MITSUBISHI_MPI_FUEL_PUMP_RELAY",      "path": "Fuel",   "fmt": {"bix": 6, "len": 1, "max": 1, "unit": "offon" }, "name": "Fuel pump relay"},
+    {"id": "MITSUBISHI_MPI_A_C_COMPRESSOR_RELAY", "path": "Engine", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "A/C compressor relay"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "47"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_EGR_VALVE_DUTY", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 100, "div": 2.5497195309, "unit": "percent" }, "name": "Exhaust gas recirculation valve duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "49"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_T", "path": "Fuel", "fmt": {"bix": 32, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "4C"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_RAIL_PRES", "path": "Fuel", "fmt": {"bix": 8, "len": 8, "max": 36985.2, "mul": 145.04, "unit": "psi" }, "name": "Fuel rail pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "4E"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_AC_COMPRESSOR", "path": "Engine", "fmt": {"bix": 24, "len": 1, "max": 1, "unit": "offon" }, "name": "A/C compressor"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "51"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_INJECTION_QTY", "path": "Engine", "fmt": { "len": 8, "max": 127.5, "div": 2, "unit": "liters" }, "name": "Injection qty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "59"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_DPF_REGEN", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Particulate filter regeneration"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "A8"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_COOLING_FAN_DUTY", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "percent" }, "name": "Cooling fan duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C2"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_RAIL_PRES_7E0_C2", "path": "Fuel",   "fmt": {"bix": 24, "len": 8, "max": 29007,             "mul": 113.754872,                                  "unit": "psi"     }, "name": "Fuel rail pressure"},
+    {"id": "MITSUBISHI_FUEL_RAIL_VALVE_DUTY",  "path": "Fuel",   "fmt": {"bix": 32, "len": 8, "max": 100,                                  "div": 2.5497195309,             "unit": "percent" }, "name": "Fuel rail valve duty"},
+    {"id": "MITSUBISHI_INJECTION_QTY_7E0_C2",  "path": "Engine", "fmt": {"bix": 48, "len": 8, "max": 100,                                  "div": 2.5497195309,             "unit": "unknown" }, "name": "Injection qty"},
+    {"id": "MITSUBISHI_FUEL_T_7E0_C2",         "path": "Fuel",   "fmt": {"bix": 88, "len": 8, "max": 215,   "min": -40,                                         "add": -40, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C3"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_EGR_VALVE_DUTY_7E0_C3", "path": "Engine", "fmt": {"bix": 72, "len": 8, "max": 100, "div": 2.5497195309, "unit": "percent" }, "name": "Exhaust gas recirculation valve duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C4"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_BP_7E0_C4", "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 43.51, "mul": 0.170636, "unit": "psi" }, "name": "Boost pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C5"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_DPF_CHARGE", "path": "Engine", "fmt": { "len": 8, "max": 100.011, "mul": 0.3922, "unit": "percent" }, "name": "Particulate filter load"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "09"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_APS_CLOSED_LEARN", "path": "Engine", "fmt": { "len": 16, "max": 47.49, "min": -2.5, "mul": 0.0007629394, "add": -2.5, "unit": "volts" }, "name": "Accelerator pedal closed position learning, main"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "10"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_EXH_GAS_T",      "path": "Engine", "fmt": {           "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust gas temperature"},
+    {"id": "MITSUBISHI_CAT_T",          "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Catalyst temperature"},
+    {"id": "MITSUBISHI_DPF_T",          "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Diesel particulate filter temperature"},
+    {"id": "MITSUBISHI_DPF_DIFF_P_7E0", "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 117,  "min": -10,            "div": 2, "add": -10,  "unit": "kilopascal" }, "name": "Diesel particulate filter differential pressure"},
+    {"id": "MITSUBISHI_NTC_T",          "path": "Engine", "fmt": {"bix": 40, "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust thermistor temperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "11"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_DPF_SOOT_1",            "path": "Trips",  "fmt": {"bix": 8,  "len": 8, "max": 2550,  "mul": 10,            "unit": "kilometers" }, "name": "Diesel particulate filter soot accumulation for distance 1"},
+    {"id": "MITSUBISHI_DPF_SOOT_SUM",          "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 12.75,            "div": 20, "unit": "scalar"     }, "name": "Diesel particulate filter soot load, summation method"},
+    {"id": "MITSUBISHI_DPF_SOOT_P_METHOD_G_L", "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 12.75,            "div": 20, "unit": "scalar"     }, "name": "Diesel particulate filter soot pressure method, g/l"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "15"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_DPF_ODO",     "path": "Trips",  "fmt": {           "len": 24, "max": 16777215,                                      "unit": "kilometers" }, "name": "Diesel particulate filter odometer"},
+    {"id": "MITSUBISHI_DPF_SOOT",    "path": "Engine", "fmt": {"bix": 24, "len": 8,  "max": 255,                                           "unit": "unknown"    }, "name": "Diesel particulate filter soot"},
+    {"id": "MITSUBISHI_DPF_MAX_T_1", "path": "Engine", "fmt": {"bix": 32, "len": 8,  "max": 2150,     "min": -400, "mul": 10, "add": -400, "unit": "celsius"    }, "name": "Diesel particulate filter, maximum temperature 1"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "28"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_DPF_MAX_T_PREVIOUS", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 2150, "min": -400, "mul": 10, "add": -400, "unit": "celsius" }, "name": "Diesel particulate filter, maximum temperature, previous"},
+    {"id": "MITSUBISHI_DPF_MAX_T_3",        "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 2150, "min": -400, "mul": 10, "add": -400, "unit": "celsius" }, "name": "Diesel particulate filter, maximum temperature 3"},
+    {"id": "MITSUBISHI_DPF_MAX_T_4",        "path": "Engine", "fmt": {"bix": 32, "len": 8, "max": 2150, "min": -400, "mul": 10, "add": -400, "unit": "celsius" }, "name": "Diesel particulate filter, maximum temperature 4"},
+    {"id": "MITSUBISHI_DPF_MAX_T_5",        "path": "Engine", "fmt": {"bix": 40, "len": 8, "max": 2150, "min": -400, "mul": 10, "add": -400, "unit": "celsius" }, "name": "Diesel particulate filter, maximum temperature 5"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "42"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_SMALL_INJ_LEARN", "path": "Engine", "fmt": {"bix": 32, "len": 8, "max": 256, "add": 1, "unit": "scalar" }, "name": "Small injection quantity learning"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "43"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_O_E_P_C_O_O_P_1", "path": "Engine", "fmt": {           "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection volume control, cylinder 1"},
+    {"id": "MITSUBISHI_O_E_P_C_O_O_P_2", "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection volume control, cylinder 2"},
+    {"id": "MITSUBISHI_O_E_P_C_O_O_P_3", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection volume control, cylinder 3"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "46"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_BAT_T", "path": "Battery", "fmt": {"bix": 16, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Battery temperature"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "4A"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_CYCLE_CONS", "path": "Engine", "fmt": { "len": 8, "max": 127, "div": 2, "unit": "unknown" }, "name": "Cycle consumption"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "4B"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_OE_PE_P_C", "path": "Engine", "fmt": {          "len": 8, "max": 127,  "min": -128,            "add": -128, "unit": "scalar"       }, "name": "Main injection timing"},
+    {"id": "MITSUBISHI_EP_P_C_O",  "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 25.5,              "div": 10,              "unit": "milliseconds" }, "name": "Fuel injection interval"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"21": "5B"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_EXH_GAS_T_AFTER_DPF", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 1075, "min": -200, "mul": 5,  "add": -200, "unit": "celsius" }, "name": "Exhaust gas temperature after DPF"},
+    {"id": "MITSUBISHI_DPF_MAX_T_2",         "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 2150, "min": -400, "mul": 10, "add": -400, "unit": "celsius" }, "name": "Diesel particulate filter, maximum temperature 2"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "01"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_PRIMARY_PRES_7E1_01", "path": "Transmission", "fmt": {"bix": 24, "len": 8, "max": 254, "min": -85.26, "mul": 1.332854, "add": -85.26, "unit": "psi" }, "name": "Primary pressure"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "02"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_INPUT_VSS",          "path": "Transmission", "fmt": {"bix": 8,  "len": 16, "max": 32767.5,             "div": 2,             "unit": "rpm"     }, "name": "Input speed"},
+    {"id": "MITSUBISHI_OUTPUT_VSS",         "path": "Transmission", "fmt": {"bix": 24, "len": 16, "max": 32767.5,             "div": 2,             "unit": "rpm"     }, "name": "Output speed"},
+    {"id": "MITSUBISHI_ATF_T",              "path": "Transmission", "fmt": {"bix": 40, "len": 8,  "max": 215,     "min": -40,           "add": -40, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"},
+    {"id": "MITSUBISHI_SLIP_AT_VSS_7E1_02", "path": "Transmission", "fmt": {"bix": 64, "len": 8,  "max": 204,     "min": -51,           "add": -51, "unit": "rpm"     }, "name": "Slip speed"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "03"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_CVT_PRIMARY_VSS",       "path": "Transmission", "fmt": {            "len": 8, "max": 8096,  "min": -64,    "mul": 32,                   "add": -64,                "unit": "rpm"          }, "name": "Primary pulley speed"},
+    {"id": "MITSUBISHI_CVT_SECONDARY_VSS",     "path": "Transmission", "fmt": {"bix": 8,   "len": 8, "max": 16192, "min": -128,   "mul": 64,                   "add": -128,               "unit": "rpm"          }, "name": "Secondary pulley speed"},
+    {"id": "MITSUBISHI_AT_SLEEP_REVOLUTION",   "path": "Transmission", "fmt": {"bix": 16,  "len": 8, "max": 127,   "min": -128,                                             "sign": true, "unit": "rpm"          }, "name": "Sleep revolution"},
+    {"id": "MITSUBISHI_SLIP_AT_VSS",           "path": "Transmission", "fmt": {"bix": 24,  "len": 8, "max": 127,   "min": -128,                                             "sign": true, "unit": "rpm"          }, "name": "Slip speed"},
+    {"id": "MITSUBISHI_CURRENT_GEAR_AT_RATIO", "path": "Transmission", "fmt": {"bix": 32,  "len": 8, "max": 2.55,                                  "div": 100,                            "unit": "scalar"       }, "name": "Current gear ratio"},
+    {"id": "MITSUBISHI_AT_REAL_ENGINE_TORQUE", "path": "Transmission", "fmt": {"bix": 40,  "len": 8, "max": 812.8, "min": -819.2, "mul": 32,       "div": 5,                "sign": true, "unit": "newtonMeters" }, "name": "Real engine torque"},
+    {"id": "MITSUBISHI_AT_INPUT_TORQUE",       "path": "Transmission", "fmt": {"bix": 56,  "len": 8, "max": 812.8, "min": -819.2, "mul": 32,       "div": 5,                "sign": true, "unit": "newtonMeters" }, "name": "Input torque"},
+    {"id": "MITSUBISHI_AT_TORQUE_RATIO",       "path": "Transmission", "fmt": {"bix": 64,  "len": 8, "max": 3.98,                 "mul": 3.98,     "div": 255,                            "unit": "scalar"       }, "name": "Torque ratio"},
+    {"id": "MITSUBISHI_AT_ATF_T",              "path": "Transmission", "fmt": {"bix": 72,  "len": 8, "max": 200,   "min": -55,                                 "add": -55,                "unit": "celsius"      }, "name": "Transmission fluid temperature",        "suggestedMetric": "transmissionFluidTemperature"},
+    {"id": "MITSUBISHI_SECONDARY_PRES",        "path": "Transmission", "fmt": {"bix": 88,  "len": 8, "max": 924,                  "mul": 3.627392,                                        "unit": "psi"          }, "name": "Secondary pressure"},
+    {"id": "MITSUBISHI_PRIMARY_PRES",          "path": "Transmission", "fmt": {"bix": 96,  "len": 8, "max": 924,                  "mul": 3.627392,                                        "unit": "psi"          }, "name": "Primary pressure"},
+    {"id": "MITSUBISHI_CVT_T_RAW",             "path": "Transmission", "fmt": {"bix": 104, "len": 8, "max": 255,                                                                          "unit": "scalar"       }, "name": "Transmission temperature sensor count"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "04"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_AT_CUR_GEAR",          "path": "Transmission", "fmt": {           "len": 8, "max": 255,                          "unit": "scalar"  }, "name": "Current gear"},
+    {"id": "MITSUBISHI_TARGET_GEAR_AT_RATIO", "path": "Transmission", "fmt": {"bix": 8,  "len": 8, "max": 2.55,             "div": 100, "unit": "scalar"  }, "name": "Target gear ratio"},
+    {"id": "MITSUBISHI_AT_LINE_PRES",         "path": "Transmission", "fmt": {"bix": 24, "len": 8, "max": 6.3,  "mul": 6.3, "div": 255, "unit": "unknown" }, "name": "Line pressure"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "05"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_CVT_LU_SOLENOID_OUTPUT_MA",         "path": "Transmission", "fmt": {            "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Lock-up solenoid output current"},
+    {"id": "MITSUBISHI_CVT_LU_SOLENOID_MONITOR_MA",        "path": "Transmission", "fmt": {"bix": 48,  "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Lock-up solenoid monitor current"},
+    {"id": "MITSUBISHI_CVT_LU_SEL_CHANGEOVER_SOL_OUTPUT",  "path": "Transmission", "fmt": {"bix": 107, "len": 1,  "max": 1,     "unit": "offon"     }, "name": "Lock-up/select changeover solenoid output"},
+    {"id": "MITSUBISHI_CVT_LU_SEL_CHANGEOVER_SOL_MONITOR", "path": "Transmission", "fmt": {"bix": 115, "len": 1,  "max": 1,     "unit": "offon"     }, "name": "Lock-up/select changeover solenoid monitor"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "06"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_CVT_SELECTOR_DS",        "path": "Transmission", "fmt": {"bix": 3,  "len": 1, "max": 1,                       "unit": "offon"  }, "name": "Sport mode selected"},
+    {"id": "MITSUBISHI_CVT_SELECTOR_DS_7E1_06", "path": "Transmission", "fmt": {"bix": 12, "len": 1, "max": 1,                       "unit": "offon"  }, "name": "Paddle shift mode"},
+    {"id": "MITSUBISHI_CVT_GEAR_AT_NUMBER",     "path": "Transmission", "fmt": {"bix": 16, "len": 8, "max": 256, "min": 1, "add": 1, "unit": "scalar" }, "name": "Gear number"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "07"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_CVT_SELECTOR_D",       "path": "Transmission", "fmt": {           "len": 1, "max": 1, "unit": "offon" }, "name": "Drive selected"},
+    {"id": "MITSUBISHI_CVT_SELECTOR_N",       "path": "Transmission", "fmt": {"bix": 1,  "len": 1, "max": 1, "unit": "offon" }, "name": "Neutral selected"},
+    {"id": "MITSUBISHI_CVT_SELECTOR_R",       "path": "Transmission", "fmt": {"bix": 2,  "len": 1, "max": 1, "unit": "offon" }, "name": "Reverse selected"},
+    {"id": "MITSUBISHI_CVT_SELECTOR_P",       "path": "Transmission", "fmt": {"bix": 3,  "len": 1, "max": 1, "unit": "offon" }, "name": "Park selected"},
+    {"id": "MITSUBISHI_CVT_BRAKE",            "path": "Control",      "fmt": {"bix": 4,  "len": 1, "max": 1, "unit": "offon" }, "name": "Brake pedal"},
+    {"id": "MITSUBISHI_CVT_SELECTOR_L",       "path": "Transmission", "fmt": {"bix": 5,  "len": 1, "max": 1, "unit": "offon" }, "name": "Low selected"},
+    {"id": "MITSUBISHI_CVT_ACCELERATOR",      "path": "Transmission", "fmt": {"bix": 7,  "len": 1, "max": 1, "unit": "offon" }, "name": "Accelerator pedal"},
+    {"id": "MITSUBISHI_CVT_ASC_ACTUATOR_SIG", "path": "Transmission", "fmt": {"bix": 17, "len": 1, "max": 1, "unit": "offon" }, "name": "Stability control actuator signal"},
+    {"id": "MITSUBISHI_CVT_TCL_ACTUATOR_SIG", "path": "Transmission", "fmt": {"bix": 19, "len": 1, "max": 1, "unit": "offon" }, "name": "Traction control actuator signal"},
+    {"id": "MITSUBISHI_CVT_ABS_ACTUATOR_SIG", "path": "Transmission", "fmt": {"bix": 23, "len": 1, "max": 1, "unit": "offon" }, "name": "Anti-lock brake actuator signal"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "10"}, "freq": 3600,
+  "signals": [
+    {"id": "MITSUBISHI_CVT_TOTAL_TIME",           "path": "Transmission", "fmt": {"bix": 32,  "len": 16, "max": 10922.5, "div": 6, "unit": "unknown" }, "name": "Operating time"},
+    {"id": "MITSUBISHI_CVT_OUT3_OIL_DEGRADATION", "path": "Transmission", "fmt": {"bix": 192, "len": 16, "max": 65535,             "unit": "scalar"  }, "name": "Fluid degradation, output 3"},
+    {"id": "MITSUBISHI_CVT_OIL_DEGRADATION",      "path": "Transmission", "fmt": {"bix": 224, "len": 16, "max": 65535,             "unit": "scalar"  }, "name": "Fluid degradation",           "suggestedMetric": "cvtDeterioration"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "33"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_T_M_T", "path": "Transmission", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Transmission temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "A5"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_CLUTCH_1_T", "path": "Transmission", "fmt": {           "len": 16, "max": 65485, "min": -50, "add": -50, "unit": "celsius" }, "name": "Clutch 1 temperature"},
+    {"id": "MITSUBISHI_CLUTCH_2_T", "path": "Transmission", "fmt": {"bix": 16, "len": 16, "max": 65485, "min": -50, "add": -50, "unit": "celsius" }, "name": "Clutch 2 temperature"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "A6"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_CLUTCH_1_SLIP_AT_VSS", "path": "Transmission", "fmt": { "len": 16, "max": 65535, "unit": "rpm" }, "name": "Clutch 1 slip speed"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "1105"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_EGR_T_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "Exhaust gas recirculation temperature sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "1111"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_FUEL_T", "path": "Fuel", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "1114"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_FLI_V", "path": "Fuel", "fmt": { "len": 8, "max": 10.2, "div": 25, "unit": "volts" }, "name": "Fuel level input"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "1115"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_EVAP_PRES_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "EVAP pressure sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "111F"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_EOT", "path": "Engine", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Engine oil temperature", "suggestedMetric": "engineOilTemperature"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "1207"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_INJ_TIMING", "path": "Engine", "fmt": { "len": 16, "max": 31.99, "div": 2048, "unit": "milliseconds" }, "name": "Base injection timing"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "120C"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_FUEL_PRES_V", "path": "Fuel", "fmt": { "len": 16, "max": 20, "mul": 20, "div": 65535, "unit": "volts" }, "name": "Fuel pressure sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "120D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_APP1_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "120E"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_APP2_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "120F"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_TPS1_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "1210"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_TPS2_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "121F"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ECM_ROLLOVER_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Roll-over sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4000"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ENG_CTRL_MODULE_V", "path": "Battery", "fmt": { "len": 8, "max": 18.66, "mul": 183, "div": 2500, "unit": "volts" }, "name": "Engine control module voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4002"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_RPM", "path": "Movement", "fmt": { "len": 8, "max": 6375, "mul": 25, "unit": "rpm" }, "name": "Engine speed"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "403B"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_T_DA15", "path": "Fuel", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "408F"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_BOOST_P_ACT", "path": "Engine", "fmt": { "len": 8, "max": 339, "mul": 3333, "div": 2500, "unit": "kilopascal" }, "name": "Boost pressure, actual"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4093"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_EOP", "path": "Engine", "fmt": { "len": 8, "max": 1020, "mul": 4, "unit": "kilopascal" }, "name": "Engine oil pressure"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4500"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_EXH_GAS_T_SENS_0", "path": "Engine", "fmt": {           "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust gas temperature sensor 0"},
+    {"id": "MITSUBISHI_EXH_GAS_T_SENS_1", "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust gas temperature sensor 1"},
+    {"id": "MITSUBISHI_EXH_GAS_T_SENS_2", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust gas temperature sensor 2"},
+    {"id": "MITSUBISHI_EXH_GAS_T_SENS_3", "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust gas temperature sensor 3"},
+    {"id": "MITSUBISHI_EXH_GAS_T_SENS_4", "path": "Engine", "fmt": {"bix": 32, "len": 8, "max": 1075, "min": -200, "mul": 5,           "add": -200, "unit": "celsius"    }, "name": "Exhaust gas temperature sensor 4"},
+    {"id": "MITSUBISHI_DPF_DIFF_P",       "path": "Engine", "fmt": {"bix": 40, "len": 8, "max": 117,  "min": -10,            "div": 2, "add": -10,  "unit": "kilopascal" }, "name": "Diesel particulate filter differential pressure"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4501"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_1", "path": "Fuel", "fmt": {           "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, pilot 1"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_2", "path": "Fuel", "fmt": {"bix": 8,  "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, pilot 2"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_3", "path": "Fuel", "fmt": {"bix": 16, "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, pilot 3"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4502"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FINAL_FUEL_INJ",       "path": "Fuel",   "fmt": {           "len": 8, "max": 127,  "div": 2,  "unit": "unknown" }, "name": "Final fuel injection amount"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT",      "path": "Fuel",   "fmt": {"bix": 8,  "len": 8, "max": 127,  "div": 2,  "unit": "unknown" }, "name": "Fuel injection amount at startup"},
+    {"id": "MITSUBISHI_INJ_AMOUNT_SMOKE_LIM", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 127,  "div": 2,  "unit": "unknown" }, "name": "Injection amount, smoke limit"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_PRE",  "path": "Fuel",   "fmt": {"bix": 24, "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, pilot"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4503"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FCCB_CORR_1", "path": "Engine", "fmt": {           "len": 8, "max": 1.26, "min": -1.28, "div": 100, "add": -1.28, "unit": "milliseconds" }, "name": "Fuel quantity correction, cylinder 1"},
+    {"id": "MITSUBISHI_FCCB_CORR_2", "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 1.26, "min": -1.28, "div": 100, "add": -1.28, "unit": "milliseconds" }, "name": "Fuel quantity correction, cylinder 2"},
+    {"id": "MITSUBISHI_FCCB_CORR_3", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 1.26, "min": -1.28, "div": 100, "add": -1.28, "unit": "milliseconds" }, "name": "Fuel quantity correction, cylinder 3"},
+    {"id": "MITSUBISHI_FCCB_CORR_4", "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 1.26, "min": -1.28, "div": 100, "add": -1.28, "unit": "milliseconds" }, "name": "Fuel quantity correction, cylinder 4"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4506"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_TURBOCHARGER_TGT_POS", "path": "Battery", "fmt": {           "len": 8, "max": 255,                           "unit": "percent"    }, "name": "Turbocharger, target position"},
+    {"id": "MITSUBISHI_BOOST_P_TARGET",       "path": "Engine",  "fmt": {"bix": 8,  "len": 8, "max": 339, "mul": 3333, "div": 2500, "unit": "kilopascal" }, "name": "Boost pressure target"},
+    {"id": "MITSUBISHI_TURBOCHARGER_ACT_POS", "path": "Battery", "fmt": {"bix": 16, "len": 8, "max": 255,                           "unit": "percent"    }, "name": "Turbocharger, actual position"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4507"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_MAIN",   "path": "Fuel", "fmt": {           "len": 8, "max": 127,  "div": 2,  "unit": "unknown" }, "name": "Fuel injection amount, main"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_AFTER",  "path": "Fuel", "fmt": {"bix": 8,  "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, after"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_POST_1", "path": "Fuel", "fmt": {"bix": 16, "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, post 1"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_POST_2", "path": "Fuel", "fmt": {"bix": 24, "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, post 2"},
+    {"id": "MITSUBISHI_FUEL_INJ_AMOUNT_POST_3", "path": "Fuel", "fmt": {"bix": 32, "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Fuel injection amount, post 3"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4510"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_INJ_DUR_PRE",  "path": "Fuel", "fmt": {           "len": 16, "max": 65.53, "div": 1000, "unit": "milliseconds" }, "name": "Fuel injection duration, pilot"},
+    {"id": "MITSUBISHI_FUEL_INJ_DUR_MAIN", "path": "Fuel", "fmt": {"bix": 16, "len": 16, "max": 65.53, "div": 1000, "unit": "milliseconds" }, "name": "Fuel injection duration, main"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "451D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_RPM_DEV_TIME_1", "path": "Movement", "fmt": {           "len": 16, "max": 65.53, "div": 1000, "unit": "milliseconds" }, "name": "Engine speed deviation time 1"},
+    {"id": "MITSUBISHI_RPM_DEV_TIME_2", "path": "Movement", "fmt": {"bix": 16, "len": 16, "max": 65.53, "div": 1000, "unit": "milliseconds" }, "name": "Engine speed deviation time 2"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "451E"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_RPM_DEV_TIME_3", "path": "Movement", "fmt": {           "len": 16, "max": 65.53, "div": 1000, "unit": "milliseconds" }, "name": "Engine speed deviation time 3"},
+    {"id": "MITSUBISHI_RPM_DEV_TIME_4", "path": "Movement", "fmt": {"bix": 16, "len": 16, "max": 65.53, "div": 1000, "unit": "milliseconds" }, "name": "Engine speed deviation time 4"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4522"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_P", "path": "Fuel", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Fuel pressure"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "452B"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_DPF_DIFF_P_2", "path": "Engine", "fmt": { "len": 8, "max": 117, "min": -10, "div": 2, "add": -10, "unit": "kilopascal" }, "name": "Diesel particulate filter differential pressure 2"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4534"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_OIL_T", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Oil temperature"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4535"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_P_LOW", "path": "Fuel", "fmt": { "len": 8, "max": 2550, "mul": 10, "unit": "kilopascal" }, "name": "Fuel pressure, low"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "4539"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_TGT_COMMON_RAIL_FUEL_P", "path": "Fuel", "fmt": { "len": 8, "max": 255, "unit": "unknown" }, "name": "Target common rail fuel pressure"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "dbg": true, "cmd": {"22": "454C"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_DIST_SINCE_DPF_REGEN",  "path": "Trips",  "fmt": {           "len": 8,  "max": 2550,  "mul": 10,             "unit": "kilometers"    }, "name": "Distance since last DPF regeneration"},
+    {"id": "MITSUBISHI_DPF_SOOT_ACCUMULATION", "path": "Engine", "fmt": {"bix": 8,  "len": 8,  "max": 12.75,            "div": 20,  "unit": "gramsPerLiter" }, "name": "Diesel particulate filter soot accumulation"},
+    {"id": "MITSUBISHI_DPF_REGEN_TOT_CNT",     "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 655,              "div": 100, "unit": "scalar"        }, "name": "Diesel particulate filter regeneration total count"},
+    {"id": "MITSUBISHI_DPF_REGEN_REQ",         "path": "Engine", "fmt": {"bix": 32, "len": 8,  "max": 2550,  "mul": 10,             "unit": "kilometers"    }, "name": "Diesel particulate filter regeneration request mileage"},
+    {"id": "MITSUBISHI_REGEN_REQ_SOOT",        "path": "Engine", "fmt": {"bix": 40, "len": 8,  "max": 12.75,            "div": 20,  "unit": "gramsPerLiter" }, "name": "Regeneration request soot deposit"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1105"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_EGR_T_SNS_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "Exhaust gas recirculation temperature sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1111"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_T_DA18_1111", "path": "Fuel", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1114"}, "freq": 30,
+  "signals": [
+    {"id": "MITSUBISHI_FLI_INPUT_DA18_1114", "path": "Fuel", "fmt": { "len": 8, "max": 10.2, "div": 25, "unit": "volts" }, "name": "Fuel level input"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1115"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_EVAP_PRES_SNS_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "EVAP pressure sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "111F"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_EOT", "path": "Engine", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Engine oil temperature"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1207"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_BASE_INJECTION_TIMING", "path": "Engine", "fmt": { "len": 16, "max": 31.99, "div": 2048, "unit": "milliseconds" }, "name": "Base injection timing"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120C"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_FUEL_PRES_SNS_V", "path": "Fuel", "fmt": { "len": 16, "max": 20, "mul": 20, "div": 65535, "unit": "volts" }, "name": "Fuel pressure sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ACCELERATOR_PEDAL_POSITION_SNS_1_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120E"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_ACCELERATOR_PEDAL_POSITION_SNS_2_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120F"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_THROTTLE_POSITION_SNS_1_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1210"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_THROTTLE_POSITION_SNS_2_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "121F"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ROLL_OVER_SNS_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Roll-over sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "150D"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_RPM_DA18",            "path": "Movement", "fmt": {           "len": 16, "max": 8191,               "div": 8,              "unit": "rpm"          }, "name": "Engine speed"},
+    {"id": "MITSUBISHI_THROTTLE_PEDAL_SENS", "path": "Engine",   "fmt": {"bix": 16, "len": 16, "max": 8191,               "div": 8,              "unit": "percent"      }, "name": "Throttle pedal sensor"},
+    {"id": "MITSUBISHI_STATIC_ENG_TQ",       "path": "Engine",   "fmt": {"bix": 32, "len": 16, "max": 32367, "min": -400, "div": 2, "add": -400, "unit": "newtonMeters" }, "name": "Static engine torque"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "150E"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_INPUT_SHFT_SPD",  "path": "Movement",     "fmt": {"bix": 8,  "len": 16, "max": 32767,                        "div": 2,             "unit": "rpm"               }, "name": "Input shaft speed"},
+    {"id": "MITSUBISHI_OUTPUT_SHFT_SPD", "path": "Movement",     "fmt": {"bix": 24, "len": 16, "max": 32767,                        "div": 2,             "unit": "rpm"               }, "name": "Output shaft speed"},
+    {"id": "MITSUBISHI_ATF_T_PIPE",      "path": "Transmission", "fmt": {"bix": 40, "len": 8,  "max": 205,   "min": -50,                      "add": -50, "unit": "celsius"           }, "name": "Transmission fluid temperature, pipe"},
+    {"id": "MITSUBISHI_ATF_T_PAN",       "path": "Transmission", "fmt": {"bix": 48, "len": 8,  "max": 205,   "min": -50,                      "add": -50, "unit": "celsius"           }, "name": "Transmission fluid temperature, pan"},
+    {"id": "MITSUBISHI_VSS",             "path": "Movement",     "fmt": {"bix": 56, "len": 8,  "max": 714,               "mul": 14, "div": 5,             "unit": "kilometersPerHour" }, "name": "Vehicle speed"},
+    {"id": "MITSUBISHI_GEAR",            "path": "Transmission", "fmt": {"bix": 72, "len": 8,  "max": 255,                                                "unit": "scalar"            }, "name": "Gear"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "150F"}, "freq": 1,
+  "signals": [
+    {"id": "MITSUBISHI_LOCK_UP_SOLENOID",     "path": "Engine", "fmt": {"bix": 7,  "len": 1, "max": 1,                         "unit": "offon"   }, "name": "Lock-up solenoid"},
+    {"id": "MITSUBISHI_LOCK_UP_CTRL",         "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Lock-up control solenoid duty"},
+    {"id": "MITSUBISHI_LINE_P_CTRL_SOLENOID", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Line pressure control solenoid duty"},
+    {"id": "MITSUBISHI_LINEAR_SOLENOID_1",    "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Linear solenoid 1 duty"},
+    {"id": "MITSUBISHI_LINEAR_SOLENOID_2",    "path": "Engine", "fmt": {"bix": 32, "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Linear solenoid 2 duty"},
+    {"id": "MITSUBISHI_LINEAR_SOLENOID_3",    "path": "Engine", "fmt": {"bix": 40, "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Linear solenoid 3 duty"},
+    {"id": "MITSUBISHI_LINEAR_SOLENOID_4",    "path": "Engine", "fmt": {"bix": 48, "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Linear solenoid 4 duty"},
+    {"id": "MITSUBISHI_EM_OIL_PUMP",          "path": "Engine", "fmt": {"bix": 56, "len": 8, "max": 100, "mul": 20, "div": 51, "unit": "percent" }, "name": "Electromagnetic oil pump duty"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "2170"}, "freq": 5,
+  "signals": [
+    {"id": "MITSUBISHI_ATF_T_DA18_2170", "path": "Transmission", "fmt": {"bix": 232, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "dbg": true, "cmd": {"22": "4B00"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_FL_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "dbg": true, "cmd": {"22": "4B01"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_FR_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "dbg": true, "cmd": {"22": "4B02"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_RL_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "dbg": true, "cmd": {"22": "4B03"}, "freq": 0.25,
+  "signals": [
+    {"id": "MITSUBISHI_RR_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]}
+]
+}

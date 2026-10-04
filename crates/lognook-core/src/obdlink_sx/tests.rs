@@ -3,7 +3,7 @@ use super::{
     ObdLinkSxAdapter, group_signal_indices, isotp_frame_count, serial::MAX_RESPONSE_BYTES,
 };
 use crate::obdlink_sx_protocol::mode01_pid_data_width;
-use crate::{HardwareAdapter, standard_obd_signals};
+use crate::{HardwareAdapter, ScionMode21ProbeSpec, ScionProbeChannel, standard_obd_signals};
 use serialport::{SerialPortInfo, SerialPortType, UsbPortInfo};
 use std::{
     io::{Cursor, Read, Write},
@@ -40,6 +40,121 @@ fn adapter_for(transcript: String) -> (ObdLinkSxAdapter, Arc<Mutex<Vec<u8>>>) {
         written: written.clone(),
     };
     (ObdLinkSxAdapter::with_port("COM4", Box::new(port)), written)
+}
+
+fn scion_probe_spec() -> ScionMode21ProbeSpec {
+    let definitions = [
+        ("Intake air temperature", "celsius", 48, 8, 1.0, 1.0, -40.0, "(raw*(1)/(1))+(-40)", Some(-40.0), Some(215.0)),
+        ("Coolant temperature", "celsius", 64, 8, 1.0, 1.0, -40.0, "(raw*(1)/(1))+(-40)", Some(-40.0), Some(215.0)),
+        ("Engine speed", "rpm", 72, 16, 1.0, 4.0, 0.0, "(raw*(1)/(4))+(0)", None, Some(16383.75)),
+        ("Vehicle speed", "kilometersPerHour", 88, 8, 1.0, 1.0, 0.0, "(raw*(1)/(1))+(0)", None, Some(255.0)),
+        ("Throttle sensor position", "percent", 112, 8, 100.0, 255.0, 0.0, "(raw*(100)/(255))+(0)", None, Some(100.0)),
+    ];
+    ScionMode21ProbeSpec {
+        source_id: crate::oem_catalog::SCION_XB_SOURCE_ID.into(),
+        source_blob_sha: crate::oem_catalog::SCION_XB_BLOB_SHA.into(),
+        source_url: "https://source.test/scion".into(), license: "CC BY-SA 4.0".into(),
+        license_url: "https://source.test/license".into(), service: 0x21, identifier: 0x01,
+        request_header: "7E0".into(), response_header: "7E8".into(),
+        channels: definitions.into_iter().map(|(name, unit, bit_offset, bit_length, multiplier, divisor, addend, formula, minimum, maximum)| ScionProbeChannel {
+            candidate_id: format!("candidate-{name}"), name: name.into(), unit: unit.into(), bit_offset,
+            bit_length, multiplier, divisor, addend, formula: formula.into(), minimum, maximum,
+        }).collect(),
+    }
+}
+
+fn iso_tp_response(ecu: &str, payload: &[u8]) -> String {
+    let mut frames = Vec::new();
+    let first_len = payload.len().min(6);
+    let mut first = vec![0x10 | ((payload.len() >> 8) as u8 & 0x0F), payload.len() as u8];
+    first.extend_from_slice(&payload[..first_len]);
+    frames.push(first);
+    let mut offset = first_len;
+    let mut sequence = 1;
+    while offset < payload.len() {
+        let end = (offset + 7).min(payload.len());
+        let mut frame = vec![0x20 | sequence];
+        frame.extend_from_slice(&payload[offset..end]);
+        frames.push(frame);
+        offset = end;
+        sequence = (sequence + 1) & 0x0F;
+    }
+    frames.into_iter().map(|frame| format!("{ecu} {}", frame.iter().map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(" "))).collect::<Vec<_>>().join("\r")
+}
+
+#[test]
+fn scion_one_shot_command_and_response_are_source_scoped() {
+    let spec = scion_probe_spec();
+    assert_eq!(super::build_scion_probe_command(&spec).unwrap(), "STPX H:7E0, D:2101, T:250");
+
+    let mut data = vec![0_u8; 27];
+    data[6] = 20;
+    data[8] = 90;
+    data[9] = 0x1A;
+    data[10] = 0xF8;
+    data[11] = 40;
+    data[14] = 128;
+    let mut payload = vec![0x61, 0x01];
+    payload.extend(data);
+    let parsed = super::decode_scion_mode21_response(&spec, &iso_tp_response("7E8", &payload));
+
+    assert_eq!(parsed.outcome, "positive");
+    assert_eq!(parsed.payload.len(), 29);
+    assert_eq!(parsed.decoded[0].value, -20.0);
+    assert_eq!(parsed.decoded[1].value, 50.0);
+    assert_eq!(parsed.decoded[2].value, 1726.0);
+    assert_eq!(parsed.decoded[3].value, 40.0);
+    assert!((parsed.decoded[4].value - 50.19607843137255).abs() < 0.000_001);
+}
+
+#[test]
+fn scion_probe_uses_one_exact_request_after_sx_identity_and_can_check() {
+    let spec = scion_probe_spec();
+    let mut data = vec![0_u8; 27];
+    data[6] = 20;
+    data[8] = 90;
+    data[9] = 0x1A;
+    data[10] = 0xF8;
+    data[11] = 40;
+    data[14] = 128;
+    let mut payload = vec![0x61, 0x01];
+    payload.extend(data);
+    let transcript = format!(
+        "{}STPRS\rISO 15765-4 (CAN 11/500) [AT]\r\r>OK\r\r>OK\r\r>OK\r\r>{}\r\r>OK\r\r>OK\r\r>OK\r\r>",
+        include_str!("../../tests/fixtures/obdlink_sx/physical_ford_identity.txt"),
+        iso_tp_response("7E8", &payload),
+    );
+    let (mut adapter, written) = adapter_for(transcript);
+
+    let result = adapter.probe_scion_inner(&spec).unwrap();
+    adapter.disconnect();
+
+    assert_eq!(result.outcome, "positive");
+    assert_eq!(result.exact_adapter_command, "STPX H:7E0, D:2101, T:250");
+    assert_eq!(result.adapter.stable_id, "113011166292");
+    assert_eq!(result.decoded_signals[2].value, 1726.0);
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STI\rSTDI\rSTSN\rSTPRS\rATE0\rAT H1\rAT SH 7DF\rSTPX H:7E0, D:2101, T:250\rAT H0\rAT SH 7DF\rATE1\r"
+    );
+}
+
+#[test]
+fn scion_one_shot_reports_negative_truncated_and_wrong_ecu_responses() {
+    let spec = scion_probe_spec();
+    assert_eq!(super::decode_scion_mode21_response(&spec, "7E8 03 7F 21 11\r>").outcome, "negative_response");
+    assert_eq!(super::decode_scion_mode21_response(&spec, "7E8 10 1D 61 01 00 00\r7E8 21 00\r>").outcome, "malformed_response");
+    assert_eq!(super::decode_scion_mode21_response(&spec, "7E9 03 61 01 00\r>").outcome, "wrong_responder");
+}
+
+#[test]
+fn scion_one_shot_refuses_any_changed_service_address_or_decoder() {
+    let mut spec = scion_probe_spec();
+    spec.request_header = "7DF".into();
+    assert!(super::build_scion_probe_command(&spec).is_err());
+    let mut spec = scion_probe_spec();
+    spec.channels[2].divisor = 1.0;
+    assert!(super::build_scion_probe_command(&spec).is_err());
 }
 
 fn identity_transcript() -> String {

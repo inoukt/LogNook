@@ -26,7 +26,7 @@ Toyota product documentation and a Scion service bulletin identify the 2.4L engi
 
 **Read-only initial scenario:** the same standardized engine-off/ignition-on, warm-idle, controlled throttle and safe stationary tests with the SX, ELM and Tactrix. Discover supported standard PIDs; where offered compare RPM, coolant, intake temperature, throttle, MAF/load, short/long fuel trim and lambda/O2 readings. Keep a source-aware record of every actual supported PID and missing signal.
 
-**Enhanced scenario:** Toyota/Scion engine and transmission module identification and read-only enhanced Data List items only where identifiers, addressing, scaling and vehicle applicability have been independently confirmed. Toyota Techstream service references provide comparison targets, not redistribution permission for proprietary software or data.
+**Enhanced scenario:** test Toyota/Scion engine and transmission read definitions only from a reviewed source with exact request addressing; treat each as unverified until the xB ECU responds and the decoder is checked. If a test requires session/security access or another state-changing step, use the exact per-test gate in root `AGENTS.md`. Toyota Techstream references are comparison material, not redistribution permission.
 
 ## Vehicle C: Subaru — rotating shop samples, exact models not yet identified
 
@@ -41,7 +41,7 @@ Use Subaru access to benchmark SSM protocol detection, source-validated logging 
 5. **Reconnect/failure test:** unplug USB, unplug/replug the OBD connector in safe conditions, power-cycle the simulator and stop/start ECU replies. A lost signal must be visibly stale, a gap recorded, no fake zeros or interpolated continuity silently inserted.
 6. **Measurement record:** for every run store median/p95 first-sample time, each signal's measured median/p95 inter-sample interval, effective requests/s, response error/retry counts, UI preview frame rate, recorder backlog, memory use and raw-vs-decoded verification outcomes.
 
-All initial vehicle tests are read-only, conducted stationary under safe workshop conditions. If a test requires driving under load, have a second person operate the logger or use an appropriate dyno/test arrangement; don't operate a PC while driving.
+Initial acquisition and baseline tests are read-only and stationary. Separate source-backed read probes follow the standing authorization in root `AGENTS.md`; state-changing tests require explicit approval for the exact procedure and controlled conditions. Flashing/programming is prohibited. If a measurement requires driving under load, use a second operator or an appropriate dyno; never operate a PC while driving.
 
 ## Acceptance
 - One complete, actual-car vertical slice on Scion (connect -> select -> read -> graph -> mark -> record -> CSV -> reopen -> replay) before complex OEM expansion.

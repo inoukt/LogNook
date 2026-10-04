@@ -1828,6 +1828,7 @@ dependencies = [
  "csv",
  "rusqlite",
  "serde",
+ "serde_json",
  "serialport",
 ]
 
@@ -1836,6 +1837,7 @@ name = "lognook-desktop"
 version = "0.1.0"
 dependencies = [
  "lognook-core",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

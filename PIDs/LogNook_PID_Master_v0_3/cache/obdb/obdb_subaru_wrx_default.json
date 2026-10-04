@@ -1,0 +1,49 @@
+{ "ecu": [
+    { "hdr": "753", "type": "tpms" },
+    { "hdr": "7E0", "type": "engine" }
+  ],
+  "commands": [
+{ "hdr": "753", "rax": "75B", "tmo": "64", "fcm1": true, "cmd": {"22": "1022"}, "freq": 15, "dbgfilter": { "to": 2014, "years": [2019], "from": 2025 },
+  "signals": [
+    {"id": "WRX_TP_RL", "path": "Tires", "fmt": {           "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Rear left tire pressure",   "suggestedMetric": "rearLeftTirePressure"},
+    {"id": "WRX_TP_RR", "path": "Tires", "fmt": {"bix": 8,  "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Rear right tire pressure",  "suggestedMetric": "rearRightTirePressure"},
+    {"id": "WRX_TP_FR", "path": "Tires", "fmt": {"bix": 16, "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Front right tire pressure", "suggestedMetric": "frontRightTirePressure"},
+    {"id": "WRX_TP_FL", "path": "Tires", "fmt": {"bix": 24, "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Front left tire pressure",  "suggestedMetric": "frontLeftTirePressure"}
+  ]},
+{ "hdr": "753", "rax": "75B", "tmo": "64", "fcm1": true, "cmd": {"22": "1028"}, "freq": 86400, "dbgfilter": { "to": 2014, "years": [2019], "from": 2025 },
+  "signals": [
+    {"id": "WRX_TID1", "path": "Tires", "fmt": {           "len": 24, "max": 16777215, "unit": "scalar" }, "name": "Tire 1 id"},
+    {"id": "WRX_TID2", "path": "Tires", "fmt": {"bix": 24, "len": 24, "max": 16777215, "unit": "scalar" }, "name": "Tire 2 id"},
+    {"id": "WRX_TID3", "path": "Tires", "fmt": {"bix": 48, "len": 24, "max": 16777215, "unit": "scalar" }, "name": "Tire 3 id"},
+    {"id": "WRX_TID4", "path": "Tires", "fmt": {"bix": 72, "len": 24, "max": 16777215, "unit": "scalar" }, "name": "Tire 4 id"}
+  ]},
+{ "hdr": "7B0", "rax": "7B8", "tmo": "64", "fcm1": true, "cmd": {"22": "1024"}, "freq": 0.25, "dbgfilter": { "to": 2014, "from": 2025 },
+  "signals": [
+    {"id": "WRX_FR_VSS", "path": "Tires", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Front right tire speed"}
+  ]},
+{ "hdr": "7B0", "rax": "7B8", "tmo": "64", "fcm1": true, "cmd": {"22": "1025"}, "freq": 0.25, "dbgfilter": { "to": 2014, "from": 2025 },
+  "signals": [
+    {"id": "WRX_FL_VSS", "path": "Tires", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Front left tire speed"}
+  ]},
+{ "hdr": "7B0", "rax": "7B8", "tmo": "64", "fcm1": true, "cmd": {"22": "1026"}, "freq": 0.25, "dbgfilter": { "to": 2014, "from": 2025 },
+  "signals": [
+    {"id": "WRX_RR_VSS", "path": "Tires", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Rear right tire speed"}
+  ]},
+{ "hdr": "7B0", "rax": "7B8", "tmo": "64", "fcm1": true, "cmd": {"22": "1027"}, "freq": 0.25, "dbgfilter": { "to": 2014, "from": 2025 },
+  "signals": [
+    {"id": "WRX_RL_VSS", "path": "Tires", "fmt": { "len": 16, "max": 65535, "unit": "scalar" }, "name": "Rear left tire speed"}
+  ]},
+{ "hdr": "7B0", "rax": "7B8", "tmo": "64", "fcm1": true, "cmd": {"22": "1029"}, "freq": 0.25, "dbgfilter": { "to": 2014, "from": 2025 },
+  "signals": [
+    {"id": "WRX_STEER_ANGLE", "path": "Control", "fmt": { "len": 16, "max": 65535, "sign": true, "unit": "degrees" }, "name": "Steering wheel angle (ABS)"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "tmo": "64", "fcm1": true, "dbg": true, "cmd": {"22": "002F"}, "freq": 1,
+  "signals": [
+    {"id": "WRX_FLI", "path": "Fuel", "fmt": { "len": 8, "max": 255, "mul": 100, "div": 255, "unit": "percent" }, "name": "Fuel level", "suggestedMetric": "fuelTankLevel"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "tmo": "64", "fcm1": true, "cmd": {"22": "10E5"}, "freq": 15, "dbgfilter": { "to": 2015, "from": 2022 },
+  "signals": [
+    {"id": "WRX_ODO", "path": "Trips", "fmt": { "len": 16, "max": 131070, "mul": 2, "unit": "kilometers" }, "name": "Odometer"}
+  ]}
+]
+}

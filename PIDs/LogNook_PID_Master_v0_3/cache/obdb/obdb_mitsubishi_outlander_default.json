@@ -1,0 +1,554 @@
+{ "ecu": [
+    { "hdr": "688",  "type": "hvac" },
+    { "hdr": "743",  "type": "bodyControl" },
+    { "hdr": "773",  "type": "tpms" },
+    { "hdr": "7E1",  "type": "transmission" },
+    { "hdr": "DA15", "type": "engine" },
+    { "hdr": "DA18", "type": "transmission" }
+  ],
+  "commands": [
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "23"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TP_FL", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure front left",    "suggestedMetric": "frontLeftTirePressure"},
+    {"id": "OUTLANDER_TT_FL", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature front left", "suggestedMetric": "frontLeftTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "24"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TP_RL", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure rear left",    "suggestedMetric": "rearLeftTirePressure"},
+    {"id": "OUTLANDER_TT_RL", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature rear left", "suggestedMetric": "rearLeftTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "25"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TP_RR", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure rear right",    "suggestedMetric": "rearRightTirePressure"},
+    {"id": "OUTLANDER_TT_RR", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature rear right", "suggestedMetric": "rearRightTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "26"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TP_FR", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure front right",    "suggestedMetric": "frontRightTirePressure"},
+    {"id": "OUTLANDER_TT_FR", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature front right", "suggestedMetric": "frontRightTireTemperature"}
+  ]},
+{ "hdr": "600", "rax": "500", "fcm1": true, "dbg": true, "cmd": {"21": "27"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TP_SPARE", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Pressure spare tire"},
+    {"id": "OUTLANDER_TT_SPARE", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Temperature spare tire"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "10"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_INTERIOR_T",     "path": "Climate", "fmt": {           "len": 8, "max": 47.75, "min": -16,             "div": 4,   "add": -16, "unit": "celsius" }, "name": "Interior temperature"},
+    {"id": "OUTLANDER_AC_AIR_THERMO_SNS", "path": "Climate", "fmt": {"bix": 8,  "len": 8, "max": 47.75, "min": -16,             "div": 4,   "add": -16, "unit": "celsius" }, "name": "Air temperature sensor"},
+    {"id": "OUTLANDER_AC_PRES",           "path": "Climate", "fmt": {"bix": 16, "len": 8, "max": 3.3,               "mul": 3.3, "div": 255,             "unit": "unknown" }, "name": "Pressure"},
+    {"id": "OUTLANDER_AC_SOLAR_SNS",      "path": "Climate", "fmt": {"bix": 24, "len": 8, "max": 5.5,               "mul": 5.5, "div": 255,             "unit": "scalar"  }, "name": "Solar sensor"},
+    {"id": "OUTLANDER_AC_ECT",            "path": "Climate", "fmt": {"bix": 32, "len": 8, "max": 215,   "min": -40,                         "add": -40, "unit": "celsius" }, "name": "Engine coolant temperature", "suggestedMetric": "engineCoolantTemperature"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "11"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_AAT", "path": "Climate", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Ambient air temperature"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "13"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_RPM", "path": "Climate", "fmt": {"bix": 8,  "len": 16, "max": 7000, "unit": "rpm"               }, "name": "Engine RPM",    "suggestedMetric": "engineSpeed"},
+    {"id": "OUTLANDER_AC_VSS", "path": "Climate", "fmt": {"bix": 24, "len": 16, "max": 250,  "unit": "kilometersPerHour" }, "name": "Vehicle speed", "suggestedMetric": "speed"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "22"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_OUTPUT_VSS_DR", "path": "Climate", "fmt": {           "len": 8, "max": 16, "div": 2, "unit": "scalar" }, "name": "Driver side output speed"},
+    {"id": "OUTLANDER_AC_OUTPUT_VSS_AS", "path": "Climate", "fmt": {"bix": 8,  "len": 8, "max": 16, "div": 2, "unit": "scalar" }, "name": "Passenger side output speed"},
+    {"id": "OUTLANDER_AC_OUTPUT_MODE",   "path": "Climate", "fmt": {"bix": 16, "len": 8, "max": 16,           "unit": "scalar" }, "name": "Output mode"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "23"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_SWITCH",                       "path": "Climate", "fmt": {"bix": 6, "len": 1, "max": 1,   "unit": "offon" }, "name": "Air conditioning switch"},
+    {"id": "OUTLANDER_AC_A_C_COMPRESSOR_DRIVE_REQUEST", "path": "Climate", "fmt": {"bix": 7, "len": 1, "max": 1,   "unit": "offon" }, "name": "A/C compressor drive request"},
+    {"id": "OUTLANDER_AC_IDLE_UP_REQUEST",              "path": "Climate", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "rpm"   }, "name": "Idle up request"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "32"}, "freq": 3600, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_LEAK_INDICATOR_20", "path": "Climate", "fmt": {"bix": 5, "len": 1, "max": 1, "unit": "offon" }, "name": "Leak indicator at 20%"},
+    {"id": "OUTLANDER_AC_LEAK_INDICATOR",    "path": "Climate", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "Leak indicator"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "34"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_DRIVER_T",         "path": "Climate", "fmt": {           "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Driver temperature setting"},
+    {"id": "OUTLANDER_AC_PASSENGER_T",      "path": "Climate", "fmt": {"bix": 8,  "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Passenger temperature setting"},
+    {"id": "OUTLANDER_AC_DRIVER_T_CORR",    "path": "Climate", "fmt": {"bix": 16, "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Corrected driver temperature setting"},
+    {"id": "OUTLANDER_AC_PASSENGER_T_CORR", "path": "Climate", "fmt": {"bix": 24, "len": 8, "max": 50, "div": 2, "unit": "celsius" }, "name": "Corrected passenger temperature setting"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "70"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_A_C_COMPRESSOR_DRIVE_FLAG", "path": "Climate", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "A/C compressor drive flag"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "80"}, "freq": 3600, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_SYSTEM_WORK_TIME",           "path": "Climate", "fmt": {           "len": 24, "max": 83886075, "mul": 5, "unit": "scalar" }, "name": "System work time"},
+    {"id": "OUTLANDER_AC_COMPRESSOR_ON_OFF_COUNT",    "path": "Climate", "fmt": {"bix": 24, "len": 24, "max": 16777215,           "unit": "scalar" }, "name": "Compressor ON/OFF count"},
+    {"id": "OUTLANDER_AC_REAR_DEFOGGER_ON_OFF_COUNT", "path": "Climate", "fmt": {"bix": 48, "len": 16, "max": 65535,              "unit": "scalar" }, "name": "Rear defogger ON/OFF count"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "81"}, "freq": 3600, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_MAX_PRES",              "path": "Climate", "fmt": {"bix": 96,  "len": 8,  "max": 3.3,      "mul": 3.3, "div": 255, "unit": "unknown" }, "name": "Max pressure"},
+    {"id": "OUTLANDER_AC_CONDITIONER_WORK_TIME", "path": "Climate", "fmt": {"bix": 104, "len": 24, "max": 83886075, "mul": 5,               "unit": "scalar"  }, "name": "Conditioner work time"},
+    {"id": "OUTLANDER_AC_COMPRESSOR_WORK_TIME",  "path": "Climate", "fmt": {"bix": 128, "len": 24, "max": 83886075, "mul": 5,               "unit": "scalar"  }, "name": "Compressor work time"},
+    {"id": "OUTLANDER_AC_RECIRCULATION_TIME",    "path": "Climate", "fmt": {"bix": 176, "len": 16, "max": 327675,   "mul": 5,               "unit": "minutes" }, "name": "Recirculation time"}
+  ]},
+{ "hdr": "688", "rax": "511", "fcm1": true, "dbg": true, "cmd": {"21": "83"}, "freq": 3600, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_FAN_M1_WORK_TIME", "path": "Climate", "fmt": {"bix": 40, "len": 24, "max": 83886075, "mul": 5, "unit": "scalar" }, "name": "Fan M1 work time"},
+    {"id": "OUTLANDER_AC_FAN_M2_WORK_TIME", "path": "Climate", "fmt": {"bix": 64, "len": 24, "max": 83886075, "mul": 5, "unit": "scalar" }, "name": "Fan M2 work time"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "A3"}, "freq": 30, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FLI", "path": "Fuel", "fmt": {"bix": 16, "len": 8, "max": 100, "add": -16, "unit": "percent" }, "name": "Fuel level", "suggestedMetric": "fuelTankLevel"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "AD"}, "freq": 30, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_ODO", "path": "Trips", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "AF"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_DASHBOARD_V", "path": "Electrical", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "Dashboard voltage"}
+  ]},
+{ "hdr": "6A0", "rax": "514", "fcm1": true, "dbg": true, "cmd": {"21": "BC"}, "freq": 30, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MILEAGE_BEFORE_SERVICING",       "path": "Trips", "fmt": {           "len": 8, "max": 25500, "mul": 100, "unit": "kilometers" }, "name": "Mileage before servicing"},
+    {"id": "OUTLANDER_PERIOD_BEFORE_SERVICING_MONTHS", "path": "Trips", "fmt": {"bix": 32, "len": 8, "max": 255,               "unit": "scalar"     }, "name": "Months before servicing"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "cmd": {"22": "0E25"}, "freq": 15, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_BCM_TP_FR", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Front right tire pressure", "suggestedMetric": "frontRightTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "cmd": {"22": "0E26"}, "freq": 15, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_BCM_TP_FL", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Front left tire pressure", "suggestedMetric": "frontLeftTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "cmd": {"22": "0E27"}, "freq": 15, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_BCM_TP_RR", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Rear right tire pressure", "suggestedMetric": "rearRightTirePressure"}
+  ]},
+{ "hdr": "743", "rax": "763", "fcm1": true, "cmd": {"22": "0E28"}, "freq": 15, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_BCM_TP_RL", "path": "Tires", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "psi" }, "name": "Rear left tire pressure", "suggestedMetric": "rearLeftTirePressure"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A1"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TPMS_TP_FL", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Front left tire pressure",    "suggestedMetric": "frontLeftTirePressure"},
+    {"id": "OUTLANDER_TPMS_TT_FL", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Front left tire temperature", "suggestedMetric": "frontLeftTireTemperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A2"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TPMS_TP_RR", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Rear right tire pressure",    "suggestedMetric": "rearRightTirePressure"},
+    {"id": "OUTLANDER_TPMS_TT_RR", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Rear right tire temperature", "suggestedMetric": "rearRightTireTemperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A3"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TPMS_TP_RL", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Rear left tire pressure",    "suggestedMetric": "rearLeftTirePressure"},
+    {"id": "OUTLANDER_TPMS_TT_RL", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Rear left tire temperature", "suggestedMetric": "rearLeftTireTemperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A4"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TPMS_TP_SPARE", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Spare tire pressure"},
+    {"id": "OUTLANDER_TPMS_TT_SPARE", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Spare tire temperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A5"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TPMS_TP_FR", "path": "Tires", "fmt": {"bix": 64, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Front right tire pressure",    "suggestedMetric": "frontRightTirePressure"},
+    {"id": "OUTLANDER_TPMS_TT_FR", "path": "Tires", "fmt": {"bix": 72, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Front right tire temperature", "suggestedMetric": "frontRightTireTemperature"}
+  ]},
+{ "hdr": "773", "rax": "774", "fcm1": true, "din": "92", "dbg": true, "cmd": {"21": "A8"}, "freq": 15, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_TPMS_TP_1", "path": "Tires", "fmt": {"bix": 120, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #1 pressure"},
+    {"id": "OUTLANDER_TPMS_TP_2", "path": "Tires", "fmt": {"bix": 128, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #2 pressure"},
+    {"id": "OUTLANDER_TPMS_TP_3", "path": "Tires", "fmt": {"bix": 136, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #3 pressure"},
+    {"id": "OUTLANDER_TPMS_TP_4", "path": "Tires", "fmt": {"bix": 144, "len": 8, "max": 51,              "div": 5,             "unit": "psi"     }, "name": "Tire #4 pressure"},
+    {"id": "OUTLANDER_TPMS_TT_1", "path": "Tires", "fmt": {"bix": 160, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #1 temperature"},
+    {"id": "OUTLANDER_TPMS_TT_2", "path": "Tires", "fmt": {"bix": 168, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #2 temperature"},
+    {"id": "OUTLANDER_TPMS_TT_3", "path": "Tires", "fmt": {"bix": 176, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #3 temperature"},
+    {"id": "OUTLANDER_TPMS_TT_4", "path": "Tires", "fmt": {"bix": 184, "len": 8, "max": 205, "min": -50,           "add": -50, "unit": "celsius" }, "name": "Tire #4 temperature"}
+  ]},
+{ "hdr": "784", "rax": "785", "fcm1": true, "dbg": true, "cmd": {"21": "01"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_ABS_FL_VSS", "path": "Movement", "fmt": {           "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Front left wheel speed sensor"},
+    {"id": "OUTLANDER_ABS_FR_VSS", "path": "Movement", "fmt": {"bix": 16, "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Front right wheel speed sensor"},
+    {"id": "OUTLANDER_ABS_RL_VSS", "path": "Movement", "fmt": {"bix": 32, "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed sensor"},
+    {"id": "OUTLANDER_ABS_RR_VSS", "path": "Movement", "fmt": {"bix": 48, "len": 16, "max": 655.35, "div": 100, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed sensor"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "01"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_4WD_MODE",                "path": "Drivetrain", "fmt": {           "len": 8, "max": 255,                           "unit": "scalar" }, "name": "4WD mode"},
+    {"id": "OUTLANDER_AWC_CENTER_COUPLING_CUR_AMP", "path": "Drivetrain", "fmt": {"bix": 40, "len": 8, "max": 3.06, "mul": 3.06, "div": 255, "unit": "scalar" }, "name": "Center coupling current"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "04"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_STEERING_ANGLE",           "path": "Drivetrain", "fmt": {           "len": 16, "max": 30719.5, "min": -2048, "div": 2, "add": -2048, "unit": "degrees" }, "name": "Steering angle"},
+    {"id": "OUTLANDER_AWC_STEERING_VSS_DEGREES_SEC", "path": "Drivetrain", "fmt": {"bix": 16, "len": 16, "max": 30719.5, "min": -2048, "div": 2, "add": -2048, "unit": "scalar"  }, "name": "Steering speed"},
+    {"id": "OUTLANDER_AWC_STEERING_STS",             "path": "Drivetrain", "fmt": {"bix": 32, "len": 8,  "max": 255,                                           "unit": "scalar"  }, "name": "Steering status"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "05"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_ACCELERATOR_POSITION", "path": "Drivetrain", "fmt": {          "len": 8,  "max": 99.6,  "mul": 100, "div": 256, "unit": "percent" }, "name": "Accelerator position"},
+    {"id": "OUTLANDER_AWC_RPM",                  "path": "Drivetrain", "fmt": {"bix": 8, "len": 16, "max": 65535,                         "unit": "rpm"     }, "name": "Engine RPM",           "suggestedMetric": "engineSpeed"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "07"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_FL_ROT", "path": "Drivetrain", "fmt": {            "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Front left wheel rotation"},
+    {"id": "OUTLANDER_AWC_FR_ROT", "path": "Drivetrain", "fmt": {"bix": 16,  "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Front right wheel rotation"},
+    {"id": "OUTLANDER_AWC_RL_ROT", "path": "Drivetrain", "fmt": {"bix": 32,  "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Rear left wheel rotation"},
+    {"id": "OUTLANDER_AWC_RR_ROT", "path": "Drivetrain", "fmt": {"bix": 48,  "len": 16, "max": 32767.5, "div": 2,   "unit": "rpm"               }, "name": "Rear right wheel rotation"},
+    {"id": "OUTLANDER_AWC_FL_VSS", "path": "Drivetrain", "fmt": {"bix": 64,  "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"},
+    {"id": "OUTLANDER_AWC_FR_VSS", "path": "Drivetrain", "fmt": {"bix": 80,  "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"},
+    {"id": "OUTLANDER_AWC_RL_VSS", "path": "Drivetrain", "fmt": {"bix": 96,  "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"},
+    {"id": "OUTLANDER_AWC_RR_VSS", "path": "Drivetrain", "fmt": {"bix": 112, "len": 16, "max": 655.35,  "div": 100, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "0A"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_YAW_RATE_DEGREES_SEC", "path": "Drivetrain", "fmt": {           "len": 16, "max": 327.67, "min": -327.68, "div": 100, "add": -327.68, "unit": "scalar"                 }, "name": "Yaw rate"},
+    {"id": "OUTLANDER_AWC_LATERAL_G",            "path": "Drivetrain", "fmt": {"bix": 16, "len": 8,  "max": 12.7,   "min": -12.8,   "div": 10,  "add": -12.8,   "unit": "metersPerSecondSquared" }, "name": "Lateral acceleration"},
+    {"id": "OUTLANDER_AWC_LONGITUDINAL_G",       "path": "Drivetrain", "fmt": {"bix": 24, "len": 8,  "max": 12.7,   "min": -12.8,   "div": 10,  "add": -12.8,   "unit": "metersPerSecondSquared" }, "name": "Longitudinal acceleration"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "0D"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_BRAKE_STS",     "path": "Control",    "fmt": {"bix": 7,  "len": 1,  "max": 1,                                            "unit": "offon"      }, "name": "Brake status"},
+    {"id": "OUTLANDER_AWC_PARKING_BRAKE", "path": "Control",    "fmt": {"bix": 15, "len": 1,  "max": 1,                                            "unit": "offon"      }, "name": "Parking brake"},
+    {"id": "OUTLANDER_AWC_IGN_STS",       "path": "Drivetrain", "fmt": {"bix": 16, "len": 8,  "max": 255,                                          "unit": "scalar"     }, "name": "Ignition status"},
+    {"id": "OUTLANDER_AWC_ACC_V",         "path": "Drivetrain", "fmt": {"bix": 24, "len": 8,  "max": 25.5,                  "div": 10,             "unit": "volts"      }, "name": "Accessory voltage"},
+    {"id": "OUTLANDER_AWC_IOD_FUSE",      "path": "Drivetrain", "fmt": {"bix": 39, "len": 1,  "max": 1,                                            "unit": "offon"      }, "name": "Ignition-off draw fuse"},
+    {"id": "OUTLANDER_AWC_ODO",           "path": "Drivetrain", "fmt": {"bix": 40, "len": 24, "max": 1677721.5,             "div": 10,             "unit": "kilometers" }, "name": "Odometer",                "suggestedMetric": "odometer"},
+    {"id": "OUTLANDER_AWC_AAT",           "path": "Drivetrain", "fmt": {"bix": 64, "len": 8,  "max": 87.5,      "min": -40, "div": 2,  "add": -40, "unit": "celsius"    }, "name": "Ambient air temperature"},
+    {"id": "OUTLANDER_AWC_IGN_OFF_TIME",  "path": "Drivetrain", "fmt": {"bix": 72, "len": 8,  "max": 255,                                          "unit": "minutes"    }, "name": "Ignition off time"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "13"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_IG1",   "path": "Drivetrain", "fmt": {"bix": 7,  "len": 1,  "max": 1,               "unit": "offon" }, "name": "Ignition 1"},
+    {"id": "OUTLANDER_AWC_ECU_V", "path": "Drivetrain", "fmt": {"bix": 8,  "len": 16, "max": 1023, "div": 64, "unit": "volts" }, "name": "Module voltage"},
+    {"id": "OUTLANDER_AWC_EXT_V", "path": "Drivetrain", "fmt": {"bix": 24, "len": 16, "max": 1023, "div": 64, "unit": "volts" }, "name": "External voltage"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "16"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_SAS", "path": "Drivetrain", "fmt": {"bix": 8, "len": 8, "max": 15.875, "min": -16, "div": 8, "add": -16, "unit": "degrees" }, "name": "Steering angle sensor"}
+  ]},
+{ "hdr": "7B6", "rax": "7B7", "fcm1": true, "dbg": true, "cmd": {"21": "30"}, "freq": 30, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AWC_MILEAGE", "path": "Drivetrain", "fmt": {"bix": 16, "len": 24, "max": 1677721.5, "div": 10, "unit": "kilometers" }, "name": "Mileage"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "01"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_BATTERY_V",       "path": "Engine", "fmt": {           "len": 8,  "max": 18,   "mul": 18,   "div": 255, "unit": "volts"             }, "name": "Battery voltage",    "suggestedMetric": "starterBatteryVoltage"},
+    {"id": "OUTLANDER_MPI_VSS",             "path": "Engine", "fmt": {"bix": 8,  "len": 8,  "max": 200,  "mul": 2,                "unit": "kilometersPerHour" }, "name": "Vehicle speed",      "suggestedMetric": "speed"},
+    {"id": "OUTLANDER_MPI_CRANK_ANGLE_SNS", "path": "Engine", "fmt": {"bix": 16, "len": 16, "max": 8000,              "div": 8,   "unit": "rpm"               }, "name": "Crank angle sensor"},
+    {"id": "OUTLANDER_MPI_TGT_IDLE_RPM",    "path": "Engine", "fmt": {"bix": 32, "len": 8,  "max": 2000, "mul": 2000, "div": 255, "unit": "rpm"               }, "name": "Target idle RPM"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "02"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_IAT", "path": "Engine", "fmt": {           "len": 8, "max": 120,   "min": -40,                 "add": -40, "unit": "celsius" }, "name": "Intake air temperature"},
+    {"id": "OUTLANDER_MPI_ECT", "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 215,   "min": -40,                 "add": -40, "unit": "celsius" }, "name": "Engine coolant temperature", "suggestedMetric": "engineCoolantTemperature"},
+    {"id": "OUTLANDER_BP",      "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 49.17,             "mul": 0.19285,             "unit": "psi"     }, "name": "Boost pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "03"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_MANIFOLD_PRES",  "path": "Engine", "fmt": {           "len": 16, "max": 126,             "div": 512, "unit": "kilopascal" }, "name": "Manifold pressure"},
+    {"id": "OUTLANDER_MPI_AIR_FLOW_SNS_V", "path": "Engine", "fmt": {"bix": 16, "len": 8,  "max": 5,   "mul": 5,   "div": 255, "unit": "volts"      }, "name": "Air flow sensor voltage"},
+    {"id": "OUTLANDER_MPI_ENGINE_LOAD",    "path": "Engine", "fmt": {"bix": 32, "len": 8,  "max": 100, "mul": 100, "div": 255, "unit": "percent"    }, "name": "Engine load",             "suggestedMetric": "engineLoad"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "04"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_THROTTLE_POSITION_MAIN",     "path": "Engine", "fmt": {           "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Main throttle position"},
+    {"id": "OUTLANDER_MPI_THROTTLE_POSITION_SUB",      "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Sub throttle position"},
+    {"id": "OUTLANDER_MPI_TGT_THROTTLE_POSITION_MAIN", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Target main throttle position"},
+    {"id": "OUTLANDER_MPI_ACCELERATOR_POSITION_MAIN",  "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Main accelerator position"},
+    {"id": "OUTLANDER_MPI_ACCELERATOR_POSITION_SUB",   "path": "Engine", "fmt": {"bix": 32, "len": 8, "max": 5, "mul": 5, "div": 255, "unit": "volts" }, "name": "Sub accelerator position"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "05"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_IGN_ADVANCE",         "path": "Engine", "fmt": {          "len": 8, "max": 235,   "min": -20,           "add": -20, "unit": "scalar"       }, "name": "Ignition advance"},
+    {"id": "OUTLANDER_MPI_INJECTOR_DRIVE_TIME", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 63.75,             "div": 4,             "unit": "milliseconds" }, "name": "Injector drive time"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "07"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_SHORT_TERM_FUEL_CORRECTION", "path": "Fuel", "fmt": {"bix": 8,  "len": 8, "max": 49.8, "min": -50.19, "mul": 20, "div": 51, "add": -50.196078, "unit": "percent" }, "name": "Short term fuel correction", "suggestedMetric": "shortTermFuelTrim"},
+    {"id": "OUTLANDER_MPI_LONG_TERM_FUEL_CORRECTION",  "path": "Fuel", "fmt": {"bix": 16, "len": 8, "max": 49.8, "min": -50.19, "mul": 20, "div": 51, "add": -50.196078, "unit": "percent" }, "name": "Long term fuel correction"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "08"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_DETONATION_RETARD",       "path": "Engine", "fmt": {"bix": 8,  "len": 8, "max": 90,  "mul": 90,  "div": 255, "unit": "scalar"  }, "name": "Detonation retard"},
+    {"id": "OUTLANDER_MPI_DETONATION_CTRL_LEARNED", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Detonation control learned"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "0A"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_VVT_PHASE_ANGLE", "path": "Engine", "fmt": {"bix": 16, "len": 8, "max": 79.375, "min": -80, "div": 1.6, "add": -80, "unit": "degrees" }, "name": "Variable valve timing phase angle"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "0E"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_COOLING_FAN_DUTY", "path": "Engine", "fmt": { "len": 8, "max": 100.011, "mul": 0.3922, "unit": "percent" }, "name": "Cooling fan duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "0F"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_PURGE_VALVE_CTRL", "path": "Engine", "fmt": { "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Purge valve control"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "12"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_TGT_THROTTLE_CTRL",   "path": "Engine", "fmt": {           "len": 16, "max": 5,               "div": 512, "unit": "volts"   }, "name": "Target throttle control"},
+    {"id": "OUTLANDER_MPI_THROTTLE_CTRL_SERVO", "path": "Engine", "fmt": {"bix": 16, "len": 8,  "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Throttle control servo"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "1A"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_CALCULATED_LOAD", "path": "Engine", "fmt": {          "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Calculated load", "suggestedMetric": "engineLoad"},
+    {"id": "OUTLANDER_MPI_ABSOLUTE_LOAD",   "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 100, "mul": 100, "div": 255, "unit": "percent" }, "name": "Absolute load",   "suggestedMetric": "absoluteEngineLoad"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "1D"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_IDLE_STS",                "path": "Engine",  "fmt": {           "len": 1, "max": 1, "unit": "offon" }, "name": "Idle status"},
+    {"id": "OUTLANDER_MPI_CRANKING_SIG_ST",         "path": "Engine",  "fmt": {"bix": 1,  "len": 1, "max": 1, "unit": "offon" }, "name": "Cranking signal"},
+    {"id": "OUTLANDER_MPI_OFF_COND",                "path": "Engine",  "fmt": {"bix": 4,  "len": 1, "max": 1, "unit": "offon" }, "name": "Off condition"},
+    {"id": "OUTLANDER_MPI_NEUTRAL_STS",             "path": "Engine",  "fmt": {"bix": 6,  "len": 1, "max": 1, "unit": "offon" }, "name": "Neutral status"},
+    {"id": "OUTLANDER_MPI_IGN_SWITCH",              "path": "Engine",  "fmt": {"bix": 15, "len": 1, "max": 1, "unit": "offon" }, "name": "Ignition switch"},
+    {"id": "OUTLANDER_MPI_NORMAL_BRAKE_CLOSED_STS", "path": "Control", "fmt": {"bix": 30, "len": 1, "max": 1, "unit": "offon" }, "name": "Normal brake closed status"},
+    {"id": "OUTLANDER_MPI_BRAKE_SWITCH",            "path": "Control", "fmt": {"bix": 31, "len": 1, "max": 1, "unit": "offon" }, "name": "Brake switch"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "1E"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_MPI_ENGINE_CTRL_RELAY",    "path": "Engine", "fmt": {"bix": 2, "len": 1, "max": 1, "unit": "offon" }, "name": "Engine control relay"},
+    {"id": "OUTLANDER_MPI_THROTTLE_CTRL_RELAY",  "path": "Engine", "fmt": {"bix": 5, "len": 1, "max": 1, "unit": "offon" }, "name": "Throttle control relay"},
+    {"id": "OUTLANDER_MPI_FUEL_PUMP_RELAY",      "path": "Fuel",   "fmt": {"bix": 6, "len": 1, "max": 1, "unit": "offon" }, "name": "Fuel pump relay"},
+    {"id": "OUTLANDER_MPI_A_C_COMPRESSOR_RELAY", "path": "Engine", "fmt": {"bix": 7, "len": 1, "max": 1, "unit": "offon" }, "name": "A/C compressor relay"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "47"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_EGR_VALVE_DUTY", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 100, "div": 2.5497195309, "unit": "percent" }, "name": "Exhaust gas recirculation valve duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "49"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FUEL_T", "path": "Fuel", "fmt": {"bix": 32, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "4C"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FUEL_RAIL_PRES", "path": "Fuel", "fmt": {"bix": 8, "len": 8, "max": 36985.2, "mul": 145.04, "unit": "psi" }, "name": "Fuel rail pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "4E"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AC_COMPRESSOR", "path": "Engine", "fmt": {"bix": 24, "len": 1, "max": 1, "unit": "offon" }, "name": "A/C compressor"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "51"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_INJECTION_QTY", "path": "Engine", "fmt": { "len": 8, "max": 127.5, "div": 2, "unit": "liters" }, "name": "Injection qty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "59"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_DPF_REGEN", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Particulate filter regeneration"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "A8"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_COOLING_FAN_DUTY", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 255, "unit": "percent" }, "name": "Cooling fan duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C2"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FUEL_RAIL_PRES_7E0_C2", "path": "Fuel",   "fmt": {"bix": 24, "len": 8, "max": 29007,             "mul": 113.754872,                                  "unit": "psi"     }, "name": "Fuel rail pressure"},
+    {"id": "OUTLANDER_FUEL_RAIL_VALVE_DUTY",  "path": "Fuel",   "fmt": {"bix": 32, "len": 8, "max": 100,                                  "div": 2.5497195309,             "unit": "percent" }, "name": "Fuel rail valve duty"},
+    {"id": "OUTLANDER_INJECTION_QTY_7E0_C2",  "path": "Engine", "fmt": {"bix": 48, "len": 8, "max": 100,                                  "div": 2.5497195309,             "unit": "unknown" }, "name": "Injection qty"},
+    {"id": "OUTLANDER_FUEL_T_7E0_C2",         "path": "Fuel",   "fmt": {"bix": 88, "len": 8, "max": 215,   "min": -40,                                         "add": -40, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C3"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_EGR_VALVE_DUTY_7E0_C3", "path": "Engine", "fmt": {"bix": 72, "len": 8, "max": 100, "div": 2.5497195309, "unit": "percent" }, "name": "Exhaust gas recirculation valve duty"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C4"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_BP_7E0_C4", "path": "Engine", "fmt": {"bix": 24, "len": 8, "max": 43.51, "mul": 0.170636, "unit": "psi" }, "name": "Boost pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"21": "C5"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_DPF_CHARGE", "path": "Engine", "fmt": { "len": 8, "max": 100.011, "mul": 0.3922, "unit": "percent" }, "name": "Particulate filter load"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "01"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_PRIMARY_PRES_7E1_01", "path": "Transmission", "fmt": {"bix": 24, "len": 8, "max": 254, "min": -85.26, "mul": 1.332854, "add": -85.26, "unit": "psi" }, "name": "Primary pressure"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "02"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_INPUT_VSS",          "path": "Transmission", "fmt": {"bix": 8,  "len": 16, "max": 32767.5,             "div": 2,             "unit": "rpm"     }, "name": "Input speed"},
+    {"id": "OUTLANDER_OUTPUT_VSS",         "path": "Transmission", "fmt": {"bix": 24, "len": 16, "max": 32767.5,             "div": 2,             "unit": "rpm"     }, "name": "Output speed"},
+    {"id": "OUTLANDER_ATF_T",              "path": "Transmission", "fmt": {"bix": 40, "len": 8,  "max": 215,     "min": -40,           "add": -40, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"},
+    {"id": "OUTLANDER_SLIP_AT_VSS_7E1_02", "path": "Transmission", "fmt": {"bix": 64, "len": 8,  "max": 204,     "min": -51,           "add": -51, "unit": "rpm"     }, "name": "Slip speed"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "03"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CVT_PRIMARY_VSS",       "path": "Transmission", "fmt": {            "len": 8, "max": 8096,  "min": -64,    "mul": 32,                   "add": -64,                "unit": "rpm"          }, "name": "Primary pulley speed"},
+    {"id": "OUTLANDER_CVT_SECONDARY_VSS",     "path": "Transmission", "fmt": {"bix": 8,   "len": 8, "max": 16192, "min": -128,   "mul": 64,                   "add": -128,               "unit": "rpm"          }, "name": "Secondary pulley speed"},
+    {"id": "OUTLANDER_AT_SLEEP_REVOLUTION",   "path": "Transmission", "fmt": {"bix": 16,  "len": 8, "max": 127,   "min": -128,                                             "sign": true, "unit": "rpm"          }, "name": "Sleep revolution"},
+    {"id": "OUTLANDER_SLIP_AT_VSS",           "path": "Transmission", "fmt": {"bix": 24,  "len": 8, "max": 127,   "min": -128,                                             "sign": true, "unit": "rpm"          }, "name": "Slip speed"},
+    {"id": "OUTLANDER_CURRENT_GEAR_AT_RATIO", "path": "Transmission", "fmt": {"bix": 32,  "len": 8, "max": 2.55,                                  "div": 100,                            "unit": "scalar"       }, "name": "Current gear ratio"},
+    {"id": "OUTLANDER_AT_REAL_ENGINE_TORQUE", "path": "Transmission", "fmt": {"bix": 40,  "len": 8, "max": 812.8, "min": -819.2, "mul": 32,       "div": 5,                "sign": true, "unit": "newtonMeters" }, "name": "Real engine torque"},
+    {"id": "OUTLANDER_AT_INPUT_TORQUE",       "path": "Transmission", "fmt": {"bix": 56,  "len": 8, "max": 812.8, "min": -819.2, "mul": 32,       "div": 5,                "sign": true, "unit": "newtonMeters" }, "name": "Input torque"},
+    {"id": "OUTLANDER_AT_TORQUE_RATIO",       "path": "Transmission", "fmt": {"bix": 64,  "len": 8, "max": 3.98,                 "mul": 3.98,     "div": 255,                            "unit": "scalar"       }, "name": "Torque ratio"},
+    {"id": "OUTLANDER_AT_ATF_T",              "path": "Transmission", "fmt": {"bix": 72,  "len": 8, "max": 200,   "min": -55,                                 "add": -55,                "unit": "celsius"      }, "name": "Transmission fluid temperature",        "suggestedMetric": "transmissionFluidTemperature"},
+    {"id": "OUTLANDER_SECONDARY_PRES",        "path": "Transmission", "fmt": {"bix": 88,  "len": 8, "max": 924,                  "mul": 3.627392,                                        "unit": "psi"          }, "name": "Secondary pressure"},
+    {"id": "OUTLANDER_PRIMARY_PRES",          "path": "Transmission", "fmt": {"bix": 96,  "len": 8, "max": 924,                  "mul": 3.627392,                                        "unit": "psi"          }, "name": "Primary pressure"},
+    {"id": "OUTLANDER_CVT_T_RAW",             "path": "Transmission", "fmt": {"bix": 104, "len": 8, "max": 255,                                                                          "unit": "scalar"       }, "name": "Transmission temperature sensor count"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "04"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_AT_CUR_GEAR",          "path": "Transmission", "fmt": {           "len": 8, "max": 255,                          "unit": "scalar"  }, "name": "Current gear"},
+    {"id": "OUTLANDER_TARGET_GEAR_AT_RATIO", "path": "Transmission", "fmt": {"bix": 8,  "len": 8, "max": 2.55,             "div": 100, "unit": "scalar"  }, "name": "Target gear ratio"},
+    {"id": "OUTLANDER_AT_LINE_PRES",         "path": "Transmission", "fmt": {"bix": 24, "len": 8, "max": 6.3,  "mul": 6.3, "div": 255, "unit": "unknown" }, "name": "Line pressure"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "05"}, "freq": 1, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CVT_LU_SOLENOID_OUTPUT_MA",         "path": "Transmission", "fmt": {            "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Lock-up solenoid output current"},
+    {"id": "OUTLANDER_CVT_LU_SOLENOID_MONITOR_MA",        "path": "Transmission", "fmt": {"bix": 48,  "len": 16, "max": 65535, "unit": "milliamps" }, "name": "Lock-up solenoid monitor current"},
+    {"id": "OUTLANDER_CVT_LU_SEL_CHANGEOVER_SOL_OUTPUT",  "path": "Transmission", "fmt": {"bix": 107, "len": 1,  "max": 1,     "unit": "offon"     }, "name": "Lock-up/select changeover solenoid output"},
+    {"id": "OUTLANDER_CVT_LU_SEL_CHANGEOVER_SOL_MONITOR", "path": "Transmission", "fmt": {"bix": 115, "len": 1,  "max": 1,     "unit": "offon"     }, "name": "Lock-up/select changeover solenoid monitor"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "06"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CVT_SELECTOR_DS",        "path": "Transmission", "fmt": {"bix": 3,  "len": 1, "max": 1,                       "unit": "offon"  }, "name": "Sport mode selected"},
+    {"id": "OUTLANDER_CVT_SELECTOR_DS_7E1_06", "path": "Transmission", "fmt": {"bix": 12, "len": 1, "max": 1,                       "unit": "offon"  }, "name": "Paddle shift mode"},
+    {"id": "OUTLANDER_CVT_GEAR_AT_NUMBER",     "path": "Transmission", "fmt": {"bix": 16, "len": 8, "max": 256, "min": 1, "add": 1, "unit": "scalar" }, "name": "Gear number"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "07"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CVT_SELECTOR_D",       "path": "Transmission", "fmt": {           "len": 1, "max": 1, "unit": "offon" }, "name": "Drive selected"},
+    {"id": "OUTLANDER_CVT_SELECTOR_N",       "path": "Transmission", "fmt": {"bix": 1,  "len": 1, "max": 1, "unit": "offon" }, "name": "Neutral selected"},
+    {"id": "OUTLANDER_CVT_SELECTOR_R",       "path": "Transmission", "fmt": {"bix": 2,  "len": 1, "max": 1, "unit": "offon" }, "name": "Reverse selected"},
+    {"id": "OUTLANDER_CVT_SELECTOR_P",       "path": "Transmission", "fmt": {"bix": 3,  "len": 1, "max": 1, "unit": "offon" }, "name": "Park selected"},
+    {"id": "OUTLANDER_CVT_BRAKE",            "path": "Control",      "fmt": {"bix": 4,  "len": 1, "max": 1, "unit": "offon" }, "name": "Brake pedal"},
+    {"id": "OUTLANDER_CVT_SELECTOR_L",       "path": "Transmission", "fmt": {"bix": 5,  "len": 1, "max": 1, "unit": "offon" }, "name": "Low selected"},
+    {"id": "OUTLANDER_CVT_ACCELERATOR",      "path": "Transmission", "fmt": {"bix": 7,  "len": 1, "max": 1, "unit": "offon" }, "name": "Accelerator pedal"},
+    {"id": "OUTLANDER_CVT_ASC_ACTUATOR_SIG", "path": "Transmission", "fmt": {"bix": 17, "len": 1, "max": 1, "unit": "offon" }, "name": "Stability control actuator signal"},
+    {"id": "OUTLANDER_CVT_TCL_ACTUATOR_SIG", "path": "Transmission", "fmt": {"bix": 19, "len": 1, "max": 1, "unit": "offon" }, "name": "Traction control actuator signal"},
+    {"id": "OUTLANDER_CVT_ABS_ACTUATOR_SIG", "path": "Transmission", "fmt": {"bix": 23, "len": 1, "max": 1, "unit": "offon" }, "name": "Anti-lock brake actuator signal"}
+  ]},
+{ "hdr": "7E1", "fcm1": true, "dbg": true, "cmd": {"21": "10"}, "freq": 3600, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CVT_TOTAL_TIME",           "path": "Transmission", "fmt": {"bix": 32,  "len": 16, "max": 10922.5, "div": 6, "unit": "unknown" }, "name": "Operating time"},
+    {"id": "OUTLANDER_CVT_OUT3_OIL_DEGRADATION", "path": "Transmission", "fmt": {"bix": 192, "len": 16, "max": 65535,             "unit": "scalar"  }, "name": "Fluid degradation, output 3"},
+    {"id": "OUTLANDER_CVT_OIL_DEGRADATION",      "path": "Transmission", "fmt": {"bix": 224, "len": 16, "max": 65535,             "unit": "scalar"  }, "name": "Fluid degradation",           "suggestedMetric": "cvtDeterioration"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "33"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_T_M_T", "path": "Transmission", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Transmission temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "A5"}, "freq": 5, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CLUTCH_1_T", "path": "Transmission", "fmt": {           "len": 16, "max": 65485, "min": -50, "add": -50, "unit": "celsius" }, "name": "Clutch 1 temperature"},
+    {"id": "OUTLANDER_CLUTCH_2_T", "path": "Transmission", "fmt": {"bix": 16, "len": 16, "max": 65485, "min": -50, "add": -50, "unit": "celsius" }, "name": "Clutch 2 temperature"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"21": "A6"}, "freq": 0.25, "filter": { "to": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_CLUTCH_1_SLIP_AT_VSS", "path": "Transmission", "fmt": { "len": 16, "max": 65535, "unit": "rpm" }, "name": "Clutch 1 slip speed"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "1105"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_EGR_T_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "Exhaust gas recirculation temperature sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "1111"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_FUEL_T", "path": "Fuel", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "1114"}, "freq": 30, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_FLI_V", "path": "Fuel", "fmt": { "len": 8, "max": 10.2, "div": 25, "unit": "volts" }, "name": "Fuel level input"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "1115"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_EVAP_PRES_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "EVAP pressure sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "111F"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_EOT", "path": "Engine", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Engine oil temperature", "suggestedMetric": "engineOilTemperature"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "1207"}, "freq": 1, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_INJ_TIMING", "path": "Engine", "fmt": { "len": 16, "max": 31.99, "div": 2048, "unit": "milliseconds" }, "name": "Base injection timing"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "120C"}, "freq": 1, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_FUEL_PRES_V", "path": "Fuel", "fmt": { "len": 16, "max": 20, "mul": 20, "div": 65535, "unit": "volts" }, "name": "Fuel pressure sensor voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "120D"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_APP1_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "120E"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_APP2_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "120F"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_TPS1_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "1210"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_TPS2_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA15", "rax": "15", "cmd": {"22": "121F"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ECM_ROLLOVER_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Roll-over sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1105"}, "freq": 5, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_EGR_T_SNS_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "Exhaust gas recirculation temperature sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1111"}, "freq": 5, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FUEL_T_DA18_1111", "path": "Fuel", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Fuel temperature"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1114"}, "freq": 30, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FLI_INPUT_DA18_1114", "path": "Fuel", "fmt": { "len": 8, "max": 10.2, "div": 25, "unit": "volts" }, "name": "Fuel level input"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "cmd": {"22": "1115"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_EVAP_PRES_SNS_V", "path": "Engine", "fmt": { "len": 8, "max": 5.1, "div": 50, "unit": "volts" }, "name": "EVAP pressure sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "cmd": {"22": "111F"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_EOT", "path": "Engine", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Engine oil temperature"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1207"}, "freq": 1, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_BASE_INJECTION_TIMING", "path": "Engine", "fmt": { "len": 16, "max": 31.99, "div": 2048, "unit": "milliseconds" }, "name": "Base injection timing"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120C"}, "freq": 1, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_FUEL_PRES_SNS_V", "path": "Fuel", "fmt": { "len": 16, "max": 20, "mul": 20, "div": 65535, "unit": "volts" }, "name": "Fuel pressure sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120D"}, "freq": 0.25, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_ACCELERATOR_PEDAL_POSITION_SNS_1_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120E"}, "freq": 0.25, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_ACCELERATOR_PEDAL_POSITION_SNS_2_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Accelerator pedal position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "120F"}, "freq": 0.25, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_THROTTLE_POSITION_SNS_1_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 1 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "1210"}, "freq": 0.25, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_THROTTLE_POSITION_SNS_2_VOLTS", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Throttle position sensor 2 voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "dbg": true, "cmd": {"22": "121F"}, "freq": 5, "filter": { "from": 2021 },
+  "signals": [
+    {"id": "OUTLANDER_ROLL_OVER_SNS_V", "path": "Engine", "fmt": { "len": 16, "max": 327.675, "div": 200, "unit": "volts" }, "name": "Roll-over sensor voltage"}
+  ]},
+{ "hdr": "DA18", "rax": "18", "cmd": {"22": "2170"}, "freq": 5, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_ATF_T_DA18_2170", "path": "Transmission", "fmt": {"bix": 232, "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "cmd": {"22": "4B00"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_FL_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "cmd": {"22": "4B01"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_FR_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "cmd": {"22": "4B02"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_RL_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "DA2D", "rax": "2D", "cmd": {"22": "4B03"}, "freq": 0.25, "filter": { "from": 2021 }, "dbgfilter": { "to": 2023, "from": 2025 },
+  "signals": [
+    {"id": "OUTLANDER_RR_VSS", "path": "Movement", "fmt": { "len": 16, "max": 655.35, "mul": 100, "div": 10000, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]}
+]
+}

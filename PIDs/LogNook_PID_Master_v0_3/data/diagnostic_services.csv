@@ -1,0 +1,15 @@
+﻿service,description,safety,note
+01,Current emission-related data,read_only,support bitmap and per ECU results
+02,Freeze-frame data,read_only,freeze frame number and availability matter
+03,Stored emission-related DTC,read_only,NOT a parameter PID
+04,Clear emission-related information,mutating_disabled,DO NOT auto invoke
+05,O2 sensor test results older protocols,read_only,applicability varies
+06,On-board monitoring test results,read_only,MID/TID/CID; different model than PID
+07,Pending emission-related DTCs,read_only,not a parameter PID
+08,On-board control request,mutating_disabled,DO NOT auto invoke
+09,Vehicle information,read_only,VIN / CALID / CVN; check privacy
+0A,Permanent emission-related DTC,read_only,not a parameter PID
+22,Manufacturer enhanced data by DID,read_only_when_authorized,"ECU-specific addressing, session and security policy; never universal"
+SSM_READ,Subaru memory-address measurements,read_only_when_authorized,"SSM protocol, ECU-specific addresses; do not confuse with OBD PID"
+CAN_PASSIVE,Passive raw CAN messages,read_only,requires DBC or known signal mapping to interpret
+J1939,Heavy duty PGNs/SPNs,future,separate SAE J1939DA licensing and protocol implementation

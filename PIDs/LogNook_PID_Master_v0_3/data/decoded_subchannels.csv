@@ -1,0 +1,82 @@
+﻿channel_id,signal_id,name,formula,unit,availability_rule,verification
+SAE_01_14_voltage,SAE_01_14,voltage,A/200,V,A,researched_decoder_review
+SAE_01_14_short_fuel_trim,SAE_01_14,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_15_voltage,SAE_01_15,voltage,A/200,V,A,researched_decoder_review
+SAE_01_15_short_fuel_trim,SAE_01_15,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_16_voltage,SAE_01_16,voltage,A/200,V,A,researched_decoder_review
+SAE_01_16_short_fuel_trim,SAE_01_16,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_17_voltage,SAE_01_17,voltage,A/200,V,A,researched_decoder_review
+SAE_01_17_short_fuel_trim,SAE_01_17,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_18_voltage,SAE_01_18,voltage,A/200,V,A,researched_decoder_review
+SAE_01_18_short_fuel_trim,SAE_01_18,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_19_voltage,SAE_01_19,voltage,A/200,V,A,researched_decoder_review
+SAE_01_19_short_fuel_trim,SAE_01_19,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_1A_voltage,SAE_01_1A,voltage,A/200,V,A,researched_decoder_review
+SAE_01_1A_short_fuel_trim,SAE_01_1A,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_1B_voltage,SAE_01_1B,voltage,A/200,V,A,researched_decoder_review
+SAE_01_1B_short_fuel_trim,SAE_01_1B,short_fuel_trim,(B-128)*100/128,%,B != 255,researched_decoder_review
+SAE_01_24_lambda,SAE_01_24,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_24_oxygen_voltage,SAE_01_24,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_25_lambda,SAE_01_25,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_25_oxygen_voltage,SAE_01_25,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_26_lambda,SAE_01_26,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_26_oxygen_voltage,SAE_01_26,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_27_lambda,SAE_01_27,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_27_oxygen_voltage,SAE_01_27,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_28_lambda,SAE_01_28,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_28_oxygen_voltage,SAE_01_28,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_29_lambda,SAE_01_29,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_29_oxygen_voltage,SAE_01_29,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_2A_lambda,SAE_01_2A,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_2A_oxygen_voltage,SAE_01_2A,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_2B_lambda,SAE_01_2B,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_2B_oxygen_voltage,SAE_01_2B,oxygen_voltage,(C*256+D)*8/65536,V,,researched_decoder_review
+SAE_01_34_lambda,SAE_01_34,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_34_oxygen_current,SAE_01_34,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_35_lambda,SAE_01_35,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_35_oxygen_current,SAE_01_35,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_36_lambda,SAE_01_36,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_36_oxygen_current,SAE_01_36,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_37_lambda,SAE_01_37,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_37_oxygen_current,SAE_01_37,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_38_lambda,SAE_01_38,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_38_oxygen_current,SAE_01_38,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_39_lambda,SAE_01_39,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_39_oxygen_current,SAE_01_39,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_3A_lambda,SAE_01_3A,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_3A_oxygen_current,SAE_01_3A,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_3B_lambda,SAE_01_3B,lambda,(A*256+B)*2/65536,lambda,,researched_decoder_review
+SAE_01_3B_oxygen_current,SAE_01_3B,oxygen_current,(C*256+D)/256-128,mA,,researched_decoder_review
+SAE_01_4F_max_lambda,SAE_01_4F,max_lambda,A,lambda,,researched_decoder_review
+SAE_01_4F_max_o2_volts,SAE_01_4F,max_o2_volts,B,V,,researched_decoder_review
+SAE_01_4F_max_o2_current,SAE_01_4F,max_o2_current,C,mA,,researched_decoder_review
+SAE_01_4F_max_map,SAE_01_4F,max_map,D*10,kPa,,researched_decoder_review
+SAE_01_55_channel_a,SAE_01_55,channel_a,A*100/128-100,%,,researched_decoder_review
+SAE_01_55_channel_b,SAE_01_55,channel_b,B*100/128-100,%,,researched_decoder_review
+SAE_01_56_channel_a,SAE_01_56,channel_a,A*100/128-100,%,,researched_decoder_review
+SAE_01_56_channel_b,SAE_01_56,channel_b,B*100/128-100,%,,researched_decoder_review
+SAE_01_57_channel_a,SAE_01_57,channel_a,A*100/128-100,%,,researched_decoder_review
+SAE_01_57_channel_b,SAE_01_57,channel_b,B*100/128-100,%,,researched_decoder_review
+SAE_01_58_channel_a,SAE_01_58,channel_a,A*100/128-100,%,,researched_decoder_review
+SAE_01_58_channel_b,SAE_01_58,channel_b,B*100/128-100,%,,researched_decoder_review
+SAE_01_64_idle,SAE_01_64,idle,A-125,% ,,researched_decoder_review
+SAE_01_64_point_1,SAE_01_64,point_1,B-125,% ,,researched_decoder_review
+SAE_01_64_point_2,SAE_01_64,point_2,C-125,% ,,researched_decoder_review
+SAE_01_64_point_3,SAE_01_64,point_3,D-125,% ,,researched_decoder_review
+SAE_01_64_point_4,SAE_01_64,point_4,E-125,% ,,researched_decoder_review
+SAE_01_66_maf_a,SAE_01_66,maf_a,(B*256+C)/32,g/s,A bit0 supported,researched_decoder_review
+SAE_01_66_maf_b,SAE_01_66,maf_b,(D*256+E)/32,g/s,A bit1 supported,researched_decoder_review
+SAE_01_67_sensor_1,SAE_01_67,sensor_1,B-40,°C,A bit0 supported,researched_decoder_review
+SAE_01_67_sensor_2,SAE_01_67,sensor_2,C-40,°C,A bit1 supported,researched_decoder_review
+SAE_01_68_sensor_1,SAE_01_68,sensor_1,B-40,°C,A bit0 supported,researched_decoder_review
+SAE_01_68_sensor_2,SAE_01_68,sensor_2,C-40,°C,A bit1 supported,researched_decoder_review
+SAE_01_78_egt_1,SAE_01_78,egt_1,(B*256+C)/10-40,°C,A bit0 supported,researched_decoder_review
+SAE_01_78_egt_2,SAE_01_78,egt_2,(D*256+E)/10-40,°C,A bit1 supported,researched_decoder_review
+SAE_01_78_egt_3,SAE_01_78,egt_3,(F*256+G)/10-40,°C,A bit2 supported,researched_decoder_review
+SAE_01_78_egt_4,SAE_01_78,egt_4,(H*256+I)/10-40,°C,A bit3 supported,researched_decoder_review
+SAE_01_79_egt_1,SAE_01_79,egt_1,(B*256+C)/10-40,°C,A bit0 supported,researched_decoder_review
+SAE_01_79_egt_2,SAE_01_79,egt_2,(D*256+E)/10-40,°C,A bit1 supported,researched_decoder_review
+SAE_01_79_egt_3,SAE_01_79,egt_3,(F*256+G)/10-40,°C,A bit2 supported,researched_decoder_review
+SAE_01_79_egt_4,SAE_01_79,egt_4,(H*256+I)/10-40,°C,A bit3 supported,researched_decoder_review
+SAE_01_A4_gear_ratio,SAE_01_A4,gear_ratio,(C*256+D)/1000,ratio,A bit1 supported,researched_decoder_review
+SAE_01_A5_dosing,SAE_01_A5,dosing,B/2,%,A bit0 supported,researched_decoder_review

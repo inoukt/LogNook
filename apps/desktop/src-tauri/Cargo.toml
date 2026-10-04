@@ -14,3 +14,4 @@ tauri-build = { version = "2", features = [] }
 lognook-core = { path = "../../../crates/lognook-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+serde_json = "1.0"

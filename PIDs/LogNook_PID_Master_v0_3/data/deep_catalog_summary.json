@@ -1,0 +1,12 @@
+{
+  "schema_version": 3,
+  "curated_signals": 296,
+  "source_corpora": 58,
+  "indexed_commands": 20590,
+  "indexed_signals": 37095,
+  "make_fallback_signals": 30585,
+  "model_specific_signals": 6510,
+  "imported_oem_candidates": 37093,
+  "canonical_concepts": 75,
+  "vehicle_profiles": 3
+}

@@ -1,0 +1,51 @@
+family,brand,scope,corpora,commands,signals
+BMW Group,BMW,make_fallback,1,116,263
+BMW Group,BMW,model_specific,1,106,211
+BMW Group,MINI,make_fallback,1,116,263
+Ford Motor Company,Ford,make_fallback,1,404,485
+Ford Motor Company,Ford,model_specific,4,334,344
+Ford Motor Company,Lincoln,make_fallback,1,404,485
+General Motors,Buick,make_fallback,1,616,648
+General Motors,Cadillac,make_fallback,1,616,648
+General Motors,Chevrolet,make_fallback,1,616,647
+General Motors,Chevrolet,model_specific,1,126,126
+General Motors,GMC,make_fallback,1,616,647
+Honda Motor Company,Acura,make_fallback,1,65,347
+Honda Motor Company,Honda,make_fallback,1,65,344
+Honda Motor Company,Honda,model_specific,1,33,78
+Hyundai Motor Group,Genesis,make_fallback,1,139,1351
+Hyundai Motor Group,Hyundai,make_fallback,1,139,1350
+Hyundai Motor Group,Hyundai,model_specific,1,94,454
+Hyundai Motor Group,Kia,make_fallback,1,139,1349
+Hyundai Motor Group,Kia,model_specific,1,23,208
+Jaguar Land Rover,Jaguar,make_fallback,1,74,82
+Jaguar Land Rover,Land Rover,make_fallback,1,74,82
+Mazda Motor Corporation,Mazda,make_fallback,1,914,1272
+Mazda Motor Corporation,Mazda,model_specific,1,56,67
+Mercedes-Benz Group,Mercedes-Benz,make_fallback,1,11,27
+Mitsubishi Motors,Mitsubishi,make_fallback,1,150,337
+Mitsubishi Motors,Mitsubishi,model_specific,1,105,228
+Nissan Motor Corporation,Infiniti,make_fallback,1,323,727
+Nissan Motor Corporation,Nissan,make_fallback,1,323,728
+Stellantis,Alfa Romeo,make_fallback,1,28,64
+Stellantis,Chrysler,make_fallback,1,670,1158
+Stellantis,Dodge,make_fallback,1,670,1157
+Stellantis,Fiat,make_fallback,1,670,1158
+Stellantis,Jeep,make_fallback,1,670,1158
+Stellantis,Jeep,model_specific,1,159,226
+Stellantis,Ram,make_fallback,1,670,1157
+Stellantis,Ram,model_specific,1,106,131
+Subaru Corporation,Subaru,make_fallback,1,228,273
+Subaru Corporation,Subaru,model_specific,4,375,431
+Tesla,Tesla,make_fallback,1,0,0
+Toyota Motor Corporation,Lexus,make_fallback,1,466,1438
+Toyota Motor Corporation,Lexus,model_specific,1,112,357
+Toyota Motor Corporation,Scion,model_specific,1,213,539
+Toyota Motor Corporation,Toyota,make_fallback,1,416,1341
+Toyota Motor Corporation,Toyota,model_specific,2,498,1590
+Volkswagen Group,Audi,make_fallback,1,1975,2934
+Volkswagen Group,Porsche,make_fallback,1,1975,2951
+Volkswagen Group,Volkswagen,make_fallback,1,1975,2914
+Volkswagen Group,Volkswagen,model_specific,2,1049,1122
+Volvo Cars,Volvo,make_fallback,1,504,800
+Volvo Cars,Volvo,model_specific,1,364,398

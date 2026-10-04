@@ -1,0 +1,56 @@
+{
+  "schema_version": "2",
+  "package_version": "0.2",
+  "built_date": "2026-10-03",
+  "curated_signal_count": "296",
+  "synced_oem_candidates": "0",
+  "obdb_license": "CC BY-SA 4.0",
+  "safety_rule": "Remote/community OEM definitions are inert until ECU/year applicability is validated.",
+  "remote_make_corpora_count": "34",
+  "remote_make_signal_rows_indexed": "30585",
+  "model_specific_corpora_count": "24",
+  "model_specific_signal_rows_indexed": "6510",
+  "curated_by_layer": {
+    "OEM_DID": 76,
+    "SAE_MODE01": 174,
+    "SAE_MODE02": 1,
+    "SAE_MODE09": 12,
+    "SSM_MEMORY": 33
+  },
+  "curated_by_brand": {
+    "ALL": 187,
+    "BMW": 6,
+    "Chevrolet": 6,
+    "Ford": 3,
+    "Honda": 2,
+    "Hyundai": 2,
+    "Jeep": 8,
+    "Mazda": 6,
+    "Nissan": 12,
+    "Subaru": 33,
+    "Toyota": 23,
+    "Volkswagen": 8
+  },
+  "source_corpora_by_scope": {
+    "make_fallback": 34,
+    "model_specific": 24
+  },
+  "source_corpora_by_family": {
+    "BMW Group": 3,
+    "Ford Motor Company": 6,
+    "General Motors": 5,
+    "Honda Motor Company": 3,
+    "Hyundai Motor Group": 5,
+    "Jaguar Land Rover": 2,
+    "Mazda Motor Corporation": 2,
+    "Mercedes-Benz Group": 1,
+    "Mitsubishi Motors": 2,
+    "Nissan Motor Corporation": 2,
+    "Stellantis": 8,
+    "Subaru Corporation": 5,
+    "Tesla": 1,
+    "Toyota Motor Corporation": 6,
+    "Volkswagen Group": 5,
+    "Volvo Cars": 2
+  }
+}

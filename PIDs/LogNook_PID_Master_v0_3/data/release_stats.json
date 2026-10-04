@@ -1,0 +1,15 @@
+{
+  "version": "0.1",
+  "as_of": "2026-10-02",
+  "counts": {
+    "SAE_MODE01": 174,
+    "SAE_MODE09": 12,
+    "OEM_DID": 76,
+    "SSM_MEMORY": 33,
+    "SAE_MODE02": 1
+  },
+  "total": 296,
+  "subchannels": 81,
+  "vehicle_verified": 0,
+  "source_limits": "Public-reference catalog; NOT a complete licensed 2026 SAE annex or OEM factory database."
+}

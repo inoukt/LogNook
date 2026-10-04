@@ -1,0 +1,77 @@
+{
+  "commands": [
+    {
+      "hdr": "7E0",
+      "rax": "7E8",
+      "cmd": {
+        "22": "1234"
+      },
+      "freq": 5,
+      "filter": {
+        "from": 2010,
+        "to": 2015
+      },
+      "signals": [
+        {
+          "id": "TEST_PRESSURE",
+          "path": "Engine",
+          "name": "Test pressure",
+          "fmt": {
+            "len": 16,
+            "bix": 8,
+            "mul": 1,
+            "div": 10,
+            "add": -5,
+            "unit": "kPa"
+          }
+        },
+        {
+          "id": "TEST_STATE",
+          "path": "Control",
+          "name": "Test state",
+          "fmt": {
+            "len": 8,
+            "map": {
+              "0": {
+                "value": "OFF"
+              },
+              "1": {
+                "value": "ON"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "hdr": "7E0",
+      "cmd": {
+        "2E": "9999"
+      },
+      "signals": [
+        {
+          "id": "WRITE",
+          "fmt": {
+            "len": 8
+          }
+        }
+      ]
+    },
+    {
+      "hdr": "7E0",
+      "cmd": {
+        "21": "55"
+      },
+      "signals": [
+        {
+          "id": "LOCAL",
+          "name": "Local data",
+          "fmt": {
+            "len": 8,
+            "unit": "percent"
+          }
+        }
+      ]
+    }
+  ]
+}

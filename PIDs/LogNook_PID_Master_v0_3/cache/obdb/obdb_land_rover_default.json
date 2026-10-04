@@ -1,0 +1,323 @@
+{ "ecu": [
+    { "hdr": "7E0", "type": "engine" },
+    { "hdr": "7E1", "type": "transmission" },
+    { "hdr": "7E4", "type": "battery" },
+    { "hdr": "7E5", "type": "charger" }
+  ],
+  "commands": [
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B03"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_PRES_FR", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Suspension pressure front right"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B04"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_PRES_FL", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Suspension pressure front left"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B05"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_PRES_RR", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Suspension pressure rear right"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B06"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_PRES_RL", "path": "Engine", "fmt": {"bix": 8, "len": 8, "max": 51, "div": 5, "unit": "psi" }, "name": "Suspension pressure rear left"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B3C"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_HEIGHT", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Suspension height"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B4D"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DRIVING_MODE", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Driving mode"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B71"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_HEIGHT_FRONT", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Suspension height front"}
+  ]},
+{ "hdr": "710", "dbg": true, "cmd": {"22": "3B72"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SUSPENSION_HEIGHT_REAR", "path": "Engine", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Suspension height rear"}
+  ]},
+{ "hdr": "726", "dbg": true, "cmd": {"22": "FD2A"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BRAKE", "path": "Control", "fmt": { "len": 8, "max": 1, "unit": "scalar" }, "name": "Brake"}
+  ]},
+{ "hdr": "726", "rax": "72E", "dbg": true, "cmd": {"22": "DD09"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_VSS_726", "path": "Movement", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Vehicle speed", "suggestedMetric": "speed"}
+  ]},
+{ "hdr": "732", "dbg": true, "cmd": {"22": "D928"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_GEAR",   "path": "Transmission", "fmt": {          "len": 7, "max": 127, "unit": "scalar" }, "name": "Gear"},
+    {"id": "LANDROVER_PARKED", "path": "Movement",     "fmt": {"bix": 7, "len": 1, "max": 1,   "unit": "noyes"  }, "name": "Parked"}
+  ]},
+{ "hdr": "732", "dbg": true, "cmd": {"22": "DA2A"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_CONTACT_READY", "path": "Engine", "fmt": { "len": 8, "max": 1, "unit": "scalar" }, "name": "Contact ready"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "9924"}, "freq": 30,
+  "signals": [
+    {"id": "LANDROVER_AAT", "path": "Climate", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Outside temperature"}
+  ]},
+{ "hdr": "733", "dbg": true, "cmd": {"22": "DD04"}, "freq": 30,
+  "signals": [
+    {"id": "LANDROVER_CABIN_T_V2", "path": "Climate", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Cabin temperature"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2076"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TP_FL", "path": "Tires", "fmt": {"bix": 8, "len": 8, "max": 3.5, "mul": 0.01373, "unit": "bars" }, "name": "Front left tire pressure", "suggestedMetric": "frontLeftTirePressure"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2077"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TP_FR", "path": "Tires", "fmt": {"bix": 8, "len": 8, "max": 3.5, "mul": 0.01373, "unit": "bars" }, "name": "Front right tire pressure", "suggestedMetric": "frontRightTirePressure"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2078"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TP_RR", "path": "Tires", "fmt": {"bix": 8, "len": 8, "max": 3.5, "mul": 0.01373, "unit": "bars" }, "name": "Rear right tire pressure", "suggestedMetric": "rearRightTirePressure"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2079"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TP_RL", "path": "Tires", "fmt": {"bix": 8, "len": 8, "max": 3.5, "mul": 0.01373, "unit": "bars" }, "name": "Rear left tire pressure", "suggestedMetric": "rearLeftTirePressure"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2A0A"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TT_FL", "path": "Tires", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Front left tire temperature", "suggestedMetric": "frontLeftTireTemperature"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2A0B"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TT_FR", "path": "Tires", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Front right tire temperature", "suggestedMetric": "frontRightTireTemperature"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2A0C"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TT_RL", "path": "Tires", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Rear left tire temperature",  "suggestedMetric": "rearLeftTireTemperature"},
+    {"id": "LANDROVER_TT_RR", "path": "Tires", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Rear right tire temperature", "suggestedMetric": "rearRightTireTemperature"}
+  ]},
+{ "hdr": "751", "rax": "759", "dbg": true, "cmd": {"22": "2A0D"}, "freq": 15,
+  "signals": [
+    {"id": "LANDROVER_TT_RR_V2", "path": "Tires", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Rear right tire temperature", "suggestedMetric": "rearRightTireTemperature"},
+    {"id": "LANDROVER_TT_RL_V2", "path": "Tires", "fmt": { "len": 8, "max": 205, "min": -50, "add": -50, "unit": "celsius" }, "name": "Rear left tire temperature",  "suggestedMetric": "rearLeftTireTemperature"}
+  ]},
+{ "hdr": "753", "dbg": true, "cmd": {"22": "4208"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DCDC_CUR_OUT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "amps" }, "name": "DC-DC converter output current"}
+  ]},
+{ "hdr": "753", "dbg": true, "cmd": {"22": "420A"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DCDC_V_OUT", "path": "Battery", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "volts" }, "name": "DC-DC converter output voltage"}
+  ]},
+{ "hdr": "753", "dbg": true, "cmd": {"22": "4837"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DCDC_HV_V_IN", "path": "Battery", "fmt": { "len": 16, "max": 65535, "unit": "volts" }, "name": "DC-DC converter high-voltage input"}
+  ]},
+{ "hdr": "753", "dbg": true, "cmd": {"22": "DD02"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_12V_BATTERY", "path": "Battery", "fmt": { "len": 8, "max": 63.75, "div": 4, "unit": "volts" }, "name": "12V battery", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "754", "fcm1": true, "dbg": true, "cmd": {"22": "A0A6"}, "freq": 60,
+  "signals": [
+    {"id": "LANDROVER_GPS_SATS", "path": "GPS", "fmt": {"bix": 72, "len": 8, "max": 255, "unit": "scalar" }, "name": "Satellites in view"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "03F3"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_SUMP_OIL_T", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Sump oil temperature", "suggestedMetric": "engineOilTemperature"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "0417"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DPF_REMAINING_VOLUME", "path": "Engine", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "liters" }, "name": "Diesel particulate filter remaining volume"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "0598"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DPF_CALC_MAX_SOOT", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "percent" }, "name": "Diesel particulate filter calculated max soot concentration"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "05FC"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SCR_FLUID_MASS", "path": "Engine", "fmt": { "len": 32, "max": 4294967295, "unit": "unknown" }, "name": "Exhaust fluid mass"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "061F"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DPF_SOOT_MASS", "path": "Engine", "fmt": { "len": 16, "max": 100, "mul": 20, "div": 13107, "unit": "unknown" }, "name": "Diesel particulate filter soot mass"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "0635"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_DPF_SOOT", "path": "Engine", "fmt": { "len": 8, "max": 25.5, "div": 10, "unit": "unknown" }, "name": "Diesel particulate filter soot"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "1172"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BAT_V", "path": "Battery", "fmt": { "len": 8, "max": 15.9375, "mul": 625, "div": 10000, "unit": "volts" }, "name": "Battery voltage", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "1670"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_FUEL_RAIL_P", "path": "Fuel", "fmt": { "len": 16, "max": 511992.1875, "mul": 78125, "div": 10000, "unit": "kilopascal" }, "name": "Fuel rail pressure"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "168E"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_FUEL_RAIL_T", "path": "Fuel", "fmt": { "len": 8, "max": 60.96, "min": -61.44, "mul": 48, "div": 100, "sign": true, "unit": "celsius" }, "name": "Fuel rail temperature"}
+  ]},
+{ "hdr": "7E0", "dbg": true, "cmd": {"22": "40F7"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_HANDBRAKE", "path": "Control", "fmt": { "len": 8, "max": 1, "unit": "scalar" }, "name": "Handbrake"}
+  ]},
+{ "hdr": "7E0", "rax": "7E8", "dbg": true, "cmd": {"22": "16C1"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_FLI", "path": "Fuel", "fmt": { "len": 16, "max": 100, "mul": 200, "div": 65535, "unit": "percent" }, "name": "Fuel tank level", "suggestedMetric": "fuelTankLevel"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E12"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_GEAR_CMD", "path": "Transmission", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Gear, commanded"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E1F"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_GEAR_ENGAGED", "path": "Transmission", "fmt": { "len": 8, "max": 255, "unit": "scalar" }, "name": "Gear engaged"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1E69"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_ATF_T", "path": "Transmission", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Transmission fluid temperature", "suggestedMetric": "transmissionFluidTemperature"}
+  ]},
+{ "hdr": "7E1", "dbg": true, "cmd": {"22": "1F12"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_TQ_CONV_T", "path": "Transmission", "fmt": { "len": 8, "max": 470, "min": -40, "mul": 2, "add": -40, "unit": "celsius" }, "name": "Torque converter temperature"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4911"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SOC_MIN", "path": "Battery", "fmt": { "len": 16, "max": 100, "unit": "percent" }, "name": "State of charge, minimum"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4912"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_MAX_DISCHARGE", "path": "Battery", "fmt": { "len": 16, "max": 80, "unit": "kilowatts" }, "name": "Max discharge"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4913"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_MAX_REGEN", "path": "Battery", "fmt": { "len": 16, "max": 655.35, "div": 100, "unit": "kilowatts" }, "name": "Battery, maximum regen"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4914"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_SOC_MAX", "path": "Battery", "fmt": { "len": 16, "max": 100, "unit": "percent" }, "name": "State of charge, maximum"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4915"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_SOH_POWER", "path": "Battery", "fmt": { "len": 8, "max": 127.5, "div": 2, "unit": "scalar" }, "name": "Battery power"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4916"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_SOH_POWER_MIN", "path": "Battery", "fmt": { "len": 8, "max": 127.5, "div": 2, "unit": "scalar" }, "name": "Battery power, minimum"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4917"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_SOH_POWER_MAX", "path": "Battery", "fmt": { "len": 8, "max": 127.5, "div": 2, "unit": "scalar" }, "name": "Battery power, maximum"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "4919"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_SOH_CAPACITY_MIN", "path": "Battery", "fmt": { "len": 8, "max": 100, "div": 2, "unit": "percent" }, "name": "Battery capacity, minimum"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "491A"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_SOH_CAPACITY_MAX", "path": "Battery", "fmt": { "len": 8, "max": 100, "div": 2, "unit": "percent" }, "name": "Battery capacity, maximum"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "491B"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_COOLANT_OUT", "path": "Battery", "fmt": { "len": 8, "max": 30, "unit": "scalar" }, "name": "Battery coolant out"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "491C"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_COOLANT_IN", "path": "Battery", "fmt": { "len": 8, "max": 30, "unit": "celsius" }, "name": "Battery coolant in"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "9924"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_AMBIENT_T", "path": "Engine", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Ambient temperature"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "DD00"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_ELAPSED", "path": "Engine", "fmt": { "len": 32, "max": 4294967295, "unit": "seconds" }, "name": "Elapsed time"}
+  ]},
+{ "hdr": "7E4", "dbg": true, "cmd": {"22": "DD04"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_CABIN_T", "path": "Engine", "fmt": { "len": 8, "max": 215, "min": -40, "add": -40, "unit": "celsius" }, "name": "Cabin temperature"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4903"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_HVB_CELL_V_MAX", "path": "Battery", "fmt": { "len": 16, "max": 32767, "unit": "millivolts" }, "name": "Cell voltage, maximum"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4904"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_HVB_CELL_V_MIN", "path": "Battery", "fmt": { "len": 16, "max": 32767, "unit": "millivolts" }, "name": "Cell voltage, minimum"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4905"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_T_MAX", "path": "Battery", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Battery temperature, maximum"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4906"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_BATTERY_T_MIN", "path": "Battery", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Battery temperature, minimum"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4907"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_HVB_T", "path": "Battery", "fmt": { "len": 8, "max": 87.5, "min": -40, "div": 2, "add": -40, "unit": "celsius" }, "name": "Battery temperature"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "490C"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_HVB_CURR", "path": "Battery", "fmt": { "len": 16, "max": 819.175, "min": -500, "div": 40, "sign": true, "unit": "amps" }, "name": "High voltage battery current", "suggestedMetric": "tractionBatteryCurrent"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "490F"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_HVB_V", "path": "Battery", "fmt": { "len": 16, "max": 450, "div": 100, "unit": "volts" }, "name": "High voltage battery voltage", "suggestedMetric": "tractionBatteryVoltage"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4910"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_SOC", "path": "Battery", "fmt": { "len": 16, "max": 100, "div": 100, "unit": "percent" }, "name": "State of charge", "suggestedMetric": "stateOfCharge"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "4918"}, "freq": 3600,
+  "signals": [
+    {"id": "LANDROVER_HVB_SOH", "path": "Battery", "fmt": { "len": 8, "max": 100, "div": 2, "unit": "percent" }, "name": "Battery state of health, average", "suggestedMetric": "stateOfHealth"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "DD01"}, "freq": 5,
+  "signals": [
+    {"id": "LANDROVER_ODO",      "path": "Movement", "fmt": { "len": 24, "max": 16777215, "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"},
+    {"id": "LANDROVER_ODOMETER", "path": "Movement", "fmt": { "len": 24, "max": 1000000,  "unit": "kilometers" }, "name": "Odometer", "suggestedMetric": "odometer"}
+  ]},
+{ "hdr": "7E4", "rax": "7EC", "dbg": true, "cmd": {"22": "DD09"}, "freq": 0.1,
+  "signals": [
+    {"id": "LANDROVER_VSS", "path": "Movement", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Vehicle speed", "suggestedMetric": "speed"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "498F"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_CHARGE_V",   "path": "Battery", "fmt": {          "len": 8, "max": 240, "min": 200, "mul": 2, "unit": "volts" }, "name": "Charge voltage"},
+    {"id": "LANDROVER_CHARGE_CUR", "path": "Battery", "fmt": {"bix": 8, "len": 8, "max": 40,                        "unit": "amps"  }, "name": "Charge current"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "FD37"}, "freq": 10,
+  "signals": [
+    {"id": "LANDROVER_CHG_STATE", "path": "Battery", "name": "Charging state", "fmt": {"bix": 8, "len": 8, "map": {
+          "29": { "description": "DC fast charging", "value": "DC_CHARGING" },
+          "48": { "description": "AC charging",      "value": "AC_CHARGING" }
+        }}
+    }
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "FE0C"}, "freq": 1,
+  "signals": [
+    {"id": "LANDROVER_CHARGING",                 "path": "Engine",  "fmt": {           "len": 8, "max": 255, "unit": "scalar" }, "name": "Charging status"},
+    {"id": "LANDROVER_CHARGER_MODE",             "path": "Battery", "fmt": {"bix": 8,  "len": 8, "max": 255, "unit": "scalar" }, "name": "Charger mode"},
+    {"id": "LANDROVER_CONNECTION_STS_CONNECTED", "path": "Engine",  "fmt": {"bix": 16, "len": 8, "max": 255, "unit": "scalar" }, "name": "Connection status: connected"},
+    {"id": "LANDROVER_VEHICLE_STATE", "path": "Battery", "name": "Charging state, vehicle", "fmt": {"len": 4, "map": {
+          "0":  { "description": "Not charging", "value": "NOT_CHARGING" },
+          "6":  { "description": "Charging",     "value": "CHARGING" },
+          "9":  { "description": "Initializing", "value": "INIT" },
+          "10": { "description": "Waiting",      "value": "WAITING" }
+        }}
+    }
+  ]},
+{ "hdr": "7E6", "dbg": true, "cmd": {"22": "2B06"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_FL_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"}
+  ]},
+{ "hdr": "7E6", "dbg": true, "cmd": {"22": "2B07"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_FR_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"}
+  ]},
+{ "hdr": "7E6", "dbg": true, "cmd": {"22": "2B08"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_RL_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"}
+  ]},
+{ "hdr": "7E6", "dbg": true, "cmd": {"22": "2B09"}, "freq": 0.25,
+  "signals": [
+    {"id": "LANDROVER_RR_WHL_SPD", "path": "Tires", "fmt": { "len": 8, "max": 255, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]}
+]
+}

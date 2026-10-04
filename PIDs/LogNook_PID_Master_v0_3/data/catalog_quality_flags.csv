@@ -1,0 +1,15 @@
+﻿scope,category,issue,required_action
+SAE_01_02,SERVICE_AMBIGUITY,Public table lists under 01; freeze frame trigger DTC belongs to contextual Service 02 use.,Exclude automatic 0102; test 0202 with frame selector
+SAE_01_32,SIGNED_VALUE,Signed 16-bit evap scaling needs sign extension before division.,Implement typed signed16 expression before enabling decoding
+SAE_01_54,SIGNED_VALUE,Signed evap pressure field must not be decoded as uint16.,Implement verified signed16 parser
+SAE_01_4F,COMPOSITE,Only the max MAF example 0x50 has simple scalar interpretation; 0x4F is composite.,Implement 4 child fields with source-backed units
+SAE_01_70,COMPLEX_STRUCT,"Boost pressure control source has composite presence bits, mixed fields and potential public formula transcription inconsistencies.",Recheck latest official SAE annex and implement typed complete decoder
+SAE_01_78,COMPLEX_STRUCT,EGT measurements per probe require presence bitmask checks.,Use decoded_subchannels and mask before display
+SAE_01_A4,COMPLEX_STRUCT,Transmission gear field is conditional on status bits.,Decode supported flag then numeric gear ratio; physical verify
+SAE_01_C3,EXTENDED_SPEC_REVIEW,Late extension in public list not independently crosschecked with latest SAE licensed annex.,Review official registry before shipping
+OEM_TOYOTA_GENERIC,MODEL_FILTER,Community Toyota DID examples include debug-only and model-dependent fields.,Find exact 2014 Scion xB ECU/definitions; do not auto-assign
+OEM_FORD_MUSTANG,MODEL_FILTER,Ford Mustang source DIDs are not known valid for 2011 Ford Flex 3.5 EcoBoost.,Find Ford Flex ECU-specific source and confirm actual response
+SUBARU_SSM,LICENSE_AND_ECU,RomRaider base references are SSM memory reads with ECU-specific inheritance and GPL-source considerations.,"Confirm ECU identity, transport, data-pack licensing before enabling"
+OBDB_IMPORT,RESPONSE_METADATA,Some imported definitions use special addressing and bit-endian conventions such as blsb.,Preserve source_payload and reject unsupported decoder combinations
+OBDB_MULTIBRAND,LICENSING,Community data generally CC BY-SA 4.0; repository and asset licensing can vary.,Version and attribute every pack; review commercial redistribution terms
+ALL_OEM,LIVE_VERIFICATION,No published OEM examples in this seed were tested on physical vehicles.,Every vehicle/ECU candidate disabled until test evidence recorded

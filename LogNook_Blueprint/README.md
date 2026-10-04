@@ -1,9 +1,9 @@
 # LogNook — research-backed engineering blueprint
-Research snapshot: 2026-10-02; implementation status: 2026-10-03. Milestone 1 is implemented, and the Windows desktop app includes the searchable signal picker, recording/replay, CSV interchange and live-buffer snapshots, saved-session sharing and Save As, settings and shortcuts, threshold recording, derived signals, configurable combined/separate graphs, and smooth live graph motion between PID samples. The OBDLink SX has connected read-only to the Ford; the grouped Mode 01 path is supported by bench captures and fixtures. Long-run application stability and cross-vehicle validation remain open; see [Project Status](../PROJECT_STATUS.md).
+Research snapshot: 2026-10-02; implementation status: 2026-10-03. Milestone 1 is implemented, and the Windows desktop app includes the searchable signal picker, read-only OEM research catalog, a constrained Scion xB 2014 Mode 21 `21 01` one-shot path, recording/replay, CSV interchange and live-buffer snapshots, saved-session sharing and Save As, settings and shortcuts, threshold recording, derived signals, configurable combined/separate graphs, and smooth live graph motion between PID samples. The OBDLink SX has connected read-only to the Ford; the grouped Mode 01 path is supported by bench captures and fixtures. The Scion Mode 21 path has synthetic/parser coverage only; no live Scion request has been sent. Long-run application stability and cross-vehicle validation remain open; see [Project Status](../PROJECT_STATUS.md).
 
 ## Current implementation
 
-The repository contains a Rust workspace, a Tauri 2 + Svelte/TypeScript desktop app, a shared adapter contract, simulated and physical SX Mode 01 acquisition, a bounded sample pipeline, SQLite `.lognook` recording, CSV export/import, replay, automatic triggers, derived signals, and graph preferences. The simulator is explicitly labeled. Physical validation limits and the next test steps are documented in project status.
+The repository contains a Rust workspace, a Tauri 2 + Svelte/TypeScript desktop app, a shared adapter contract, simulated and physical SX Mode 01 acquisition, a bounded sample pipeline, SQLite `.lognook` recording, CSV export/import, replay, automatic triggers, derived signals, graph preferences, and a read-only searchable OEM candidate catalog. The simulator is explicitly labeled. Physical validation limits and the next test steps are documented in project status.
 
 ## Product promise
 A Windows-first, Linux-ready automotive diagnostic/tuning *measurement* suite: connect quickly, select intelligently, record reliably, analyze deeply, share deliberately. Diagnostic logging is the initial scope, not ECU flashing, bypassing access controls or automated actuator control.
@@ -15,8 +15,7 @@ A Windows-first, Linux-ready automotive diagnostic/tuning *measurement* suite: c
 4. Offline-first, locally persisted, recoverable recordings; network features are optional.
 5. Detect capabilities instead of assuming a vendor/product label guarantees them.
 6. Each signal has provenance, actual unit, formula version, source ECU, quality and timing.
-7. Do not access protected manufacturer-specific data unless definitions and authorization are legitimately available.
-8. **Keep source-code files focused and compact**, with reusable shared functions and typed boundaries; Markdown research and documentation may be as detailed as necessary. Do not split documentation just to satisfy an arbitrary file-size target.
+7. **Keep source-code files focused and compact**, with reusable shared functions and typed boundaries; Markdown research and documentation may be as detailed as necessary. Do not split documentation just to satisfy an arbitrary file-size target.
 
 ## Available field-test vehicles and dongles
 - **2011 Ford Flex 3.5L EcoBoost:** performance-oriented generic OBD and later validated Ford-enhanced acquisition; note OBDLink SX does **not** provide Ford MS-CAN access.

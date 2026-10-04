@@ -4,6 +4,8 @@
 
 **Goal:** Add read-only OBDLink SX discovery and Mode 01 live acquisition through the existing `HardwareAdapter` contract.
 
+> Scope note (2026-10-03): this completed plan defines the original Mode 01 adapter implementation only. It is not the project-wide physical-test policy; later field tests follow root `AGENTS.md`. The current production adapter still does not implement OEM/Mode 21 polling.
+
 **Architecture (amended after physical validation):** The serial adapter opens the selected SX COM port after exact VID/PID verification, sends the adapter-only `STI` query to establish communication, validates the reply prompt, then queries `STDI` and `STSN`. An unsolicited startup banner is optional. Live acquisition discovers supported generic Mode 01 PIDs before sampling. Identity-only probing remains separate from live acquisition.
 
 **Tech Stack:** Rust 2024, `serialport`, Tauri 2 commands, Svelte 5, Node UI tests.
@@ -14,8 +16,8 @@
 
 - Do not send commands to physical devices during implementation or tests; use fixtures and an injected fake serial stream.
 - SX identity queries are `STI`, `STDI`, and `STSN` in that order; wait for the initial query's reply and for `>` between subsequent commands.
-- Never send a bare carriage return, `ATZ`, `ATSP`, configuration/storage commands, clear-code commands, OEM/UDS requests, or actuator/write requests.
-- OBD traffic is limited to supported generic Mode 01 PID discovery (`0100`) and selected reads for the five existing standard signals.
+- For this adapter implementation, never send a bare carriage return, `ATZ`, `ATSP`, storage commands, clear-code commands, OEM/UDS requests, or actuator/write requests.
+- This implementation's OBD traffic is limited to supported generic Mode 01 discovery (`0100`) and selected reads for its standard signals. Separate source-backed physical read probes follow root `AGENTS.md`; state-changing tests require per-test approval and are never part of normal acquisition.
 - Match the SX by USB VID/PID `0403:6015`; do not match by FTDI vendor alone because OpenPort2 also has VID `0403`.
 - Keep the existing `HardwareAdapter` contract, simulator, and external-agent reports intact.
 

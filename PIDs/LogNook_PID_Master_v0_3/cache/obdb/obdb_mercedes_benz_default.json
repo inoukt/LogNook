@@ -1,0 +1,63 @@
+{ "commands": [
+{ "hdr": "624", "rax": "5A4", "fcm1": true, "dbg": true, "cmd": {"22": "0201"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_AUX_V_HD", "path": "Battery", "fmt": {"bix": 16, "len": 16, "max": 100, "mul": 1000, "div": 10000, "unit": "volts" }, "name": "12V system voltage, hd", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "2005"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_AUX_V", "path": "Battery", "fmt": { "len": 8, "max": 25.9, "mul": 25.9, "div": 255, "unit": "volts" }, "name": "Auxiliary battery voltage", "suggestedMetric": "starterBatteryVoltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "2526"}, "freq": 5,
+  "signals": [
+    {"id": "MERCEDES_HV_COOLANT_T", "path": "Battery", "fmt": { "len": 16, "max": 100, "mul": 1250, "div": 10000, "sign": true, "unit": "celsius" }, "name": "HV battery coolant temperature"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6050"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_HV_SOC", "path": "Battery", "fmt": { "len": 16, "max": 100, "div": 100, "unit": "percent" }, "name": "HV battery state of charge", "suggestedMetric": "stateOfCharge"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6053"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_HV_A", "path": "Battery", "fmt": { "len": 16, "max": 100, "div": 10, "sign": true, "unit": "amps" }, "name": "HV battery amperage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6071"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_CNVRTR_REQ_V", "path": "Battery", "fmt": { "len": 16, "max": 100, "mul": 250, "div": 10000, "unit": "volts" }, "name": "DC converter requested voltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6075"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_HV_V", "path": "Battery", "fmt": { "len": 16, "max": 100, "mul": 25, "div": 1000, "unit": "volts" }, "name": "HV battery voltage"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6502"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_HV_RANGE", "path": "Trips", "fmt": { "len": 32, "max": 1000, "unit": "kilometers" }, "name": "HV battery remaining distance", "suggestedMetric": "electricRange"}
+  ]},
+{ "hdr": "7E5", "dbg": true, "cmd": {"22": "6504"}, "freq": 1,
+  "signals": [
+    {"id": "MERCEDES_SERVICE_DIST", "path": "Engine", "fmt": { "len": 16, "max": 65535, "unit": "kilometers" }, "name": "Distance to next service"}
+  ]},
+{ "hdr": "7E2", "rax": "7EA", "proto": "15765-4-11bit", "dbg": true, "cmd": {"22": "2001"}, "freq": 0.25,
+  "signals": [
+    {"id": "MERCEDES_TIRE_FL_VSS", "path": "Movement", "fmt": {           "len": 16, "max": 1000, "mul": 0.05625,               "unit": "kilometersPerHour" }, "name": "Front left wheel speed"},
+    {"id": "MERCEDES_FL_VSS",      "path": "Movement", "fmt": {           "len": 16, "max": 1000, "mul": 562.5,   "div": 10000, "unit": "kilometersPerHour" }, "name": "Front left wheel speed"},
+    {"id": "MERCEDES_TIRE_FR_VSS", "path": "Movement", "fmt": {"bix": 16, "len": 16, "max": 1000, "mul": 0.05625,               "unit": "kilometersPerHour" }, "name": "Front right wheel speed"},
+    {"id": "MERCEDES_FR_VSS",      "path": "Movement", "fmt": {"bix": 16, "len": 16, "max": 100,  "mul": 562.5,   "div": 10000, "unit": "kilometersPerHour" }, "name": "Front right wheel speed"},
+    {"id": "MERCEDES_TIRE_RL_VSS", "path": "Movement", "fmt": {"bix": 32, "len": 16, "max": 1000, "mul": 0.05625,               "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"},
+    {"id": "MERCEDES_RL_VSS",      "path": "Movement", "fmt": {"bix": 32, "len": 16, "max": 100,  "mul": 562.5,   "div": 10000, "unit": "kilometersPerHour" }, "name": "Rear left wheel speed"},
+    {"id": "MERCEDES_TIRE_RR_VSS", "path": "Movement", "fmt": {"bix": 48, "len": 16, "max": 1000, "mul": 0.05625,               "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"},
+    {"id": "MERCEDES_RR_VSS",      "path": "Movement", "fmt": {"bix": 48, "len": 16, "max": 100,  "mul": 562.5,   "div": 10000, "unit": "kilometersPerHour" }, "name": "Rear right wheel speed"}
+  ]},
+{ "hdr": "7E2", "rax": "7EA", "proto": "15765-4-11bit", "dbg": true, "cmd": {"22": "2002"}, "freq": 0.25,
+  "signals": [
+    {"id": "MERCEDES_LNG_G",                          "path": "Orientation", "fmt": {"bix": 8,   "len": 16, "max": 0.17,   "min": -0.17,                  "div": 192747,      "sign": true, "unit": "gravity" }, "name": "Longitudinal acceleration"},
+    {"id": "MERCEDES_LON_ACC",                        "path": "Orientation", "fmt": {"bix": 8,   "len": 16, "max": 1.63,   "min": -1.63,   "mul": 0.05,   "div": 1000,        "sign": true, "unit": "gravity" }, "name": "Longitudinal acceleration"},
+    {"id": "MERCEDES_LAT_G",                          "path": "Orientation", "fmt": {"bix": 24,  "len": 16, "max": 52.21,  "min": -52.21,                 "div": 627.6,       "sign": true, "unit": "gravity" }, "name": "Lateral acceleration"},
+    {"id": "MERCEDES_LAT_ACC",                        "path": "Orientation", "fmt": {"bix": 24,  "len": 16, "max": 511,    "min": -512,    "mul": 15.625, "div": 1000,        "sign": true, "unit": "gravity" }, "name": "Lateral acceleration"},
+    {"id": "MERCEDES_YAW_RATE",                       "path": "Orientation", "fmt": {"bix": 48,  "len": 16, "max": 2,      "min": -2,      "mul": 2,      "div": 32767,       "sign": true, "unit": "radians" }, "name": "Yaw rate",                       "description": "The angular velocity of the car around its vertical axis. Indicates how quickly the car is rotating to its left or right."},
+    {"id": "MERCEDES_STEER_ANGLE",                    "path": "Control",     "fmt": {"bix": 72,  "len": 16, "max": 3276.7, "min": -3276.8,                "div": 10,          "sign": true, "unit": "degrees" }, "name": "Steering wheel angle",           "description": "Positive is rotated to the right, negative is rotated to the left."},
+    {"id": "MERCEDES_MCYL_BREAK",                     "path": "Orientation", "fmt": {"bix": 96,  "len": 16, "max": 501.34, "min": -501.34,                "div": 65.35883831, "sign": true, "unit": "bars"    }, "name": "Master break cylinder pressure"},
+    {"id": "MERCEDES_MASTER_BREAK_CYLINDER_PRESSURE", "path": "Engine",      "fmt": {"bix": 96,  "len": 16, "max": 500,    "min": -500,    "mul": 153,    "div": 10000,       "sign": true, "unit": "bars"    }, "name": "Master break cylinder pressure"},
+    {"id": "MERCEDES_VACC_BREAK",                     "path": "Orientation", "fmt": {"bix": 144, "len": 16, "max": 32,     "min": -32,                    "div": 1000,        "sign": true, "unit": "bars"    }, "name": "Vaccuum cylinder pressure"},
+    {"id": "MERCEDES_VACUUM_BREAK_PRESSURE",          "path": "Engine",      "fmt": {"bix": 144, "len": 16, "max": 65,                                    "div": 1000,                      "unit": "bars"    }, "name": "Vacuum break pressure"}
+  ]}
+]
+}

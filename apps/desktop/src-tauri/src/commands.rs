@@ -4,6 +4,8 @@ mod exports;
 pub use exports::*;
 mod sessions;
 pub use sessions::*;
+mod oem_catalog;
+pub use oem_catalog::*;
 
 use crate::AppState;
 use lognook_core::{

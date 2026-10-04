@@ -1,0 +1,81 @@
+{
+  "generic_connect": {
+    "title": "Generic quick diagnostics",
+    "scope": "Generic OBD; query support bitmap first",
+    "signals": [
+      "SAE_01_00",
+      "SAE_01_0C",
+      "SAE_01_05",
+      "SAE_01_0D",
+      "SAE_01_42",
+      "SAE_01_06",
+      "SAE_01_07",
+      "SAE_01_10"
+    ],
+    "enable_only_if_discovered": true
+  },
+  "ford_flex_35_eb": {
+    "title": "2011 Ford Flex EcoBoost baseline",
+    "scope": "Standard emissions PIDs only; enhanced Ford candidates NOT enabled",
+    "signals": [
+      "SAE_01_0C",
+      "SAE_01_0B",
+      "SAE_01_33",
+      "SAE_01_05",
+      "SAE_01_0F",
+      "SAE_01_10",
+      "SAE_01_11",
+      "SAE_01_44",
+      "SAE_01_06",
+      "SAE_01_07",
+      "SAE_01_42"
+    ],
+    "enable_only_if_discovered": true
+  },
+  "scion_xb_2014_24": {
+    "title": "2014 Scion xB 2.4 baseline",
+    "scope": "Standard OBD only; Toyota OEM DIDs require ECU verification",
+    "signals": [
+      "SAE_01_0C",
+      "SAE_01_05",
+      "SAE_01_0F",
+      "SAE_01_10",
+      "SAE_01_11",
+      "SAE_01_06",
+      "SAE_01_07",
+      "SAE_01_0B",
+      "SAE_01_0E",
+      "SAE_01_42"
+    ],
+    "enable_only_if_discovered": true
+  },
+  "subaru_standard": {
+    "title": "Subaru generic tuning baseline",
+    "scope": "Standard OBD only. Advanced SSM offsets require verified SSM ECU identity",
+    "signals": [
+      "SAE_01_0C",
+      "SAE_01_05",
+      "SAE_01_0F",
+      "SAE_01_0B",
+      "SAE_01_33",
+      "SAE_01_10",
+      "SAE_01_0E",
+      "SAE_01_44",
+      "SAE_01_11"
+    ],
+    "enable_only_if_discovered": true
+  },
+  "subaru_ssm_candidate": {
+    "title": "Subaru SSM research only",
+    "scope": "HIDDEN until exact ECU and SSM group validated; research not active",
+    "signals": [
+      "SUBARU_SSM_BASE_COMPATIBLE_ECUS_ONLY__ENGINE_SPEED",
+      "SUBARU_SSM_BASE_COMPATIBLE_ECUS_ONLY__MANIFOLD_ABSOLUTE_PRESSURE",
+      "SUBARU_SSM_BASE_COMPATIBLE_ECUS_ONLY__MASS_AIRFLOW",
+      "SUBARU_SSM_BASE_COMPATIBLE_ECUS_ONLY__IGNITION_TIMING",
+      "SUBARU_SSM_BASE_COMPATIBLE_ECUS_ONLY__KNOCK_CORRECTION",
+      "SUBARU_SSM_BASE_COMPATIBLE_ECUS_ONLY__PRIMARY_WASTEGATE_DUTY"
+    ],
+    "enable_only_if_discovered": true
+  }
+}

@@ -31,6 +31,9 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["icons/icon.ico"]
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "../../../PIDs/LogNook_PID_Master_v0_3/data/lognook_pids.sqlite": "pids/lognook_pids.sqlite"
+    }
   }
 }

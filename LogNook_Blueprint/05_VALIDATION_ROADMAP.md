@@ -1,7 +1,7 @@
 # Development stages and proof-of-concept validation
 
 ## Stage 0 — requirements freeze, fixtures, safety
-Lock shared sample/event types and minimal connection contract. Obtain at least one adapter of each family plus a real ECU or legitimate bench simulator. Create a reusable timestamped scripted ECU simulator covering variable delay, stale values, malformed responses, multiple ECUs and unplug/replug. Store independently captured reference frames as legal test fixtures. Write packaging/licensing inventory and establish strict read-only vehicle tests.
+Lock shared sample/event types and the minimal connection contract. Obtain at least one adapter of each family plus a real ECU or legitimate bench simulator. Create a reusable timestamped ECU simulator covering variable delay, stale values, malformed responses, multiple ECUs and unplug/replug. Store independently captured reference frames as legal fixtures. Establish measurement-only acquisition tests and separate source-backed physical read probes under root `AGENTS.md`; state-changing tests require exact per-test approval, and flashing/programming is prohibited.
 
 ## Stage 1 — vertical slice
 Connect one known-good generic USB ELM327 or OBDLink SX to simulated/real generic CAN OBD; show supported PID selection, live RPM/coolant graph, marker, Start/Stop, exact timestamped `.lognook`, live CSV export, reopen/replay and crash recovery. In parallel build automated tests for parser and scheduler. A usable vertical slice before elaborate UI theming prevents architecture drift.
@@ -13,7 +13,7 @@ Add STN fast path and robust ELM clone profiling; standalone `gs_usb` raw CAN, S
 Auto-record and configurable pre-trigger ring buffer; editable markers; hotkeys; live graph/list modes; CSV importer, resampling/export, scatter/heatmap/bar; formulas/conversions/tare; per-PID plot settings; known-good library; alert tones and workspace restore. Implement DTC *read* workflow only after deterministic logging is stable.
 
 ## Stage 4 — enhanced diagnostics and integrations
-Introduce profile-driven UDS read-only DIDs/ECU browser, authorized OEM definitions, K-line validation, optional J1939. Add per-user Google Drive authorization and resumable upload. Offer an export/open-website Datazap path immediately, but do not advertise direct upload until an approved API or agreement has been verified. Add opt-in AI diagnostic telemetry bridge and structured POC reports.
+Introduce profile-driven, source-backed UDS/OEM read definitions and ECU browsing, K-line validation, and optional J1939. Keep ordinary polling measurement-only; gate any state-changing diagnostic test per root `AGENTS.md`. Add per-user Google Drive authorization and resumable upload. Offer an export/open-website Datazap path immediately, but do not advertise direct upload until an approved API or agreement has been verified. Add opt-in AI diagnostic telemetry bridge and structured POC reports.
 
 ## Stage 5 — broader operating systems and remote
 Linux Native/SocketCAN adapter; package and permission rules; remote LAN view-only dashboard. Later, authenticated, separately enabled remote operator controls; Bluetooth/Wi-Fi/DoIP adapters follow the common interface contract.

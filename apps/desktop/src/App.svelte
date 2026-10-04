@@ -9,6 +9,7 @@
   import AutomaticTriggerPanel from "./AutomaticTriggerPanel.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
   import SignalGraphs from "./SignalGraphs.svelte";
+  import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import {
     defaultAutomaticTriggerConfig, disarmedAutomaticTriggerStatus, normalizeAutomaticTriggerConfig,
     restoreAutomaticTriggerConfig, type AutomaticTriggerConfig, type AutomaticTriggerStatus,
@@ -74,6 +75,7 @@
   let derivedSignalDialog: HTMLDialogElement | undefined;
   let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
+  let pidPickerView: "signals" | "oem" = "signals";
   let sessionBrowserOpen = false;
   let wheelScrubbing = false;
   let workspacePreferencesReady = false;
@@ -926,34 +928,44 @@
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
-        <div class="panel-heading"><div><p class="eyebrow">SIGNAL PICKER</p><h2>{session ? "Recorded signals" : "Engine · Mode 01"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : `${logSignalIds.length} logging · ${graphSignalIds.length} graphed`}</span></div>
-        <input class="text-input signal-search" type="search" bind:this={signalSearchInput} bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
-        <AutomaticTriggerPanel
-          signals={automaticTriggerSignals}
-          config={automaticTriggerConfig}
-          status={automaticTriggerStatus}
-          disabled={busy || !connected || recording || replaying || session !== null}
-          onConfigChange={updateAutomaticTriggerConfig}
-          onArm={armAutomaticTrigger}
-          onDisarm={disarmAutomaticTrigger}
-        />
-        <div class="signal-columns" aria-hidden="true"><span></span><span></span><span>Log</span><span>Graph</span></div>
-        <div class="signal-list">
-          {#each filteredSignals as signal (signal.id)}
-            <div class="signal-option">
-              <input class="signal-color" type="color" value={signalColorFor(signal)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
-              <span class="signal-copy">
-                <span class="signal-name-row"><span>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
-                <small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
-              </span>
-              <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy} />
-              <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id))} />
-            </div>
-          {:else}
-            <p class="no-signals">{availableSignals.length ? "No matching signals" : "Loading signals…"}</p>
-          {/each}
-        </div>
-        <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
+        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : "PID DATABASE"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : "OEM research"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : "OEM catalog"}</span></div>
+        {#if !session}
+          <div class="pid-picker-tabs" role="group" aria-label="PID source">
+            <button class:active={pidPickerView === "signals"} aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"}>Live PIDs</button>
+            <button class:active={pidPickerView === "oem"} aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"}>OEM Research</button>
+          </div>
+        {/if}
+        {#if session || pidPickerView === "signals"}
+          <input class="text-input signal-search" type="search" bind:this={signalSearchInput} bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
+          <AutomaticTriggerPanel
+            signals={automaticTriggerSignals}
+            config={automaticTriggerConfig}
+            status={automaticTriggerStatus}
+            disabled={busy || !connected || recording || replaying || session !== null}
+            onConfigChange={updateAutomaticTriggerConfig}
+            onArm={armAutomaticTrigger}
+            onDisarm={disarmAutomaticTrigger}
+          />
+          <div class="signal-columns" aria-hidden="true"><span></span><span></span><span>Log</span><span>Graph</span></div>
+          <div class="signal-list">
+            {#each filteredSignals as signal (signal.id)}
+              <div class="signal-option">
+                <input class="signal-color" type="color" value={signalColorFor(signal)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
+                <span class="signal-copy">
+                  <span class="signal-name-row"><span>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
+                  <small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
+                </span>
+                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy} />
+                <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id))} />
+              </div>
+            {:else}
+              <p class="no-signals">{availableSignals.length ? "No matching signals" : "Loading signals…"}</p>
+            {/each}
+          </div>
+          <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
+        {:else}
+          <OemCatalogPanel selectedPort={selectedSxPort} disabled={busy || connected || recording || replaying || session !== null} />
+        {/if}
       </aside>
 
       <section class="measurements" aria-label="Measurements">

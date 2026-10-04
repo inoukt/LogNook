@@ -4,6 +4,8 @@
 
 ## Baseline and constraints
 
+This dated plan is scoped to the listed generic Mode 01 and adapter-benchmark checks. Its exclusions are test-specific, not a project-wide prohibition on source-backed read probes. Separate tests follow root `AGENTS.md`; state-changing operations require exact per-test approval and are never part of acquisition.
+
 - The user reports **at least 50 PID requests/second in OBDwiz USB mode on this same Ford**. FORScan showed COM4/FTDI at 2,000,000 baud. These are the comparison baselines; do not relabel them as LogNook measurements.
 - The latest five-signal LogNook CSV contained 1,095 samples in about 65.6 seconds: approximately 16.7 PID responses/second total and 3.3 per signal.
 - The `PIDs` research seed is at `C:\LogNookR\PIDs`, outside this Git checkout. The SX benchmark selects only generic Mode 01 candidates from its public, auto-requestable set, plus the five already live-verified LogNook signals, and only when the ECU advertises each PID.

@@ -112,7 +112,7 @@ fn parse_mode01_payload(
     Ok(responses)
 }
 
-fn parse_isotp_messages(text: &str) -> Result<Option<Vec<(String, Vec<u8>)>>, String> {
+pub(crate) fn parse_isotp_messages(text: &str) -> Result<Option<Vec<(String, Vec<u8>)>>, String> {
     let mut frames = Vec::new();
     for line in text.split(['\r', '\n']) {
         let mut ecu_id = None;
