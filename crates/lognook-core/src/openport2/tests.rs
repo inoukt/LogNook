@@ -1,0 +1,376 @@
+use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
+use crate::{EngineEvent, HardwareAdapter, LogNookEngine, SignalDefinition, standard_obd_signals};
+use lognook_j2534_protocol::{
+    J2534Identity, J2534Provider, Mode01Payload, WorkerErrorKind, WorkerRequest, WorkerResponse,
+};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::{Arc, Mutex, mpsc},
+    time::Duration,
+};
+
+#[derive(Clone)]
+struct FakeState {
+    requests: Arc<Mutex<Vec<WorkerRequest>>>,
+    shutdowns: Arc<Mutex<usize>>,
+}
+
+struct FakeSession {
+    responses: VecDeque<Result<WorkerResponse, String>>,
+    state: FakeState,
+}
+
+impl FakeSession {
+    fn new(
+        responses: impl IntoIterator<Item = Result<WorkerResponse, String>>,
+    ) -> (Self, FakeState) {
+        let state = FakeState {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            shutdowns: Arc::new(Mutex::new(0)),
+        };
+        (
+            Self {
+                responses: responses.into_iter().collect(),
+                state: state.clone(),
+            },
+            state,
+        )
+    }
+}
+
+impl WorkerSession for FakeSession {
+    fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, crate::LogNookError> {
+        self.state.requests.lock().unwrap().push(request);
+        self.responses
+            .pop_front()
+            .unwrap_or_else(|| Err("unexpected worker request".into()))
+            .map_err(crate::LogNookError::new)
+    }
+
+    fn shutdown(&mut self) {
+        *self.state.shutdowns.lock().unwrap() += 1;
+    }
+}
+
+fn identity() -> J2534Identity {
+    J2534Identity {
+        firmware: "OPTA firmware".into(),
+        dll_version: "1.2.3".into(),
+        api_version: "04.04".into(),
+    }
+}
+
+fn connected() -> WorkerResponse {
+    WorkerResponse::Connected {
+        identity: identity(),
+    }
+}
+
+fn payload(ecu_id: &str, bytes: &[u8]) -> Mode01Payload {
+    Mode01Payload {
+        ecu_id: ecu_id.into(),
+        bytes: bytes.to_vec(),
+        latency_us: 12_500,
+    }
+}
+
+fn discovery() -> WorkerResponse {
+    WorkerResponse::Mode01Responses {
+        responses: vec![payload("7E8", &[0x41, 0x00, 0x08, 0x10, 0x00, 0x00])],
+    }
+}
+
+fn adapter(
+    responses: impl IntoIterator<Item = Result<WorkerResponse, String>>,
+) -> (OpenPort2Adapter, FakeState) {
+    let (session, state) = FakeSession::new(responses);
+    (
+        OpenPort2Adapter::new(PathBuf::from("worker.exe"), "opta".into())
+            .with_session(Box::new(session)),
+        state,
+    )
+}
+
+fn rpm() -> SignalDefinition {
+    standard_obd_signals()
+        .into_iter()
+        .find(|signal| signal.id == "engine_rpm")
+        .unwrap()
+}
+
+#[test]
+fn provider_listing_uses_only_typed_worker_provider_response() {
+    let (mut session, state) = FakeSession::new([Ok(WorkerResponse::Providers {
+        providers: vec![J2534Provider {
+            id: "opta".into(),
+            name: "Tactrix OpenPort 2.0".into(),
+        }],
+    })]);
+    assert_eq!(available_from_session(&mut session).unwrap()[0].id, "opta");
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        vec![WorkerRequest::ListProviders]
+    );
+}
+
+#[test]
+fn identity_uses_provider_id_and_returns_j2534_identity() {
+    let (mut session, state) = FakeSession::new([Ok(WorkerResponse::Identity {
+        identity: identity(),
+    })]);
+    let device = identify_from_session(&mut session, "opta").unwrap();
+    assert_eq!(device.stable_id, "opta");
+    assert_eq!(device.hardware_family, "OpenPort 2.0");
+    assert!(device.firmware.unwrap().contains("OPTA firmware"));
+    assert_eq!(
+        state.requests.lock().unwrap()[0],
+        WorkerRequest::Identify {
+            provider_id: "opta".into()
+        }
+    );
+}
+
+#[test]
+fn adapter_discovers_supported_pids_and_emits_timestamped_rpm_samples() {
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+    ]);
+    let capabilities = adapter.connect().unwrap();
+    assert!(capabilities.read_only);
+    assert!(
+        capabilities
+            .supported_signals
+            .iter()
+            .any(|signal| signal.id == "engine_rpm")
+    );
+    assert!(
+        !capabilities
+            .supported_signals
+            .iter()
+            .any(|signal| signal.id == "vehicle_speed")
+    );
+
+    let sample = adapter.read_samples(&[rpm()]).unwrap().remove(0);
+    assert_eq!(sample.signal_id, "engine_rpm");
+    assert_eq!(sample.value, 1726.0);
+    assert_eq!(sample.ecu_id.as_deref(), Some("7E8"));
+    assert!(sample.elapsed_ns >= 0);
+    assert!(sample.wall_time_unix_ns > 0);
+    assert_eq!(sample.origin, crate::SampleOrigin::Live);
+    assert_eq!(sample.raw_bytes, Some(vec![0x41, 0x0C, 0x1A, 0xF8]));
+    assert_eq!(adapter.sample_interval(), Duration::from_millis(100));
+    adapter.disconnect();
+
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        vec![
+            WorkerRequest::Connect {
+                provider_id: "opta".into()
+            },
+            WorkerRequest::DiscoverMode01,
+            WorkerRequest::ReadMode01 { pid: 0x0C },
+            WorkerRequest::Disconnect,
+        ]
+    );
+    assert_eq!(*state.shutdowns.lock().unwrap(), 1);
+}
+
+#[test]
+fn discovery_rejects_multiple_ecu_responders_without_merging_capabilities() {
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![
+                payload("7E8", &[0x41, 0x00, 0x08, 0x10, 0x00, 0x00]),
+                payload("7E9", &[0x41, 0x00, 0x08, 0x10, 0x00, 0x00]),
+            ],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    assert!(
+        adapter
+            .connect()
+            .unwrap_err()
+            .to_string()
+            .contains("Multiple ECU")
+    );
+    assert_eq!(*state.shutdowns.lock().unwrap(), 1);
+}
+
+#[test]
+fn discovery_follows_only_supported_pid_pages_and_rejects_a_missing_continuation() {
+    let (mut adapter_instance, _) = adapter([
+        Ok(connected()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![
+                payload("7E8", &[0x41, 0x00, 0x00, 0x00, 0x00, 0x01]),
+                payload("7E8", &[0x41, 0x20, 0x80, 0x00, 0x00, 0x00]),
+            ],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    let capabilities = adapter_instance.connect().unwrap();
+    assert!(
+        capabilities
+            .supported_signals
+            .iter()
+            .any(|signal| signal.id == "distance_with_mil")
+    );
+    adapter_instance.disconnect();
+
+    let (mut adapter_instance, _) = adapter([
+        Ok(connected()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x00, 0x00, 0x00, 0x00, 0x01])],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    assert!(
+        adapter_instance
+            .connect()
+            .unwrap_err()
+            .to_string()
+            .contains("omitted supported-PID page 20")
+    );
+}
+
+#[test]
+fn read_rejects_ecu_mismatch_and_never_emits_a_sample() {
+    let (mut adapter, _) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E9", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+    assert!(
+        adapter
+            .read_samples(&[rpm()])
+            .unwrap_err()
+            .to_string()
+            .contains("ECU identity")
+    );
+    adapter.disconnect();
+}
+
+#[test]
+fn read_rejects_multiple_ecu_responses_and_malformed_payloads() {
+    for responses in [
+        vec![
+            payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8]),
+            payload("7E9", &[0x41, 0x0C, 0x1A, 0xF8]),
+        ],
+        vec![payload("7E8", &[0x41, 0x0C])],
+    ] {
+        let (mut adapter, _) = adapter([
+            Ok(connected()),
+            Ok(discovery()),
+            Ok(WorkerResponse::Mode01Responses { responses }),
+            Ok(WorkerResponse::Disconnected),
+        ]);
+        adapter.connect().unwrap();
+        assert!(adapter.read_samples(&[rpm()]).is_err());
+        adapter.disconnect();
+    }
+}
+
+#[test]
+fn timed_out_worker_request_returns_error_and_shutdown_cleans_up_session() {
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Err("J2534 worker response timed out".into()),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+    assert!(
+        adapter
+            .read_samples(&[rpm()])
+            .unwrap_err()
+            .to_string()
+            .contains("timed out")
+    );
+    adapter.disconnect();
+    assert_eq!(*state.shutdowns.lock().unwrap(), 1);
+}
+
+#[test]
+fn openport_samples_flow_through_the_shared_engine_pipeline() {
+    let (adapter, _) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+    ]);
+    let (events, received) = mpsc::channel();
+    let mut engine = LogNookEngine::new(move |event| {
+        let _ = events.send(event);
+    });
+    engine
+        .connect_adapter(Box::new(adapter), &["engine_rpm".into()])
+        .unwrap();
+    assert!(matches!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        EngineEvent::Connected(_)
+    ));
+    let sample = loop {
+        if let EngineEvent::Sample(sample) = received.recv_timeout(Duration::from_secs(1)).unwrap()
+        {
+            break sample;
+        }
+    };
+    assert_eq!(sample.signal_id, "engine_rpm");
+    assert_eq!(sample.value, 1726.0);
+    engine.disconnect().unwrap();
+}
+
+#[test]
+fn adapter_rejects_unsupported_signal_ids_before_worker_read() {
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+    let mut unsupported = rpm();
+    unsupported.id = "not_in_standard_catalog".into();
+    assert!(
+        adapter
+            .read_samples(&[unsupported])
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported read-only Mode 01 signal")
+    );
+    let unsupported_pid = standard_obd_signals()
+        .into_iter()
+        .find(|signal| signal.id == "vehicle_speed")
+        .unwrap();
+    assert!(
+        adapter
+            .read_samples(&[unsupported_pid])
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported read-only Mode 01 signal")
+    );
+    adapter.disconnect();
+    assert!(
+        !state
+            .requests
+            .lock()
+            .unwrap()
+            .contains(&WorkerRequest::ReadMode01 { pid: 0x0C })
+    );
+}
+
+#[allow(dead_code)]
+fn _worker_error_kind_is_covered(kind: WorkerErrorKind) -> WorkerErrorKind {
+    kind
+}

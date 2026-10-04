@@ -9,6 +9,7 @@ mod model;
 mod obdlink_sx;
 mod obdlink_sx_protocol;
 mod oem_catalog;
+mod openport2;
 mod pipeline;
 mod pipeline_worker;
 mod playback;
@@ -42,6 +43,7 @@ pub use oem_catalog::{
     OemCandidate, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA, ScionMode21ProbeSpec,
     ScionProbeChannel,
 };
+pub use openport2::{OpenPort2Adapter, available_openport2_providers, identify_openport2};
 pub use recording::{RecordingWriter, read_recording};
 pub use recording_view::{
     add_recording_marker, delete_recording_marker, inspect_recording, update_recording_marker,

@@ -1826,6 +1826,7 @@ name = "lognook-core"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "lognook-j2534-protocol",
  "rusqlite",
  "serde",
  "serde_json",

@@ -9,3 +9,4 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 serialport = "4.10.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+lognook-j2534-protocol = { path = "../lognook-j2534-protocol" }
