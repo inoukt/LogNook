@@ -120,6 +120,22 @@ test("manual graph bounds drive bounded plot coordinates", () => {
   assert.ok(points.every((point) => point.y >= 22 && point.y <= 146));
 });
 
+test("session graphs retain all backend downsampled points across the time window", () => {
+  const pointLimit = 360 * 4;
+  const samples = Array.from({ length: pointLimit }, (_, elapsed_ns) => ({
+    elapsed_ns,
+    value: elapsed_ns === 0 ? -10_000 : elapsed_ns,
+  }));
+  const range = graphPreferences.graphValueRange(samples, []);
+  const points = graphPreferences.graphCoordinates(samples, 0, pointLimit - 1, range, pointLimit);
+
+  assert.equal(points.length, pointLimit);
+  assert.equal(points[0].x, 0);
+  assert.equal(points.at(-1).x, 720);
+  assert.ok(range.min < -10_000);
+  assert.deepEqual(graphPreferences.nearestGraphSample(samples, 0, pointLimit), samples[0]);
+});
+
 test("reference samples map to the active time window without changing their values", () => {
   assert.equal(typeof graphPreferences.mapReferenceSamples, "function");
   if (typeof graphPreferences.mapReferenceSamples !== "function") return;

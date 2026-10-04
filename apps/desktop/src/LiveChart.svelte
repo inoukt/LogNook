@@ -10,6 +10,8 @@
     graphValueRange,
     holdLastPointAtRightEdge,
     liveGraphTimeWindow,
+    MAX_GRAPH_SAMPLES,
+    MAX_SESSION_GRAPH_SAMPLES,
     mapReferenceSamples,
     nearestGraphSample,
     type GraphReferenceTrace,
@@ -70,9 +72,10 @@
       : 0);
 
   let plottedTraces = $derived.by(() => traces.map((trace, index) => {
+    const sampleLimit = timeWindow ? MAX_SESSION_GRAPH_SAMPLES : MAX_GRAPH_SAMPLES;
     const preference = signalPreferences[trace.signalId] ?? defaultPreference;
     const reference = referenceTraces.find((candidate) => candidate.signalId === trace.signalId);
-    const samples = boundedGraphSamples(trace.samples);
+    const samples = boundedGraphSamples(trace.samples, sampleLimit);
     const firstVisibleIndex = liveDisplayTimeNs === undefined
       ? 0
       : samples.findIndex((sample) => sample.elapsed_ns >= timeBounds[0]);
@@ -80,13 +83,13 @@
       ? samples
       : firstVisibleIndex < 0 ? [] : samples.slice(Math.max(0, firstVisibleIndex - 1));
     const referenceSamples = mapReferenceSamples(reference?.samples ?? [], timeBounds[0], timeBounds[1]);
-    const rangeSamples = graphRangeSamples(samples, boundedGraphSamples(trace.scaleSamples ?? []), Boolean(trace.scaleSamples?.length));
+    const rangeSamples = graphRangeSamples(samples, trace.scaleSamples ?? [], Boolean(trace.scaleSamples?.length));
     const range = graphValueRange(rangeSamples, referenceSamples, preference);
-    const measuredPoints = graphCoordinates(plotSamples, timeBounds[0], timeBounds[1], range);
+    const measuredPoints = graphCoordinates(plotSamples, timeBounds[0], timeBounds[1], range, sampleLimit);
     const points = liveDisplayTimeNs === undefined || preference.view !== "line"
       ? measuredPoints
       : holdLastPointAtRightEdge(measuredPoints);
-    const referencePoints = graphCoordinates(referenceSamples, timeBounds[0], timeBounds[1], range);
+    const referencePoints = graphCoordinates(referenceSamples, timeBounds[0], timeBounds[1], range, MAX_GRAPH_SAMPLES);
     const color = trace.color ?? colors[index % colors.length];
     const barWidth = Math.max(1, 720 / Math.max(points.length, 1) * 0.68);
     const baseline = range.min <= 0 && range.max >= 0 ? yForValue(0, range) : 146;
@@ -96,7 +99,7 @@
       y: Math.min(point.y, baseline),
       height: Math.max(1, Math.abs(baseline - point.y)),
     }));
-    return { trace, preference, reference, samples, points, referencePoints, color, range, bars };
+    return { trace, preference, reference, samples, sampleLimit, points, referencePoints, color, range, bars };
   }));
   let hasPlotData = $derived(plottedTraces.some((item) => item.points.length || item.referencePoints.length));
   let cursorTimeNs = $state<number | null>(null);
@@ -106,7 +109,7 @@
     name: item.trace.name,
     unit: item.trace.unit,
     formula: item.trace.formula,
-    sample: nearestGraphSample(item.samples, cursorTimeNs!),
+    sample: nearestGraphSample(item.samples, cursorTimeNs!, item.sampleLimit),
   })));
 
   function moveCursor(event: PointerEvent) {

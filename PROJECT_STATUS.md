@@ -221,3 +221,8 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - The no-samples message is rendered outside the stretched SVG, with its 11 px display size compensated for the persisted webview scale. The Log/Graph checkbox columns are closer together; hovering a truncated PID name shows the complete name.
 - The live graph's time span follows the retained samples, up to 18 seconds, so faster sample rates keep filling the chart instead of leaving blank time to the left.
 - Verification: Svelte check reported **0 errors / 0 warnings**; Vite production build and Tauri custom-protocol build passed. The updated native app launched as `LogNook`.
+
+## Replay graph window completeness — 2026-10-04
+
+- Session graph rendering now keeps all 360 buckets of first/minimum/maximum/last samples (up to 1,440 points per signal), instead of limiting replay traces to the 180-point live buffer. Auto-ranging and cursor readouts use the complete visible session window too.
+- Verification: UI tests **64 passed**; Svelte check **0 errors / 0 warnings**; Vite and Tauri custom-protocol builds passed. A regression test verifies full-window endpoints, auto-range extrema, and early cursor lookup.

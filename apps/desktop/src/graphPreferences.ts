@@ -23,6 +23,8 @@ export type GraphPreferencesStorage = Pick<Storage, "getItem" | "setItem">;
 
 export const GRAPH_PREFERENCES_KEY = "lognook.graph-preferences.v1";
 export const MAX_GRAPH_SAMPLES = 180;
+export const SESSION_GRAPH_BUCKETS = 360;
+export const MAX_SESSION_GRAPH_SAMPLES = SESSION_GRAPH_BUCKETS * 4;
 export const LIVE_GRAPH_WINDOW_NS = 18_000_000_000;
 const MAX_REFERENCE_TRACES = 24;
 const DEFAULT_SIGNAL_PREFERENCE: GraphSignalPreference = {
@@ -132,7 +134,8 @@ export function graphValueRange(
   referenceSamples: GraphValueSample[],
   preference: Pick<GraphSignalPreference, "min" | "max"> = { min: null, max: null },
 ): { min: number; max: number } {
-  const values = [...boundedGraphSamples(samples), ...boundedGraphSamples(referenceSamples)];
+  const values = [...samples, ...referenceSamples]
+    .filter((sample) => Number.isFinite(sample.elapsed_ns) && Number.isFinite(sample.value));
   const low = values.length ? Math.min(...values.map((sample) => sample.value)) : 0;
   const high = values.length ? Math.max(...values.map((sample) => sample.value)) : 1;
   const padding = Math.max((high - low) * 0.12, 1);
@@ -153,10 +156,11 @@ export function graphCoordinates(
   timeStart: number,
   timeEnd: number,
   range: { min: number; max: number },
+  maxSamples = MAX_GRAPH_SAMPLES,
 ): Array<GraphValueSample & { x: number; y: number }> {
   const duration = timeEnd - timeStart;
   const span = range.max - range.min || 1;
-  return boundedGraphSamples(samples).map((sample) => {
+  return boundedGraphSamples(samples, maxSamples).map((sample) => {
     const x = duration > 0 ? ((sample.elapsed_ns - timeStart) / duration) * 720 : 0;
     const y = 146 - ((sample.value - range.min) / span) * 124;
     return {
@@ -195,10 +199,14 @@ export function mapReferenceSamples(samples: GraphValueSample[], timeStart: numb
   }));
 }
 
-export function nearestGraphSample(samples: GraphValueSample[], timeNs: number): GraphValueSample | undefined {
+export function nearestGraphSample(
+  samples: GraphValueSample[],
+  timeNs: number,
+  maxSamples = MAX_GRAPH_SAMPLES,
+): GraphValueSample | undefined {
   let nearest: GraphValueSample | undefined;
   let distance = Infinity;
-  for (const sample of boundedGraphSamples(samples)) {
+  for (const sample of boundedGraphSamples(samples, maxSamples)) {
     const nextDistance = Math.abs(sample.elapsed_ns - timeNs);
     if (nextDistance < distance) {
       nearest = sample;
@@ -215,8 +223,9 @@ export function graphHeatmapRow(index: number, count: number): { y: number; heig
   return { y: 22 + row * height, height };
 }
 
-export function boundedGraphSamples(samples: GraphValueSample[]): GraphValueSample[] {
-  return samples.slice(-MAX_GRAPH_SAMPLES).filter((sample) => Number.isFinite(sample.elapsed_ns) && Number.isFinite(sample.value));
+export function boundedGraphSamples(samples: GraphValueSample[], maxSamples = MAX_GRAPH_SAMPLES): GraphValueSample[] {
+  const limit = Number.isFinite(maxSamples) ? Math.max(1, Math.floor(maxSamples)) : MAX_GRAPH_SAMPLES;
+  return samples.slice(-limit).filter((sample) => Number.isFinite(sample.elapsed_ns) && Number.isFinite(sample.value));
 }
 
 function normalizeReference(value: unknown): GraphPreferences["reference"] {

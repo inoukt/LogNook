@@ -13,6 +13,7 @@
   import SettingsPanel from "./SettingsPanel.svelte";
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
+  import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
   import {
     defaultAutomaticTriggerConfig, disarmedAutomaticTriggerStatus, normalizeAutomaticTriggerConfig,
     restoreAutomaticTriggerConfig, type AutomaticTriggerConfig, type AutomaticTriggerStatus,
@@ -442,7 +443,7 @@
               signalIds,
               startNs: range.startNs,
               endNs: range.endNs,
-              maxBuckets: 360,
+              maxBuckets: SESSION_GRAPH_BUCKETS,
             })
           : Promise.resolve([]),
         invoke<Record<string, number>>("recording_averages", { startNs: range.startNs, endNs: range.endNs }),
