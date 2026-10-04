@@ -8,6 +8,7 @@
   import PlaybackPanel from "./PlaybackPanel.svelte";
   import SessionBrowser from "./SessionBrowser.svelte";
   import { openAndActivateRecording } from "./sessionBrowser";
+  import { adapterLabel, connectionControlState, type AdapterKind } from "./connectionControls";
   import AutomaticTriggerPanel from "./AutomaticTriggerPanel.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
   import SignalGraphs from "./SignalGraphs.svelte";
@@ -23,7 +24,7 @@
   import type { ShortcutAction } from "./shortcuts";
   import type {
     ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
-    RecordingInfo, Sample, SignalDefinition,
+    J2534Provider, RecordingInfo, Sample, SignalDefinition,
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, graphRefreshIntervalMs, orderMarkersForTimeline,
@@ -50,6 +51,10 @@
   let sxPorts: string[] = [];
   let selectedSxPort = "";
   let sxIdentity: DeviceDescriptor | undefined;
+  let openPortProviders: J2534Provider[] = [];
+  let selectedOpenPortProvider = "";
+  let openPortIdentity: DeviceDescriptor | undefined;
+  let selectedAdapter: AdapterKind = "simulator";
   let logSignalIds = [...defaultWorkspacePreferences.logSignalIds];
   let graphSignalIds = [...logSignalIds];
   let latest: Record<string, Sample> = {};
@@ -99,6 +104,16 @@
   let scrubPending: number | null = null;
   let scrubInFlight: number | null = null;
   let availableSignals: SignalOption[] = [];
+  $: connectionControls = connectionControlState(selectedAdapter, {
+    busy,
+    recording,
+    replaying,
+    hasSignals: logSignalIds.length > 0,
+    sxPort: selectedSxPort,
+    sxIdentityMatches: sxIdentity?.path === selectedSxPort,
+    openPortProvider: selectedOpenPortProvider,
+    openPortIdentityMatches: openPortIdentity?.stable_id === selectedOpenPortProvider,
+  });
 
   $: derivedOptions = derivedSignalOptions(derivedSignalDefinitions);
   $: availableSignals = session
@@ -489,10 +504,58 @@
     });
   }
 
+  function connectOpenPort() {
+    return run(async () => {
+      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
+      if (!requested.length) throw new Error("Select at least one supported engine signal first");
+      await invoke("configure_derived_signals", {
+        definitions: derivedSignalDefinitions,
+        activeIds: derivedSignalDefinitions.filter((definition) => requested.includes(definition.id)).map(({ id }) => id),
+      });
+      const capabilities = await invoke<ConnectionCapabilities>("connect_openport2", {
+        providerId: selectedOpenPortProvider,
+        signalIds: requested,
+      });
+      await clearSession();
+      series = {};
+      latest = {};
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
+      graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
+    });
+  }
+
+  function connectSelectedAdapter() {
+    if (selectedAdapter === "obdlink_sx") return connectSx();
+    if (selectedAdapter === "openport2") return connectOpenPort();
+    return connect();
+  }
+
+  function selectAdapter(adapter: AdapterKind) {
+    selectedAdapter = adapter;
+    if (adapter !== "openport2") return;
+    openPortProviders = [];
+    selectedOpenPortProvider = "";
+    openPortIdentity = undefined;
+    void run(async () => {
+      openPortProviders = await invoke<J2534Provider[]>("available_openport2_providers");
+      selectedOpenPortProvider = openPortProviders[0]?.id ?? "";
+    });
+  }
+
   function identifySx() {
     return run(async () => {
       sxIdentity = undefined;
       sxIdentity = await invoke<DeviceDescriptor>("identify_obdlink_sx", { portName: selectedSxPort });
+    });
+  }
+
+  function identifyOpenPort() {
+    return run(async () => {
+      openPortIdentity = undefined;
+      openPortIdentity = await invoke<DeviceDescriptor>("identify_openport2", {
+        providerId: selectedOpenPortProvider,
+      });
     });
   }
 
@@ -902,13 +965,29 @@
           {#if connected}
             <button class="button secondary" onclick={disconnect} disabled={busy}>Disconnect</button>
           {:else}
-            <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || recording || sxPorts.length === 0 || replaying}>
-              {#if sxPorts.length === 0}<option value="">No SX found</option>{/if}
-              {#each sxPorts as port}<option value={port}>{port}</option>{/each}
+            <select class="text-input adapter-select" value={selectedAdapter} onchange={(event) => selectAdapter(event.currentTarget.value as AdapterKind)} aria-label="Adapter" disabled={busy || recording || replaying}>
+              <option value="simulator">Simulator</option>
+              <option value="obdlink_sx">OBDLink SX</option>
+              <option value="openport2">OpenPort 2</option>
             </select>
-            <button class="button secondary" onclick={identifySx} disabled={busy || recording || !selectedSxPort || replaying} title="Identify OBDLink SX" aria-label="Identify OBDLink SX">Identify</button>
-            <button class="button secondary" onclick={connectSx} disabled={busy || recording || !selectedSxPort || sxIdentity?.path !== selectedSxPort || logSignalIds.length === 0 || replaying} title="Connect OBDLink SX" aria-label="Connect OBDLink SX">Connect SX</button>
-            <button class="button primary" onclick={connect} disabled={busy || recording || logSignalIds.length === 0 || replaying} title="Connect simulator" aria-label="Connect simulator">Simulator</button>
+            {#if selectedAdapter === "obdlink_sx"}
+              <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || recording || sxPorts.length === 0 || replaying}>
+                {#if sxPorts.length === 0}<option value="">No SX found</option>{/if}
+                {#each sxPorts as port}<option value={port}>{port}</option>{/each}
+              </select>
+            {:else if selectedAdapter === "openport2"}
+              <select class="text-input provider-select" bind:value={selectedOpenPortProvider} onchange={() => openPortIdentity = undefined} aria-label="OpenPort J2534 provider" disabled={busy || recording || openPortProviders.length === 0 || replaying}>
+                {#if openPortProviders.length === 0}<option value="">No OpenPort provider</option>{/if}
+                {#each openPortProviders as provider}<option value={provider.id}>{provider.name}</option>{/each}
+              </select>
+            {/if}
+            {#if selectedAdapter !== "simulator"}
+              <button class="button secondary" onclick={selectedAdapter === "openport2" ? identifyOpenPort : identifySx} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
+              {#if (selectedAdapter === "obdlink_sx" && sxIdentity?.path === selectedSxPort) || (selectedAdapter === "openport2" && openPortIdentity?.stable_id === selectedOpenPortProvider)}
+                <span class="adapter-identified" title={selectedAdapter === "openport2" ? openPortIdentity?.firmware : sxIdentity?.firmware}>Ready</span>
+              {/if}
+            {/if}
+            <button class="button primary" onclick={connectSelectedAdapter} disabled={connectionControls.connectDisabled} title={connectionControls.connectLabel} aria-label={connectionControls.connectLabel}>Connect</button>
           {/if}
           {#if recording}
             <button class="button danger" onclick={stopRecording} disabled={busy} title="Stop recording" aria-label="Stop recording">Stop</button>

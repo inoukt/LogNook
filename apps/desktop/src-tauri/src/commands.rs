@@ -6,12 +6,14 @@ mod sessions;
 pub use sessions::*;
 mod oem_catalog;
 pub use oem_catalog::*;
+mod openport2;
+pub use openport2::*;
 
 use crate::AppState;
 use lognook_core::{
-    AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities, DerivedSignalDefinition, DeviceDescriptor,
-    ObdLinkSxAdapter, RecordingSummary, SignalDefinition,
-    available_obdlink_sx_ports as list_obdlink_sx_ports,
+    AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
+    DerivedSignalDefinition, DeviceDescriptor, ObdLinkSxAdapter, RecordingSummary,
+    SignalDefinition, available_obdlink_sx_ports as list_obdlink_sx_ports,
     identify_obdlink_sx as identify_sx_device, standard_obd_signals,
 };
 use std::{
@@ -92,10 +94,7 @@ pub fn configure_derived_signals(
 }
 
 #[tauri::command]
-pub fn tare_derived_signal(
-    state: State<'_, AppState>,
-    signal_id: String,
-) -> Result<f64, String> {
+pub fn tare_derived_signal(state: State<'_, AppState>, signal_id: String) -> Result<f64, String> {
     engine(&state)?
         .tare_derived_signal(&signal_id)
         .map_err(|error| error.to_string())
@@ -113,14 +112,18 @@ pub fn arm_automatic_trigger(
 }
 
 #[tauri::command]
-pub fn disarm_automatic_trigger(state: State<'_, AppState>) -> Result<AutomaticTriggerStatus, String> {
+pub fn disarm_automatic_trigger(
+    state: State<'_, AppState>,
+) -> Result<AutomaticTriggerStatus, String> {
     engine(&state)?
         .disarm_automatic_trigger()
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn automatic_trigger_status(state: State<'_, AppState>) -> Result<AutomaticTriggerStatus, String> {
+pub fn automatic_trigger_status(
+    state: State<'_, AppState>,
+) -> Result<AutomaticTriggerStatus, String> {
     Ok(engine(&state)?.automatic_trigger_status())
 }
 

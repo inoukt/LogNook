@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
+    "build:j2534-worker": "cargo build -p lognook-j2534-worker --target i686-pc-windows-msvc",
     "test:ui": "node --experimental-strip-types --test tests/*.test.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri"

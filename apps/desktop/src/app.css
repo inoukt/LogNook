@@ -119,7 +119,10 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .connection-actions, .session-actions { gap: 4px; flex-wrap: nowrap; min-width: 0; }
 .session-actions { flex: 0 1 auto; }
 .toolbar-input { width: clamp(78px, 15vw, 200px); min-width: 72px; }
+.adapter-select { width: clamp(94px, 7.5vw, 118px); min-width: 88px; }
 .port-select { width: clamp(104px, 8vw, 124px); min-width: 104px; }
+.provider-select { width: clamp(128px, 10vw, 156px); min-width: 112px; }
+.adapter-identified { color: var(--accent); font-size: 9px; font-weight: 700; white-space: nowrap; }
 .workspace-toolbar .button { min-height: clamp(28px, 2.4vw, 34px); min-width: 0; padding-inline: clamp(4px, .65vw, 11px); font-size: clamp(8px, .78vw, 11px); }
 .button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 11px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; font-size: 11px; font-weight: 650; white-space: nowrap; transition: background .15s ease, border-color .15s ease; }
 .button:disabled { cursor: not-allowed; opacity: .45; }

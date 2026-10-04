@@ -21,12 +21,17 @@ pub fn run() {
             std::fs::create_dir_all(&oem_validation_dir)?;
             let source_catalog = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../../PIDs/LogNook_PID_Master_v0_3/data/lognook_pids.sqlite");
-            let bundled_catalog = app.path().resource_dir().ok()
+            let bundled_catalog = app
+                .path()
+                .resource_dir()
+                .ok()
                 .map(|directory| directory.join("pids").join("lognook_pids.sqlite"))
                 .filter(|path| path.is_file());
             let pid_catalog_path = bundled_catalog.unwrap_or(source_catalog);
             if !pid_catalog_path.is_file() {
-                return Err(format!("OEM PID catalog not found: {}", pid_catalog_path.display()).into());
+                return Err(
+                    format!("OEM PID catalog not found: {}", pid_catalog_path.display()).into(),
+                );
             }
             let app_handle = app.handle().clone();
             let engine = LogNookEngine::new(move |event| {
@@ -46,6 +51,9 @@ pub fn run() {
             commands::probe_scion_xb_mode21,
             commands::available_obdlink_sx_ports,
             commands::identify_obdlink_sx,
+            commands::available_openport2_providers,
+            commands::identify_openport2,
+            commands::connect_openport2,
             commands::connect_simulator,
             commands::connect_obdlink_sx,
             commands::disconnect,

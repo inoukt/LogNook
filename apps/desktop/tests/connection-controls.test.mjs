@@ -1,0 +1,97 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+const controls = await import("../src/connectionControls.ts").catch(() => null);
+
+test("adapter labels stay short for the one-row toolbar", () => {
+  assert.ok(controls, "connection controls helper is available");
+  assert.equal(controls.adapterLabel("simulator"), "Simulator");
+  assert.equal(controls.adapterLabel("obdlink_sx"), "OBDLink SX");
+  assert.equal(controls.adapterLabel("openport2"), "OpenPort 2");
+});
+
+test("identify and connect stay disabled until an SX port and identity are selected", () => {
+  assert.ok(controls, "connection controls helper is available");
+  const state = controls.connectionControlState("obdlink_sx", {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "",
+    openPortIdentityMatches: false,
+  });
+  assert.equal(state.identifyDisabled, true);
+  assert.equal(state.connectDisabled, true);
+
+  const portSelected = controls.connectionControlState("obdlink_sx", {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "COM5",
+    sxIdentityMatches: false,
+    openPortProvider: "",
+    openPortIdentityMatches: false,
+  });
+  assert.equal(portSelected.identifyDisabled, false);
+  assert.equal(portSelected.connectDisabled, true);
+});
+
+test("OpenPort identity and connect require a selected provider and matching identity", () => {
+  assert.ok(controls, "connection controls helper is available");
+  const missingProvider = controls.connectionControlState("openport2", {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "",
+    openPortIdentityMatches: false,
+  });
+  assert.equal(missingProvider.identifyDisabled, true);
+  assert.equal(missingProvider.connectDisabled, true);
+
+  const providerSelected = controls.connectionControlState("openport2", {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "opta",
+    openPortIdentityMatches: false,
+  });
+  assert.equal(providerSelected.identifyDisabled, false);
+  assert.equal(providerSelected.connectDisabled, true);
+
+  const identified = controls.connectionControlState("openport2", {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "opta",
+    openPortIdentityMatches: true,
+  });
+  assert.equal(identified.connectDisabled, false);
+});
+
+test("simulator connect does not depend on hardware identity", () => {
+  assert.ok(controls, "connection controls helper is available");
+  const state = controls.connectionControlState("simulator", {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "",
+    openPortIdentityMatches: false,
+  });
+  assert.equal(state.identifyDisabled, true);
+  assert.equal(state.connectDisabled, false);
+});

@@ -110,6 +110,8 @@ export type DeviceDescriptor = {
   path: string | null;
 };
 
+export type J2534Provider = { id: string; name: string };
+
 export type ConnectionCapabilities = {
   device: DeviceDescriptor;
   protocol: string;
