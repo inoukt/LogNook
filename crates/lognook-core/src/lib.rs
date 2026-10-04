@@ -6,9 +6,9 @@ mod derived;
 mod engine;
 mod graph_window;
 mod model;
-mod oem_catalog;
 mod obdlink_sx;
 mod obdlink_sx_protocol;
+mod oem_catalog;
 mod pipeline;
 mod pipeline_worker;
 mod playback;
@@ -21,19 +21,26 @@ pub use adapter::HardwareAdapter;
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
 pub use engine::LogNookEngine;
-pub use graph_window::{query_recording_averages, query_recording_values_at, query_recording_window};
-pub use model::{
-    AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities, DerivedSignalDefinition, DeviceDescriptor,
-    EngineEvent, LogNookError, Marker, PlaybackState, Recording, RecordingInfo, RecordingSignal,
-    RecordingSummary, Sample, SampleOrigin, SampleQuality, SignalDefinition, TriggerDirection,
+pub use graph_window::{
+    query_recording_averages, query_recording_values_at, query_recording_window,
 };
-pub use oem_catalog::{
-    OemCandidate, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA,
-    ScionMode21ProbeSpec, ScionProbeChannel,
+pub use model::{
+    AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
+    DerivedSignalDefinition, DeviceDescriptor, EngineEvent, LogNookError, Marker, PlaybackState,
+    Recording, RecordingInfo, RecordingSignal, RecordingSummary, Sample, SampleOrigin,
+    SampleQuality, SignalDefinition, TriggerDirection,
 };
 pub use obdlink_sx::{
-    ObdLinkSxAdapter, ScionMode21DecodedSignal, ScionMode21ProbeResult,
-    available_obdlink_sx_ports, identify_obdlink_sx, probe_scion_xb_mode21,
+    ObdLinkSxAdapter, ScionMode21DecodedSignal, ScionMode21ProbeResult, available_obdlink_sx_ports,
+    identify_obdlink_sx, probe_scion_xb_mode21,
+};
+pub use obdlink_sx_protocol::{
+    Mode01Response, SupportedPidRange, decode_signal, parse_mode01_payload,
+    parse_supported_pid_payload,
+};
+pub use oem_catalog::{
+    OemCandidate, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA, ScionMode21ProbeSpec,
+    ScionProbeChannel,
 };
 pub use recording::{RecordingWriter, read_recording};
 pub use recording_view::{

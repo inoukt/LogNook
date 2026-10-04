@@ -1,17 +1,17 @@
 use crate::model::SignalDefinition;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Mode01Response {
-    pub(crate) ecu_id: Option<String>,
-    pub(crate) raw_bytes: Vec<u8>,
-    pub(crate) data: Vec<u8>,
+pub struct Mode01Response {
+    pub ecu_id: Option<String>,
+    pub raw_bytes: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SupportedPidRange {
-    pub(crate) pids: Vec<u8>,
-    pub(crate) has_more: bool,
-    pub(crate) ecu_id: Option<String>,
+pub struct SupportedPidRange {
+    pub pids: Vec<u8>,
+    pub has_more: bool,
+    pub ecu_id: Option<String>,
 }
 
 pub(crate) fn mode01_pid_data_width(pid: u8) -> Option<usize> {
@@ -36,7 +36,7 @@ pub(crate) fn parse_mode01_responses(
 
     if let Some(messages) = parse_isotp_messages(text)? {
         for (ecu_id, payload) in messages {
-            responses.extend(parse_mode01_payload(
+            responses.extend(parse_mode01_payload_for_service(
                 &payload,
                 Some(ecu_id),
                 positive_service,
@@ -76,7 +76,20 @@ pub(crate) fn parse_mode01_responses(
     Ok(responses)
 }
 
-fn parse_mode01_payload(
+pub fn parse_mode01_payload(
+    ecu_id: String,
+    payload: &[u8],
+    requested_pid: u8,
+) -> Result<Mode01Response, String> {
+    let mut responses =
+        parse_mode01_payload_for_service(payload, Some(ecu_id), 0x41, requested_pid)?;
+    if responses.len() != 1 {
+        return Err(format!("No response for Mode 01 PID {requested_pid:02X}"));
+    }
+    Ok(responses.pop().expect("one response was checked"))
+}
+
+fn parse_mode01_payload_for_service(
     payload: &[u8],
     ecu_id: Option<String>,
     positive_service: u8,
@@ -216,14 +229,32 @@ pub(crate) fn parse_supported_pids(
     text: &str,
     range_start: u8,
 ) -> Result<SupportedPidRange, String> {
-    if range_start > 0xE0 || !range_start.is_multiple_of(0x20) {
-        return Err("Supported PID range must start at 00, 20, 40, 60, 80, A0, C0, or E0".into());
-    }
+    validate_supported_pid_range_start(range_start)?;
     let mut responses = parse_mode01_responses(text, 0x01, range_start)?;
     if responses.len() != 1 {
         return Err("Multiple ECUs reported supported PIDs".into());
     }
-    let response = responses.pop().expect("one response was checked");
+    supported_pid_range(
+        range_start,
+        responses.pop().expect("one response was checked"),
+    )
+}
+
+pub fn parse_supported_pid_payload(
+    ecu_id: String,
+    payload: &[u8],
+    range_start: u8,
+) -> Result<SupportedPidRange, String> {
+    validate_supported_pid_range_start(range_start)?;
+    let response = parse_mode01_payload(ecu_id, payload, range_start)?;
+    supported_pid_range(range_start, response)
+}
+
+fn supported_pid_range(
+    range_start: u8,
+    response: Mode01Response,
+) -> Result<SupportedPidRange, String> {
+    validate_supported_pid_range_start(range_start)?;
     if response.data.len() < 4 {
         return Err(format!(
             "Mode 01 PID {range_start:02X} response must include four bitmap bytes"
@@ -243,10 +274,14 @@ pub(crate) fn parse_supported_pids(
     })
 }
 
-pub(crate) fn decode_signal(
-    signal: &SignalDefinition,
-    response: &Mode01Response,
-) -> Result<f64, String> {
+fn validate_supported_pid_range_start(range_start: u8) -> Result<(), String> {
+    if range_start > 0xE0 || !range_start.is_multiple_of(0x20) {
+        return Err("Supported PID range must start at 00, 20, 40, 60, 80, A0, C0, or E0".into());
+    }
+    Ok(())
+}
+
+pub fn decode_signal(signal: &SignalDefinition, response: &Mode01Response) -> Result<f64, String> {
     if signal.service != 0x01
         || response.raw_bytes.len() < 3
         || response.raw_bytes[0] != 0x41

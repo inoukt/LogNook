@@ -1,4 +1,7 @@
-use super::{Mode01Response, decode_signal, parse_mode01_responses, parse_supported_pids};
+use super::{
+    Mode01Response, decode_signal, parse_mode01_payload, parse_mode01_responses,
+    parse_supported_pid_payload, parse_supported_pids,
+};
 use crate::standard_obd_signals;
 
 #[test]
@@ -66,6 +69,43 @@ fn rpm_response_keeps_ecu_and_raw_bytes_and_decodes_to_1726_rpm() {
         }]
     );
     assert_eq!(decode_signal(&signal, &response[0]).unwrap(), 1726.0);
+}
+
+#[test]
+fn binary_mode01_payload_keeps_ecu_raw_bytes_and_decodes_rpm() {
+    let response = parse_mode01_payload("7E8".into(), &[0x41, 0x0C, 0x1A, 0xF8], 0x0C).unwrap();
+    let signal = standard_obd_signals()
+        .into_iter()
+        .find(|item| item.id == "engine_rpm")
+        .unwrap();
+
+    assert_eq!(
+        response,
+        Mode01Response {
+            ecu_id: Some("7E8".into()),
+            raw_bytes: vec![0x41, 0x0C, 0x1A, 0xF8],
+            data: vec![0x1A, 0xF8],
+        }
+    );
+    assert_eq!(decode_signal(&signal, &response).unwrap(), 1726.0);
+}
+
+#[test]
+fn binary_supported_pid_bitmap_decodes_reported_pid_and_continuation() {
+    let range =
+        parse_supported_pid_payload("7E8".into(), &[0x41, 0x00, 0x80, 0x00, 0x00, 0x01], 0x00)
+            .unwrap();
+
+    assert_eq!(range.pids, vec![0x01]);
+    assert!(range.has_more);
+    assert_eq!(range.ecu_id.as_deref(), Some("7E8"));
+}
+
+#[test]
+fn binary_mode01_payload_rejects_wrong_service_pid_and_truncated_data() {
+    assert!(parse_mode01_payload("7E8".into(), &[0x7F, 0x01, 0x11], 0x0C).is_err());
+    assert!(parse_mode01_payload("7E8".into(), &[0x41, 0x05, 0x64], 0x0C).is_err());
+    assert!(parse_mode01_payload("7E8".into(), &[0x41, 0x0C, 0x1A], 0x0C).is_err());
 }
 
 #[test]
