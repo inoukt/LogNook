@@ -27,6 +27,28 @@ fn supported_pid_continuation_bitmap_maps_the_next_range() {
 }
 
 #[test]
+fn headered_pid_60_bitmap_from_scion_is_parsed_after_can_discovery() {
+    let text = include_str!("../tests/fixtures/obdlink_sx/mode01_supported_60_header.txt");
+    let range = parse_supported_pids(text, 0x60).unwrap();
+
+    assert_eq!(range.pids, vec![0x65]);
+    assert!(!range.has_more);
+    assert_eq!(range.ecu_id.as_deref(), Some("7E8"));
+}
+
+#[test]
+fn every_later_mode01_supported_bitmap_range_uses_four_data_bytes() {
+    for range_start in [0x60, 0x80, 0xA0, 0xC0, 0xE0] {
+        let text = format!("7E8 06 41 {range_start:02X} 80 00 00 00\r>");
+        let range = parse_supported_pids(&text, range_start).unwrap();
+
+        assert_eq!(range.pids, vec![range_start + 1], "range {range_start:02X}");
+        assert!(!range.has_more, "range {range_start:02X}");
+        assert_eq!(range.ecu_id.as_deref(), Some("7E8"));
+    }
+}
+
+#[test]
 fn rpm_response_keeps_ecu_and_raw_bytes_and_decodes_to_1726_rpm() {
     let text = include_str!("../tests/fixtures/obdlink_sx/mode01_rpm.txt");
     let response = parse_mode01_responses(text, 0x01, 0x0C).unwrap();
