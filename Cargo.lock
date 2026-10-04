@@ -1844,6 +1844,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lognook-j2534-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
