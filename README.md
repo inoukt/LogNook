@@ -28,6 +28,7 @@ For a packaged-protocol desktop build, run `cargo build -p lognook-desktop --fea
 - [Validation roadmap](LogNook_Blueprint/05_VALIDATION_ROADMAP.md)
 - [Future feature ideas](Addons%20for%20later.txt)
 - [SX/Ford bench report](docs/hardware/2026-10-02-sx-ford.md)
+- [A30 protocol and Scion xB capture research](docs/hardware/a30/README.md)
 - [External-agent tasks and completed reports](Work%20to%20do%20by%20Ext%20Agent/README.md)
 
 The repository has been verified with the simulator and captured hardware fixtures. The current grouped SX path has physical Ford bench evidence; longer application stability and cross-vehicle validation remain open. See `PROJECT_STATUS.md` before treating a feature as physically validated.

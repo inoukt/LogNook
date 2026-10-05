@@ -108,6 +108,29 @@ fn scion_one_shot_command_and_response_are_source_scoped() {
 }
 
 #[test]
+fn scion_probe_accepts_the_captured_28_byte_mode21_response() {
+    let parsed = super::decode_scion_mode21_response(
+        &scion_probe_spec(),
+        include_str!("../../tests/fixtures/obdlink_sx/scion_mode21_01_a30.txt"),
+    );
+
+    assert_eq!(parsed.outcome, "positive");
+    assert_eq!(parsed.payload, vec![
+        0x61, 0x01, 0x00, 0x00, 0x00, 0x00, 0x25, 0x47, 0x65, 0x85, 0x00, 0x00, 0x00, 0x00,
+        0x00,
+        0x00, 0x30, 0x82, 0x29, 0x52, 0x28, 0x20, 0x01, 0x38, 0x02, 0x33, 0x2f, 0xc2,
+    ]);
+    assert_eq!(parsed.decoded.len(), 5);
+
+    let unobserved_payload = [vec![0x61, 0x01], vec![0; 28]].concat();
+    let rejected = super::decode_scion_mode21_response(
+        &scion_probe_spec(),
+        &iso_tp_response("7E8", &unobserved_payload),
+    );
+    assert_eq!(rejected.outcome, "wrong_length");
+}
+
+#[test]
 fn scion_probe_uses_one_exact_request_after_sx_identity_and_can_check() {
     let spec = scion_probe_spec();
     let mut data = vec![0_u8; 27];

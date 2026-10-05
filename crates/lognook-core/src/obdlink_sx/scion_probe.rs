@@ -221,11 +221,11 @@ pub(super) fn decode_scion_mode21_response(
             error: Some("Target ECU did not return positive response 61 01".into()),
         };
     }
-    if payload.len() != 29 {
+    if !matches!(payload.len(), 28 | 29) {
         let length = payload.len();
         return ScionResponseDecode {
             outcome: "wrong_length".into(), payload, decoded: Vec::new(),
-            error: Some(format!("Scion 21 01 expected 29 reassembled bytes, got {length}")),
+            error: Some(format!("Scion 21 01 expected 28 or 29 reassembled bytes, got {length}")),
         };
     }
     let data = &payload[2..];
