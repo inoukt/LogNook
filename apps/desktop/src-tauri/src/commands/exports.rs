@@ -9,7 +9,10 @@ use tauri_plugin_dialog::DialogExt;
 const MAX_LIVE_EXPORT_SAMPLES: usize = 100_000;
 
 #[tauri::command]
-pub fn export_live_csv(app: AppHandle, samples: Vec<Sample>) -> Result<Option<String>, String> {
+pub async fn export_live_csv(
+    app: AppHandle,
+    samples: Vec<Sample>,
+) -> Result<Option<String>, String> {
     validate_live_samples(&samples)?;
     let selected = app
         .dialog()

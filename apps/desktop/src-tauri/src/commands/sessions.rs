@@ -11,7 +11,9 @@ use tauri_plugin_dialog::DialogExt;
 type BrowserRecordingRow = (String, String, u64, usize);
 
 #[tauri::command]
-pub fn list_recordings(state: State<'_, AppState>) -> Result<Vec<BrowserRecordingRow>, String> {
+pub async fn list_recordings(
+    state: State<'_, AppState>,
+) -> Result<Vec<BrowserRecordingRow>, String> {
     list_recordings_in(&state.recordings_dir)
 }
 
@@ -55,7 +57,7 @@ fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>,
 }
 
 #[tauri::command]
-pub fn open_recording(
+pub async fn open_recording(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<RecordingInfo, String> {
@@ -64,7 +66,7 @@ pub fn open_recording(
 }
 
 #[tauri::command]
-pub fn share_recording_csv(
+pub async fn share_recording_csv(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
@@ -89,7 +91,7 @@ pub fn share_recording_csv(
 }
 
 #[tauri::command]
-pub fn save_recording_as(
+pub async fn save_recording_as(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,

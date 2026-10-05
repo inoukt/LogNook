@@ -8,7 +8,7 @@ use std::{fs::OpenOptions, io::Write};
 use tauri::State;
 
 #[tauri::command]
-pub fn search_oem_catalog(
+pub async fn search_oem_catalog(
     state: State<'_, AppState>,
     query: String,
     brand: String,
@@ -28,7 +28,7 @@ pub fn search_oem_catalog(
 }
 
 #[tauri::command]
-pub fn probe_scion_xb_mode21(
+pub async fn probe_scion_xb_mode21(
     state: State<'_, AppState>,
     port_name: String,
 ) -> Result<ScionMode21ProbeResult, String> {
@@ -64,7 +64,7 @@ pub fn probe_scion_xb_mode21(
 }
 
 #[tauri::command]
-pub fn try_oem_candidate(
+pub async fn try_oem_candidate(
     state: State<'_, AppState>,
     port_name: String,
     candidate_id: String,

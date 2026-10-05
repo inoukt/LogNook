@@ -2,7 +2,7 @@ use crate::{
     LogNookError, Sample,
     model::{SampleOrigin, SampleQuality},
     recording::open_recording,
-    recording_view::inspect_recording,
+    recording_view::recording_duration_ns,
 };
 use rusqlite::{OpenFlags, params, params_from_iter, types::Value};
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ pub fn query_recording_window(
     if signal_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let duration_ns = inspect_recording(path)?.duration_ns.max(0);
+    let duration_ns = recording_duration_ns(path)?.max(0);
     let start_ns = start_ns.clamp(0, duration_ns);
     let end_ns = end_ns.clamp(0, duration_ns);
     if end_ns < start_ns {
@@ -110,7 +110,7 @@ pub fn query_recording_averages(
     start_ns: i64,
     end_ns: i64,
 ) -> Result<HashMap<String, f64>, LogNookError> {
-    let duration_ns = inspect_recording(path)?.duration_ns.max(0);
+    let duration_ns = recording_duration_ns(path)?.max(0);
     let start_ns = start_ns.clamp(0, duration_ns);
     let end_ns = end_ns.clamp(0, duration_ns);
     if end_ns < start_ns {

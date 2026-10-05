@@ -3,6 +3,7 @@ use crate::model::{
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{
+    collections::BTreeSet,
     fs::OpenOptions,
     path::{Path, PathBuf},
 };
@@ -11,6 +12,8 @@ pub struct RecordingWriter {
     connection: Connection,
     path: PathBuf,
     sample_count: usize,
+    duration_ns: i64,
+    signals: BTreeSet<(String, String)>,
 }
 
 impl RecordingWriter {
@@ -28,21 +31,26 @@ impl RecordingWriter {
         connection.execute_batch(
             "CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
              INSERT INTO metadata(key, value) VALUES ('schema_version', '1');
+             INSERT INTO metadata(key, value) VALUES ('summary_complete', '0');
              CREATE TABLE samples(
                id INTEGER PRIMARY KEY, elapsed_ns INTEGER NOT NULL, wall_time_unix_ns INTEGER NOT NULL,
                source_id TEXT NOT NULL, ecu_id TEXT, signal_id TEXT NOT NULL, value REAL NOT NULL,
                unit TEXT NOT NULL, quality TEXT NOT NULL, origin TEXT NOT NULL, raw_bytes BLOB
              );
              CREATE INDEX samples_by_time ON samples(elapsed_ns, id);
+             CREATE INDEX samples_by_signal_time ON samples(signal_id, elapsed_ns DESC, id DESC);
              CREATE TABLE markers(
                id INTEGER PRIMARY KEY, elapsed_ns INTEGER NOT NULL, wall_time_unix_ns INTEGER NOT NULL,
                label TEXT NOT NULL, note TEXT NOT NULL
-             );",
+             );
+             CREATE INDEX markers_by_time ON markers(elapsed_ns DESC);",
         )?;
         Ok(Self {
             connection,
             path: path.to_path_buf(),
             sample_count: 0,
+            duration_ns: 0,
+            signals: BTreeSet::new(),
         })
     }
 
@@ -63,6 +71,9 @@ impl RecordingWriter {
                 sample.origin.as_db_str(), sample.raw_bytes.as_deref()],
         )?;
         self.sample_count += 1;
+        self.duration_ns = self.duration_ns.max(sample.elapsed_ns);
+        self.signals
+            .insert((sample.signal_id.clone(), sample.unit.clone()));
         Ok(())
     }
 
@@ -79,7 +90,28 @@ impl RecordingWriter {
         Ok(self.connection.last_insert_rowid())
     }
 
-    pub fn finish(self) -> Result<RecordingSummary, LogNookError> {
+    pub fn finish(mut self) -> Result<RecordingSummary, LogNookError> {
+        let signals = self
+            .signals
+            .into_iter()
+            .map(|(id, unit)| crate::model::RecordingSignal { id, unit })
+            .collect::<Vec<_>>();
+        let signals_json = serde_json::to_string(&signals)
+            .map_err(|error| LogNookError::new(error.to_string()))?;
+        let transaction = self.connection.transaction()?;
+        for (key, value) in [
+            ("sample_count", self.sample_count.to_string()),
+            ("sample_duration_ns", self.duration_ns.to_string()),
+            ("signals_json", signals_json),
+            ("summary_complete", "1".to_owned()),
+        ] {
+            transaction.execute(
+                "INSERT INTO metadata(key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )?;
+        }
+        transaction.commit()?;
         self.connection
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         let integrity: String = self

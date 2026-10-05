@@ -58,7 +58,7 @@ pub fn import_selected_csv(
 }
 
 #[tauri::command]
-pub fn load_last_recording(state: State<'_, AppState>) -> Result<RecordingInfo, String> {
+pub async fn load_last_recording(state: State<'_, AppState>) -> Result<RecordingInfo, String> {
     let mut engine = engine(&state)?;
     let path = engine
         .last_recording_path()
@@ -69,49 +69,49 @@ pub fn load_last_recording(state: State<'_, AppState>) -> Result<RecordingInfo, 
 }
 
 #[tauri::command]
-pub fn start_replay(state: State<'_, AppState>, speed: f64) -> Result<(), String> {
+pub async fn start_replay(state: State<'_, AppState>, speed: f64) -> Result<(), String> {
     engine(&state)?
         .start_replay(speed)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn pause_replay(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn pause_replay(state: State<'_, AppState>) -> Result<(), String> {
     engine(&state)?
         .pause_replay()
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn resume_replay(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn resume_replay(state: State<'_, AppState>) -> Result<(), String> {
     engine(&state)?
         .resume_replay()
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn seek_replay(state: State<'_, AppState>, position_ns: i64) -> Result<(), String> {
+pub async fn seek_replay(state: State<'_, AppState>, position_ns: i64) -> Result<(), String> {
     engine(&state)?
         .seek_replay(position_ns)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn set_replay_speed(state: State<'_, AppState>, speed: f64) -> Result<(), String> {
+pub async fn set_replay_speed(state: State<'_, AppState>, speed: f64) -> Result<(), String> {
     engine(&state)?
         .set_replay_speed(speed)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn playback_state(state: State<'_, AppState>) -> Result<PlaybackState, String> {
+pub async fn playback_state(state: State<'_, AppState>) -> Result<PlaybackState, String> {
     engine(&state)?
         .playback_state()
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn add_playback_marker(
+pub async fn add_playback_marker(
     state: State<'_, AppState>,
     label: String,
     note: String,
@@ -122,7 +122,7 @@ pub fn add_playback_marker(
 }
 
 #[tauri::command]
-pub fn update_playback_marker(
+pub async fn update_playback_marker(
     state: State<'_, AppState>,
     id: i64,
     label: String,
@@ -134,14 +134,14 @@ pub fn update_playback_marker(
 }
 
 #[tauri::command]
-pub fn delete_playback_marker(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+pub async fn delete_playback_marker(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     engine(&state)?
         .delete_playback_marker(id)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn recording_window(
+pub async fn recording_window(
     state: State<'_, AppState>,
     signal_ids: Vec<String>,
     start_ns: i64,
@@ -158,7 +158,7 @@ pub fn recording_window(
 }
 
 #[tauri::command]
-pub fn recording_values_at(
+pub async fn recording_values_at(
     state: State<'_, AppState>,
     signal_ids: Vec<String>,
     position_ns: i64,
@@ -172,7 +172,7 @@ pub fn recording_values_at(
 }
 
 #[tauri::command]
-pub fn recording_averages(
+pub async fn recording_averages(
     state: State<'_, AppState>,
     start_ns: i64,
     end_ns: i64,

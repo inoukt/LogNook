@@ -13,7 +13,7 @@ use crate::AppState;
 use lognook_core::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
     DerivedSignalDefinition, DeviceDescriptor, ObdLinkSxAdapter, RecordingSummary,
-    SignalDefinition, available_obdlink_sx_ports as list_obdlink_sx_ports,
+    SignalDefinition, available_obdlink_sx_ports as list_obdlink_sx_ports, export_recording_csv,
     identify_obdlink_sx as identify_sx_device, standard_obd_signals,
 };
 use std::{
@@ -29,17 +29,17 @@ pub fn available_signals() -> Vec<SignalDefinition> {
 }
 
 #[tauri::command]
-pub fn available_obdlink_sx_ports() -> Result<Vec<String>, String> {
+pub async fn available_obdlink_sx_ports() -> Result<Vec<String>, String> {
     list_obdlink_sx_ports().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn identify_obdlink_sx(port_name: String) -> Result<DeviceDescriptor, String> {
+pub async fn identify_obdlink_sx(port_name: String) -> Result<DeviceDescriptor, String> {
     identify_sx_device(port_name).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn connect_simulator(
+pub async fn connect_simulator(
     state: State<'_, AppState>,
     signal_ids: Vec<String>,
 ) -> Result<ConnectionCapabilities, String> {
@@ -49,7 +49,7 @@ pub fn connect_simulator(
 }
 
 #[tauri::command]
-pub fn connect_obdlink_sx(
+pub async fn connect_obdlink_sx(
     state: State<'_, AppState>,
     port_name: String,
     signal_ids: Vec<String>,
@@ -60,14 +60,14 @@ pub fn connect_obdlink_sx(
 }
 
 #[tauri::command]
-pub fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     engine(&state)?
         .disconnect()
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn start_recording(state: State<'_, AppState>) -> Result<String, String> {
+pub async fn start_recording(state: State<'_, AppState>) -> Result<String, String> {
     let path = session_path(&state.recordings_dir);
     engine(&state)?
         .start_recording(&path)
@@ -76,14 +76,14 @@ pub fn start_recording(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn stop_recording(state: State<'_, AppState>) -> Result<RecordingSummary, String> {
+pub async fn stop_recording(state: State<'_, AppState>) -> Result<RecordingSummary, String> {
     engine(&state)?
         .stop_recording()
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn configure_derived_signals(
+pub async fn configure_derived_signals(
     state: State<'_, AppState>,
     definitions: Vec<DerivedSignalDefinition>,
     active_ids: Vec<String>,
@@ -94,14 +94,17 @@ pub fn configure_derived_signals(
 }
 
 #[tauri::command]
-pub fn tare_derived_signal(state: State<'_, AppState>, signal_id: String) -> Result<f64, String> {
+pub async fn tare_derived_signal(
+    state: State<'_, AppState>,
+    signal_id: String,
+) -> Result<f64, String> {
     engine(&state)?
         .tare_derived_signal(&signal_id)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn arm_automatic_trigger(
+pub async fn arm_automatic_trigger(
     state: State<'_, AppState>,
     config: AutomaticTriggerConfig,
 ) -> Result<AutomaticTriggerStatus, String> {
@@ -112,7 +115,7 @@ pub fn arm_automatic_trigger(
 }
 
 #[tauri::command]
-pub fn disarm_automatic_trigger(
+pub async fn disarm_automatic_trigger(
     state: State<'_, AppState>,
 ) -> Result<AutomaticTriggerStatus, String> {
     engine(&state)?
@@ -121,14 +124,14 @@ pub fn disarm_automatic_trigger(
 }
 
 #[tauri::command]
-pub fn automatic_trigger_status(
+pub async fn automatic_trigger_status(
     state: State<'_, AppState>,
 ) -> Result<AutomaticTriggerStatus, String> {
     Ok(engine(&state)?.automatic_trigger_status())
 }
 
 #[tauri::command]
-pub fn insert_marker(
+pub async fn insert_marker(
     state: State<'_, AppState>,
     label: String,
     note: String,
@@ -139,27 +142,26 @@ pub fn insert_marker(
 }
 
 #[tauri::command]
-pub fn export_csv(state: State<'_, AppState>) -> Result<String, String> {
+pub async fn export_csv(state: State<'_, AppState>) -> Result<String, String> {
     let engine = engine(&state)?;
     let recording = engine
         .last_recording_path()
         .ok_or_else(|| "No completed recording is available".to_owned())?;
+    drop(engine);
     let path = unique_csv_path(&recording);
-    engine
-        .export_last_csv(&path)
-        .map_err(|error| error.to_string())?;
+    export_recording_csv(&recording, &path).map_err(|error| error.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-pub fn replay_last(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn replay_last(state: State<'_, AppState>) -> Result<(), String> {
     engine(&state)?
         .replay_last(1.0)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn stop_replay(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn stop_replay(state: State<'_, AppState>) -> Result<(), String> {
     engine(&state)?.stop_replay();
     Ok(())
 }

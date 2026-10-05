@@ -1,6 +1,6 @@
 use lognook_core::{
-    RecordingWriter, Sample, SampleOrigin, SampleQuality, query_recording_values_at,
-    query_recording_averages, query_recording_window,
+    RecordingWriter, Sample, SampleOrigin, SampleQuality, query_recording_averages,
+    query_recording_values_at, query_recording_window,
 };
 use rusqlite::params;
 use std::{
@@ -100,6 +100,24 @@ fn query_values_at_returns_latest_selected_samples_before_playhead() {
     assert_eq!(values[1].elapsed_ns, 0);
     assert_eq!(values[2].signal_id, "engine_rpm");
     assert_eq!(values[2].elapsed_ns, 0);
+
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let plan = connection
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT id, elapsed_ns FROM samples
+             WHERE signal_id IN (?) AND elapsed_ns <= ?
+             ORDER BY signal_id, elapsed_ns DESC, id DESC",
+        )
+        .unwrap()
+        .query_map(params!["engine_rpm", 4], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(
+        plan.iter()
+            .any(|detail| detail.contains("samples_by_signal_time")),
+        "values-at query should use its composite index: {plan:?}"
+    );
 }
 
 #[test]
@@ -143,6 +161,12 @@ fn query_window_clamps_bounds_and_caps_output() {
                 .unwrap();
         }
         transaction.commit().unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM metadata WHERE key IN
+                 ('summary_complete', 'sample_count', 'sample_duration_ns', 'signals_json');",
+            )
+            .unwrap();
     }
 
     let points = query_recording_window(&path, &["engine_rpm".into()], -10, 20_000, 4_000).unwrap();

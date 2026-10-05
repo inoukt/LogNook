@@ -9,17 +9,17 @@ use std::path::PathBuf;
 use tauri::State;
 
 #[tauri::command]
-pub fn available_openport2_providers() -> Result<J2534ProviderDiscovery, String> {
+pub async fn available_openport2_providers() -> Result<J2534ProviderDiscovery, String> {
     list_openport2_providers(&worker_path()?).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn identify_openport2(provider_id: String) -> Result<DeviceDescriptor, String> {
+pub async fn identify_openport2(provider_id: String) -> Result<DeviceDescriptor, String> {
     identify_openport2_device(&worker_path()?, &provider_id).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn connect_openport2(
+pub async fn connect_openport2(
     state: State<'_, AppState>,
     provider_id: String,
     signal_ids: Vec<String>,
