@@ -1,13 +1,13 @@
-mod serial;
-mod scion_probe;
 mod oem_probe;
-#[cfg(test)]
-use scion_probe::{build_scion_probe_command, decode_scion_mode21_response};
+mod scion_probe;
+mod serial;
 pub use oem_probe::{
     OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse, OemCandidateTryResult,
     build_oem_candidate_command, decode_oem_candidate_response, try_oem_candidate,
 };
 pub use scion_probe::{ScionMode21DecodedSignal, ScionMode21ProbeResult, probe_scion_xb_mode21};
+#[cfg(test)]
+use scion_probe::{build_scion_probe_command, decode_scion_mode21_response};
 #[cfg(test)]
 #[path = "obdlink_sx/tests.rs"]
 mod tests;
@@ -16,7 +16,8 @@ use crate::{
     ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError, Sample, SampleOrigin,
     SampleQuality, SignalDefinition,
     obdlink_sx_protocol::{
-        decode_signal, mode01_pid_data_width, parse_mode01_responses, parse_supported_pids,
+        Mode01ResponseError, decode_signal, mode01_pid_data_width, parse_mode01_responses,
+        parse_supported_pids,
     },
     standard_obd_signals,
 };
@@ -32,6 +33,15 @@ pub struct ObdLinkSxAdapter {
     fast_tx_header: Option<String>,
     restore_adapter_settings: bool,
     started: Option<Instant>,
+}
+
+fn mode01_read_error(error: Mode01ResponseError) -> LogNookError {
+    let message = error.to_string();
+    if error.is_transient() {
+        LogNookError::transient(message)
+    } else {
+        LogNookError::new(message)
+    }
 }
 
 impl ObdLinkSxAdapter {
@@ -259,7 +269,7 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                     let signal = &signals[index];
                     let mut responses =
                         parse_mode01_responses(&response_text, signal.service, signal.pid)
-                            .map_err(LogNookError::new)?;
+                            .map_err(mode01_read_error)?;
                     if responses.len() != 1 {
                         return Err(LogNookError::new(
                             "Multiple ECU responders are not supported by this SX adapter",
@@ -288,7 +298,7 @@ impl HardwareAdapter for ObdLinkSxAdapter {
             let command = format!("01{:02X}", signal.pid);
             let response_text = self.command(&command)?;
             let responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
-                .map_err(LogNookError::new)?;
+                .map_err(mode01_read_error)?;
             if responses.len() != 1 {
                 return Err(LogNookError::new(
                     "Multiple ECU responders are not supported by this SX adapter",

@@ -1,6 +1,6 @@
 use super::{
-    Mode01Response, decode_signal, parse_mode01_payload, parse_mode01_responses,
-    parse_supported_pid_payload, parse_supported_pids,
+    Mode01Response, Mode01ResponseError, decode_signal, parse_mode01_payload,
+    parse_mode01_responses, parse_supported_pid_payload, parse_supported_pids,
 };
 use crate::standard_obd_signals;
 
@@ -164,6 +164,43 @@ fn malformed_or_missing_payload_is_rejected() {
         data: vec![0x10],
     };
     assert!(decode_signal(&signal, &short).is_err());
+}
+
+#[test]
+fn negative_mode01_responses_report_the_echoed_service_and_nrc() {
+    let negative = parse_mode01_responses("7E8 03 7F 01 12\r>", 0x01, 0x0C).unwrap_err();
+    assert!(matches!(
+        &negative,
+        Mode01ResponseError::NegativeResponse {
+            requested_service: 0x01,
+            requested_pid: 0x0C,
+            response_service: 0x01,
+            nrc: 0x12,
+            ..
+        }
+    ));
+    assert!(!negative.is_transient());
+    let text_error = negative.to_string();
+    assert_eq!(
+        text_error,
+        "ECU 7E8 returned a negative response to Mode 01 PID 0C (service 0x01): NRC 0x12"
+    );
+
+    let legacy_error = parse_mode01_responses("010C\r7F 01 12\r>", 0x01, 0x0C)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        legacy_error,
+        "returned a negative response to Mode 01 PID 0C (service 0x01): NRC 0x12"
+    );
+
+    let binary_error = parse_mode01_payload("7E8".into(), &[0x7F, 0x01, 0x12], 0x0C).unwrap_err();
+    assert_eq!(binary_error, text_error);
+    assert!(
+        parse_mode01_responses("NO DATA\r>", 0x01, 0x0C)
+            .unwrap_err()
+            .is_transient()
+    );
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use crate::model::SignalDefinition;
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mode01Response {
@@ -12,6 +13,87 @@ pub struct SupportedPidRange {
     pub pids: Vec<u8>,
     pub has_more: bool,
     pub ecu_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Mode01ResponseError {
+    NoResponse {
+        service: u8,
+        pid: u8,
+    },
+    NegativeResponse {
+        ecu_id: Option<String>,
+        requested_service: u8,
+        requested_pid: u8,
+        response_service: u8,
+        nrc: u8,
+    },
+    Malformed(String),
+}
+
+impl Mode01ResponseError {
+    pub(crate) fn is_transient(&self) -> bool {
+        matches!(self, Self::NoResponse { .. })
+    }
+}
+
+impl fmt::Display for Mode01ResponseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoResponse { service, pid } => {
+                write!(
+                    formatter,
+                    "No response for Mode {service:02X} PID {pid:02X}"
+                )
+            }
+            Self::NegativeResponse {
+                ecu_id,
+                requested_service,
+                requested_pid,
+                response_service,
+                nrc,
+            } => {
+                if let Some(ecu_id) = ecu_id {
+                    write!(formatter, "ECU {ecu_id} ")?;
+                }
+                if response_service == requested_service {
+                    write!(
+                        formatter,
+                        "returned a negative response to Mode 01 PID {requested_pid:02X} (service 0x{response_service:02X}): NRC 0x{nrc:02X}"
+                    )
+                } else {
+                    write!(
+                        formatter,
+                        "returned a negative response for Mode 01 PID {requested_pid:02X} with service 0x{response_service:02X} (expected 0x{requested_service:02X}): NRC 0x{nrc:02X}"
+                    )
+                }
+            }
+            Self::Malformed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+fn negative_response_error(
+    payload: &[u8],
+    ecu_id: Option<String>,
+    requested_service: u8,
+    requested_pid: u8,
+) -> Option<Mode01ResponseError> {
+    if payload.first() != Some(&0x7F) {
+        return None;
+    }
+    if payload.len() != 3 {
+        return Some(Mode01ResponseError::Malformed(
+            "OBD negative response must contain exactly three bytes".into(),
+        ));
+    }
+    Some(Mode01ResponseError::NegativeResponse {
+        ecu_id,
+        requested_service,
+        requested_pid,
+        response_service: payload[1],
+        nrc: payload[2],
+    })
 }
 
 pub(crate) fn mode01_pid_data_width(pid: u8) -> Option<usize> {
@@ -30,11 +112,11 @@ pub(crate) fn parse_mode01_responses(
     text: &str,
     service: u8,
     pid: u8,
-) -> Result<Vec<Mode01Response>, String> {
+) -> Result<Vec<Mode01Response>, Mode01ResponseError> {
     let positive_service = service.wrapping_add(0x40);
     let mut responses = Vec::new();
 
-    if let Some(messages) = parse_isotp_messages(text)? {
+    if let Some(messages) = parse_isotp_messages(text).map_err(Mode01ResponseError::Malformed)? {
         for (ecu_id, payload) in messages {
             responses.extend(parse_mode01_payload_for_service(
                 &payload,
@@ -44,7 +126,7 @@ pub(crate) fn parse_mode01_responses(
             )?);
         }
         if responses.is_empty() {
-            return Err(format!("No response for Mode {service:02X} PID {pid:02X}"));
+            return Err(Mode01ResponseError::NoResponse { service, pid });
         }
         return Ok(responses);
     }
@@ -58,7 +140,14 @@ pub(crate) fn parse_mode01_responses(
                 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
                 && !token.starts_with(&format!("{positive_service:02X}"))
             {
-                append_response(&bytes, &ecu_id, positive_service, pid, &mut responses);
+                append_response(
+                    &bytes,
+                    &ecu_id,
+                    service,
+                    positive_service,
+                    pid,
+                    &mut responses,
+                )?;
                 bytes.clear();
                 ecu_id = Some(token.to_ascii_uppercase());
                 continue;
@@ -67,11 +156,18 @@ pub(crate) fn parse_mode01_responses(
                 bytes.extend(parsed);
             }
         }
-        append_response(&bytes, &ecu_id, positive_service, pid, &mut responses);
+        append_response(
+            &bytes,
+            &ecu_id,
+            service,
+            positive_service,
+            pid,
+            &mut responses,
+        )?;
     }
 
     if responses.is_empty() {
-        return Err(format!("No response for Mode {service:02X} PID {pid:02X}"));
+        return Err(Mode01ResponseError::NoResponse { service, pid });
     }
     Ok(responses)
 }
@@ -81,6 +177,10 @@ pub fn parse_mode01_payload(
     payload: &[u8],
     requested_pid: u8,
 ) -> Result<Mode01Response, String> {
+    if let Some(error) = negative_response_error(payload, Some(ecu_id.clone()), 0x01, requested_pid)
+    {
+        return Err(error.to_string());
+    }
     let width = mode01_pid_data_width(requested_pid)
         .ok_or_else(|| format!("Unsupported read-only Mode 01 PID {requested_pid:02X}"))?;
     if payload.len() != width + 2 {
@@ -89,7 +189,8 @@ pub fn parse_mode01_payload(
         ));
     }
     let mut responses =
-        parse_mode01_payload_for_service(payload, Some(ecu_id), 0x41, requested_pid)?;
+        parse_mode01_payload_for_service(payload, Some(ecu_id), 0x41, requested_pid)
+            .map_err(|error| error.to_string())?;
     if responses.len() != 1 {
         return Err(format!("No response for Mode 01 PID {requested_pid:02X}"));
     }
@@ -101,7 +202,15 @@ fn parse_mode01_payload_for_service(
     ecu_id: Option<String>,
     positive_service: u8,
     requested_pid: u8,
-) -> Result<Vec<Mode01Response>, String> {
+) -> Result<Vec<Mode01Response>, Mode01ResponseError> {
+    if let Some(error) = negative_response_error(
+        payload,
+        ecu_id.clone(),
+        positive_service.wrapping_sub(0x40),
+        requested_pid,
+    ) {
+        return Err(error);
+    }
     if payload.first() != Some(&positive_service) {
         return Ok(Vec::new());
     }
@@ -110,12 +219,17 @@ fn parse_mode01_payload_for_service(
     let mut offset = 1;
     while offset < payload.len() {
         let pid = payload[offset];
-        let width = mode01_pid_data_width(pid)
-            .ok_or_else(|| format!("Unknown Mode 01 PID {pid:02X} in combined response"))?;
+        let width = mode01_pid_data_width(pid).ok_or_else(|| {
+            Mode01ResponseError::Malformed(format!(
+                "Unknown Mode 01 PID {pid:02X} in combined response"
+            ))
+        })?;
         let data_start = offset + 1;
         let data_end = data_start + width;
         if data_end > payload.len() {
-            return Err(format!("Mode 01 PID {pid:02X} response is truncated"));
+            return Err(Mode01ResponseError::Malformed(format!(
+                "Mode 01 PID {pid:02X} response is truncated"
+            )));
         }
         if pid == requested_pid {
             let data = payload[data_start..data_end].to_vec();
@@ -216,10 +330,24 @@ pub(crate) fn parse_isotp_messages(text: &str) -> Result<Option<Vec<(String, Vec
 fn append_response(
     bytes: &[u8],
     ecu_id: &Option<String>,
+    service: u8,
     positive_service: u8,
     pid: u8,
     responses: &mut Vec<Mode01Response>,
-) {
+) -> Result<(), Mode01ResponseError> {
+    if let Some(index) = bytes
+        .windows(3)
+        .position(|window| window[0] == 0x7F && window[1] == service)
+        && !bytes[..index].contains(&positive_service)
+    {
+        return Err(Mode01ResponseError::NegativeResponse {
+            ecu_id: ecu_id.clone(),
+            requested_service: service,
+            requested_pid: pid,
+            response_service: bytes[index + 1],
+            nrc: bytes[index + 2],
+        });
+    }
     for index in 0..bytes.len().saturating_sub(1) {
         if bytes[index] == positive_service && bytes[index + 1] == pid {
             responses.push(Mode01Response {
@@ -230,6 +358,7 @@ fn append_response(
             break;
         }
     }
+    Ok(())
 }
 
 pub(crate) fn parse_supported_pids(
@@ -237,7 +366,8 @@ pub(crate) fn parse_supported_pids(
     range_start: u8,
 ) -> Result<SupportedPidRange, String> {
     validate_supported_pid_range_start(range_start)?;
-    let mut responses = parse_mode01_responses(text, 0x01, range_start)?;
+    let mut responses =
+        parse_mode01_responses(text, 0x01, range_start).map_err(|error| error.to_string())?;
     if responses.len() != 1 {
         return Err("Multiple ECUs reported supported PIDs".into());
     }

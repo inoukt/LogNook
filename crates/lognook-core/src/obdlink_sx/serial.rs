@@ -98,10 +98,20 @@ impl SerialTransport {
             .port
             .as_mut()
             .ok_or_else(|| LogNookError::new("OBDLink SX port is closed"))?;
-        port.write_all(command.as_bytes())?;
-        port.write_all(b"\r")?;
-        port.flush()?;
-        self.read_prompt()
+        port.write_all(command.as_bytes()).map_err(|error| {
+            LogNookError::new(format!(
+                "Could not write to the OBDLink SX serial port: {error}"
+            ))
+        })?;
+        port.write_all(b"\r").map_err(|error| {
+            LogNookError::new(format!(
+                "Could not terminate the OBDLink SX command: {error}"
+            ))
+        })?;
+        port.flush().map_err(|error| {
+            LogNookError::new(format!("Could not flush the OBDLink SX command: {error}"))
+        })?;
+        self.read_prompt_for_command(Some(command))
     }
 
     pub(super) fn close(&mut self) {
@@ -110,6 +120,10 @@ impl SerialTransport {
     }
 
     pub(super) fn read_prompt(&mut self) -> Result<String, LogNookError> {
+        self.read_prompt_for_command(None)
+    }
+
+    fn read_prompt_for_command(&mut self, command: Option<&str>) -> Result<String, LogNookError> {
         let deadline = Instant::now() + RESPONSE_TIMEOUT;
         let mut response = Vec::new();
         let mut chunk = [0_u8; 128];
@@ -158,9 +172,18 @@ impl SerialTransport {
                     if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) =>
                 {
                     if Instant::now() >= deadline {
-                        return Err(LogNookError::new(
-                            "Timed out waiting for the OBDLink SX > prompt",
-                        ));
+                        return if response.is_empty()
+                            || command
+                                .is_some_and(|command| is_only_command_echo(&response, command))
+                        {
+                            Err(LogNookError::transient(
+                                "Timed out waiting for the OBDLink SX > prompt",
+                            ))
+                        } else {
+                            Err(LogNookError::new(
+                                "OBDLink SX response ended before the > prompt",
+                            ))
+                        };
                     }
                 }
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
@@ -171,6 +194,27 @@ impl SerialTransport {
                 }
             }
         }
+    }
+}
+
+fn is_only_command_echo(response: &[u8], command: &str) -> bool {
+    let mut lines = response
+        .split(|byte| matches!(byte, b'\r' | b'\n'))
+        .filter(|line| !line.is_empty());
+    matches!(lines.next(), Some(line) if line.eq_ignore_ascii_case(command.as_bytes()))
+        && lines.next().is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_only_command_echo;
+
+    #[test]
+    fn command_echo_is_not_mistaken_for_a_partial_vehicle_response() {
+        assert!(is_only_command_echo(b"\r010C\r\n", "010C"));
+        assert!(is_only_command_echo(b"AT SH 7DF\r", "AT SH 7DF"));
+        assert!(!is_only_command_echo(b"010C\r7E8 03 7F 01 12", "010C"));
+        assert!(!is_only_command_echo(b"010D\r", "010C"));
     }
 }
 

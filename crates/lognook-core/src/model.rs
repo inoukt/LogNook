@@ -231,17 +231,34 @@ pub enum EngineEvent {
 }
 
 #[derive(Debug)]
-pub struct LogNookError(String);
+pub struct LogNookError {
+    message: String,
+    transient: bool,
+}
 
 impl LogNookError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self {
+            message: message.into(),
+            transient: false,
+        }
+    }
+
+    pub(crate) fn transient(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            transient: true,
+        }
+    }
+
+    pub(crate) fn is_transient(&self) -> bool {
+        self.transient
     }
 }
 
 impl fmt::Display for LogNookError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&self.message)
     }
 }
 
@@ -249,18 +266,18 @@ impl Error for LogNookError {}
 
 impl From<std::io::Error> for LogNookError {
     fn from(error: std::io::Error) -> Self {
-        Self(error.to_string())
+        Self::new(error.to_string())
     }
 }
 
 impl From<rusqlite::Error> for LogNookError {
     fn from(error: rusqlite::Error) -> Self {
-        Self(error.to_string())
+        Self::new(error.to_string())
     }
 }
 
 impl From<csv::Error> for LogNookError {
     fn from(error: csv::Error) -> Self {
-        Self(error.to_string())
+        Self::new(error.to_string())
     }
 }

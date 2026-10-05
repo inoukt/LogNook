@@ -6,8 +6,11 @@ use std::{
         mpsc::{self, Receiver, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::Instant,
+    time::{Duration, Instant},
 };
+
+const MAX_CONSECUTIVE_TRANSIENT_FAILURES: usize = 3;
+const RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
 pub(crate) struct AcquisitionHandle {
     stop: SyncSender<()>,
@@ -64,16 +67,32 @@ fn run(
 ) {
     let interval = adapter.sample_interval();
     let mut failed = false;
+    let mut consecutive_transient_failures = 0;
     loop {
         let cycle = Instant::now();
         match adapter.read_samples(&signals) {
             Ok(samples) => {
+                consecutive_transient_failures = 0;
                 if samples
                     .into_iter()
                     .any(|sample| output.send_sample(sample).is_err())
                 {
                     break;
                 }
+            }
+            Err(error) if error.is_transient() => {
+                consecutive_transient_failures += 1;
+                if consecutive_transient_failures < MAX_CONSECUTIVE_TRANSIENT_FAILURES {
+                    match stop.recv_timeout(RETRY_BACKOFF) {
+                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    }
+                }
+                let _ = output.send_error(format!(
+                    "Read failed after {consecutive_transient_failures} consecutive transient failures: {error}"
+                ));
+                failed = true;
+                break;
             }
             Err(error) => {
                 let _ = output.send_error(error.to_string());
@@ -131,6 +150,33 @@ mod tests {
         }
     }
 
+    struct TransientAdapter {
+        calls: mpsc::Sender<usize>,
+        call_count: usize,
+        failures_before_success: usize,
+        disconnected: Arc<AtomicBool>,
+    }
+
+    impl HardwareAdapter for TransientAdapter {
+        fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+            TimedOutAdapter.connect()
+        }
+
+        fn read_samples(&mut self, _: &[SignalDefinition]) -> Result<Vec<Sample>, LogNookError> {
+            self.call_count += 1;
+            let _ = self.calls.send(self.call_count);
+            if self.call_count <= self.failures_before_success {
+                return Err(LogNookError::transient("adapter response timed out"));
+            }
+            Ok(Vec::new())
+        }
+
+        fn disconnect(&mut self) {
+            self.disconnected
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+
     #[test]
     fn adapter_read_failure_reports_disconnected_and_clears_running_state() {
         let (tx, rx) = mpsc::channel();
@@ -150,6 +196,86 @@ mod tests {
         assert!(matches!(error, EngineEvent::Error(_)));
         assert_eq!(disconnected, EngineEvent::Disconnected);
         assert!(!running.load(std::sync::atomic::Ordering::Relaxed));
+        acquisition.stop().unwrap();
+    }
+
+    #[test]
+    fn transient_read_timeout_retries_and_keeps_the_session_connected() {
+        let (calls, call_rx) = mpsc::channel();
+        let (events, event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let running = Arc::new(AtomicBool::new(false));
+        let disconnected = Arc::new(AtomicBool::new(false));
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(TransientAdapter {
+                calls,
+                call_count: 0,
+                failures_before_success: 1,
+                disconnected: disconnected.clone(),
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            running.clone(),
+        );
+
+        assert_eq!(call_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert_eq!(call_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        assert!(acquisition.is_running());
+        assert!(!disconnected.load(std::sync::atomic::Ordering::Acquire));
+        assert!(matches!(
+            event_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+
+        acquisition.stop().unwrap();
+        assert!(!acquisition.is_running());
+        assert!(disconnected.load(std::sync::atomic::Ordering::Acquire));
+        assert!(matches!(
+            event_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn three_consecutive_transient_read_timeouts_end_the_session() {
+        let (calls, call_rx) = mpsc::channel();
+        let (events, event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let running = Arc::new(AtomicBool::new(false));
+        let disconnected = Arc::new(AtomicBool::new(false));
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(TransientAdapter {
+                calls,
+                call_count: 0,
+                failures_before_success: usize::MAX,
+                disconnected: disconnected.clone(),
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            running.clone(),
+        );
+
+        for expected_call in 1..=3 {
+            assert_eq!(
+                call_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+                expected_call
+            );
+        }
+        let error = event_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(error, EngineEvent::Error(message) if message.contains("3 consecutive transient failures"))
+        );
+        assert_eq!(
+            event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            EngineEvent::Disconnected
+        );
+        assert!(!acquisition.is_running());
+        assert!(disconnected.load(std::sync::atomic::Ordering::Acquire));
+
         acquisition.stop().unwrap();
     }
 }
