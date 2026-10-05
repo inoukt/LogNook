@@ -249,3 +249,8 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - Direct extraction of handle `0x13` / DLCI 12 found 993 host frames, 1,979 dongle frames, and zero XOR mismatches. The Scion vehicle is VIN `JTLZE4FE1EJ049314`, ECU string `AZE151 2AZFE`, 2AZ-FE, with the engine at `7E0 → 7E8`.
 - Mode 06 bitmap rows in the source Markdown had two incorrect response bytes and counted continuation markers as TIDs. The capture advertises 11 actual TIDs (`01`, `02`, `21`, `35`, `3D`, `42`, `A1`–`A5`); it read only `35`, `A2`, and `A5`. Their raw values are preserved, but MID meanings and UAS scaling remain unknown. LogNook has no Mode 06 implementation.
 - A30 Mode 06 response latency ranged from about 96–532 ms. This is evidence for that adapter only, not an SX/J2534 timeout setting. The A30 archive includes state-changing service 30 and an unknown multi-frame write as historical capture evidence; LogNook must not reproduce them as acquisition commands.
+
+## OEM research panel layout — 2026-10-05
+
+- OEM search filters and the Scion one-shot stay above a single results scroll area. The list expands into the remaining sidebar height, reserves the right-side scrollbar gutter, and constrains candidate cards to one column so search results cannot create a horizontal scrollbar or push under the panel edge.
+- Verification: `npm run test:ui` passed (67/67); `npm run build` reported 0 Svelte errors/warnings; `cargo build -p lognook-desktop --features tauri/custom-protocol -j 1` passed. The rebuilt app was launched for visual review.

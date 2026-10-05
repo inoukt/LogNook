@@ -203,7 +203,8 @@
 </section>
 
 <style>
-  .oem-research { display: grid; flex: 1 1 auto; align-content: start; gap: 9px; min-height: 0; overflow: auto; }
+  .oem-research { display: flex; flex: 1 1 auto; flex-direction: column; gap: 9px; min-height: 0; overflow: hidden; }
+  .oem-research > :not(.oem-catalog-list) { flex: 0 0 auto; }
   .oem-research-heading, .scion-probe-card, .probe-result > header, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .oem-research-heading h3 { margin: 0; font-size: 13px; }
   .oem-research-heading p, .scion-probe-card p, .probe-result p, .oem-candidate p { margin: 3px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
@@ -214,10 +215,11 @@
   .scion-probe-card, .probe-result { padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: #142029; }
   .scion-probe-card strong, .probe-result strong { font-size: 11px; }
   .scion-probe-card .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }
-  .oem-catalog-list { display: grid; align-content: start; gap: 5px; max-height: min(48vh, 500px); min-height: 80px; overflow: auto; padding-right: 3px; }
-  .oem-candidate { padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: #19242e; }
-  .oem-candidate > header strong { min-width: 0; font-size: 11px; }
-  .oem-candidate > header span { color: var(--text); font-size: 10px; white-space: nowrap; }
+  .oem-catalog-list { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 0; align-content: start; gap: 5px; max-height: none; min-width: 0; min-height: 80px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 12px; scrollbar-gutter: stable; }
+  .oem-candidate { min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: #19242e; }
+  .oem-candidate > header { min-width: 0; }
+  .oem-candidate > header strong { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
+  .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 30%; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-try-button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
   .candidate-try-result { margin-top: 5px; padding: 6px; border-radius: 5px; background: #202d37; }
   .candidate-try-result > strong { color: var(--text); font-size: 9px; }
