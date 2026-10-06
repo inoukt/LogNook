@@ -238,6 +238,7 @@ pub struct CanCaptureReplayReport {
     pub transport_errors: u64,
     pub trigger_marks: u64,
     pub trigger_completions: u64,
+    pub trigger_early_ends: u64,
     pub trigger_window_exports: u64,
     pub evidence_errors: Vec<String>,
 }
@@ -299,6 +300,7 @@ fn replay_can_capture_report_path_with_samples(
         transport_errors: 0,
         trigger_marks: 0,
         trigger_completions: 0,
+        trigger_early_ends: 0,
         trigger_window_exports: 0,
         evidence_errors: Vec::new(),
     };
@@ -665,7 +667,11 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
                     CanEvidenceRecord::TxEchoConfirmed { .. } => report.tx_echo_confirmed += 1,
                     CanEvidenceRecord::TransportError { .. } => report.transport_errors += 1,
                     CanEvidenceRecord::TriggerMarked { .. } => report.trigger_marks += 1,
-                    CanEvidenceRecord::TriggerCompleted { .. } => report.trigger_completions += 1,
+                    CanEvidenceRecord::TriggerCompleted { complete: true, .. } => {
+                        report.trigger_completions += 1
+                    }
+                    CanEvidenceRecord::TriggerCompleted { .. }
+                    | CanEvidenceRecord::TriggerEndedEarly { .. } => report.trigger_early_ends += 1,
                     CanEvidenceRecord::TriggerWindowExported { .. } => {
                         report.trigger_window_exports += 1
                     }
@@ -789,7 +795,7 @@ mod tests {
     use lognook_core::{
         CanByteOrder, CanCaptureWriter, CanDiagnosticOutcome, CanDirection, CanEvidenceScanConfig,
         CanEvidenceScanResult, CanFrame, CanScanMode, CanSignalDefinition, CanTriggerCapture,
-        CanTriggerCaptureResult, SampleOrigin, SampleQuality,
+        CanTriggerCaptureResult, CanTriggerEndReason, SampleOrigin, SampleQuality,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1281,5 +1287,64 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(can_evidence_path(&path));
+    }
+
+    #[test]
+    fn replay_report_counts_disarmed_partial_trigger_as_early_not_complete() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-early-trigger-{stamp}.candump.csv"));
+        CanCaptureWriter::create_new(&path)
+            .unwrap()
+            .finish()
+            .unwrap();
+        let records = [
+            CanEvidenceRecord::SessionStarted {
+                format_version: 2,
+                capture_id: 9,
+                bitrate: 500_000,
+                listen_only: true,
+                source_id: "can:test".into(),
+            },
+            CanEvidenceRecord::TriggerMarked {
+                capture_id: 9,
+                trigger_elapsed_ns: 100,
+                pre_ns: 0,
+                post_ns: 60_000_000_000,
+                max_frames: 8,
+            },
+            CanEvidenceRecord::TriggerEndedEarly {
+                capture_id: 9,
+                trigger_elapsed_ns: 100,
+                max_frames: 8,
+                frame_count: 0,
+                truncated: false,
+                complete: false,
+                reason: CanTriggerEndReason::Disarmed,
+            },
+            CanEvidenceRecord::SessionFinished { capture_id: 9 },
+        ];
+        let journal = can_evidence_path(&path);
+        std::fs::write(
+            &journal,
+            records
+                .iter()
+                .map(|record| serde_json::to_string(record).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+
+        let report = replay_can_capture_report_path(&path, &[]).unwrap();
+        assert_eq!(report.trigger_marks, 1);
+        assert_eq!(report.trigger_completions, 0);
+        assert_eq!(report.trigger_early_ends, 1);
+        assert_eq!(report.session_finalized, Some(true));
+        assert!(report.evidence_errors.is_empty());
+
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(journal);
     }
 }

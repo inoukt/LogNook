@@ -196,6 +196,12 @@ pub fn can_dbc_skeleton(census: &[CanCensusRow]) -> String {
             row.can_id
         );
         dbc.push_str(&format!("BO_ {id} {name}: {length} Vector__XXX\n"));
+        if length == 0 {
+            dbc.push_str(&format!(
+                "CM_ BO_ {id} \"UNVERIFIED: observed DLC 0; placeholder signal omitted because the message has no data bytes.\";\n\n"
+            ));
+            continue;
+        }
         dbc.push_str(" SG_ UNVERIFIED_PLACEHOLDER : 0|1@1+ (1,0) [0|1] \"\" Vector__XXX\n");
         dbc.push_str(&format!(
             "CM_ BO_ {id} \"UNVERIFIED: observed identifier only; payload field layout is a placeholder.\";\n"

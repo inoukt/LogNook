@@ -62,6 +62,14 @@ pub struct CanTriggerCaptureResult {
     pub capture: CanTriggerCapture,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanTriggerEndReason {
+    Disarmed,
+    CaptureStopped,
+    SessionEnded,
+}
+
 impl CanWorkbenchConfig {
     fn validate(&self) -> Result<(), LogNookError> {
         if !(10_000..=1_000_000).contains(&self.bitrate) {
@@ -465,6 +473,15 @@ pub enum CanEvidenceRecord {
         frame_count: usize,
         truncated: bool,
         complete: bool,
+    },
+    TriggerEndedEarly {
+        capture_id: u64,
+        trigger_elapsed_ns: i64,
+        max_frames: usize,
+        frame_count: usize,
+        truncated: bool,
+        complete: bool,
+        reason: CanTriggerEndReason,
     },
     TriggerWindowExported {
         source_capture_id: u64,

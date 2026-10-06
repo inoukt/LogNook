@@ -1,8 +1,8 @@
 use super::scan::{self, ScanTask, accept_scan_response, task_finished, tick_scan};
 use super::{
     CanEvidenceRecord, CanScanConfig, CanSignalDefinition, CanTransport, CanTransportError,
-    CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig, CanTriggerRecorder,
-    CanWorkbenchStatus,
+    CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig, CanTriggerEndReason,
+    CanTriggerRecorder, CanWorkbenchStatus,
 };
 use crate::{
     CanCaptureWriter, CanDirection, CanFrame, EngineEvent, SamplePublisher, decode_can_signal,
@@ -396,7 +396,12 @@ pub(super) fn run_worker(
     if let Some((mut recorder, capture_id, _config)) = trigger.take()
         && let Some(window) = recorder.take_capture()
     {
-        if let Err(error) = record_trigger_completion(&mut capture, capture_id, &window) {
+        if let Err(error) = record_trigger_termination(
+            &mut capture,
+            capture_id,
+            &window,
+            Some(CanTriggerEndReason::SessionEnded),
+        ) {
             (event_sink)(EngineEvent::Error(format!(
                 "Could not persist trigger completion evidence: {error}"
             )));
@@ -479,7 +484,12 @@ fn handle_command(
             let trigger_result = if let Some((mut recorder, capture_id, _)) = trigger.take()
                 && let Some(window) = recorder.take_capture()
             {
-                let result = record_trigger_completion(capture, capture_id, &window);
+                let result = record_trigger_termination(
+                    capture,
+                    capture_id,
+                    &window,
+                    Some(CanTriggerEndReason::CaptureStopped),
+                );
                 emit_trigger_capture(
                     window,
                     capture_id,
@@ -594,8 +604,28 @@ fn handle_command(
             let _ = reply.send(result);
         }
         Command::DisarmTrigger(reply) => {
-            *trigger = None;
-            let _ = reply.send(Ok(()));
+            let result = if let Some((mut recorder, capture_id, _)) = trigger.take()
+                && let Some(window) = recorder.take_capture()
+            {
+                let result = record_trigger_termination(
+                    capture,
+                    capture_id,
+                    &window,
+                    Some(CanTriggerEndReason::Disarmed),
+                );
+                emit_trigger_capture(
+                    window,
+                    capture_id,
+                    source_id,
+                    bitrate,
+                    listen_only,
+                    event_sink,
+                );
+                result
+            } else {
+                Ok(())
+            };
+            let _ = reply.send(result);
         }
         Command::Shutdown => {}
     }
@@ -642,7 +672,7 @@ fn advance_trigger(
         let Some((_, source_capture_id, _)) = trigger.take() else {
             return;
         };
-        if let Err(error) = record_trigger_completion(capture, source_capture_id, &window) {
+        if let Err(error) = record_trigger_termination(capture, source_capture_id, &window, None) {
             (event_sink)(EngineEvent::Error(format!(
                 "Could not persist trigger completion evidence: {error}"
             )));
@@ -658,22 +688,38 @@ fn advance_trigger(
     }
 }
 
-fn record_trigger_completion(
+fn record_trigger_termination(
     capture: &mut Option<CanCaptureSession>,
     capture_id: u64,
     window: &crate::CanTriggerCapture,
+    reason: Option<CanTriggerEndReason>,
 ) -> Result<(), String> {
     let Some(session) = capture.as_mut() else {
         return Ok(());
     };
-    session.record(&CanEvidenceRecord::TriggerCompleted {
-        capture_id,
-        trigger_elapsed_ns: window.trigger_elapsed_ns,
-        max_frames: window.max_frames,
-        frame_count: window.frames.len(),
-        truncated: window.truncated,
-        complete: window.complete,
-    })
+    if window.complete {
+        session.record(&CanEvidenceRecord::TriggerCompleted {
+            capture_id,
+            trigger_elapsed_ns: window.trigger_elapsed_ns,
+            max_frames: window.max_frames,
+            frame_count: window.frames.len(),
+            truncated: window.truncated,
+            complete: true,
+        })
+    } else {
+        let reason = reason.ok_or_else(|| {
+            "Incomplete CAN trigger window requires an explicit terminal reason".to_owned()
+        })?;
+        session.record(&CanEvidenceRecord::TriggerEndedEarly {
+            capture_id,
+            trigger_elapsed_ns: window.trigger_elapsed_ns,
+            max_frames: window.max_frames,
+            frame_count: window.frames.len(),
+            truncated: window.truncated,
+            complete: false,
+            reason,
+        })
+    }
 }
 
 fn emit_trigger_capture(

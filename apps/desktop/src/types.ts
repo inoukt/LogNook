@@ -364,6 +364,7 @@ export type CanCaptureReplayReport = {
   transport_errors: number;
   trigger_marks: number;
   trigger_completions: number;
+  trigger_early_ends: number;
   trigger_window_exports: number;
   evidence_errors: string[];
 };

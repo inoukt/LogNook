@@ -83,6 +83,17 @@ fn dbc_skeleton_marks_all_placeholder_signal_layouts_unverified() {
 }
 
 #[test]
+fn dbc_zero_dlc_message_omits_payload_signal_and_explains_the_unverified_layout() {
+    let mut a = analyzer();
+    a.feed(&frame(0, 0x123, &[])).unwrap();
+    let dbc = can_dbc_skeleton(&a.census());
+    assert!(dbc.contains("BO_ 291 CAN_123: 0 Vector__XXX"));
+    assert!(!dbc.contains("SG_"));
+    assert!(dbc.contains("UNVERIFIED: observed DLC 0"));
+    assert!(dbc.contains("placeholder signal omitted"));
+}
+
+#[test]
 fn memory_is_bounded_and_invalid_frames_do_not_enter_census() {
     let mut a = analyzer();
     for i in 0..20 {

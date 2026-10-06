@@ -1,9 +1,10 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import {
-    buildCanScanConfig, canSignalDefinitionError, canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
+    buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
+    canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
     createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload,
-    recentCanRates, replaySidecarStatus,
+    formatCanCorrelationSource, formatCanDiagnosticRoute, recentCanRates, replaySidecarStatus,
     type CanScanKind,
   } from "./canWorkbench";
   import type {
@@ -568,7 +569,7 @@
         <span>{replayReport.frames.toLocaleString()} frames</span><span>{replayReport.decoded_samples.toLocaleString()} field samples</span>
         <span>{replayReport.evidence_records.toLocaleString()} evidence records</span><span>{replayReport.scan_results.toLocaleString()} scans</span>
         <span>{replayReport.tx_submitted.toLocaleString()} TX</span><span>{replayReport.tx_echo_confirmed.toLocaleString()} echoes</span>
-        <span>{replayReport.transport_errors.toLocaleString()} transport errors</span><span>{replayReport.trigger_marks.toLocaleString()} trigger marks</span><span>{replayReport.trigger_completions.toLocaleString()} trigger windows</span><span>{replayReport.trigger_window_exports.toLocaleString()} trigger exports</span>
+        <span>{replayReport.transport_errors.toLocaleString()} transport errors</span><span>{replayReport.trigger_marks.toLocaleString()} trigger marks</span><span>{replayReport.trigger_completions.toLocaleString()} complete windows</span><span>{replayReport.trigger_early_ends.toLocaleString()} early ends</span><span>{replayReport.trigger_window_exports.toLocaleString()} trigger exports</span>
       </div>
       {#if replayReport.evidence_journal}<small class="can-muted">Sidecar: {replayReport.evidence_journal}</small>{/if}
       {#if replayReport.evidence_errors.length || replayReport.analyzer_issues.length || replayReport.malformed_rows.length}
@@ -579,16 +580,16 @@
       {#if replayReport.timings.length}
         <h3>Request/reply timing · routes from evidence journal</h3>
         <ul class="can-event-list" aria-label="Recorded CAN diagnostic route sources">
-          {#each replayReport.route_provenance as provenance (`${provenance.route.request_id}:${provenance.route.response_id}`)}
-            <li>0x{provenance.route.request_id.toString(16).toUpperCase()} → 0x{provenance.route.response_id.toString(16).toUpperCase()} · {provenance.source_candidate_ids.join(", ") || "operator-configured bench route"}</li>
+          {#each replayReport.route_provenance as provenance (canDiagnosticRouteKey(provenance.route))}
+            <li>{formatCanDiagnosticRoute(provenance.route)} · {provenance.source_candidate_ids.join(", ") || "operator-configured bench route"}</li>
           {/each}
         </ul>
         <div class="can-table-wrap">
           <table aria-label="CAN diagnostic request and reply timing">
             <thead><tr><th>Route</th><th>Latency</th><th>Outcome</th><th>Request → reply (raw PDU)</th></tr></thead>
             <tbody>
-              {#each replayReport.timings as timing, index (`${timing.request_elapsed_ns}:${index}`)}
-                <tr><td>0x{timing.route.request_id.toString(16).toUpperCase()} → 0x{timing.route.response_id.toString(16).toUpperCase()}</td><td>{(timing.latency_ns / 1e6).toFixed(2)} ms</td><td>{timingOutcome(timing.outcome)}</td><td><code>{bytesHex(timing.request_payload)} → {bytesHex(timing.response_payload)}</code></td></tr>
+              {#each replayReport.timings as timing, index (`${canDiagnosticRouteKey(timing.route)}:${timing.request_elapsed_ns}:${index}`)}
+                <tr><td>{formatCanDiagnosticRoute(timing.route)}</td><td>{(timing.latency_ns / 1e6).toFixed(2)} ms</td><td>{timingOutcome(timing.outcome)}</td><td><code>{bytesHex(timing.request_payload)} → {bytesHex(timing.response_payload)}</code></td></tr>
               {/each}
             </tbody>
           </table>
@@ -601,7 +602,7 @@
       {#if replayReport.correlation_hypotheses.length}
         <ul class="can-event-list" aria-label="CAN-to-OBD correlation hypotheses">
           {#each replayReport.correlation_hypotheses as hypothesis (`${hypothesis.field_id}:${hypothesis.obd_signal_id}:${hypothesis.obd_source_id}`)}
-            <li><strong>{hypothesis.field_id}</strong> ↔ {hypothesis.obd_signal_id} · r={hypothesis.pearson_r.toFixed(3)} · {hypothesis.pairs} pairs · hypothesis only</li>
+            <li><strong>{hypothesis.field_id}</strong> ↔ {hypothesis.obd_signal_id} · {formatCanCorrelationSource(hypothesis)} · r={hypothesis.pearson_r.toFixed(3)} · {hypothesis.pairs} pairs · hypothesis only</li>
           {/each}
         </ul>
       {:else}

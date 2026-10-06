@@ -79,6 +79,16 @@ test("CAN scan configs preserve explicit Mode 01, 21, and 22 routes and bounds",
   });
 });
 
+test("diagnostic route labels and keys distinguish standard from extended IDs", () => {
+  const standard = { request_id: 0x7e0, response_id: 0x7e8, extended: false };
+  const extended = { ...standard, extended: true };
+  assert.equal(can.formatCanDiagnosticRoute(standard), "11-bit 0x7E0 → 0x7E8");
+  assert.equal(can.formatCanDiagnosticRoute(extended), "29-bit 0x7E0 → 0x7E8");
+  assert.notEqual(can.canDiagnosticRouteKey(standard), can.canDiagnosticRouteKey(extended));
+  assert.match(panel, /formatCanDiagnosticRoute\(timing\.route\)/);
+  assert.match(panel, /canDiagnosticRouteKey\(provenance\.route\)/);
+});
+
 test("active transmit requires a connected active adapter and an open paired capture", () => {
   assert.ok(can, "CAN workbench helpers exist");
   assert.equal(can.canTransmitEnabled(null, false), false);
@@ -252,6 +262,16 @@ test("saved capture reports expose timing hypotheses, comparisons, and unverifie
   for (const marker of ["compareCaptures", "exportDbcSkeleton", "timings", "correlation_hypotheses", "UNVERIFIED"]) {
     assert.ok(panel.includes(marker), `CAN report UI presents ${marker}`);
   }
+});
+
+test("correlation hypothesis rows identify their OBD source and ECU with fallbacks", () => {
+  const sx = { obd_source_id: "obd:sx", obd_ecu_id: "7E8", obd_signal_id: "rpm" };
+  const elm = { obd_source_id: "obd:elm", obd_ecu_id: "engine", obd_signal_id: "rpm" };
+  assert.equal(can.formatCanCorrelationSource(sx), "obd:sx · ECU 7E8");
+  assert.equal(can.formatCanCorrelationSource(elm), "obd:elm · ECU engine");
+  assert.notEqual(can.formatCanCorrelationSource(sx), can.formatCanCorrelationSource(elm));
+  assert.equal(can.formatCanCorrelationSource({ obd_source_id: "", obd_ecu_id: null }), "unknown source · ECU unknown ECU");
+  assert.match(panel, /formatCanCorrelationSource\(hypothesis\)/);
 });
 
 test("bounded manual trigger controls use the serialized backend and save the captured window", async () => {

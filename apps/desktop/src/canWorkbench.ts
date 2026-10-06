@@ -1,6 +1,7 @@
 import type { SignalOption } from "./workspace";
 import type {
-  CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanDeviceSelection, CanFrame,
+  CanCaptureComparison, CanCaptureReplayReport, CanCorrelationHypothesis, CanDeviceCandidate, CanDeviceSelection,
+  CanDiagnosticRoute, CanFrame,
   CanScanConfig, CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult,
   CanTxStatus, CanWorkbenchConfig, CanWorkbenchStatus, Sample,
 } from "./types";
@@ -166,6 +167,25 @@ export function canTriggerConfigError(preMs: number, postMs: number, maxFrames: 
   }
   if (!integerInRange(maxFrames, 1, 100_000)) return "Trigger frame limit must be 1–100000";
   return null;
+}
+
+export function formatCanDiagnosticRoute(route: CanDiagnosticRoute): string {
+  const width = route.extended ? "29-bit" : "11-bit";
+  const request = `0x${route.request_id.toString(16).toUpperCase()}`;
+  const response = `0x${route.response_id.toString(16).toUpperCase()}`;
+  return `${width} ${request} → ${response}`;
+}
+
+export function canDiagnosticRouteKey(route: CanDiagnosticRoute): string {
+  return `${route.extended ? "29" : "11"}:${route.request_id.toString(16)}:${route.response_id.toString(16)}`;
+}
+
+export function formatCanCorrelationSource(
+  hypothesis: Pick<CanCorrelationHypothesis, "obd_source_id" | "obd_ecu_id">,
+): string {
+  const source = hypothesis.obd_source_id?.trim() || "unknown source";
+  const ecu = hypothesis.obd_ecu_id?.trim() || "unknown ECU";
+  return `${source} · ECU ${ecu}`;
 }
 
 export function canSignalOption(field: CanSignalDefinition): SignalOption {

@@ -196,6 +196,121 @@ fn wait_until(mut predicate: impl FnMut() -> bool) {
     assert!(predicate(), "timed out waiting for CAN workbench activity");
 }
 
+fn trigger_fixture() -> (LogNookEngine, Arc<Mutex<Vec<EngineEvent>>>, PathBuf) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _, _, _) = transport();
+    engine
+        .connect_can_transport(config(true), transport)
+        .unwrap();
+    let path = temp_path("candump.csv");
+    engine.start_can_capture(&path).unwrap();
+    (engine, events, path)
+}
+
+fn trigger_events(
+    events: &Arc<Mutex<Vec<EngineEvent>>>,
+) -> Vec<lognook_core::CanTriggerCaptureResult> {
+    events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            EngineEvent::CanTriggerCapture(capture) => Some(capture.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn journal_records(path: &std::path::Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(lognook_core::can_evidence_path(path))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn disarming_a_marked_trigger_emits_an_incomplete_window_and_early_end_evidence() {
+    let (engine, events, path) = trigger_fixture();
+    engine.arm_can_trigger(0, 60_000, 8).unwrap();
+    engine.trigger_can_now().unwrap();
+    engine.disarm_can_trigger().unwrap();
+
+    let windows = trigger_events(&events);
+    assert_eq!(windows.len(), 1);
+    assert!(!windows[0].capture.complete);
+    assert_eq!(windows[0].capture.post_ns, 60_000_000_000);
+    let records = journal_records(&path);
+    assert!(records.iter().any(|record| {
+        record["record"] == "trigger_ended_early"
+            && record["data"]["reason"] == "disarmed"
+            && record["data"]["complete"] == false
+    }));
+
+    engine.stop_can_capture().unwrap();
+    drop(engine);
+    cleanup_capture(&path);
+}
+
+#[test]
+fn disarming_before_a_trigger_mark_cancels_without_a_window_or_terminal_record() {
+    let (engine, events, path) = trigger_fixture();
+    engine.arm_can_trigger(100, 100, 8).unwrap();
+    engine.disarm_can_trigger().unwrap();
+    assert!(trigger_events(&events).is_empty());
+    engine.stop_can_capture().unwrap();
+    assert!(!journal_records(&path).iter().any(|record| {
+        matches!(
+            record["record"].as_str(),
+            Some("trigger_marked" | "trigger_ended_early")
+        )
+    }));
+
+    drop(engine);
+    cleanup_capture(&path);
+}
+
+#[test]
+fn stopping_capture_after_a_trigger_mark_finalizes_it_as_capture_stopped() {
+    let (engine, events, path) = trigger_fixture();
+    engine.arm_can_trigger(0, 60_000, 8).unwrap();
+    engine.trigger_can_now().unwrap();
+    engine.stop_can_capture().unwrap();
+
+    let windows = trigger_events(&events);
+    assert_eq!(windows.len(), 1);
+    assert!(!windows[0].capture.complete);
+    assert!(journal_records(&path).iter().any(|record| {
+        record["record"] == "trigger_ended_early"
+            && record["data"]["reason"] == "capture_stopped"
+            && record["data"]["complete"] == false
+    }));
+
+    drop(engine);
+    cleanup_capture(&path);
+}
+
+#[test]
+fn worker_shutdown_after_a_trigger_mark_emits_and_journals_a_partial_window() {
+    let (engine, events, path) = trigger_fixture();
+    engine.arm_can_trigger(0, 60_000, 8).unwrap();
+    engine.trigger_can_now().unwrap();
+    drop(engine);
+
+    let windows = trigger_events(&events);
+    assert_eq!(windows.len(), 1);
+    assert!(!windows[0].capture.complete);
+    assert!(journal_records(&path).iter().any(|record| {
+        record["record"] == "trigger_ended_early"
+            && record["data"]["reason"] == "session_ended"
+            && record["data"]["complete"] == false
+    }));
+
+    cleanup_capture(&path);
+}
+
 #[test]
 fn a_single_worker_owns_io_and_decoded_rx_samples_enter_the_recording_pipeline() {
     let events = Arc::new(Mutex::new(Vec::new()));
