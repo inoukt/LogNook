@@ -139,6 +139,8 @@
 - Modify: `apps/desktop/src/App.svelte`
 - Modify: `apps/desktop/src/types.ts`
 - Modify: `apps/desktop/src/connectionControls.ts`
+- Modify: `apps/desktop/src-tauri/src/commands/can.rs`
+- Modify: `apps/desktop/src-tauri/src/lib.rs`
 - Test: `apps/desktop/tests/can-workbench.test.mjs`
 
 **Interfaces:**
