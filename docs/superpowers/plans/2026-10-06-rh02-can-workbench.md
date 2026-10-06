@@ -38,15 +38,16 @@
 - Modify: `crates/lognook-core/src/lib.rs`
 - Modify: `crates/lognook-core/src/engine.rs`
 - Modify: `crates/lognook-core/src/pipeline.rs`
+- Modify: `crates/lognook-core/src/pipeline_worker/live_samples.rs`
 - Test: `crates/lognook-core/tests/can_signals.rs`
 - Test: `crates/lognook-core/src/engine.rs`
 
 **Interfaces:**
 - Produces `CanFrame { elapsed_ns, wall_time_unix_ns, can_id, extended, direction, data, flags }`, `CanSignalDefinition { id, name, can_id, extended, start_bit, bit_length, byte_order, signed, factor, offset, unit }`, and `decode_can_signal(&CanFrame, &CanSignalDefinition, &str) -> Result<Option<Sample>, LogNookError>`.
 - Defines `start_bit` using the DBC convention: Intel fields progress from the selected LSB0 bit; Motorola fields progress from the selected MSB0 bit with sawtooth byte transitions. `bit_length` is 1–64.
-- Produces a cloneable `SamplePublisher` backed by the existing bounded pipeline, and `LogNookEngine::publish_timestamped_sample(Sample) -> Result<(), LogNookError>`. Both preserve a frame's elapsed timestamp and advance the pipeline marker clock monotonically.
+- Produces a cloneable `SamplePublisher::publish_timestamped_sample(Sample) -> Result<(), LogNookError>` backed by the existing bounded pipeline, and `LogNookEngine::sample_publisher() -> SamplePublisher`. Both preserve a frame's elapsed timestamp and advance the pipeline marker clock monotonically, including when samples arrive out of timestamp order.
 
-- [ ] **Step 1: Write failing tests** for standard/extended ID bounds, payload/DLC validation, Intel and Motorola bit extraction, signed and unsigned scaling, short-frame rejection, non-finite scale rejection, and sample source/signal/raw-byte/timestamp preservation.
+- [ ] **Step 1: Write failing tests** for standard/extended ID bounds, payload/DLC validation, Intel and Motorola bit extraction, signed and unsigned scaling, short-frame rejection, non-finite scale rejection, sample source/signal/raw-byte/timestamp preservation, and marker time not moving backward when a late timestamped sample arrives.
 - [ ] **Step 2: Run** `cargo test -p lognook-core --test can_signals`; confirm the new APIs/behaviors fail.
 - [ ] **Step 3: Implement** the small typed model/decoder and timestamp-preserving sample publication, reusing `Sample`, `SampleQuality`, and `SampleOrigin`.
 - [ ] **Step 4: Run** `cargo test -p lognook-core --test can_signals` and the focused engine tests; require all assertions to pass.
@@ -97,7 +98,7 @@
 **Interfaces:**
 - Consumes Task 1 `CanFrame`.
 - Produces Candlelight/GS_USB enumeration, identity, bitrate configuration, listen-only receive, and transmit operations with a single claimed interface and endpoint owner.
-- Uses `nusb` 0.2.7; match VID/PID and interface descriptors as detection hints, not identity proof. Keep device operations on a worker thread using the crate's blocking `MaybeFuture` API.
+- Uses `nusb` 0.2.7; recognize known GS_USB/Candlelight IDs `1D50:606F` and `1209:2323`, then verify interface/endpoints and treat USB IDs as hints rather than identity proof. Keep device operations on a worker thread using the crate's blocking `MaybeFuture` API.
 
 - [ ] **Step 1: Write failing tests** for GS_USB control request/frame encoding, bitrate validation, standard/extended receive decoding, listen-only mode, frame-size/DLC checks, timeout/bus-off/device-removal diagnostics, and send echo direction.
 - [ ] **Step 2: Run** `cargo test -p lognook-core --test candlelight_protocol`; confirm expected failures.
