@@ -18,6 +18,7 @@ mod pipeline_worker;
 mod playback;
 mod recording;
 mod recording_view;
+mod research;
 mod session;
 mod simulator;
 
@@ -62,5 +63,9 @@ pub use openport2::{OpenPort2Adapter, available_openport2_providers, identify_op
 pub use recording::{RecordingWriter, read_recording};
 pub use recording_view::{
     add_recording_marker, delete_recording_marker, inspect_recording, update_recording_marker,
+};
+pub use research::{
+    ResearchRunItem, ResearchRunReport, ResearchTestRequest, ResearchTestResult,
+    ResearchTestSelection,
 };
 pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
