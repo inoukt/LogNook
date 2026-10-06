@@ -6,6 +6,8 @@
   export let exportDisabled = false;
   export let exportPath = "";
   export let onExport: () => void = () => {};
+  let collapsed = false;
+  let resultsHeight = 190;
 
   function label(selection: ResearchTestSelection) {
     if (selection.type === "oemCandidate") return selection.payload.name;
@@ -68,7 +70,7 @@
   }
 </script>
 
-<section class="research-run-results" aria-label="Research run results">
+<section class="research-run-results" class:collapsed style={`--research-results-height:${resultsHeight}px`} aria-label="Research run results">
   <header class="research-results-heading">
     <div>
       <h3>Research run results</h3>
@@ -82,58 +84,72 @@
         {/if}
       </p>
     </div>
+    <button class="research-collapse" type="button" aria-expanded={!collapsed} aria-label={collapsed ? "Expand results" : "Collapse results"} onclick={() => collapsed = !collapsed}>{collapsed ? "▾" : "▴"}</button>
     <button class="button secondary" onclick={onExport} disabled={exportDisabled || state.running || !state.report}>Export run report</button>
   </header>
   {#if exportPath}<p class="research-export-path" role="status">Report saved: {exportPath}</p>{/if}
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex -- keyboard users need to focus this independently scrolling results region. -->
-  <div class="research-results-scroll" role="region" aria-label="Per-request results" tabindex="0">
-    <table>
-      <thead><tr><th>Test</th><th>Status / outcome</th><th>Latency</th><th>ECU</th><th>Value</th><th>Diagnostic</th><th>Evidence</th></tr></thead>
-      <tbody>
-        {#each state.rows as row (row.queue_index)}
-          <tr>
-            <td>{label(row.selection)}<small>{row.queue_index} / {row.queue_size}</small></td>
-            <td><span class={`research-result-state ${row.status}`}>{row.status}</span>{#if row.result}<small>{outcome(row)}</small>{/if}</td>
-            <td class="research-latency">{latency(row)}</td>
-            <td>{responder(row)}</td>
-            <td>{values(row)}</td>
-            <td class:research-error={Boolean(diagnostics(row))}>{diagnostics(row) || "—"}</td>
-            <td>
-              {#if row.result}
-                <details>
-                  <summary>Details</summary>
-                  <code>{command(row)}</code>
-                  <pre>{rawResponse(row) || "No raw response"}</pre>
-                  {#if nrc(row) !== null}<small>NRC 0x{nrc(row)?.toString(16).toUpperCase().padStart(2, "0")}</small>{/if}
-                  {#if row.result.payload.evidence_saved}<small>Raw evidence saved outside the catalog.</small>{:else if row.result.payload.evidence_save_error}<small class="research-error">Evidence save failed: {row.result.payload.evidence_save_error}</small>{/if}
-                  {#if row.selection.type === "oemCandidate"}
-                    <small>Source {row.selection.payload.source_id} · SHA {row.selection.payload.source_blob_sha} · {row.selection.payload.license ?? "License not listed"}</small>
-                    {#if row.selection.payload.source_url}<a href={row.selection.payload.source_url} target="_blank" rel="noreferrer">Source</a>{/if}
-                  {:else if row.result.type === "a30ReadTest"}
-                    <small>{row.result.payload.request_description}</small>
-                  {/if}
-                </details>
-              {:else}
-                <span>—</span>
-              {/if}
-            </td>
-          </tr>
-        {:else}
-          <tr><td class="research-empty" colspan="7">No workbench requests have run yet.</td></tr>
-        {/each}
-      </tbody>
-    </table>
-  </div>
+  {#if !collapsed}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -- keyboard users need to focus this independently scrolling results region. -->
+    <div class="research-results-scroll" role="region" aria-label="Per-request results" tabindex="0">
+      <table>
+        <thead><tr><th>Test</th><th>Status / outcome</th><th>Latency</th><th>ECU</th><th>Value</th><th>Diagnostic</th><th>Evidence</th></tr></thead>
+        <tbody>
+          {#each state.rows as row (row.queue_index)}
+            <tr>
+              <td>{label(row.selection)}<small>{row.queue_index} / {row.queue_size}</small></td>
+              <td><span class={`research-result-state ${row.status}`}>{row.status}</span>{#if row.result}<small>{outcome(row)}</small>{/if}</td>
+              <td class="research-latency">{latency(row)}</td>
+              <td>{responder(row)}</td>
+              <td>{values(row)}</td>
+              <td class:research-error={Boolean(diagnostics(row))}>{diagnostics(row) || "—"}</td>
+              <td>
+                {#if row.result}
+                  <details>
+                    <summary>Details</summary>
+                    <code>{command(row)}</code>
+                    <pre>{rawResponse(row) || "No raw response"}</pre>
+                    {#if nrc(row) !== null}<small>NRC 0x{nrc(row)?.toString(16).toUpperCase().padStart(2, "0")}</small>{/if}
+                    {#if row.result.payload.evidence_saved}<small>Raw evidence saved outside the catalog.</small>{:else if row.result.payload.evidence_save_error}<small class="research-error">Evidence save failed: {row.result.payload.evidence_save_error}</small>{/if}
+                    {#if row.selection.type === "oemCandidate"}
+                      <small>Source {row.selection.payload.source_id} · SHA {row.selection.payload.source_blob_sha} · {row.selection.payload.license ?? "License not listed"}</small>
+                      {#if row.selection.payload.source_url}<a href={row.selection.payload.source_url} target="_blank" rel="noreferrer">Source</a>{/if}
+                    {:else if row.result.type === "a30ReadTest"}
+                      <small>{row.result.payload.request_description}</small>
+                    {/if}
+                  </details>
+                {:else}
+                  <span>—</span>
+                {/if}
+              </td>
+            </tr>
+          {:else}
+            <tr><td class="research-empty" colspan="7">No workbench requests have run yet.</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+    <label class="research-results-resize">
+      <span>Height</span>
+      <input type="range" min="120" max="360" step="10" value={resultsHeight} aria-label="Results panel height" oninput={(event) => resultsHeight = Number(event.currentTarget.value)} />
+      <output>{resultsHeight}px</output>
+    </label>
+  {/if}
 </section>
 
 <style>
-  .research-run-results { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+  .research-run-results:not(.collapsed) { display: flex; flex: 0 1 auto; flex-direction: column; height: clamp(min(120px, 40vh), var(--research-results-height, 190px), min(360px, 40vh)); max-height: min(360px, 40vh); min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+  .research-run-results.collapsed { display: flex; flex: 0 0 auto; flex-direction: column; height: auto; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
   .research-results-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   .research-results-heading h3 { margin: 0; font-size: 12px; }
   .research-results-heading p { margin: 3px 0 0; color: var(--text-muted); font-size: 10px; }
   .research-results-heading .button { min-height: 29px; flex: 0 0 auto; padding: 4px 8px; font-size: 10px; }
+  .research-collapse { width: 25px; height: 25px; flex: 0 0 25px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-secondary); background: var(--surface-raised); cursor: pointer; }
+  .research-collapse:hover { color: var(--accent); border-color: var(--accent); }
   .research-export-path { flex: 0 0 auto; margin: 0; padding: 3px 10px; color: var(--text-muted); font-size: 9px; overflow-wrap: anywhere; }
   .research-results-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .research-results-resize { display: flex; flex: 0 0 25px; align-items: center; gap: 8px; padding: 0 10px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 9px; }
+  .research-results-resize input { flex: 1 1 auto; min-width: 80px; height: 16px; accent-color: var(--accent); cursor: ns-resize; }
+  .research-results-resize output { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .research-results-scroll table { width: 100%; border-collapse: collapse; font-size: 10px; text-align: left; }
   .research-results-scroll th { position: sticky; top: 0; z-index: 1; padding: 5px 8px; color: var(--text-muted); background: var(--surface-top); font-size: 9px; font-weight: 650; white-space: nowrap; }
   .research-results-scroll td { max-width: 260px; padding: 5px 8px; border-top: 1px solid var(--border); color: var(--text-secondary); overflow-wrap: anywhere; vertical-align: top; }

@@ -107,12 +107,22 @@ pub enum ResearchTestSelection {
     A30ReadTest(A30ReadTest),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResearchRunItemStatus {
+    Completed,
+    Error,
+    Skipped,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResearchRunItem {
     pub queue_index: usize,
     pub queue_size: usize,
     pub selection: ResearchTestSelection,
-    pub result: ResearchTestResult,
+    pub status: ResearchRunItemStatus,
+    pub result: Option<ResearchTestResult>,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

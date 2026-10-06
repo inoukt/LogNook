@@ -180,8 +180,9 @@ mod tests {
             "started_at_unix_ms": 100,
             "completed_at_unix_ms": 200,
             "items": [{
-                "queue_index": 1, "queue_size": 1,
+                "queue_index": 1, "queue_size": 3,
                 "selection": {"type": "a30ReadTest", "payload": "mode_06_tid_a2"},
+                "status": "completed", "error": null,
                 "result": {"type": "a30ReadTest", "payload": {
                     "test": "mode_06_tid_a2", "request_description": "Mode 06 TID A2",
                     "exact_adapter_command": "A30 RFCOMM TX 55 AA",
@@ -192,6 +193,14 @@ mod tests {
                     "graph_values": [], "detail": null, "raw_response": "7F 06 12",
                     "evidence_saved": true, "evidence_save_error": null
                 }}
+            }, {
+                "queue_index": 2, "queue_size": 3,
+                "selection": {"type": "a30ReadTest", "payload": "mode_01_engine_rpm"},
+                "status": "error", "result": null, "error": "active adapter disconnected"
+            }, {
+                "queue_index": 3, "queue_size": 3,
+                "selection": {"type": "a30ReadTest", "payload": "mode_03_stored_dtcs"},
+                "status": "skipped", "result": null, "error": null
             }]
         })).unwrap();
         write_research_run_report(&report, &path).unwrap();
@@ -201,6 +210,13 @@ mod tests {
         assert_eq!(restored, report);
         let json: serde_json::Value = serde_json::from_slice(&original_bytes).unwrap();
         assert_eq!(json["run_id"], "run-42");
+        assert_eq!(json["items"].as_array().unwrap().len(), 3);
+        assert_eq!(json["items"][0]["status"], "completed");
+        assert_eq!(json["items"][1]["status"], "error");
+        assert_eq!(json["items"][1]["error"], "active adapter disconnected");
+        assert_eq!(json["items"][1]["result"], serde_json::Value::Null);
+        assert_eq!(json["items"][2]["status"], "skipped");
+        assert_eq!(json["items"][2]["queue_index"], 3);
         assert_eq!(
             json["items"][0]["result"]["payload"]["negative_response_code"],
             18

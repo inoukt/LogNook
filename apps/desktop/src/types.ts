@@ -161,11 +161,15 @@ export type ResearchTestResult =
   | { type: "oemCandidate"; payload: OemCandidateTryResult }
   | { type: "a30ReadTest"; payload: A30ReadTestResult };
 
+export type ResearchRunItemStatus = "completed" | "error" | "skipped";
+
 export type ResearchRunItem = {
   queue_index: number;
   queue_size: number;
   selection: ResearchTestSelection;
-  result: ResearchTestResult;
+  status: ResearchRunItemStatus;
+  result: ResearchTestResult | null;
+  error: string | null;
 };
 
 export type ResearchRunReport = {

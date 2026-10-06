@@ -34,6 +34,34 @@ test("candidate_selection_survives_catalog_navigation", () => {
   includes(panel, /selectedCandidateIds\.length/, "the retained selection count is shown");
 });
 
+test("mixed_validity_queue_continues_past_local_rejections", async () => {
+  const valid = {
+    service: "21", identifier: "01", request_header: "7E0", response_header: "7E8",
+    source_blob_sha: "sha", source_url: "https://example.test/source", license: "CC", license_url: "https://example.test/license",
+  };
+  const candidates = { invalid: { ...valid, service: "10" }, valid };
+  const calls = [];
+  const outcomes = [];
+  await runResearchQueue(["invalid", "valid"], async (id) => {
+    const eligibility = oemCandidateTryState(candidates[id], "COM4", false, "obdlink_sx");
+    if (eligibility.disabled) return { kind: "ineligible", reason: eligibility.reason };
+    calls.push(id);
+    return { kind: "result", id };
+  }, () => false, (id, _index, result) => outcomes.push([id, result]));
+
+  assert.deepEqual(calls, ["valid"]);
+  assert.deepEqual(outcomes, [
+    ["invalid", { kind: "ineligible", reason: "Candidate lacks a source-backed service 21/22 request and exact 11-bit CAN route" }],
+    ["valid", { kind: "result", id: "valid" }],
+  ]);
+  includes(panel, /oemCandidateTryState\(item\.selection\.payload, candidateDeviceAtStart, false, selectedAdapterAtStart\)/, "Run selected applies static candidate and adapter checks without masking link loss");
+  includes(panel, /const candidateDeviceAtStart = currentCandidateDevice\(\)/, "candidate eligibility uses the device selected at run start");
+  includes(panel, /const selectedAdapterAtStart = selectedAdapter/, "the target adapter remains stable for the whole run");
+  includes(panel, /kind:\s*"ineligible"/, "a local eligibility rejection is a row outcome, not a transport failure");
+  includes(panel, /oem-disabled-reason[\s\S]*?tryState\.reason/, "disabled Try once controls explain their eligibility reason");
+  includes(results, /if \(row\.error\) return row\.error/, "local rejection reasons are visible in the results table");
+});
+
 test("run_selected_reports_progress_in_order", async () => {
   const calls = [];
   const progress = [];
@@ -66,6 +94,17 @@ test("stop_does_not_send_the_next_request", async () => {
   includes(panel, /Stop/, "the running queue exposes a Stop control");
   includes(app, /disabled=\{researchRunView\.running\}/, "view switching stays available for Stop until the active request finishes");
   includes(app, /onclick=\{disconnect\} disabled=\{busy \|\| researchRunView\.running\}/, "disconnect waits until the queue is stopped");
+  includes(app, /class="pid-list-toggle"[^\r\n]*disabled=\{researchRunView\.running\}/, "Hide List cannot hide Stop during a queue");
+  includes(app, /onclick=\{stopRecording\} disabled=\{busy \|\| researchRunView\.running\}/, "stopping recording cannot transition to replay during a queue");
+  includes(app, /if \(busy \|\| researchRunView\.running\) return;[\s\S]*?if \(recording\) stopRecording\(\)/, "the recording shortcut also respects queue lifecycle");
+  includes(app, /<SessionBrowser open=\{sessionBrowserOpen\} disabled=\{busy \|\| recording \|\| researchRunView\.running\} openDisabled=\{connected \|\| recording \|\| researchRunView\.running\}/, "saved-session controls cannot unmount the panel during queue settling");
+  includes(app, /class="button secondary open-csv-compact"[^\r\n]*researchRunView\.running/, "opening a session file stays blocked until the queue ends");
+  includes(app, /resetDisabled=\{[^}]*researchRunView\.running/, "preference reset cannot hide the active workbench");
+  includes(app, /function resetPreferences\(\)[\s\S]*?if \(researchRunView\.running\) return;/, "the reset handler guards the visibility transition too");
+  includes(app, /busy:\s*busy \|\| researchRunView\.running/, "Identify and Connect use the queue lock");
+  for (const control of ["Adapter", "OBDLink SX serial port", "OpenPort J2534 provider", "Paired Bluetooth device"]) {
+    includes(app, new RegExp(`aria-label="${control}"[^\\r\\n]*researchRunView\\.running`), `${control} selection stays fixed during a queue`);
+  }
 });
 
 test("numeric_result_updates_graph_while_recording", () => {
@@ -76,7 +115,7 @@ test("numeric_result_updates_graph_while_recording", () => {
   includes(catalogProps, /disabled=\{[^}]*busy[^}]*connected[^}]*replaying[^}]*session/, "only non-live busy/replay/session states block tests");
   const testDisabledProp = catalogProps.match(/disabled=\{([^}]*)\}/)?.[1] ?? "";
   excludes(testDisabledProp, /recording/, "recording does not block active-session research reads");
-  includes(panel, /Number\.isFinite\(result\.payload\.decoded_value\?\.value\)/, "only finite positive candidate values select a graph trace");
+  includes(panel, /Number\.isFinite\(typedResult\.payload\.decoded_value\?\.value\)/, "only finite positive candidate values select a graph trace");
   includes(app, /signal_id\]: \[\.\.\.\(series\[sample\.signal_id\] \?\? \[\]\), sample\]/, "graph values arrive through engine sample events");
   excludes(panel, /series\s*=|push\(\{[^}]*signal_id/, "the workbench does not synthesize sample data");
   includes(results, /within_catalog_range\s*===\s*false/, "out-of-range values keep their Suspect research diagnostic");
@@ -87,10 +126,28 @@ test("export_uses_completed_run_report", () => {
   for (const field of ["run_id", "adapter", "started_at_unix_ms", "completed_at_unix_ms", "items", "queue_index", "queue_size", "selection", "result"]) {
     includes(types, new RegExp(`\\b${field}\\b`), `the report contract includes ${field}`);
   }
+  includes(types, /ResearchRunItemStatus\s*=\s*"completed"\s*\|\s*"error"\s*\|\s*"skipped"/, "the UI report contract preserves completed, error, and skipped statuses");
+  includes(types, /result:\s*ResearchTestResult\s*\|\s*null/, "error and skipped rows can omit a typed adapter result");
+  includes(types, /error:\s*string\s*\|\s*null/, "transport errors remain reportable");
   includes(types, /type:\s*"oemCandidate";\s*payload:\s*OemCandidate/, "OEM selection metadata uses the Rust camelCase enum tag and full candidate");
   includes(types, /type:\s*"a30ReadTest";\s*payload:\s*A30ReadTestId/, "quick-test selection metadata uses the Rust camelCase tag and enum value");
+  includes(app, /activeAdapterDescriptor\s*=\s*event\.payload\.device/, "the active descriptor is captured from the acquisition event");
+  includes(app, /activeAdapter=\{activeAdapterDescriptor\}/, "the active descriptor is passed to the workbench");
+  includes(panel, /const adapterAtStart = activeAdapter/, "the report snapshots adapter identity at run start");
+  includes(panel, /const reportItems: ResearchRunItem\[\] = runRows\.map\(/, "every original queue row enters the exported report");
+  includes(panel, /status: row\.status === "completed" \? "completed" : row\.status === "skipped" \? "skipped" : "error"/, "all row states become report statuses");
+  includes(panel, /result:\s*row\.result,\s*error:\s*row\.error/, "each report item retains its optional result and error");
+  includes(panel, /completedRunReport = \{\s*run_id: runId,\s*adapter: adapterSnapshot/, "an initial transport failure can still export the adapter and run metadata");
   includes(app, /invoke\s*<[^>]*>\s*\(\s*"export_research_run_report"/, "report export calls the registered Tauri command");
   includes(panel, /completed_at_unix_ms/, "the exported report records completion time");
   includes(results, /Export run report/, "the result table exposes report export");
   includes(results, /completed/, "the table distinguishes completed results");
+});
+
+test("results_panel_can_collapse_and_resize_without_growing_past_its_limit", () => {
+  includes(results, /aria-expanded=\{!collapsed\}/, "the collapse control announces its expanded state");
+  includes(results, /collapsed \? "Expand results" : "Collapse results"/, "the collapse control remains discoverable in both states");
+  includes(results, /type="range"[^>]*min="120"[^>]*max="360"/, "a native keyboard-accessible range resizes the table");
+  includes(results, /--research-results-height/, "the selected height controls the results panel");
+  includes(results, /max-height:\s*min\([^;]*40vh\)/, "the panel height remains bounded relative to the graph viewport");
 });

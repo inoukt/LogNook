@@ -24,7 +24,7 @@ export function oemCandidateTryState(
       reason: adapter === "a30" || adapter === "elm327" ? "Select a paired Bluetooth device" : "Select an OBDLink SX port",
     };
   }
-  if (blocked) return { disabled: true, reason: "Stop acquisition, recording, or replay first" };
+  if (blocked) return { disabled: true, reason: "Connect a supported adapter and finish replay or other current actions before testing" };
   const identifierWidth = candidate.service === "21" ? 2 : candidate.service === "22" ? 4 : 0;
   const validHex = (value: string, width: number) => value.length === width && /^[0-9a-f]+$/i.test(value);
   const validCanHeader = (value: string) => validHex(value, 3) && Number.parseInt(value, 16) <= 0x7ff;

@@ -221,7 +221,7 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .marker-item .icon-button { width: 22px; height: 22px; flex-basis: 22px; }
 .measurements { grid-column: 3; grid-row: 1; position: relative; z-index: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; }
 .workspace-grid.pid-picker-hidden .measurements { grid-column: 2; }
-.measurements > .research-run-results { flex: 0 1 190px; min-height: 120px; max-height: 30vh; margin-top: 8px; }
+.measurements > .research-run-results { flex: 0 1 auto; margin-top: 8px; }
 .chart-layout { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .chart-interaction { position: relative; flex: 1 1 auto; min-height: 0; display: flex; cursor: crosshair; touch-action: pan-y; }
 .waiting-message { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); font-size: calc(11px / var(--ui-scale-factor, 1)); line-height: 1.2; pointer-events: none; }
@@ -296,7 +296,6 @@ svg text { fill: var(--text-muted); font-size: 11px; }
   .workspace-grid.pid-picker-hidden { grid-template-rows: minmax(0, 1fr); }
   .signal-panel { grid-column: 2; grid-row: 1; height: auto; max-height: 30vh; }
   .measurements { grid-column: 2; grid-row: 2; min-height: 220px; }
-  .measurements > .research-run-results { max-height: 24vh; }
   .workspace-grid.pid-picker-hidden .measurements { grid-row: 1; }
   .signal-list { max-height: none; }
   .timeline-row { flex-wrap: wrap; }

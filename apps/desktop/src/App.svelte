@@ -64,6 +64,7 @@
   let selectedOpenPortProvider = "";
   let openPortIdentity: DeviceDescriptor | undefined;
   let selectedAdapter: AdapterKind = "simulator";
+  let activeAdapterDescriptor: DeviceDescriptor | null = null;
   let logSignalIds = [...defaultWorkspacePreferences.logSignalIds];
   let graphSignalIds = [...logSignalIds];
   let latest: Record<string, Sample> = {};
@@ -127,7 +128,7 @@
   let scrubInFlight: number | null = null;
   let availableSignals: SignalOption[] = [];
   $: connectionControls = connectionControlState(selectedAdapter, {
-    busy,
+    busy: busy || researchRunView.running,
     recording,
     replaying,
     hasSignals: logSignalIds.length > 0,
@@ -339,7 +340,7 @@
 
   function runShortcut(action: ShortcutAction) {
     if (action === "toggleRecording") {
-      if (busy) return;
+      if (busy || researchRunView.running) return;
       if (recording) stopRecording();
       else if (connected && !replaying) startRecording();
     } else if (action === "togglePlayback") {
@@ -415,11 +416,13 @@
       }
     } else if (event.type === "connected") {
       connected = true;
+      activeAdapterDescriptor = event.payload.device;
       status = event.payload.device.hardware_family === "simulator"
         ? "Simulated OBD · read only"
         : `${event.payload.device.hardware_family} · read only`;
     } else if (event.type === "disconnected") {
       connected = false;
+      activeAdapterDescriptor = null;
       status = "Disconnected";
     } else if (event.type === "playbackState") {
       if (event.payload.session_id !== playback.session_id) return;
@@ -549,6 +552,7 @@
         activeIds: derivedSignalDefinitions.filter((definition) => requested.includes(definition.id)).map(({ id }) => id),
       });
       const capabilities = await invoke<ConnectionCapabilities>("connect_simulator", { signalIds: requested });
+      activeAdapterDescriptor = capabilities.device;
       await clearSession();
       series = {};
       latest = {};
@@ -570,6 +574,7 @@
         portName: selectedSxPort,
         signalIds: requested,
       });
+      activeAdapterDescriptor = capabilities.device;
       await clearSession();
       series = {};
       latest = {};
@@ -591,6 +596,7 @@
         providerId: selectedOpenPortProvider,
         signalIds: requested,
       });
+      activeAdapterDescriptor = capabilities.device;
       await clearSession();
       series = {};
       latest = {};
@@ -613,6 +619,7 @@
         address: selectedBluetoothAddress,
         signalIds: requested,
       });
+      activeAdapterDescriptor = capabilities.device;
       await clearSession();
       series = {};
       latest = {};
@@ -630,6 +637,7 @@
   }
 
   function selectAdapter(adapter: AdapterKind) {
+    if (researchRunView.running) return;
     selectedAdapter = adapter;
     if (adapter === "obdlink_sx") void refreshSxPorts();
     if (adapter === "openport2") void refreshOpenPortProviders();
@@ -680,7 +688,7 @@
   }
 
   function disconnect() {
-    return run(async () => { await invoke("disconnect"); connected = false; recording = false; });
+    return run(async () => { await invoke("disconnect"); connected = false; activeAdapterDescriptor = null; recording = false; });
   }
 
   function startRecording() {
@@ -1011,6 +1019,7 @@
   }
 
   function resetPreferences() {
+    if (researchRunView.running) return;
     const preferences = restoreWorkspacePreferences(null, signalCatalog.map(({ id }) => id), defaultWorkspacePreferences, Math.max(36, window.innerHeight * 0.3));
     logSignalIds = preferences.logSignalIds;
     if (session) liveGraphSignalIds = preferences.graphSignalIds;
@@ -1091,17 +1100,17 @@
       bind:theme
       bind:highContrast
       bind:uiScale
-      resetDisabled={!workspacePreferencesReady || connected || recording || replaying || session !== null}
+      resetDisabled={!workspacePreferencesReady || connected || recording || replaying || session !== null || researchRunView.running}
       onAction={runShortcut}
       onReset={resetPreferences}
     />
     <div class="session-tools">
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
         <summary aria-label="Browse saved sessions" title="Browse saved sessions">Browse saved sessions</summary>
-        <SessionBrowser open={sessionBrowserOpen} disabled={busy || recording} openDisabled={connected || recording} onOpen={openSavedRecording} onShare={shareRecording} onSaveAs={saveRecordingAs} />
+        <SessionBrowser open={sessionBrowserOpen} disabled={busy || recording || researchRunView.running} openDisabled={connected || recording || researchRunView.running} onOpen={openSavedRecording} onShare={shareRecording} onSaveAs={saveRecordingAs} />
       </details>
       {#if !session}
-        <button class="button secondary open-csv-compact" title="Open CSV or LogNook session" aria-label="Open session file" onclick={openSessionFile} disabled={busy || connected || recording}>CSV</button>
+        <button class="button secondary open-csv-compact" title="Open CSV or LogNook session" aria-label="Open session file" onclick={openSessionFile} disabled={busy || connected || recording || researchRunView.running}>CSV</button>
       {/if}
     </div>
     <span class="milestone">OBDLinkSX-Beta1</span>
@@ -1135,7 +1144,7 @@
           {#if connected}
             <button class="button secondary" onclick={disconnect} disabled={busy || researchRunView.running}>Disconnect</button>
           {:else}
-            <select class="text-input adapter-select" value={selectedAdapter} onchange={(event) => selectAdapter(event.currentTarget.value as AdapterKind)} aria-label="Adapter" disabled={busy || recording || replaying}>
+            <select class="text-input adapter-select" value={selectedAdapter} onchange={(event) => selectAdapter(event.currentTarget.value as AdapterKind)} aria-label="Adapter" disabled={busy || recording || replaying || researchRunView.running}>
               <option value="simulator">Simulator</option>
               <option value="obdlink_sx">OBDLink SX</option>
               <option value="elm327">Bluetooth ELM327</option>
@@ -1143,22 +1152,22 @@
               <option value="openport2">OpenPort 2</option>
             </select>
             {#if selectedAdapter === "obdlink_sx"}
-              <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || recording || sxPorts.length === 0 || replaying}>
+              <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || recording || sxPorts.length === 0 || replaying || researchRunView.running}>
                 {#if sxPorts.length === 0}<option value="">No SX found</option>{/if}
                 {#each sxPorts as port}<option value={port}>{port}</option>{/each}
               </select>
             {:else if selectedAdapter === "openport2"}
-              <select class="text-input provider-select" bind:value={selectedOpenPortProvider} onchange={() => openPortIdentity = undefined} aria-label="OpenPort J2534 provider" disabled={busy || recording || openPortProviders.length === 0 || replaying}>
+              <select class="text-input provider-select" bind:value={selectedOpenPortProvider} onchange={() => openPortIdentity = undefined} aria-label="OpenPort J2534 provider" disabled={busy || recording || openPortProviders.length === 0 || replaying || researchRunView.running}>
                 {#if openPortProviders.length === 0}<option value="">No OpenPort provider</option>{/if}
                 {#each openPortProviders as provider}<option value={provider.id}>{provider.name}</option>{/each}
               </select>
-              <button class="button secondary adapter-refresh" onclick={refreshOpenPortProviders} disabled={busy || recording || replaying} title="Refresh registered 32-bit J2534 providers" aria-label="Refresh OpenPort providers">↻</button>
+              <button class="button secondary adapter-refresh" onclick={refreshOpenPortProviders} disabled={busy || recording || replaying || researchRunView.running} title="Refresh registered 32-bit J2534 providers" aria-label="Refresh OpenPort providers">↻</button>
             {:else if selectedAdapter === "elm327" || selectedAdapter === "a30"}
-              <select class="text-input bluetooth-select" bind:value={selectedBluetoothAddress} onchange={() => bluetoothIdentity = undefined} aria-label="Paired Bluetooth device" disabled={busy || recording || replaying || bluetoothDevices.length === 0}>
+              <select class="text-input bluetooth-select" bind:value={selectedBluetoothAddress} onchange={() => bluetoothIdentity = undefined} aria-label="Paired Bluetooth device" disabled={busy || recording || replaying || bluetoothDevices.length === 0 || researchRunView.running}>
                 {#if bluetoothDevices.length === 0}<option value="">No paired Bluetooth device</option>{/if}
                 {#each bluetoothDevices as device (device.address)}<option value={device.address}>{device.name} · {device.address}</option>{/each}
               </select>
-              <button class="button secondary adapter-refresh" onclick={refreshBluetoothDevices} disabled={busy || recording || replaying || refreshingBluetoothDevices} title="Refresh paired Bluetooth devices" aria-label="Refresh Bluetooth devices">↻</button>
+              <button class="button secondary adapter-refresh" onclick={refreshBluetoothDevices} disabled={busy || recording || replaying || refreshingBluetoothDevices || researchRunView.running} title="Refresh paired Bluetooth devices" aria-label="Refresh Bluetooth devices">↻</button>
             {/if}
             {#if selectedAdapter !== "simulator"}
               <button class="button secondary" onclick={selectedAdapter === "openport2" ? identifyOpenPort : selectedAdapter === "obdlink_sx" ? identifySx : identifyBluetooth} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
@@ -1169,7 +1178,7 @@
             <button class="button primary" onclick={connectSelectedAdapter} disabled={connectionControls.connectDisabled} title={connectionControls.connectLabel} aria-label={connectionControls.connectLabel}>Connect</button>
           {/if}
           {#if recording}
-            <button class="button danger" onclick={stopRecording} disabled={busy} title="Stop recording" aria-label="Stop recording">Stop</button>
+            <button class="button danger" onclick={stopRecording} disabled={busy || researchRunView.running} title="Stop recording" aria-label="Stop recording">Stop</button>
           {:else}
             <button class="button record" onclick={startRecording} disabled={busy || !connected || replaying}>● Record</button>
           {/if}
@@ -1217,7 +1226,7 @@
     </dialog>
 
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
-      <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
+      <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible} disabled={researchRunView.running}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
         <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : "PID DATABASE"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : "OEM research"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : "OEM catalog"}</span></div>
         {#if !session}
@@ -1259,10 +1268,11 @@
           selectedPort={selectedAdapter === "obdlink_sx" ? selectedSxPort : ""}
           selectedBluetoothAddress={selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : ""}
           {selectedAdapter}
+          activeAdapter={activeAdapterDescriptor}
           onGraphCandidate={graphResearchCandidate}
           onGraphReadValue={graphA30ReadValue}
           onRunUpdate={updateResearchRunView}
-          disabled={busy || !connected || replaying || session !== null}
+          disabled={busy || !connected || !activeAdapterDescriptor || replaying || session !== null}
           scionProbeDisabled={busy || connected || recording || replaying || session !== null}
         />
         {/if}

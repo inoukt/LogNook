@@ -65,7 +65,7 @@ pub use recording_view::{
     add_recording_marker, delete_recording_marker, inspect_recording, update_recording_marker,
 };
 pub use research::{
-    ResearchRunItem, ResearchRunReport, ResearchTestRequest, ResearchTestResult,
-    ResearchTestSelection,
+    ResearchRunItem, ResearchRunItemStatus, ResearchRunReport, ResearchTestRequest,
+    ResearchTestResult, ResearchTestSelection,
 };
 pub use simulator::{SimulatedObdAdapter, standard_obd_signals};

@@ -29,7 +29,7 @@ test("one-shot controls require a selected SX port, an idle workspace, and prove
   assert.ok(controls, "OEM candidate controls helper is available");
   const valid = candidate("21", "01");
   assert.equal(controls.oemCandidateTryState(valid, "", false).reason, "Select an OBDLink SX port");
-  assert.equal(controls.oemCandidateTryState(valid, "COM4", true).reason, "Stop acquisition, recording, or replay first");
+  assert.equal(controls.oemCandidateTryState(valid, "COM4", true).reason, "Connect a supported adapter and finish replay or other current actions before testing");
   assert.equal(controls.oemCandidateTryState({ ...valid, source_blob_sha: "" }, "COM4", false).disabled, true);
   assert.equal(controls.oemCandidateTryState({ ...valid, request_header: "7EX" }, "COM4", false).disabled, true);
   assert.equal(controls.oemCandidateTryState({ ...valid, request_header: "800" }, "COM4", false).disabled, true);

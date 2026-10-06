@@ -6,13 +6,14 @@
   import { runResearchQueue, toggleCandidateSelection } from "./researchQueue";
   import type {
     A30GraphValue, A30ReadTestResult, OemCandidateTryResult, OemCatalogPage, OemCandidate,
-    ResearchRunItem, ResearchRunReport, ResearchRunRow, ResearchRunViewState, ResearchTestResult,
+    DeviceDescriptor, ResearchRunItem, ResearchRunReport, ResearchRunRow, ResearchRunViewState, ResearchTestResult,
     ResearchTestSelection, ScionMode21ProbeResult,
   } from "./types";
 
   export let selectedPort = "";
   export let selectedBluetoothAddress = "";
   export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx";
+  export let activeAdapter: DeviceDescriptor | null = null;
   export let disabled = false;
   export let scionProbeDisabled = false;
   export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
@@ -116,9 +117,18 @@
   }
 
   type QueueSelection = { id: string; label: string; selection: ResearchTestSelection };
+  type QueueOutcome = { kind: "result"; result: ResearchTestResult } | { kind: "ineligible"; error: string };
+
+  function currentCandidateDevice() {
+    return selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : selectedPort;
+  }
 
   async function runQueue(items: QueueSelection[]) {
-    if (disabled || runInProgress || !items.length) return;
+    const adapterAtStart = activeAdapter;
+    if (disabled || runInProgress || !items.length || !adapterAtStart) return;
+    const adapterSnapshot = { ...adapterAtStart };
+    const selectedAdapterAtStart = selectedAdapter;
+    const candidateDeviceAtStart = currentCandidateDevice();
     const runId = crypto.randomUUID();
     const startedAt = Date.now();
     const queueSize = items.length;
@@ -137,7 +147,7 @@
     }));
     publishRunUpdate();
 
-    await runResearchQueue<ResearchTestResult>(
+    await runResearchQueue<QueueOutcome>(
       items.map(({ id }) => id),
       async (id, index) => {
         const item = items[index];
@@ -153,32 +163,38 @@
             queueIndex: index + 1,
             queueSize,
           });
-          return { type: "a30ReadTest", payload };
+          return { kind: "result", result: { type: "a30ReadTest", payload } };
         }
 
-        const command = selectedAdapter === "a30"
+        const eligibility = oemCandidateTryState(item.selection.payload, candidateDeviceAtStart, false, selectedAdapterAtStart);
+        if (eligibility.disabled) return { kind: "ineligible", error: eligibility.reason };
+
+        const command = selectedAdapterAtStart === "a30"
           ? "try_a30_oem_candidate"
-          : selectedAdapter === "elm327" ? "try_elm_oem_candidate" : "try_oem_candidate";
+          : selectedAdapterAtStart === "elm327" ? "try_elm_oem_candidate" : "try_oem_candidate";
         const payload = await invoke<OemCandidateTryResult>(command, {
           candidateId: id,
           runId,
           queueIndex: index + 1,
           queueSize,
         });
-        return { type: "oemCandidate", payload };
+        return { kind: "result", result: { type: "oemCandidate", payload } };
       },
       () => stopRequested,
       (_id, index, result) => {
         const item = items[index];
         runRows = runRows.map((row, rowIndex) => rowIndex !== index ? row : result instanceof Error
           ? { ...row, status: "error", error: result.message }
-          : { ...row, status: "completed", result, error: null });
-        if (!(result instanceof Error)) {
-          if (result.type === "oemCandidate" && item.selection.type === "oemCandidate"
-            && result.payload.outcome === "positive" && Number.isFinite(result.payload.decoded_value?.value)) {
+          : result.kind === "ineligible"
+            ? { ...row, status: "error", error: result.error }
+            : { ...row, status: "completed", result: result.result, error: null });
+        if (!(result instanceof Error) && result.kind === "result") {
+          const typedResult = result.result;
+          if (typedResult.type === "oemCandidate" && item.selection.type === "oemCandidate"
+            && typedResult.payload.outcome === "positive" && Number.isFinite(typedResult.payload.decoded_value?.value)) {
             onGraphCandidate(item.selection.payload);
-          } else if (result.type === "a30ReadTest" && result.payload.outcome === "positive") {
-            for (const value of result.payload.graph_values) {
+          } else if (typedResult.type === "a30ReadTest" && typedResult.payload.outcome === "positive") {
+            for (const value of typedResult.payload.graph_values) {
               if (Number.isFinite(value.value)) onGraphReadValue(value);
             }
           }
@@ -191,23 +207,21 @@
     runInProgress = false;
     currentItemLabel = "";
     currentQueueKey = "";
-    const itemsWithResults: ResearchRunItem[] = runRows.flatMap((row) => row.result ? [{
+    const reportItems: ResearchRunItem[] = runRows.map((row) => ({
       queue_index: row.queue_index,
       queue_size: row.queue_size,
       selection: row.selection,
+      status: row.status === "completed" ? "completed" : row.status === "skipped" ? "skipped" : "error",
       result: row.result,
-    }] : []);
-    const firstResult = itemsWithResults[0]?.result;
-    const adapter = firstResult?.payload.adapter;
-    if (adapter && itemsWithResults.length) {
-      completedRunReport = {
-        run_id: runId,
-        adapter,
-        started_at_unix_ms: startedAt,
-        completed_at_unix_ms: Date.now(),
-        items: itemsWithResults,
-      };
-    }
+      error: row.error,
+    }));
+    completedRunReport = {
+      run_id: runId,
+      adapter: adapterSnapshot,
+      started_at_unix_ms: startedAt,
+      completed_at_unix_ms: Date.now(),
+      items: reportItems,
+    };
     publishRunUpdate();
   }
 
@@ -233,9 +247,7 @@
   }
 
   function tryCandidate(candidate: OemCandidate) {
-    const bluetoothAdapter = selectedAdapter === "a30" || selectedAdapter === "elm327";
-    const device = bluetoothAdapter ? selectedBluetoothAddress : selectedPort;
-    const state = oemCandidateTryState(candidate, device, disabled || probing || runInProgress, selectedAdapter);
+    const state = oemCandidateTryState(candidate, currentCandidateDevice(), disabled || probing || runInProgress, selectedAdapter);
     if (state.disabled) return;
     void runQueue([{
       id: candidate.candidate_id,
@@ -330,7 +342,7 @@
   {:else if page}
     <div class="oem-catalog-list" aria-busy={loading}>
       {#each page.candidates as candidate (candidate.candidate_id)}
-        {@const candidateDevice = selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : selectedPort}
+        {@const candidateDevice = currentCandidateDevice()}
         {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || probing || runInProgress, selectedAdapter)}
         <article class="oem-candidate">
           <header>
@@ -338,6 +350,7 @@
             <strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
             <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
           </header>
+          {#if tryState.disabled && !runInProgress && !probing}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
           <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
           <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
             {#if candidate.bit_offset !== null && candidate.bit_length !== null} · bits {candidate.bit_offset}–{candidate.bit_offset + candidate.bit_length - 1}{/if}
@@ -402,6 +415,7 @@
   .oem-candidate > header strong { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
   .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 30%; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-try-button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
+  .oem-disabled-reason { display: block; margin: 4px 0; color: var(--text-muted); font-size: 9px; line-height: 1.35; }
   .oem-address { color: #b8c9d3 !important; }
   .oem-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
   .oem-badges span { padding: 2px 5px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; }
