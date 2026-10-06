@@ -90,6 +90,7 @@
 ### Task 4: Candlelight GS_USB device transport
 
 **Files:**
+- Modify: `Cargo.lock`
 - Modify: `crates/lognook-core/Cargo.toml`
 - Create: `crates/lognook-core/src/candlelight.rs`
 - Modify: `crates/lognook-core/src/lib.rs`
