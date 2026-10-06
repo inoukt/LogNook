@@ -47,10 +47,10 @@
 - Defines `start_bit` using the DBC convention: Intel fields progress from the selected LSB0 bit; Motorola fields progress from the selected MSB0 bit with sawtooth byte transitions. `bit_length` is 1–64.
 - Produces a cloneable `SamplePublisher::publish_timestamped_sample(Sample) -> Result<(), LogNookError>` backed by the existing bounded pipeline, and `LogNookEngine::sample_publisher() -> SamplePublisher`. Both preserve a frame's elapsed timestamp and advance the pipeline marker clock monotonically, including when samples arrive out of timestamp order.
 
-- [ ] **Step 1: Write failing tests** for standard/extended ID bounds, payload/DLC validation, Intel and Motorola bit extraction, signed and unsigned scaling, short-frame rejection, non-finite scale rejection, sample source/signal/raw-byte/timestamp preservation, and marker time not moving backward when a late timestamped sample arrives.
-- [ ] **Step 2: Run** `cargo test -p lognook-core --test can_signals`; confirm the new APIs/behaviors fail.
-- [ ] **Step 3: Implement** the small typed model/decoder and timestamp-preserving sample publication, reusing `Sample`, `SampleQuality`, and `SampleOrigin`.
-- [ ] **Step 4: Run** `cargo test -p lognook-core --test can_signals` and the focused engine tests; require all assertions to pass.
+- [x] **Step 1: Write failing tests** for standard/extended ID bounds, payload/DLC validation, Intel and Motorola bit extraction, signed and unsigned scaling, short-frame rejection, non-finite scale rejection, sample source/signal/raw-byte/timestamp preservation, and marker time not moving backward when a late timestamped sample arrives.
+- [x] **Step 2: Run** `cargo test -p lognook-core --test can_signals`; confirm the new APIs/behaviors fail.
+- [x] **Step 3: Implement** the small typed model/decoder and timestamp-preserving sample publication, reusing `Sample`, `SampleQuality`, and `SampleOrigin`.
+- [x] **Step 4: Run** `cargo test -p lognook-core --test can_signals` and the focused engine tests; require all assertions to pass.
 
 ### Task 2: Bus analysis and bounded trigger capture
 
@@ -65,10 +65,10 @@
 - Produces `CanAnalyzer::feed_obd_sample(&Sample)` so correlation uses timestamped OBD samples from the common pipeline alongside broadcast frames.
 - Analyzer labels for counter/checksum/correlation remain explicitly tentative.
 
-- [ ] **Step 1: Write failing tests** for rate/inter-arrival and byte summaries, bounded history, ISO-TP request/reply pairing with NRC preservation, known synthetic OBD/byte correlation using explicit sample timestamps, and trigger windows that contain exactly the configured pre/post frames.
-- [ ] **Step 2: Run** `cargo test -p lognook-core --test can_analysis`; confirm expected failures.
-- [ ] **Step 3: Implement** streaming analyzers with bounded memory and no independent transport or sample owner.
-- [ ] **Step 4: Run** `cargo test -p lognook-core --test can_analysis`; require all assertions to pass.
+- [x] **Step 1: Write failing tests** for rate/inter-arrival and byte summaries, bounded history, ISO-TP request/reply pairing with NRC preservation, known synthetic OBD/byte correlation using explicit sample timestamps, and trigger windows that contain exactly the configured pre/post frames.
+- [x] **Step 2: Run** `cargo test -p lognook-core --test can_analysis`; confirm expected failures.
+- [x] **Step 3: Implement** streaming analyzers with bounded memory and no independent transport or sample owner.
+- [x] **Step 4: Run** `cargo test -p lognook-core --test can_analysis`; require all assertions to pass.
 
 ### Task 3: Streamed raw capture and replay
 
@@ -82,10 +82,10 @@
 - Produces `CanCaptureWriter::create_new(path)`, `write_frame(&CanFrame)`, `finish()`, and a row-streaming reader that invokes a callback for each valid frame while returning row-specific parse errors.
 - CSV columns: receive Unix time, elapsed nanoseconds, direction, hexadecimal CAN ID, standard/extended format, DLC, payload hex, and flags. Raw capture replay feeds the same analyzers and configured field decoder.
 
-- [ ] **Step 1: Write failing tests** for CSV round trips, create-new behavior, raw frame order/time/format retention, malformed rows followed by valid rows, replay analyzer totals, and surfaced write failures.
-- [ ] **Step 2: Run** `cargo test -p lognook-core --test can_capture`; confirm expected failures.
-- [ ] **Step 3: Implement** a streaming writer/reader using the existing `csv` dependency; do not buffer a complete live capture.
-- [ ] **Step 4: Run** `cargo test -p lognook-core --test can_capture`; require all assertions to pass.
+- [x] **Step 1: Write failing tests** for CSV round trips, create-new behavior, raw frame order/time/format retention, malformed rows followed by valid rows, replay analyzer totals, and surfaced write failures.
+- [x] **Step 2: Run** `cargo test -p lognook-core --test can_capture`; confirm expected failures.
+- [x] **Step 3: Implement** a streaming writer/reader using the existing `csv` dependency; do not buffer a complete live capture.
+- [x] **Step 4: Run** `cargo test -p lognook-core --test can_capture`; require all assertions to pass.
 
 ### Task 4: Candlelight GS_USB device transport
 
@@ -166,13 +166,17 @@
 - Modify: `LogNook_Blueprint/03_HARDWARE_PROTOCOLS.md`
 - Modify: `PROJECT_STATUS.md`
 - Test: `crates/lognook-core/tests/can_analysis.rs`
+- Test: `crates/lognook-core/tests/can_workbench.rs`
+- Test: `apps/desktop/tests/can-workbench.test.mjs`
 
 **Interfaces:**
 - Consumes Tasks 1–6.
-- Produces saved-capture session report and ID/payload comparison, request/reply timing and correlation hypotheses, bounded pre/post trigger capture controls, plus optional DBC skeleton with placeholder signal definitions clearly marked as unverified.
+- Produces saved-capture session report and ID/payload comparison, request/reply timing and correlation hypotheses, bounded pre/post trigger capture controls, plus optional DBC skeleton with placeholder signal definitions clearly marked as unverified. Zero-DLC messages remain visible without an out-of-bounds placeholder signal.
+- A trigger ended by disarm, capture stop, or session end is emitted and journaled as an incomplete window with its end reason; disarming before marking cancels the armed trigger without a window.
+- Route keys and labels preserve standard 11-bit versus extended 29-bit identity. Correlation labels include OBD source and ECU, and hypotheses remain tied to timestamp overlap.
 
-- [ ] **Step 1: Write failing tests** for deterministic report/census output, ID/byte differences between captures, request/reply and correlation summaries, bounded trigger capture behavior, and DBC placeholder labeling.
-- [ ] **Step 2: Run** `cargo test -p lognook-core --test can_analysis`; confirm expected failures.
-- [ ] **Step 3: Implement** these export conveniences and update architecture/progress documentation with physical-verification limits.
-- [ ] **Step 4: Run** `cargo fmt --all -- --check`, `cargo test --workspace`, `npm run test:ui --prefix apps/desktop`, and `npm run build --prefix apps/desktop`.
-- [ ] **Step 5: Report** physical limitations: the RH-02 is not connected in this environment; Windows device identity, live RX/TX, bitrate, and vehicle responses remain unverified until tested with the dongle.
+- [x] **Step 1: Write failing tests** for deterministic report/census output, ID/byte differences between captures, request/reply and correlation summaries, bounded trigger capture behavior, DBC placeholder labeling, zero-DLC messages, distinct route widths, correlation source/ECU labels, and interrupted trigger windows.
+- [x] **Step 2: Run** `cargo test -p lognook-core --test can_analysis`; confirm expected failures.
+- [x] **Step 3: Implement** these export conveniences and update architecture/progress documentation with physical-verification limits.
+- [x] **Step 4: Run** `cargo fmt --all -- --check`, `cargo test --workspace`, `npm run test:ui --prefix apps/desktop`, and `npm run build --prefix apps/desktop`. Full workspace formatting reported unrelated existing diffs in untouched files; changed-file rustfmt passed.
+- [x] **Step 5: Report** physical limitations: the RH-02 is not connected in this environment; Windows device identity, live RX/TX, bitrate, and vehicle responses remain unverified until tested with the dongle.
