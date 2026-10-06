@@ -146,6 +146,7 @@
 - Produces Candlelight selection/status, bitrate and listen/active mode controls, raw-frame view and per-ID rates, multi-field scope definitions, census/byte/pair/correlation views, trigger capture, raw CSV plus JSONL evidence replay/report, and visible scan/send/TX-echo/error results. Active send and scan controls are disabled until the paired evidence capture is open and the adapter is in active mode.
 - Numeric CAN fields appear as normal signal options and use `SignalGraphs`; do not add a second graph or decode frames only in Svelte. Coalesce only UI refreshes, not capture writes.
 - Render raw frames and diagnostics without blocking acquisition; coalesce frame-list UI updates while Rust continues synchronous ordered capture writes. The common event pipeline publishes decoded values to the existing live graph.
+- `CanWorkbenchStatus` also updates the application-level connection state so the existing Disconnect/Record controls and adapter-exclusivity behavior remain consistent while Candlelight is active.
 
 - [ ] **Step 1: Write failing UI tests** for command argument shapes, ID/field validation, multiple graph traces, mode/state transitions, replay/trigger display, and stop behavior.
 - [ ] **Step 2: Run** `npm run test:ui --prefix apps/desktop`; confirm the new cases fail.
