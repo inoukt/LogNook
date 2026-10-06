@@ -62,6 +62,31 @@ test("mixed_validity_queue_continues_past_local_rejections", async () => {
   includes(results, /if \(row\.error\) return row\.error/, "local rejection reasons are visible in the results table");
 });
 
+test("A30 queue records an unsupported route locally and continues to the next candidate", async () => {
+  const candidate = {
+    service: "22", identifier: "1234", request_header: "6F1", response_header: "607",
+    source_blob_sha: "sha", source_url: "https://example.test/source", license: "CC", license_url: "https://example.test/license",
+  };
+  const candidates = {
+    a30Ineligible: candidate,
+    a30Valid: { ...candidate, request_header: "7E0", response_header: "7E8" },
+  };
+  const calls = [];
+  const outcomes = [];
+  await runResearchQueue(["a30Ineligible", "a30Valid"], async (id) => {
+    const eligibility = oemCandidateTryState(candidates[id], "AA:BB:CC:DD:EE:FF", false, "a30");
+    if (eligibility.disabled) return { kind: "ineligible", reason: eligibility.reason };
+    calls.push(id);
+    return { kind: "result", id };
+  }, () => false, (id, _index, result) => outcomes.push([id, result]));
+
+  assert.deepEqual(calls, ["a30Valid"]);
+  assert.deepEqual(outcomes, [
+    ["a30Ineligible", { kind: "ineligible", reason: "A30 OEM reads require a 0x7xx request CAN ID" }],
+    ["a30Valid", { kind: "result", id: "a30Valid" }],
+  ]);
+});
+
 test("run_selected_reports_progress_in_order", async () => {
   const calls = [];
   const progress = [];

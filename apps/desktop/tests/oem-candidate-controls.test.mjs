@@ -46,3 +46,16 @@ test("source-backed candidates can be tried over A30 or ELM Bluetooth", () => {
   assert.equal(controls.oemCandidateTryState(valid, "", false, "a30").reason, "Select a paired Bluetooth device");
   assert.equal(controls.oemCandidateTryState(valid, "AA:BB:CC:DD:EE:FF", false, "elm327").disabled, false);
 });
+
+test("A30 requires its supported 0x7xx request route while SX and ELM allow other source routes", () => {
+  const valid = { ...candidate("22", "1234"), request_header: "6F1", response_header: "607" };
+  assert.equal(controls.oemCandidateTryState(valid, "COM4", false, "obdlink_sx").disabled, false);
+  assert.equal(controls.oemCandidateTryState(valid, "AA:BB:CC:DD:EE:FF", false, "elm327").disabled, false);
+  assert.deepEqual(controls.oemCandidateTryState(valid, "AA:BB:CC:DD:EE:FF", false, "a30"), {
+    disabled: true,
+    reason: "A30 OEM reads require a 0x7xx request CAN ID",
+  });
+
+  const a30Route = { ...valid, request_header: "7E0", response_header: "7E8" };
+  assert.equal(controls.oemCandidateTryState(a30Route, "AA:BB:CC:DD:EE:FF", false, "a30").disabled, false);
+});

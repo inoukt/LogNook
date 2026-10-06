@@ -28,6 +28,9 @@ export function oemCandidateTryState(
   const identifierWidth = candidate.service === "21" ? 2 : candidate.service === "22" ? 4 : 0;
   const validHex = (value: string, width: number) => value.length === width && /^[0-9a-f]+$/i.test(value);
   const validCanHeader = (value: string) => validHex(value, 3) && Number.parseInt(value, 16) <= 0x7ff;
+  if (adapter === "a30" && validCanHeader(candidate.request_header) && Number.parseInt(candidate.request_header, 16) < 0x700) {
+    return { disabled: true, reason: "A30 OEM reads require a 0x7xx request CAN ID" };
+  }
   const hasSource = Boolean(candidate.source_blob_sha && candidate.source_url && candidate.license && candidate.license_url);
   const validRequest = identifierWidth > 0
     && validHex(candidate.identifier, identifierWidth)

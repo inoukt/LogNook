@@ -795,17 +795,24 @@ fn read_a30_test(
         .collect::<Vec<_>>()
         .join("\n");
     let responder_header = replies.first().map(|reply| reply.response_header.clone());
+    let multiple_responders = responder_header.as_ref().is_some_and(|first| {
+        replies
+            .iter()
+            .skip(1)
+            .any(|reply| !reply.response_header.eq_ignore_ascii_case(first))
+    });
     let response_payloads = replies.iter().map(|reply| reply.payload.clone()).collect();
     let negative_response_code = replies.iter().find_map(|reply| {
         (reply.payload.len() >= 3 && reply.payload[0] == 0x7F && reply.payload[1] == service)
             .then(|| reply.payload[2])
     });
-    let wrong_responder = expected_header.is_some_and(|expected| {
-        !replies.is_empty()
-            && replies
-                .iter()
-                .any(|reply| !reply.response_header.eq_ignore_ascii_case(expected))
-    });
+    let wrong_responder = multiple_responders
+        || expected_header.is_some_and(|expected| {
+            !replies.is_empty()
+                && replies
+                    .iter()
+                    .any(|reply| !reply.response_header.eq_ignore_ascii_case(expected))
+        });
     let malformed = replies.iter().any(|reply| reply.truncated);
     let has_positive = replies
         .iter()
@@ -850,7 +857,11 @@ fn read_a30_test(
         response_payloads,
         negative_response_code,
         graph_values,
-        detail: read_test_detail(test, &replies),
+        detail: if multiple_responders {
+            Some("Multiple ECU responders were returned; raw replies were preserved but values were not graphed.".into())
+        } else {
+            read_test_detail(test, &replies)
+        },
         raw_response,
         evidence_saved: false,
         evidence_save_error: None,
@@ -1400,6 +1411,7 @@ mod tests {
         incoming: VecDeque<u8>,
         outgoing: Vec<u8>,
         requests: Arc<Mutex<Vec<(u16, Vec<u8>)>>>,
+        multiple_ecu_rpm: bool,
     }
 
     fn captured_mode21_block() -> Vec<u8> {
@@ -1458,6 +1470,16 @@ mod tests {
         let mut data = vec![1, 0, 0x0B, 8, 7, 0xE8, payload.len() as u8];
         data.extend_from_slice(payload);
         data.resize(14, 0);
+        data
+    }
+
+    fn notify_two_ecus(first: &[u8], second: &[u8]) -> Vec<u8> {
+        let mut data = vec![2];
+        for (object, payload) in [(0xE8, first), (0xE9, second)] {
+            data.extend_from_slice(&[0, 0x0B, 8, 7, object, payload.len() as u8]);
+            data.extend_from_slice(payload);
+            data.resize(data.len() + 7 - payload.len(), 0);
+        }
         data
     }
 
@@ -1521,9 +1543,16 @@ mod tests {
                     incoming: VecDeque::new(),
                     outgoing: Vec::new(),
                     requests: requests.clone(),
+                    multiple_ecu_rpm: false,
                 },
                 requests,
             )
+        }
+
+        fn with_multiple_ecu_rpm() -> (Self, Arc<Mutex<Vec<(u16, Vec<u8>)>>>) {
+            let (mut dongle, requests) = Self::new();
+            dongle.multiple_ecu_rpm = true;
+            (dongle, requests)
         }
 
         fn respond(&mut self, request: A30Frame) {
@@ -1597,6 +1626,12 @@ mod tests {
                     }
                     (0xFFEC, _) if request.data.get(11) == Some(&0x22) => {
                         (0xFFF1, notify_data(&[0x62, 0x12, 0x34, 0x64]))
+                    }
+                    (0xFFEC, _) if self.multiple_ecu_rpm && request.data.get(12) == Some(&0x0C) => {
+                        (
+                            0xFFF1,
+                            notify_two_ecus(&[0x41, 0x0C, 0x1A, 0xF8], &[0x41, 0x0C, 0x13, 0x88]),
+                        )
                     }
                     (0xFFEC, _) => {
                         let pid = request.data.get(12).copied().unwrap_or_default();
@@ -2233,6 +2268,41 @@ mod tests {
                 .graph_values
                 .iter()
                 .all(|value| value.unit == "raw count")
+        );
+    }
+
+    #[test]
+    fn mode01_multiple_ecu_replies_are_preserved_but_not_graphed() {
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let (dongle, _) = ScriptedDongle::with_multiple_ecu_rpm();
+        let session = A30Session::open_with_timing(Box::new(dongle), timing).unwrap();
+
+        let result = run_a30_read_test_with_session(
+            session,
+            "AA:BB:CC:DD:EE:FF",
+            A30ReadTest::Mode01EngineRpm,
+        )
+        .unwrap();
+
+        assert_eq!(result.outcome, A30ReadOutcome::WrongResponder);
+        assert_eq!(result.responder_header.as_deref(), Some("7E8"));
+        assert_eq!(
+            result.response_payloads,
+            vec![vec![0x41, 0x0C, 0x1A, 0xF8], vec![0x41, 0x0C, 0x13, 0x88],]
+        );
+        assert!(result.graph_values.is_empty());
+        assert!(
+            result
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("Multiple ECU responders"))
         );
     }
 }
