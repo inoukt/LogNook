@@ -5,6 +5,7 @@ mod bluetooth_spp;
 mod csv_import;
 mod csv_io;
 mod derived;
+mod diagnostics;
 mod elm327;
 mod engine;
 mod graph_window;
@@ -33,6 +34,7 @@ pub use bluetooth_spp::{
 };
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
+pub use diagnostics::{DiagnosticPhase, DiagnosticProgress, DiagnosticSink};
 pub use elm327::{Elm327Adapter, identify_elm327, try_elm_oem_candidate};
 pub use engine::LogNookEngine;
 pub use graph_window::{
