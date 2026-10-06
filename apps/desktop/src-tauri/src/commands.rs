@@ -1,4 +1,6 @@
+mod diagnostics;
 mod player;
+pub use diagnostics::*;
 pub use player::*;
 mod bluetooth;
 pub use bluetooth::*;

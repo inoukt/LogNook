@@ -67,6 +67,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::diagnostic_snapshot,
+            commands::choose_diagnostics_recording,
+            commands::export_support_bundle,
             commands::available_signals,
             commands::search_oem_catalog,
             commands::probe_scion_xb_mode21,
