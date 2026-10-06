@@ -274,7 +274,7 @@ fn copy_entry(
         return Err(format!("Source is not a regular file: {}", path.display()));
     }
     archive
-        .start_file(format!("{directory}/{basename}"), options)
+        .start_file(format!("{directory}/{basename}"), options.large_file(true))
         .map_err(|error| error.to_string())?;
     // Cap the stream at its starting size so concurrent logging cannot extend the export indefinitely.
     let copied =
@@ -436,6 +436,46 @@ mod tests {
                     .is_err()
             );
             assert!(!f.destination().exists());
+        }
+    }
+
+    #[test]
+    fn streamed_bundle_entries_use_zip64_and_round_trip() {
+        let f = Fixture::new();
+        let diagnostics = f.source("operations.jsonl", b"diagnostics");
+        let evidence = f.source("evidence.jsonl", b"evidence");
+        let recording = f.source("external/selected.lognook", b"selected recording");
+        write_support_bundle(
+            &f.destination(),
+            &metadata(),
+            std::slice::from_ref(&diagnostics),
+            std::slice::from_ref(&evidence),
+            Some(&recording),
+        )
+        .unwrap();
+        let bytes = fs::read(f.destination()).unwrap();
+        let mut archive = zip::ZipArchive::new(fs::File::open(f.destination()).unwrap()).unwrap();
+        for (name, source) in [
+            ("diagnostics/operations.jsonl", diagnostics),
+            ("oem-validation/evidence.jsonl", evidence),
+            ("recordings/selected.lognook", recording),
+        ] {
+            let mut entry = archive.by_name(name).unwrap();
+            let header = entry.header_start() as usize;
+            // A ZIP64 local header reserves both 32-bit size fields and stores sizes
+            // in extra field 0x0001, even for this small fixture.
+            assert_eq!(
+                &bytes[header + 18..header + 26],
+                &[0xff; 8],
+                "{name} must reserve ZIP64 sizes"
+            );
+            let name_length =
+                u16::from_le_bytes(bytes[header + 26..header + 28].try_into().unwrap()) as usize;
+            let extra = header + 30 + name_length;
+            assert_eq!(&bytes[extra..extra + 4], &[0x01, 0x00, 0x10, 0x00]);
+            let mut restored = vec![];
+            entry.read_to_end(&mut restored).unwrap();
+            assert_eq!(restored, fs::read(source).unwrap());
         }
     }
 
