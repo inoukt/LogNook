@@ -343,22 +343,26 @@ pub(super) fn run_worker(
                 Ok(None) => {}
                 Err(error) => {
                     report_transport_error(&event_sink, &mut capture, error.clone(), None);
-                    if let Some(result) = scan_task
-                        .take()
-                        .and_then(|task| task.terminal_result(error.clone()))
-                    {
-                        scan::emit_result(result, &mut capture, &event_sink);
+                    if error.terminates_scan() {
+                        if let Some(result) = scan_task
+                            .take()
+                            .and_then(|task| task.terminal_result(error.clone()))
+                        {
+                            scan::emit_result(result, &mut capture, &event_sink);
+                        }
                     }
-                    disconnect_transport(
-                        &mut transport,
-                        &event_sink,
-                        &mut capture,
-                        &running,
-                        &mut disconnected,
-                        source_id.clone(),
-                        bitrate,
-                        listen_only,
-                    );
+                    if error.terminates_session() {
+                        disconnect_transport(
+                            &mut transport,
+                            &event_sink,
+                            &mut capture,
+                            &running,
+                            &mut disconnected,
+                            source_id.clone(),
+                            bitrate,
+                            listen_only,
+                        );
+                    }
                 }
             }
         }

@@ -576,6 +576,96 @@ fn submitted_tx_is_unconfirmed_until_echo_and_transport_raw_bytes_are_evidence()
 }
 
 #[test]
+fn unsupported_receive_error_keeps_pending_scan_capture_and_session_alive() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+
+    let capture_path = temp_path("candump.csv");
+    let recording_path = temp_path("lognook");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine.start_recording(&recording_path).unwrap();
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::Mode01Pids {
+                request_id: 0x7E0,
+                response_id: 0x7E8,
+                extended: false,
+                pids: vec![0x0C],
+                repeat: false,
+            },
+            pacing_ms: 10,
+            response_timeout_ms: 250,
+            source_candidate_id: None,
+        })
+        .unwrap();
+    transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    incoming
+        .send(FakeInput::Error(CanTransportError {
+            kind: lognook_core::CanTransportErrorKind::UnsupportedFrame,
+            message: "unsupported RTR frame".into(),
+            raw_usb: Some(vec![0xA1, 0xD0]),
+        }))
+        .unwrap();
+    let response = frame(0x7E8, CanDirection::Rx, &[4, 0x41, 0x0C, 0x1F, 0x40], -1);
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(response.clone())))
+        .unwrap();
+
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanTransportError(error)
+                if error.kind == lognook_core::CanTransportErrorKind::UnsupportedFrame)
+        })
+    });
+    assert!(
+        engine.is_connected(),
+        "a nonterminal unsupported frame must not disconnect the CAN workbench"
+    );
+    wait_until(|| {
+        let events = events.lock().unwrap();
+        events.iter().any(|event| {
+            matches!(event, EngineEvent::Sample(sample) if sample.signal_id == "engine_rpm")
+        }) && events.iter().any(|event| {
+            matches!(event, EngineEvent::CanScanResult(result)
+                if result.outcome == lognook_core::CanDiagnosticOutcome::Positive)
+        })
+    });
+
+    engine.stop_recording().unwrap();
+    engine.stop_can_capture().unwrap();
+    let recording = read_recording(&recording_path).unwrap();
+    assert!(
+        recording
+            .samples
+            .iter()
+            .any(|sample| { sample.signal_id == "engine_rpm" && sample.value == 2000.0 })
+    );
+    let evidence: Vec<lognook_core::CanEvidenceRecord> =
+        std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+    assert!(evidence.iter().any(|record| matches!(record,
+        lognook_core::CanEvidenceRecord::TransportError { error, .. }
+            if error.kind == lognook_core::CanTransportErrorKind::UnsupportedFrame
+                && error.raw_usb.as_deref() == Some(&[0xA1, 0xD0][..])
+    )));
+    let capture = std::fs::read_to_string(&capture_path).unwrap();
+    assert!(capture.contains("rx,7E8,standard,5,04410C1F40,"));
+
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+    let _ = std::fs::remove_file(recording_path);
+}
+
+#[test]
 fn delayed_echo_from_closed_capture_is_not_written_into_the_next_capture() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let event_sink = events.clone();
