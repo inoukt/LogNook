@@ -145,15 +145,16 @@
 
 **Interfaces:**
 - Consumes Task 5 Tauri commands/events and Tasks 1–3 frame/scope/analyzer types.
-- Produces Candlelight selection/status, bitrate and listen/active mode controls, raw-frame view and per-ID rates, multi-field scope definitions, census/byte/pair/correlation views, trigger capture, raw CSV plus JSONL evidence replay/report, and visible scan/send/TX-echo/error results. Active send and scan controls are disabled until the paired evidence capture is open and the adapter is in active mode.
+- Produces Candlelight selection/status, bitrate and listen/active mode controls, raw-frame view and bounded live per-ID count/rate, multi-field scope definitions, raw CSV plus JSONL evidence replay/report with Rust census/byte results, Mode 01/21/22 and CAN-ID scan controls, and visible send/TX-echo/error results. Active send and scan controls are disabled until the paired evidence capture is open and the adapter is in active mode.
 - Numeric CAN fields appear as normal signal options and use `SignalGraphs`; do not add a second graph or decode frames only in Svelte. Coalesce only UI refreshes, not capture writes.
 - Render raw frames and diagnostics without blocking acquisition; coalesce frame-list UI updates while Rust continues synchronous ordered capture writes. The common event pipeline publishes decoded values to the existing live graph.
 - `CanWorkbenchStatus` also updates the application-level connection state so the existing Disconnect/Record controls and adapter-exclusivity behavior remain consistent while Candlelight is active.
+- Keep pair-timing, correlation, and trigger-capture analysis in Task 7's Rust analysis/report slice; Task 6 must not approximate those protocols in TypeScript.
 
-- [ ] **Step 1: Write failing UI tests** for command argument shapes, ID/field validation, multiple graph traces, mode/state transitions, replay/trigger display, and stop behavior.
-- [ ] **Step 2: Run** `npm run test:ui --prefix apps/desktop`; confirm the new cases fail.
-- [ ] **Step 3: Implement** the panel, typed Tauri client helpers, and graph-option integration.
-- [ ] **Step 4: Run** `npm run test:ui --prefix apps/desktop` and `npm run build --prefix apps/desktop`; require all assertions/type checks/build to pass.
+- [x] **Step 1: Write failing UI tests** for command argument shapes, ID/field validation, multiple graph traces, mode/state transitions, replay/sidecar display, and stop behavior.
+- [x] **Step 2: Run** `npm run test:ui --prefix apps/desktop`; confirm the new cases fail.
+- [x] **Step 3: Implement** the panel, typed Tauri client helpers, and graph-option integration.
+- [x] **Step 4: Run** `npm run test:ui --prefix apps/desktop` and `npm run build --prefix apps/desktop`; require all assertions/type checks/build to pass.
 
 ### Task 7: Reports, DBC skeleton, docs, and full verification
 
@@ -161,15 +162,16 @@
 - Modify: `crates/lognook-core/src/can_analysis.rs`
 - Modify: `apps/desktop/src-tauri/src/commands/can.rs`
 - Modify: `apps/desktop/src/CanWorkbenchPanel.svelte`
+- Modify: `apps/desktop/src/canWorkbench.ts`
 - Modify: `LogNook_Blueprint/03_HARDWARE_PROTOCOLS.md`
 - Modify: `PROJECT_STATUS.md`
 - Test: `crates/lognook-core/tests/can_analysis.rs`
 
 **Interfaces:**
 - Consumes Tasks 1–6.
-- Produces saved-capture session report and ID/payload comparison, plus optional DBC skeleton with placeholder signal definitions clearly marked as unverified.
+- Produces saved-capture session report and ID/payload comparison, request/reply timing and correlation hypotheses, bounded pre/post trigger capture controls, plus optional DBC skeleton with placeholder signal definitions clearly marked as unverified.
 
-- [ ] **Step 1: Write failing tests** for deterministic report/census output, ID/byte differences between captures, and DBC placeholder labeling.
+- [ ] **Step 1: Write failing tests** for deterministic report/census output, ID/byte differences between captures, request/reply and correlation summaries, bounded trigger capture behavior, and DBC placeholder labeling.
 - [ ] **Step 2: Run** `cargo test -p lognook-core --test can_analysis`; confirm expected failures.
 - [ ] **Step 3: Implement** these export conveniences and update architecture/progress documentation with physical-verification limits.
 - [ ] **Step 4: Run** `cargo fmt --all -- --check`, `cargo test --workspace`, `npm run test:ui --prefix apps/desktop`, and `npm run build --prefix apps/desktop`.
