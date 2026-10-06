@@ -3,6 +3,7 @@ mod acquisition;
 mod adapter;
 mod bluetooth_spp;
 mod can;
+mod can_analysis;
 mod csv_import;
 mod csv_io;
 mod derived;
@@ -33,6 +34,11 @@ pub use bluetooth_spp::{
     format_bluetooth_address, paired_spp_devices, parse_bluetooth_address,
 };
 pub use can::{CanByteOrder, CanDirection, CanFrame, CanSignalDefinition, decode_can_signal};
+pub use can_analysis::{
+    CanAnalysisConfig, CanAnalyzer, CanByteSummary, CanCensusRow, CanCorrelationHypothesis,
+    CanDiagnosticOutcome, CanDiagnosticRoute, CanRequestTiming, CanTriggerCapture,
+    CanTriggerConfig, CanTriggerRecorder,
+};
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
 pub use elm327::{Elm327Adapter, identify_elm327, try_elm_oem_candidate};
