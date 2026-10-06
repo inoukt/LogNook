@@ -189,6 +189,14 @@ impl LogNookEngine {
             .execute_research_test(request)
     }
 
+    pub fn sample_publisher(&self) -> crate::SamplePublisher {
+        self.pipeline.publisher()
+    }
+
+    pub fn publish_timestamped_sample(&self, sample: Sample) -> Result<(), LogNookError> {
+        self.sample_publisher().publish_timestamped_sample(sample)
+    }
+
     pub fn publish_research_sample(&self, mut sample: Sample) -> Result<(), LogNookError> {
         if sample.origin != SampleOrigin::Live
             || !matches!(
@@ -597,5 +605,110 @@ mod tests {
         };
         assert_eq!(sample.signal_id, "oem:outside-range");
         assert_eq!(sample.quality, SampleQuality::Suspect);
+    }
+
+    #[test]
+    fn timestamped_publication_preserves_receive_time_and_monotonic_markers() {
+        let (events, received) = std::sync::mpsc::channel();
+        let engine = LogNookEngine::new(move |event| {
+            let _ = events.send(event);
+        });
+        let path = std::env::temp_dir().join(format!(
+            "lognook-can-timestamps-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        engine.pipeline.start_recording(path.clone()).unwrap();
+        let sample = Sample {
+            elapsed_ns: 9_000_000,
+            wall_time_unix_ns: 123,
+            source_id: "can:fixture".into(),
+            ecu_id: Some("123".into()),
+            signal_id: "can:field".into(),
+            value: 7.0,
+            unit: "raw".into(),
+            quality: SampleQuality::Suspect,
+            origin: SampleOrigin::Live,
+            raw_bytes: Some(vec![7, 8]),
+        };
+        engine.publish_timestamped_sample(sample.clone()).unwrap();
+        assert_eq!(
+            received
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            EngineEvent::Sample(sample.clone())
+        );
+        let mut older = sample.clone();
+        older.elapsed_ns = 2_000_000;
+        engine
+            .sample_publisher()
+            .clone()
+            .publish_timestamped_sample(older.clone())
+            .unwrap();
+        assert_eq!(
+            received
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            EngineEvent::Sample(older.clone())
+        );
+        let marker = engine
+            .pipeline
+            .insert_marker("after older frame".into(), "".into())
+            .unwrap();
+        assert_eq!(marker.elapsed_ns, 9_000_000);
+        engine.publish_research_sample(sample.clone()).unwrap();
+        let _ = received
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap(); // marker
+        let EngineEvent::Sample(research) = received
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+        else {
+            panic!("expected research sample")
+        };
+        assert_eq!(research.elapsed_ns, 10_000_000);
+        let summary = engine.pipeline.stop_recording().unwrap();
+        assert_eq!(summary.sample_count, 3);
+        let recording = crate::read_recording(&path).unwrap();
+        assert_eq!(recording.samples, vec![older, sample, research]);
+        assert_eq!(recording.markers[0].elapsed_ns, 9_000_000);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn timestamped_publication_rejects_non_live_non_finite_and_negative_time() {
+        let engine = LogNookEngine::new(|_| {});
+        let sample = Sample {
+            elapsed_ns: 1,
+            wall_time_unix_ns: 1,
+            source_id: "fixture".into(),
+            ecu_id: None,
+            signal_id: "can:field".into(),
+            value: 1.0,
+            unit: "raw".into(),
+            quality: SampleQuality::Suspect,
+            origin: SampleOrigin::Live,
+            raw_bytes: Some(vec![1]),
+        };
+        let mut invalid = sample.clone();
+        invalid.elapsed_ns = -1;
+        assert!(engine.publish_timestamped_sample(invalid).is_err());
+        let mut invalid = sample.clone();
+        invalid.value = f64::NAN;
+        assert!(
+            engine
+                .sample_publisher()
+                .publish_timestamped_sample(invalid)
+                .is_err()
+        );
+        let mut invalid = sample.clone();
+        invalid.origin = SampleOrigin::Replay;
+        assert!(engine.publish_timestamped_sample(invalid).is_err());
+        let mut invalid = sample;
+        invalid.quality = SampleQuality::ParseError;
+        assert!(engine.publish_timestamped_sample(invalid).is_err());
     }
 }

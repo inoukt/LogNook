@@ -91,6 +91,33 @@ impl SampleSender {
     }
 }
 
+/// Cloneable, bounded producer for receive-timestamped live measurements.
+#[derive(Clone)]
+pub struct SamplePublisher {
+    sender: SampleSender,
+    latest_elapsed_ns: Arc<AtomicI64>,
+}
+
+impl SamplePublisher {
+    pub fn publish_timestamped_sample(&self, sample: Sample) -> Result<(), LogNookError> {
+        if sample.elapsed_ns < 0
+            || sample.origin != crate::SampleOrigin::Live
+            || !matches!(
+                sample.quality,
+                crate::SampleQuality::Valid | crate::SampleQuality::Suspect
+            )
+            || !sample.value.is_finite()
+        {
+            return Err(LogNookError::new(
+                "Timestamped samples must be finite live measurements with non-negative elapsed time and valid or suspect quality",
+            ));
+        }
+        self.latest_elapsed_ns
+            .fetch_max(sample.elapsed_ns, Ordering::AcqRel);
+        self.sender.send_sample(sample)
+    }
+}
+
 pub(crate) struct SamplePipeline {
     sender: SampleSender,
     latest_elapsed_ns: Arc<AtomicI64>,
@@ -135,6 +162,13 @@ impl SamplePipeline {
 
     pub(crate) fn sender(&self) -> SampleSender {
         self.sender.clone()
+    }
+
+    pub(crate) fn publisher(&self) -> SamplePublisher {
+        SamplePublisher {
+            sender: self.sender(),
+            latest_elapsed_ns: self.latest_elapsed_ns.clone(),
+        }
     }
 
     pub(crate) fn next_research_elapsed_ns(&self) -> i64 {

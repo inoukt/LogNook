@@ -28,7 +28,7 @@ pub(super) fn process_live_sample(
     newest_elapsed_ns: &mut i64,
 ) -> bool {
     if sample.origin == SampleOrigin::Live {
-        latest.store(sample.elapsed_ns, Ordering::Relaxed);
+        latest.fetch_max(sample.elapsed_ns, Ordering::AcqRel);
         let write_error = recorder
             .as_mut()
             .and_then(|writer| writer.append(&sample).err());
@@ -76,8 +76,14 @@ pub(super) fn process_live_sample(
                     sink(EngineEvent::Marker(marker));
                 }
                 Err(error) => {
-                    set_trigger_status(automatic_trigger_status, AutomaticTriggerStatus::default(), sink);
-                    sink(EngineEvent::Error(format!("Automatic trigger recording could not start: {error}")));
+                    set_trigger_status(
+                        automatic_trigger_status,
+                        AutomaticTriggerStatus::default(),
+                        sink,
+                    );
+                    sink(EngineEvent::Error(format!(
+                        "Automatic trigger recording could not start: {error}"
+                    )));
                 }
             }
         }
@@ -87,7 +93,10 @@ pub(super) fn process_live_sample(
 }
 
 pub(super) fn get_trigger_status(status: &Mutex<AutomaticTriggerStatus>) -> AutomaticTriggerStatus {
-    status.lock().map(|status| status.clone()).unwrap_or_default()
+    status
+        .lock()
+        .map(|status| status.clone())
+        .unwrap_or_default()
 }
 
 pub(super) fn set_trigger_status(
