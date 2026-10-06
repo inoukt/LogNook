@@ -1,8 +1,11 @@
+mod a30;
 mod acquisition;
 mod adapter;
+mod bluetooth_spp;
 mod csv_import;
 mod csv_io;
 mod derived;
+mod elm327;
 mod engine;
 mod graph_window;
 mod model;
@@ -18,9 +21,18 @@ mod recording_view;
 mod session;
 mod simulator;
 
+pub use a30::{
+    A30Adapter, A30CanReply, A30Decoder, A30Frame, A30GraphValue, A30ReadOutcome, A30ReadTest,
+    A30ReadTestResult, A30Session, identify_a30, run_a30_read_test, try_a30_oem_candidate,
+};
 pub use adapter::HardwareAdapter;
+pub use bluetooth_spp::{
+    BluetoothByteStream, BluetoothSppDevice, SERIAL_PORT_SERVICE_CLASS_UUID, connect_bluetooth_spp,
+    format_bluetooth_address, paired_spp_devices, parse_bluetooth_address,
+};
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
+pub use elm327::{Elm327Adapter, identify_elm327, try_elm_oem_candidate};
 pub use engine::LogNookEngine;
 pub use graph_window::{
     query_recording_averages, query_recording_values_at, query_recording_window,

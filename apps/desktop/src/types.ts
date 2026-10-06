@@ -76,6 +76,46 @@ export type ScionMode21ProbeResult = {
   evidence_save_error: string | null;
 };
 
+export type BluetoothSppDevice = { address: string; name: string };
+
+export type A30GraphValue = {
+  signal_id: string;
+  name: string;
+  service: number;
+  pid: number | null;
+  value: number;
+  unit: string;
+  raw_value: string;
+};
+
+export type A30ReadTestResult = {
+  test: string;
+  request_description: string;
+  exact_adapter_command: string;
+  adapter: DeviceDescriptor;
+  protocol: string;
+  started_at_unix_ms: number;
+  latency_ms: number;
+  outcome:
+    | "positive"
+    | "negative_response"
+    | "response_pending"
+    | "temporarily_unavailable"
+    | "session_required"
+    | "security_required"
+    | "no_response"
+    | "malformed_response"
+    | "wrong_responder";
+  responder_header: string | null;
+  response_payloads: number[][];
+  negative_response_code: number | null;
+  graph_values: A30GraphValue[];
+  detail: string | null;
+  raw_response: string;
+  evidence_saved: boolean;
+  evidence_save_error: string | null;
+};
+
 export type OemCandidateTryResult = {
   candidate_id: string;
   exact_adapter_command: string;

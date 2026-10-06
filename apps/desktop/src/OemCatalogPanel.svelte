@@ -2,10 +2,15 @@
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { oemCandidateTryState } from "./oemCandidateControls";
-  import type { OemCandidateTryResult, OemCatalogPage, OemCandidate, ScionMode21ProbeResult } from "./types";
+  import { A30_READ_TESTS } from "./a30ReadTests";
+  import type { A30GraphValue, A30ReadTestResult, OemCandidateTryResult, OemCatalogPage, OemCandidate, ScionMode21ProbeResult } from "./types";
 
   export let selectedPort = "";
+  export let selectedBluetoothAddress = "";
+  export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx";
   export let disabled = false;
+  export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
+  export let onGraphReadValue: (value: A30GraphValue) => void = () => {};
 
   const pageSize = 50;
   let query = "";
@@ -24,6 +29,10 @@
   let probe: ScionMode21ProbeResult | null = null;
   let searchTimer: number | undefined;
   let requestId = 0;
+  let selectedA30Test = A30_READ_TESTS[0][0];
+  let testingA30Mode = false;
+  let a30ReadTest: A30ReadTestResult | null = null;
+  let a30ReadTestError = "";
 
   onMount(() => { void loadPage(); });
   onDestroy(() => window.clearTimeout(searchTimer));
@@ -57,7 +66,7 @@
   }
 
   async function runScionProbe() {
-    if (!selectedPort || disabled || probing || probingCandidateId !== null) return;
+    if (selectedAdapter !== "obdlink_sx" || !selectedPort || disabled || probing || probingCandidateId !== null) return;
     probing = true;
     probe = null;
     probeError = "";
@@ -71,20 +80,47 @@
   }
 
   async function tryCandidate(candidate: OemCandidate) {
-    const state = oemCandidateTryState(candidate, selectedPort, disabled || probing || probingCandidateId !== null);
+    const bluetoothAdapter = selectedAdapter === "a30" || selectedAdapter === "elm327";
+    const device = bluetoothAdapter ? selectedBluetoothAddress : selectedPort;
+    const state = oemCandidateTryState(candidate, device, disabled || probing || probingCandidateId !== null || testingA30Mode, selectedAdapter);
     if (state.disabled) return;
     probingCandidateId = candidate.candidate_id;
     candidateTryErrors = { ...candidateTryErrors, [candidate.candidate_id]: "" };
     try {
-      const result = await invoke<OemCandidateTryResult>("try_oem_candidate", {
-        portName: selectedPort,
-        candidateId: candidate.candidate_id,
-      });
+      const command = selectedAdapter === "a30"
+        ? "try_a30_oem_candidate"
+        : selectedAdapter === "elm327" ? "try_elm_oem_candidate" : "try_oem_candidate";
+      const args = bluetoothAdapter
+        ? { address: selectedBluetoothAddress, candidateId: candidate.candidate_id }
+        : { portName: selectedPort, candidateId: candidate.candidate_id };
+      const result = await invoke<OemCandidateTryResult>(command, args);
       candidateTryResults = { ...candidateTryResults, [candidate.candidate_id]: result };
+      if (result.outcome === "positive" && Number.isFinite(result.decoded_value?.value)) {
+        onGraphCandidate(candidate);
+      }
     } catch (caught) {
       candidateTryErrors = { ...candidateTryErrors, [candidate.candidate_id]: String(caught) };
     } finally {
       probingCandidateId = null;
+    }
+  }
+
+  async function runA30ReadTest() {
+    if (selectedAdapter !== "a30" || !selectedBluetoothAddress || disabled || testingA30Mode) return;
+    testingA30Mode = true;
+    a30ReadTest = null;
+    a30ReadTestError = "";
+    try {
+      const result = await invoke<A30ReadTestResult>("try_a30_read_test", {
+        address: selectedBluetoothAddress,
+        test: selectedA30Test,
+      });
+      a30ReadTest = result;
+      for (const value of result.graph_values) onGraphReadValue(value);
+    } catch (caught) {
+      a30ReadTestError = String(caught);
+    } finally {
+      testingA30Mode = false;
     }
   }
 
@@ -113,14 +149,41 @@
     </div>
   </div>
 
-  <div class="scion-probe-card">
+  {#if selectedAdapter === "a30"}
+    <div class="a30-mode-test">
+      <div class="a30-mode-test-controls">
+        <select class="text-input" bind:value={selectedA30Test} aria-label="A30 read mode">
+          {#each A30_READ_TESTS as [value, label]}<option {value}>{label}</option>{/each}
+        </select>
+        <button class="button secondary" onclick={runA30ReadTest} disabled={disabled || !selectedBluetoothAddress || testingA30Mode || probingCandidateId !== null}>
+          {testingA30Mode ? "Testing…" : "Try once"}
+        </button>
+      </div>
+      {#if a30ReadTestError}<p class="oem-error" role="alert">A30 read test failed: {a30ReadTestError}</p>{/if}
+      {#if a30ReadTest}
+        <div class="candidate-try-result" aria-live="polite">
+          <strong>{a30ReadTest.outcome.replaceAll("_", " ")} · {a30ReadTest.latency_ms} ms</strong>
+          <p>{a30ReadTest.request_description} · {a30ReadTest.responder_header ?? "no responding ECU"}</p>
+          {#if a30ReadTest.detail}<p>{a30ReadTest.detail}</p>{/if}
+          {#each a30ReadTest.graph_values as value (value.signal_id)}
+            <p>{value.name}: {value.value.toFixed(2)} {displayUnit(value.unit)} · raw {value.raw_value} · added to graph</p>
+          {/each}
+          {#if a30ReadTest.negative_response_code !== null}<p>NRC 0x{a30ReadTest.negative_response_code.toString(16).toUpperCase().padStart(2, "0")}</p>{/if}
+          {#if a30ReadTest.evidence_saved}<p>Raw read evidence saved in app data, outside the catalog.</p>{:else if a30ReadTest.evidence_save_error}<p class="oem-error">Evidence could not be saved: {a30ReadTest.evidence_save_error}</p>{/if}
+          <details><summary>Exact request and raw A30 response</summary><code>{a30ReadTest.exact_adapter_command}</code><pre>{a30ReadTest.raw_response || "No A30 reply frame received"}</pre></details>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  {#if selectedAdapter === "obdlink_sx"}<div class="scion-probe-card">
     <div><strong>Scion xB 2014 · 21 01</strong><p>One source-backed read via the selected OBDLink SX. Only use on the 2AZ-FE Scion xB, stationary in Park with the parking brake set, ignition on and engine off. Close other diagnostic apps.</p></div>
     <button class="button secondary" onclick={runScionProbe} disabled={disabled || !selectedPort || probing || probingCandidateId !== null}>
       {probing ? "Reading once…" : "Read 21 01 once"}
     </button>
-  </div>
-  {#if probeError}<p class="oem-error" role="alert">Probe could not start: {probeError}</p>{/if}
-  {#if probe}
+  </div>{/if}
+  {#if selectedAdapter === "obdlink_sx" && probeError}<p class="oem-error" role="alert">Probe could not start: {probeError}</p>{/if}
+  {#if selectedAdapter === "obdlink_sx" && probe}
     <article class="probe-result" aria-live="polite">
       <header><strong>Probe outcome: {probe.outcome.replaceAll("_", " ")}</strong><span>{probe.latency_ms} ms</span></header>
       <p>{probe.adapter.hardware_family} · {probe.adapter.stable_id} · {probe.adapter.firmware ?? "firmware unknown"}</p>
@@ -144,11 +207,12 @@
   {:else if page}
     <div class="oem-catalog-list" aria-busy={loading}>
       {#each page.candidates as candidate (candidate.candidate_id)}
-        {@const tryState = oemCandidateTryState(candidate, selectedPort, disabled || probing || probingCandidateId !== null)}
+        {@const candidateDevice = selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : selectedPort}
+        {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || probing || probingCandidateId !== null || testingA30Mode, selectedAdapter)}
         <article class="oem-candidate">
           <header>
             <strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
-            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through OBDLink SX`} aria-label={`Try ${candidate.name} once`}>{probingCandidateId === candidate.candidate_id ? "Trying…" : "Try once"}</button>
+            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{probingCandidateId === candidate.candidate_id ? "Trying…" : "Try once"}</button>
           </header>
           <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
           <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
@@ -212,6 +276,10 @@
   .oem-filters { display: grid; gap: 5px; }
   .oem-filter-row { display: grid; grid-template-columns: 1fr 1fr 95px; gap: 5px; }
   .oem-filters .text-input { min-width: 0; min-height: 29px; padding: 5px 7px; font-size: 10px; }
+  .a30-mode-test { display: grid; gap: 4px; min-width: 0; }
+  .a30-mode-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .a30-mode-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 29px; padding: 4px 6px; font-size: 10px; }
+  .a30-mode-test-controls .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }
   .scion-probe-card, .probe-result { padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: #142029; }
   .scion-probe-card strong, .probe-result strong { font-size: 11px; }
   .scion-probe-card .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }

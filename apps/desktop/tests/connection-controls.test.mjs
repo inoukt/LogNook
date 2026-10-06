@@ -8,6 +8,57 @@ test("adapter labels stay short for the one-row toolbar", () => {
   assert.equal(controls.adapterLabel("simulator"), "Simulator");
   assert.equal(controls.adapterLabel("obdlink_sx"), "OBDLink SX");
   assert.equal(controls.adapterLabel("openport2"), "OpenPort 2");
+  assert.equal(controls.adapterLabel("elm327"), "Bluetooth ELM327");
+  assert.equal(controls.adapterLabel("a30"), "Xtool A30/A30M");
+});
+
+test("Bluetooth adapters need a paired address and matching identity before connect", () => {
+  assert.ok(controls, "connection controls helper is available");
+  for (const adapter of ["elm327", "a30"]) {
+    const missingDevice = controls.connectionControlState(adapter, {
+      busy: false,
+      recording: false,
+      replaying: false,
+      hasSignals: true,
+      sxPort: "",
+      sxIdentityMatches: false,
+      openPortProvider: "",
+      openPortIdentityMatches: false,
+      bluetoothAddress: "",
+      bluetoothIdentityMatches: false,
+    });
+    assert.equal(missingDevice.identifyDisabled, true);
+    assert.equal(missingDevice.connectDisabled, true);
+
+    const paired = controls.connectionControlState(adapter, {
+      busy: false,
+      recording: false,
+      replaying: false,
+      hasSignals: true,
+      sxPort: "",
+      sxIdentityMatches: false,
+      openPortProvider: "",
+      openPortIdentityMatches: false,
+      bluetoothAddress: "AA:BB:CC:DD:EE:FF",
+      bluetoothIdentityMatches: false,
+    });
+    assert.equal(paired.identifyDisabled, false);
+    assert.equal(paired.connectDisabled, true);
+
+    const identified = controls.connectionControlState(adapter, {
+      busy: false,
+      recording: false,
+      replaying: false,
+      hasSignals: true,
+      sxPort: "",
+      sxIdentityMatches: false,
+      openPortProvider: "",
+      openPortIdentityMatches: false,
+      bluetoothAddress: "AA:BB:CC:DD:EE:FF",
+      bluetoothIdentityMatches: true,
+    });
+    assert.equal(identified.connectDisabled, false);
+  }
 });
 
 test("identify and connect stay disabled until an SX port and identity are selected", () => {

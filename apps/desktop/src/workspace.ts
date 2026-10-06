@@ -20,6 +20,7 @@ export type SignalOption = {
   description?: string;
   formula?: string;
   pid?: number;
+  research?: boolean;
 };
 
 export function graphRefreshIntervalMs(scrubbing: boolean): number {

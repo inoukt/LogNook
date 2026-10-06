@@ -122,6 +122,8 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .adapter-select { width: clamp(94px, 7.5vw, 118px); min-width: 88px; }
 .port-select { width: clamp(104px, 8vw, 124px); min-width: 104px; }
 .provider-select { width: clamp(128px, 10vw, 156px); min-width: 112px; }
+.bluetooth-select { width: clamp(112px, 11vw, 158px); min-width: 104px; }
+.bluetooth-select { width: clamp(112px, 11vw, 158px); min-width: 104px; }
 .adapter-refresh { min-width: 28px; padding-inline: 6px; }
 .adapter-identified { color: var(--accent); font-size: 9px; font-weight: 700; white-space: nowrap; }
 .workspace-toolbar .button { min-height: clamp(28px, 2.4vw, 34px); min-width: 0; padding-inline: clamp(4px, .65vw, 11px); font-size: clamp(8px, .78vw, 11px); }

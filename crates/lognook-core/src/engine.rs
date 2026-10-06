@@ -4,8 +4,9 @@ use crate::{
     csv_io::export_recording_csv,
     derived::{CompiledDerivedSignal, compile_derived_signals},
     model::{
-        AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities, DerivedSignalDefinition, EngineEvent,
-        LogNookError, RecordingSummary, SignalDefinition,
+        AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
+        DerivedSignalDefinition, EngineEvent, LogNookError, RecordingSummary, Sample, SampleOrigin,
+        SampleQuality, SignalDefinition,
     },
     pipeline::SamplePipeline,
     playback::PlaybackHandle,
@@ -105,13 +106,17 @@ impl LogNookEngine {
             if let Some(derived) = derived_by_id.get(id.as_str()) {
                 if !self.active_derived_signal_ids.contains(id) {
                     adapter.disconnect();
-                    return Err(LogNookError::new(format!("Enable derived signal '{id}' before connecting")));
+                    return Err(LogNookError::new(format!(
+                        "Enable derived signal '{id}' before connecting"
+                    )));
                 }
                 selected_derived_ids.insert(id.clone());
                 requested_source_ids.extend(derived.dependencies().iter().cloned());
             } else if all_derived_ids.contains(id.as_str()) {
                 adapter.disconnect();
-                return Err(LogNookError::new(format!("Derived signal '{id}' is not active")));
+                return Err(LogNookError::new(format!(
+                    "Derived signal '{id}' is not active"
+                )));
             } else {
                 requested_source_ids.push(id.clone());
             }
@@ -141,7 +146,10 @@ impl LogNookEngine {
         self.pipeline.set_derived_signals(
             compiled
                 .iter()
-                .filter(|signal| self.active_derived_signal_ids.contains(&signal.definition.id))
+                .filter(|signal| {
+                    self.active_derived_signal_ids
+                        .contains(&signal.definition.id)
+                })
                 .cloned()
                 .collect(),
         )?;
@@ -168,6 +176,22 @@ impl LogNookEngine {
 
     pub fn is_recording(&self) -> bool {
         self.pipeline.is_recording()
+    }
+
+    pub fn publish_research_sample(&self, mut sample: Sample) -> Result<(), LogNookError> {
+        if sample.origin != SampleOrigin::Live
+            || !matches!(
+                sample.quality,
+                SampleQuality::Valid | SampleQuality::Suspect
+            )
+            || !sample.value.is_finite()
+        {
+            return Err(LogNookError::new(
+                "Research samples must be finite live measurements with valid or suspect quality",
+            ));
+        }
+        sample.elapsed_ns = self.pipeline.next_research_elapsed_ns();
+        self.pipeline.sender().send_sample(sample)
     }
 
     pub fn configure_derived_signals(
@@ -206,10 +230,14 @@ impl LogNookEngine {
 
     pub fn tare_derived_signal(&mut self, id: &str) -> Result<f64, LogNookError> {
         if !self.is_connected() {
-            return Err(LogNookError::new("Connect an adapter before taring a derived signal"));
+            return Err(LogNookError::new(
+                "Connect an adapter before taring a derived signal",
+            ));
         }
         if !self.active_derived_signal_ids.contains(id) || !self.selected_signal_ids.contains(id) {
-            return Err(LogNookError::new(format!("Derived signal '{id}' is not being acquired")));
+            return Err(LogNookError::new(format!(
+                "Derived signal '{id}' is not being acquired"
+            )));
         }
         let offset = self.pipeline.tare_derived_signal(id.to_owned())?;
         if let Some(definition) = self
@@ -359,7 +387,7 @@ mod tests {
     use super::{LogNookEngine, select_signals};
     use crate::{
         ConnectionCapabilities, DeviceDescriptor, EngineEvent, HardwareAdapter, LogNookError,
-        Sample, SignalDefinition, standard_obd_signals,
+        Sample, SampleOrigin, SampleQuality, SignalDefinition, standard_obd_signals,
     };
     use std::sync::{
         Arc, Mutex,
@@ -455,5 +483,68 @@ mod tests {
         let events = events.lock().unwrap();
         assert!(matches!(events.first(), Some(EngineEvent::Connected(_))));
         assert_eq!(events.last(), Some(&EngineEvent::Disconnected));
+    }
+
+    #[test]
+    fn research_measurements_enter_the_shared_sample_event_pipeline() {
+        let (events, received) = std::sync::mpsc::channel();
+        let engine = LogNookEngine::new(move |event| {
+            let _ = events.send(event);
+        });
+        engine
+            .publish_research_sample(Sample {
+                elapsed_ns: 0,
+                wall_time_unix_ns: 123,
+                source_id: "oem:test-adapter".into(),
+                ecu_id: Some("7E8".into()),
+                signal_id: "oem:test-candidate".into(),
+                value: 123.0,
+                unit: "raw".into(),
+                quality: SampleQuality::Valid,
+                origin: SampleOrigin::Live,
+                raw_bytes: Some(vec![0x61, 0x01]),
+            })
+            .unwrap();
+
+        let event = received
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        let EngineEvent::Sample(sample) = event else {
+            panic!("expected sample event, received {event:?}");
+        };
+        assert_eq!(sample.signal_id, "oem:test-candidate");
+        assert!(sample.elapsed_ns > 0);
+        assert_eq!(sample.origin, SampleOrigin::Live);
+    }
+
+    #[test]
+    fn suspect_research_values_remain_graphable_without_validation_promotion() {
+        let (events, received) = std::sync::mpsc::channel();
+        let engine = LogNookEngine::new(move |event| {
+            let _ = events.send(event);
+        });
+        engine
+            .publish_research_sample(Sample {
+                elapsed_ns: 0,
+                wall_time_unix_ns: 456,
+                source_id: "oem:test-adapter".into(),
+                ecu_id: Some("7E8".into()),
+                signal_id: "oem:outside-range".into(),
+                value: 999.0,
+                unit: "rpm".into(),
+                quality: SampleQuality::Suspect,
+                origin: SampleOrigin::Live,
+                raw_bytes: Some(vec![0x61, 0x01]),
+            })
+            .unwrap();
+
+        let EngineEvent::Sample(sample) = received
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+        else {
+            panic!("expected graphable suspect sample");
+        };
+        assert_eq!(sample.signal_id, "oem:outside-range");
+        assert_eq!(sample.quality, SampleQuality::Suspect);
     }
 }

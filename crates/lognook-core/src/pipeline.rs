@@ -1,8 +1,8 @@
+use crate::derived::CompiledDerivedSignal;
 use crate::model::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, LogNookError, Marker,
     PlaybackState, RecordingSummary, Sample,
 };
-use crate::derived::CompiledDerivedSignal;
 use crate::pipeline_worker::process;
 use std::{
     path::PathBuf,
@@ -137,6 +137,15 @@ impl SamplePipeline {
         self.sender.clone()
     }
 
+    pub(crate) fn next_research_elapsed_ns(&self) -> i64 {
+        self.latest_elapsed_ns
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |elapsed| {
+                Some(elapsed.saturating_add(1_000_000))
+            })
+            .unwrap_or(0)
+            .saturating_add(1_000_000)
+    }
+
     pub(crate) fn set_derived_signals(
         &self,
         signals: Vec<CompiledDerivedSignal>,
@@ -207,9 +216,7 @@ impl SamplePipeline {
             .map_err(LogNookError::new)
     }
 
-    pub(crate) fn disarm_automatic_trigger(
-        &self,
-    ) -> Result<AutomaticTriggerStatus, LogNookError> {
+    pub(crate) fn disarm_automatic_trigger(&self) -> Result<AutomaticTriggerStatus, LogNookError> {
         let (reply, response) = mpsc::channel();
         self.sender
             .0
@@ -217,7 +224,9 @@ impl SamplePipeline {
             .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
         response
             .recv()
-            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge trigger disarming"))?
+            .map_err(|_| {
+                LogNookError::new("Sample pipeline did not acknowledge trigger disarming")
+            })?
             .map_err(LogNookError::new)
     }
 

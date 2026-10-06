@@ -25,7 +25,7 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
+    A30GraphValue, BluetoothSppDevice, ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, RecordingInfo, Sample, SignalDefinition,
   } from "./types";
   import {
@@ -53,6 +53,11 @@
   let sxPorts: string[] = [];
   let selectedSxPort = "";
   let sxIdentity: DeviceDescriptor | undefined;
+  let bluetoothDevices: BluetoothSppDevice[] = [];
+  let selectedBluetoothAddress = "";
+  let bluetoothIdentity: DeviceDescriptor | undefined;
+  let bluetoothDiscoveryError = "";
+  let refreshingBluetoothDevices = false;
   let openPortProviders: J2534Provider[] = [];
   let openPortProviderDiagnostics: string[] = [];
   let selectedOpenPortProvider = "";
@@ -102,6 +107,11 @@
   let sxPortRefreshTimer: number | undefined;
   let refreshingSxPorts = false;
   let sxDiscoveryError = "";
+  let researchSignalOptions: SignalOption[] = [];
+  $: bluetoothIdentityMatches = Boolean(bluetoothIdentity?.path === selectedBluetoothAddress
+    && (selectedAdapter === "elm327"
+      ? bluetoothIdentity?.hardware_family.includes("ELM327")
+      : selectedAdapter === "a30" && bluetoothIdentity?.hardware_family.includes("A30")));
   let graphRequest = 0;
   let readoutRequest = 0;
   let graphRefreshTimer: number | undefined;
@@ -119,6 +129,8 @@
     sxIdentityMatches: sxIdentity?.path === selectedSxPort,
     openPortProvider: selectedOpenPortProvider,
     openPortIdentityMatches: openPortIdentity?.stable_id === selectedOpenPortProvider,
+    bluetoothAddress: selectedBluetoothAddress,
+    bluetoothIdentityMatches,
   });
 
   $: derivedOptions = derivedSignalOptions(derivedSignalDefinitions);
@@ -133,7 +145,7 @@
           description: "Recorded signal",
         };
       })
-    : [...signalCatalog, ...derivedOptions];
+    : [...signalCatalog, ...derivedOptions, ...researchSignalOptions];
   $: visibleSignals = graphSignalIds.flatMap((id) => {
     const signal = availableSignals.find((candidate) => candidate.id === id);
     return signal ? [signal] : [];
@@ -225,6 +237,7 @@
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
     void refreshSxPorts();
+    void refreshBluetoothDevices();
     const refreshSelectedSx = () => {
       if (document.visibilityState === "visible" && selectedAdapter === "obdlink_sx") {
         void refreshSxPorts();
@@ -295,6 +308,26 @@
       sxDiscoveryError = String(caught);
     } finally {
       refreshingSxPorts = false;
+    }
+  }
+
+  async function refreshBluetoothDevices() {
+    if (!isTauri() || refreshingBluetoothDevices || busy || connected) return;
+    refreshingBluetoothDevices = true;
+    try {
+      bluetoothDevices = await invoke<BluetoothSppDevice[]>("paired_bluetooth_devices");
+      if (!bluetoothDevices.some((device) => device.address === selectedBluetoothAddress)) {
+        selectedBluetoothAddress = bluetoothDevices[0]?.address ?? "";
+        bluetoothIdentity = undefined;
+      }
+      bluetoothDiscoveryError = "";
+    } catch (caught) {
+      bluetoothDevices = [];
+      selectedBluetoothAddress = "";
+      bluetoothIdentity = undefined;
+      bluetoothDiscoveryError = String(caught);
+    } finally {
+      refreshingBluetoothDevices = false;
     }
   }
 
@@ -561,9 +594,32 @@
     });
   }
 
+  function connectBluetooth() {
+    return run(async () => {
+      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
+      if (!requested.length) throw new Error("Select at least one supported engine signal first");
+      await invoke("configure_derived_signals", {
+        definitions: derivedSignalDefinitions,
+        activeIds: derivedSignalDefinitions.filter((definition) => requested.includes(definition.id)).map(({ id }) => id),
+      });
+      const command = selectedAdapter === "a30" ? "connect_a30" : "connect_elm327";
+      const capabilities = await invoke<ConnectionCapabilities>(command, {
+        address: selectedBluetoothAddress,
+        signalIds: requested,
+      });
+      await clearSession();
+      series = {};
+      latest = {};
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
+      graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
+    });
+  }
+
   function connectSelectedAdapter() {
     if (selectedAdapter === "obdlink_sx") return connectSx();
     if (selectedAdapter === "openport2") return connectOpenPort();
+    if (selectedAdapter === "elm327" || selectedAdapter === "a30") return connectBluetooth();
     return connect();
   }
 
@@ -571,6 +627,15 @@
     selectedAdapter = adapter;
     if (adapter === "obdlink_sx") void refreshSxPorts();
     if (adapter === "openport2") void refreshOpenPortProviders();
+    if (adapter === "elm327" || adapter === "a30") void refreshBluetoothDevices();
+  }
+
+  function identifyBluetooth() {
+    return run(async () => {
+      bluetoothIdentity = undefined;
+      const command = selectedAdapter === "a30" ? "identify_a30" : "identify_elm327";
+      bluetoothIdentity = await invoke<DeviceDescriptor>(command, { address: selectedBluetoothAddress });
+    });
   }
 
   function refreshOpenPortProviders() {
@@ -889,6 +954,38 @@
     try { localStorage.setItem("lognook.signal-colors", JSON.stringify(signalColors)); } catch { /* Preferences are optional. */ }
   }
 
+  function graphResearchCandidate(candidate: import("./types").OemCandidate) {
+    const id = `oem:${candidate.candidate_id}`;
+    researchSignalOptions = [
+      ...researchSignalOptions.filter((signal) => signal.id !== id),
+      {
+        id,
+        name: candidate.name,
+        unit: candidate.unit,
+        description: `Service ${candidate.service} · ${candidate.request_header} → ${candidate.response_header} · ${candidate.research_state} · ${candidate.vehicle_validation} · SHA ${candidate.source_blob_sha} · ${candidate.license ?? "license not listed"}`,
+        formula: candidate.formula,
+        pid: candidate.service === "21" ? Number.parseInt(candidate.identifier, 16) : undefined,
+        research: true,
+      },
+    ];
+    graphSignalIds = [...new Set([...graphSignalIds, id])];
+  }
+
+  function graphA30ReadValue(value: A30GraphValue) {
+    if (!signalCatalog.some((signal) => signal.id === value.signal_id)
+      && !researchSignalOptions.some((signal) => signal.id === value.signal_id)) {
+      researchSignalOptions = [...researchSignalOptions, {
+        id: value.signal_id,
+        name: value.name,
+        unit: value.unit,
+        description: `Mode ${value.service.toString(16).toUpperCase().padStart(2, "0")} captured read result · raw ${value.raw_value}`,
+        pid: value.pid ?? undefined,
+        research: true,
+      }];
+    }
+    graphSignalIds = [...new Set([...graphSignalIds, value.signal_id])];
+  }
+
   function resetPreferences() {
     const preferences = restoreWorkspacePreferences(null, signalCatalog.map(({ id }) => id), defaultWorkspacePreferences, Math.max(36, window.innerHeight * 0.3));
     logSignalIds = preferences.logSignalIds;
@@ -1017,6 +1114,8 @@
             <select class="text-input adapter-select" value={selectedAdapter} onchange={(event) => selectAdapter(event.currentTarget.value as AdapterKind)} aria-label="Adapter" disabled={busy || recording || replaying}>
               <option value="simulator">Simulator</option>
               <option value="obdlink_sx">OBDLink SX</option>
+              <option value="elm327">Bluetooth ELM327</option>
+              <option value="a30">Xtool A30/A30M</option>
               <option value="openport2">OpenPort 2</option>
             </select>
             {#if selectedAdapter === "obdlink_sx"}
@@ -1030,11 +1129,17 @@
                 {#each openPortProviders as provider}<option value={provider.id}>{provider.name}</option>{/each}
               </select>
               <button class="button secondary adapter-refresh" onclick={refreshOpenPortProviders} disabled={busy || recording || replaying} title="Refresh registered 32-bit J2534 providers" aria-label="Refresh OpenPort providers">↻</button>
+            {:else if selectedAdapter === "elm327" || selectedAdapter === "a30"}
+              <select class="text-input bluetooth-select" bind:value={selectedBluetoothAddress} onchange={() => bluetoothIdentity = undefined} aria-label="Paired Bluetooth device" disabled={busy || recording || replaying || bluetoothDevices.length === 0}>
+                {#if bluetoothDevices.length === 0}<option value="">No paired Bluetooth device</option>{/if}
+                {#each bluetoothDevices as device (device.address)}<option value={device.address}>{device.name} · {device.address}</option>{/each}
+              </select>
+              <button class="button secondary adapter-refresh" onclick={refreshBluetoothDevices} disabled={busy || recording || replaying || refreshingBluetoothDevices} title="Refresh paired Bluetooth devices" aria-label="Refresh Bluetooth devices">↻</button>
             {/if}
             {#if selectedAdapter !== "simulator"}
-              <button class="button secondary" onclick={selectedAdapter === "openport2" ? identifyOpenPort : identifySx} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
-              {#if (selectedAdapter === "obdlink_sx" && sxIdentity?.path === selectedSxPort) || (selectedAdapter === "openport2" && openPortIdentity?.stable_id === selectedOpenPortProvider)}
-                <span class="adapter-identified" title={selectedAdapter === "openport2" ? openPortIdentity?.firmware : sxIdentity?.firmware}>Ready</span>
+              <button class="button secondary" onclick={selectedAdapter === "openport2" ? identifyOpenPort : selectedAdapter === "obdlink_sx" ? identifySx : identifyBluetooth} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
+              {#if (selectedAdapter === "obdlink_sx" && sxIdentity?.path === selectedSxPort) || (selectedAdapter === "openport2" && openPortIdentity?.stable_id === selectedOpenPortProvider) || ((selectedAdapter === "elm327" || selectedAdapter === "a30") && bluetoothIdentityMatches)}
+                <span class="adapter-identified" title={selectedAdapter === "openport2" ? openPortIdentity?.firmware : selectedAdapter === "obdlink_sx" ? sxIdentity?.firmware : bluetoothIdentity?.hardware_family}>Ready</span>
               {/if}
             {/if}
             <button class="button primary" onclick={connectSelectedAdapter} disabled={connectionControls.connectDisabled} title={connectionControls.connectLabel} aria-label={connectionControls.connectLabel}>Connect</button>
@@ -1115,10 +1220,10 @@
                 <input class="signal-color" type="color" value={signalColorFor(signal)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
                 <span class="signal-copy">
                   <span class="signal-name-row"><span title={signal.name}>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
-                  <small>{signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
+                  <small title={signal.description}>{signal.research ? "RESEARCH" : signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
                 </span>
-                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy} />
-                <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id))} />
+                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
+                <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id) && !researchSignalOptions.some((research) => research.id === signal.id))} />
               </div>
             {:else}
               <p class="no-signals">{availableSignals.length ? "No matching signals" : "Loading signals…"}</p>
@@ -1126,7 +1231,14 @@
           </div>
           <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
         {:else}
-          <OemCatalogPanel selectedPort={selectedAdapter === "obdlink_sx" ? selectedSxPort : ""} disabled={busy || connected || recording || replaying || session !== null} />
+        <OemCatalogPanel
+          selectedPort={selectedAdapter === "obdlink_sx" ? selectedSxPort : ""}
+          selectedBluetoothAddress={selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : ""}
+          {selectedAdapter}
+          onGraphCandidate={graphResearchCandidate}
+          onGraphReadValue={graphA30ReadValue}
+          disabled={busy || connected || recording || replaying || session !== null}
+        />
         {/if}
       </aside>
 
@@ -1160,6 +1272,7 @@
       <strong>{status}</strong>
       {#if error}<span class="status-error" role="alert">{error}</span>{/if}
       {#if selectedAdapter === "obdlink_sx" && sxDiscoveryError}<span class="status-error" role="alert">SX port scan failed: {sxDiscoveryError}</span>{/if}
+      {#if (selectedAdapter === "elm327" || selectedAdapter === "a30") && bluetoothDiscoveryError}<span class="status-error" role="alert">Bluetooth device scan failed: {bluetoothDiscoveryError}</span>{:else if (selectedAdapter === "elm327" || selectedAdapter === "a30") && !bluetoothDevices.length}<span class="status-info">Pair the adapter in Windows Bluetooth settings, then refresh paired devices.</span>{/if}
       {#if selectedAdapter === "openport2"}
         {#if openPortProviders.length}<span class="status-info">{openPortProviders.length} eligible 32-bit J2534 provider(s) registered; Identify checks adapter availability.</span>{/if}
         {#each openPortProviderDiagnostics as diagnostic}<span class={openPortProviders.length ? "status-info" : "status-error"} role={openPortProviders.length ? undefined : "alert"}>{diagnostic}</span>{/each}

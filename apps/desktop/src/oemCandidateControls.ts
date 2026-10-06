@@ -9,8 +9,21 @@ type TryCandidate = {
   license_url: string | null;
 };
 
-export function oemCandidateTryState(candidate: TryCandidate, sxPort: string, blocked: boolean) {
-  if (!sxPort) return { disabled: true, reason: "Select an OBDLink SX port" };
+export function oemCandidateTryState(
+  candidate: TryCandidate,
+  device: string,
+  blocked: boolean,
+  adapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx",
+) {
+  if (adapter !== "obdlink_sx" && adapter !== "a30" && adapter !== "elm327") {
+    return { disabled: true, reason: "OEM reads require OBDLink SX or Bluetooth ELM327/A30" };
+  }
+  if (!device) {
+    return {
+      disabled: true,
+      reason: adapter === "a30" || adapter === "elm327" ? "Select a paired Bluetooth device" : "Select an OBDLink SX port",
+    };
+  }
   if (blocked) return { disabled: true, reason: "Stop acquisition, recording, or replay first" };
   const identifierWidth = candidate.service === "21" ? 2 : candidate.service === "22" ? 4 : 0;
   const validHex = (value: string, width: number) => value.length === width && /^[0-9a-f]+$/i.test(value);

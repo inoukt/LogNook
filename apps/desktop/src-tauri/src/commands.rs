@@ -1,5 +1,7 @@
 mod player;
 pub use player::*;
+mod bluetooth;
+pub use bluetooth::*;
 mod exports;
 pub use exports::*;
 mod sessions;

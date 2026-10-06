@@ -10,6 +10,7 @@ pub(crate) struct AppState {
     pub pid_catalog_path: PathBuf,
     pub oem_validation_log: PathBuf,
     pub oem_candidate_try_log: PathBuf,
+    pub a30_read_test_log: PathBuf,
 }
 
 pub fn run() {
@@ -44,6 +45,7 @@ pub fn run() {
                 pid_catalog_path,
                 oem_validation_log: oem_validation_dir.join("scion-xb-mode21.jsonl"),
                 oem_candidate_try_log: oem_validation_dir.join("oem-candidate-tries.jsonl"),
+                a30_read_test_log: oem_validation_dir.join("a30-read-tests.jsonl"),
             });
             Ok(())
         })
@@ -52,6 +54,14 @@ pub fn run() {
             commands::search_oem_catalog,
             commands::probe_scion_xb_mode21,
             commands::try_oem_candidate,
+            commands::try_a30_oem_candidate,
+            commands::try_a30_read_test,
+            commands::try_elm_oem_candidate,
+            commands::paired_bluetooth_devices,
+            commands::identify_elm327,
+            commands::identify_a30,
+            commands::connect_elm327,
+            commands::connect_a30,
             commands::available_obdlink_sx_ports,
             commands::identify_obdlink_sx,
             commands::available_openport2_providers,

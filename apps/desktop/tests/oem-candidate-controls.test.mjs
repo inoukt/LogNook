@@ -35,3 +35,14 @@ test("one-shot controls require a selected SX port, an idle workspace, and prove
   assert.equal(controls.oemCandidateTryState({ ...valid, request_header: "800" }, "COM4", false).disabled, true);
   assert.equal(controls.oemCandidateTryState({ ...valid, response_header: "800" }, "COM4", false).disabled, true);
 });
+
+test("source-backed candidates can be tried over A30 or ELM Bluetooth", () => {
+  assert.ok(controls, "OEM candidate controls helper is available");
+  const valid = candidate("21", "01");
+  assert.deepEqual(controls.oemCandidateTryState(valid, "AA:BB:CC:DD:EE:FF", false, "a30"), {
+    disabled: false,
+    reason: "",
+  });
+  assert.equal(controls.oemCandidateTryState(valid, "", false, "a30").reason, "Select a paired Bluetooth device");
+  assert.equal(controls.oemCandidateTryState(valid, "AA:BB:CC:DD:EE:FF", false, "elm327").disabled, false);
+});

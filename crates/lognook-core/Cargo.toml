@@ -10,3 +10,10 @@ serialport = "4.10.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 lognook-j2534-protocol = { path = "../lognook-j2534-protocol" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60.2", features = [
+    "Win32_Devices_Bluetooth",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+] }
