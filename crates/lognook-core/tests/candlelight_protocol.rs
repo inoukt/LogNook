@@ -294,3 +294,28 @@ fn malformed_usb_packets_keep_raw_evidence_and_typed_diagnostics() {
     assert_eq!(error.raw_usb(), Some(&raw[..]));
     assert!(matches!(error.diagnostic(), CandlelightError::Protocol(_)));
 }
+
+#[test]
+fn tx_echo_ignores_unused_can_fields_instead_of_reporting_rx_bus_off() {
+    let mut raw = fixture(7, 0xFFFF_FFFF, 0xFF);
+    raw[9] = 2;
+    raw[10] = 0xFF;
+    let echo = decode_frame(&raw, 11, 12).unwrap();
+    assert_eq!(echo.echo_id, 7);
+    assert_eq!(echo.channel, 2);
+    assert_eq!(echo.frame.direction, CanDirection::Tx);
+    assert!(echo.frame.data.is_empty());
+    assert_eq!(echo.raw_usb, raw);
+}
+
+#[test]
+fn tx_echo_accepts_partial_unused_payload_between_header_and_dlc() {
+    for length in 12..=20 {
+        let raw = fixture(3, 0x2000_0040, 8)[..length].to_vec();
+        let echo = decode_frame(&raw, 0, 0).unwrap();
+        assert_eq!(echo.echo_id, 3);
+        assert_eq!(echo.frame.direction, CanDirection::Tx);
+        assert!(echo.frame.data.is_empty());
+        assert_eq!(echo.raw_usb, raw);
+    }
+}

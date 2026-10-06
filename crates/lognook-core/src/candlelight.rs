@@ -413,6 +413,27 @@ fn decode_frame_inner(
         ));
     }
     let echo_id = word(bytes, 0);
+    if echo_id != RX_ECHO_ID {
+        // Only echo_id and channel identify a TX confirmation. CAN ID, DLC,
+        // flags and payload are unused, and cannot describe an RX error.
+        // The USB owner checks the assigned ID/channel and restores its TX frame.
+        let frame = CanFrame {
+            elapsed_ns,
+            wall_time_unix_ns,
+            can_id: 0,
+            extended: false,
+            direction: CanDirection::Tx,
+            data: Vec::new(),
+            flags: 0,
+        };
+        frame.validate().map_err(|e| protocol(&e.to_string()))?;
+        return Ok(GsUsbFrame {
+            frame,
+            channel: bytes[9],
+            echo_id,
+            raw_usb: bytes.to_vec(),
+        });
+    }
     let raw_id = word(bytes, 4);
     let dlc = usize::from(bytes[8]);
     if dlc > 8 {
@@ -438,16 +459,7 @@ fn decode_frame_inner(
             "GS_USB remote frames cannot be represented by classic data CanFrame".into(),
         ));
     }
-    let direction = if echo_id == RX_ECHO_ID {
-        CanDirection::Rx
-    } else {
-        CanDirection::Tx
-    };
-    let data_len = if direction == CanDirection::Tx && bytes.len() == 12 {
-        0
-    } else {
-        dlc
-    };
+    let data_len = dlc;
     if bytes.len() < 12 + data_len {
         return Err(protocol("GS_USB frame payload is shorter than DLC"));
     }
@@ -456,7 +468,7 @@ fn decode_frame_inner(
         wall_time_unix_ns,
         can_id: raw_id & 0x1FFF_FFFF,
         extended: raw_id & CAN_EFF_FLAG != 0,
-        direction,
+        direction: CanDirection::Rx,
         data: bytes[12..12 + data_len].to_vec(),
         flags: u32::from(bytes[10]),
     };
