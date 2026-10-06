@@ -65,7 +65,11 @@ pub use oem_catalog::{
     OemCandidate, OemCandidateTrySpec, OemCatalog, OemCatalogPage, SCION_XB_BLOB_SHA,
     ScionMode21ProbeSpec, ScionProbeChannel,
 };
-pub use openport2::{OpenPort2Adapter, available_openport2_providers, identify_openport2};
+pub use openport2::{
+    OpenPort2Adapter, available_openport2_providers,
+    available_openport2_providers_with_diagnostics, identify_openport2,
+    identify_openport2_with_diagnostics,
+};
 pub use recording::{RecordingWriter, read_recording};
 pub use recording_view::{
     add_recording_marker, delete_recording_marker, inspect_recording, update_recording_marker,

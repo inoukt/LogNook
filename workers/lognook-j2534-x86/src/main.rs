@@ -36,13 +36,23 @@ fn run() -> Result<(), String> {
     while let Some(line) =
         read_bounded_line(&mut input, MAX_MESSAGE_BYTES).map_err(|error| error.to_string())?
     {
+        let started = std::time::Instant::now();
+        let mut progress_error = None;
+        let mut progress = |stage: &str| {
+            if progress_error.is_none() {
+                progress_error = write_progress(&mut output, stage, started).err();
+            }
+        };
         let response = match decode_request_line(&line) {
-            Ok(request) => handle_request(request, &mut session),
+            Ok(request) => handle_request(request, &mut session, &mut progress),
             Err(error) => WorkerResponse::Error {
                 kind: WorkerErrorKind::IpcFailure,
                 message: error.to_string(),
             },
         };
+        if let Some(error) = progress_error {
+            return Err(error.to_string());
+        }
         let encoded = encode_response_line(&response).unwrap_or_else(|_| {
             encode_response_line(&WorkerResponse::Error {
                 kind: WorkerErrorKind::IpcFailure,
@@ -63,6 +73,7 @@ fn run() -> Result<(), String> {
 fn handle_request(
     request: lognook_j2534_protocol::WorkerRequest,
     session: &mut Option<session::J2534Session>,
+    progress: &mut dyn FnMut(&str),
 ) -> lognook_j2534_protocol::WorkerResponse {
     use j2534::{DynamicJ2534, J2534Failure};
     use lognook_j2534_protocol::{WorkerErrorKind, WorkerRequest, WorkerResponse};
@@ -72,13 +83,16 @@ fn handle_request(
         message: error.message,
     };
     match request {
-        WorkerRequest::ListProviders => match registry::list_openport2_providers() {
-            Ok(discovery) => WorkerResponse::Providers {
-                providers: discovery.providers,
-                diagnostics: discovery.diagnostics,
-            },
-            Err(error) => failed(error),
-        },
+        WorkerRequest::ListProviders => {
+            progress("provider_resolution");
+            match registry::list_openport2_providers() {
+                Ok(discovery) => WorkerResponse::Providers {
+                    providers: discovery.providers,
+                    diagnostics: discovery.diagnostics,
+                },
+                Err(error) => failed(error),
+            }
+        }
         WorkerRequest::Identify { provider_id } => {
             if session.is_some() {
                 return WorkerResponse::Error {
@@ -87,9 +101,13 @@ fn handle_request(
                 };
             }
             let result = (|| {
+                progress("provider_resolution");
                 let provider = registry::resolve_openport2_provider(&provider_id)?;
+                progress("dll_loading");
                 let api = DynamicJ2534::load(&provider.dll_path)?;
+                progress("passthru_open");
                 let mut opened = session::J2534Session::open(Box::new(api))?;
+                progress("version_read");
                 opened.identity()
             })();
             match result {
@@ -105,10 +123,13 @@ fn handle_request(
                 };
             }
             let result = (|| {
+                progress("provider_resolution");
                 let provider = registry::resolve_openport2_provider(&provider_id)?;
+                progress("dll_loading");
                 let api = DynamicJ2534::load(&provider.dll_path)?;
+                progress("passthru_open");
                 let mut opened = session::J2534Session::open(Box::new(api))?;
-                let identity = opened.connect()?;
+                let identity = opened.connect_with_progress(progress)?;
                 Ok::<_, J2534Failure>((opened, identity))
             })();
             match result {
@@ -126,6 +147,7 @@ fn handle_request(
                     message: "Connect a J2534 provider before PID discovery".into(),
                 };
             };
+            progress("mode01_discovery");
             match connected.discover_mode01() {
                 Ok(responses) => WorkerResponse::Mode01Responses { responses },
                 Err(error) => {
@@ -141,6 +163,7 @@ fn handle_request(
                     message: "Connect a J2534 provider before reading a PID".into(),
                 };
             };
+            progress("pid_read");
             match connected.read_mode01(pid) {
                 Ok(responses) => WorkerResponse::Mode01Responses { responses },
                 Err(error) => {
@@ -154,6 +177,23 @@ fn handle_request(
             WorkerResponse::Disconnected
         }
     }
+}
+
+#[cfg(any(test, all(target_os = "windows", target_arch = "x86")))]
+fn write_progress(
+    output: &mut impl std::io::Write,
+    stage: &str,
+    started: std::time::Instant,
+) -> std::io::Result<()> {
+    let response = lognook_j2534_protocol::WorkerResponse::Progress {
+        stage: stage.into(),
+        detail: None,
+        elapsed_ms: Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64),
+    };
+    let line =
+        lognook_j2534_protocol::encode_response_line(&response).map_err(std::io::Error::other)?;
+    output.write_all(&line)?;
+    output.flush()
 }
 
 fn read_bounded_line<R: std::io::BufRead>(
@@ -249,5 +289,43 @@ mod tests {
             decode_request_line(&next).unwrap(),
             WorkerRequest::ListProviders
         );
+    }
+    #[test]
+    fn emitted_progress_has_stage_and_elapsed_time_without_traffic() {
+        let mut output = Vec::new();
+        super::write_progress(&mut output, "pid_read", std::time::Instant::now()).unwrap();
+        assert!(
+            matches!(lognook_j2534_protocol::decode_response_line(&output).unwrap(),
+            lognook_j2534_protocol::WorkerResponse::Progress { stage, detail: None, elapsed_ms: Some(_) } if stage == "pid_read")
+        );
+        assert!(!String::from_utf8(output).unwrap().contains("bytes"));
+    }
+
+    #[cfg(all(target_os = "windows", target_arch = "x86"))]
+    #[test]
+    fn provider_resolution_progress_precedes_typed_terminal_failure() {
+        for request in [
+            lognook_j2534_protocol::WorkerRequest::Identify {
+                provider_id: "lognook-nonexistent-test-provider".into(),
+            },
+            lognook_j2534_protocol::WorkerRequest::Connect {
+                provider_id: "lognook-nonexistent-test-provider".into(),
+            },
+        ] {
+            let mut session = None;
+            let mut stages = Vec::new();
+            let terminal = super::handle_request(request, &mut session, &mut |stage| {
+                stages.push(stage.to_owned())
+            });
+            assert_eq!(stages, ["provider_resolution"]);
+            assert!(matches!(
+                terminal,
+                lognook_j2534_protocol::WorkerResponse::Error {
+                    kind: lognook_j2534_protocol::WorkerErrorKind::ProviderNotFound,
+                    ..
+                }
+            ));
+            assert!(session.is_none());
+        }
     }
 }

@@ -1,5 +1,8 @@
 use super::WorkerSession;
-use crate::model::LogNookError;
+use crate::{
+    DiagnosticPhase, DiagnosticProgress, DiagnosticSink, diagnostics::noop_diagnostic_sink,
+    model::LogNookError,
+};
 use lognook_j2534_protocol::{
     MAX_MESSAGE_BYTES, WorkerRequest, WorkerResponse, decode_response_line, encode_request_line,
 };
@@ -9,7 +12,7 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver, RecvTimeoutError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const SHORT_TIMEOUT: Duration = Duration::from_secs(1);
@@ -99,12 +102,19 @@ fn worker_timeout_message(request: &WorkerRequest, timeout: Duration) -> String 
 
 impl WorkerSession for WorkerClient {
     fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, LogNookError> {
+        self.request_with_progress(request, &noop_diagnostic_sink())
+    }
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        sink: &DiagnosticSink,
+    ) -> Result<WorkerResponse, LogNookError> {
         let timeout = match &request {
             WorkerRequest::DiscoverMode01 => DISCOVERY_TIMEOUT,
             WorkerRequest::Identify { .. } | WorkerRequest::Connect { .. } => SETUP_TIMEOUT,
             _ => SHORT_TIMEOUT,
         };
-        self.request_with_timeout(request, timeout)
+        self.request_with_timeout_and_progress(request, timeout, sink)
     }
     fn shutdown(&mut self) {
         self.terminate();
@@ -112,10 +122,20 @@ impl WorkerSession for WorkerClient {
 }
 
 impl WorkerClient {
+    #[cfg(test)]
     fn request_with_timeout(
         &mut self,
         request: WorkerRequest,
         timeout: Duration,
+    ) -> Result<WorkerResponse, LogNookError> {
+        self.request_with_timeout_and_progress(request, timeout, &noop_diagnostic_sink())
+    }
+
+    fn request_with_timeout_and_progress(
+        &mut self,
+        request: WorkerRequest,
+        timeout: Duration,
+        sink: &DiagnosticSink,
     ) -> Result<WorkerResponse, LogNookError> {
         if self.closed {
             return Err(LogNookError::new("OpenPort worker is no longer running"));
@@ -135,30 +155,65 @@ impl WorkerClient {
                 "Could not write to OpenPort worker: {error}"
             )));
         }
-        let response_line = match self.responses.recv_timeout(timeout) {
-            Ok(Ok(line)) => line,
-            Ok(Err(error)) => {
-                self.terminate();
-                return Err(LogNookError::new(format!("OpenPort worker {error}")));
-            }
-            Err(RecvTimeoutError::Timeout) => {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
                 self.terminate();
                 return Err(LogNookError::new(worker_timeout_message(&request, timeout)));
             }
-            Err(RecvTimeoutError::Disconnected) => {
-                self.terminate();
-                return Err(LogNookError::new(
-                    "OpenPort worker output closed unexpectedly",
-                ));
-            }
-        };
-        match decode_response_line(&response_line) {
-            Ok(response) => Ok(response),
-            Err(error) => {
-                self.terminate();
-                Err(LogNookError::new(format!(
-                    "OpenPort worker returned malformed output: {error}"
-                )))
+            let response_line = match self.responses.recv_timeout(remaining) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => {
+                    self.terminate();
+                    return Err(LogNookError::new(format!("OpenPort worker {error}")));
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    self.terminate();
+                    return Err(LogNookError::new(worker_timeout_message(&request, timeout)));
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    self.terminate();
+                    return Err(LogNookError::new(
+                        "OpenPort worker output closed unexpectedly",
+                    ));
+                }
+            };
+            match decode_response_line(&response_line) {
+                Ok(WorkerResponse::Progress {
+                    stage,
+                    detail,
+                    elapsed_ms,
+                }) => {
+                    let (operation, adapter_id) = match &request {
+                        WorkerRequest::ListProviders => ("provider_discovery", None),
+                        WorkerRequest::Identify { provider_id } => {
+                            ("identify", Some(provider_id.clone()))
+                        }
+                        WorkerRequest::Connect { provider_id } => {
+                            ("connect", Some(provider_id.clone()))
+                        }
+                        WorkerRequest::Disconnect => ("disconnect", None),
+                        _ => ("acquisition", None),
+                    };
+                    sink(DiagnosticProgress {
+                        adapter_id,
+                        operation: operation.into(),
+                        stage,
+                        phase: DiagnosticPhase::Progress,
+                        duration_ms: elapsed_ms,
+                        signal_ids: Vec::new(),
+                        detail,
+                        transient: None,
+                    });
+                }
+                Ok(response) => return Ok(response),
+                Err(error) => {
+                    self.terminate();
+                    return Err(LogNookError::new(format!(
+                        "OpenPort worker returned malformed output: {error}"
+                    )));
+                }
             }
         }
     }
@@ -298,5 +353,99 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(worker.closed);
         assert!(worker.child.is_none());
+    }
+    #[cfg(windows)]
+    fn scripted_worker(script: &str) -> WorkerClient {
+        let child = Command::new("powershell.exe")
+            .args(["-NoProfile", "-Command", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        WorkerClient::from_child(child).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ordered_progress_returns_only_terminal_success_or_typed_error() {
+        use crate::DiagnosticSink;
+        use crate::openport2::WorkerSession;
+        use lognook_j2534_protocol::{WorkerErrorKind, WorkerResponse};
+        use std::sync::{Arc, Mutex};
+        for terminal in [
+            WorkerResponse::Disconnected,
+            WorkerResponse::Error {
+                kind: WorkerErrorKind::PassThruFailed,
+                message: "PassThruOpen status 0x08: exact failure".into(),
+            },
+        ] {
+            let terminal_line =
+                String::from_utf8(lognook_j2534_protocol::encode_response_line(&terminal).unwrap())
+                    .unwrap();
+            let script = format!(
+                r#"$null = [Console]::ReadLine(); [Console]::WriteLine('{{"type":"progress","stage":"provider_resolution","detail":null,"elapsed_ms":0}}'); [Console]::WriteLine('{{"type":"progress","stage":"dll_loading","detail":"LoadLibraryW","elapsed_ms":1}}'); [Console]::WriteLine('{}')"#,
+                terminal_line.trim()
+            );
+            let mut worker = scripted_worker(&script);
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let captured = events.clone();
+            let sink: DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+            assert_eq!(
+                worker
+                    .request_with_progress(
+                        WorkerRequest::Identify {
+                            provider_id: "opta".into()
+                        },
+                        &sink
+                    )
+                    .unwrap(),
+                terminal
+            );
+            let events = events.lock().unwrap();
+            assert_eq!(
+                events.iter().map(|e| e.stage.as_str()).collect::<Vec<_>>(),
+                ["provider_resolution", "dll_loading"]
+            );
+            assert_eq!(events[0].adapter_id.as_deref(), Some("opta"));
+            assert_eq!(events[0].operation, "identify");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn progress_does_not_extend_deadline_and_timeout_stops_worker() {
+        let mut worker = scripted_worker(
+            r#"$null = [Console]::ReadLine(); while ($true) { [Console]::WriteLine('{"type":"progress","stage":"dll_loading","detail":null,"elapsed_ms":0}'); Start-Sleep -Milliseconds 100 }"#,
+        );
+        let started = Instant::now();
+        let error = worker
+            .request_with_timeout_and_progress(
+                WorkerRequest::ListProviders,
+                Duration::from_millis(1200),
+                &crate::diagnostics::noop_diagnostic_sink(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out after 1200 ms"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(worker.closed);
+        assert!(worker.child.is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn oversized_progress_stops_worker() {
+        let mut worker = scripted_worker(
+            r#"$null = [Console]::ReadLine(); [Console]::WriteLine('{"type":"progress","stage":"dll_loading","detail":"' + ('x' * 17000) + '","elapsed_ms":0}'); Start-Sleep -Seconds 10"#,
+        );
+        let error = worker
+            .request_with_timeout_and_progress(
+                WorkerRequest::ListProviders,
+                Duration::from_secs(3),
+                &crate::diagnostics::noop_diagnostic_sink(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("exceeds"));
+        assert!(worker.closed);
     }
 }

@@ -226,3 +226,23 @@ Acquisition-worker scheduling and the workbench UI are separate follow-up slices
 - `GraphPreferences` are renderer-local preferences: per-signal manual min/max and line styling, one of line/scatter/bar/heatmap views, cursor readouts, and a stored reference snapshot. Reference samples are capped at 180 per signal and mapped to the current visible time span.
 - Graph screenshots serialize the displayed SVG with its legend and guides, then use the browser canvas to download PNG. Full-window/native desktop capture is not implemented.
 - Automatic recording currently supports one selected-signal threshold, above/below direction, hysteresis, hold duration, a 0–30 s pre-trigger window, and an automatic marker. The ring buffer is capped at 100,000 samples. Compound conditions, time/change events, automatic stop rules, notifications/audio, and physical trigger validation remain future work.
+
+
+## OpenPort worker diagnostics progress — 2026-10-06
+
+The J2534 JSON-line protocol allows zero or more `Progress` responses before one
+terminal response. Each progress response carries only a stage, optional safe
+detail, and elapsed milliseconds; the worker emits fixed stage names without
+CAN/J2534 bytes or measurement values. `WorkerClient` forwards these events to the
+core `DiagnosticSink`, retaining one overall request deadline and stopping the
+worker on timeout, malformed output, or closed output. Progress never extends a
+request timeout. The no-op `request` wrapper continues to return only the terminal
+response, and existing fake sessions can retain their original request method.
+
+Provider discovery and Identify have public `_with_diagnostics` wrappers.
+`OpenPort2Adapter` supplies provider identity and operation context for Connect,
+Mode 01 discovery, and selected PID reads on the same serialized worker owner.
+Channel setup emits version-read, channel-connect, and filter-setup progress at
+the corresponding existing calls; polling, ECU protocol, and teardown order are
+unchanged. Diagnostic error redaction removes unexpected worker response debug
+payloads while preserving the original returned error for callers.

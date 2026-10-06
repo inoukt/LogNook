@@ -136,3 +136,28 @@ fn oversized_request_and_response_lines_are_rejected() {
         Err(ProtocolError::TooLarge)
     );
 }
+
+#[test]
+fn progress_round_trips_and_rejects_oversized_details() {
+    let progress = WorkerResponse::Progress {
+        stage: "dll_loading".into(),
+        detail: Some("LoadLibraryW".into()),
+        elapsed_ms: Some(12),
+    };
+    assert_eq!(
+        decode_response_line(&encode_response_line(&progress).unwrap()).unwrap(),
+        progress
+    );
+    assert_eq!(
+        encode_response_line(&WorkerResponse::Progress {
+            stage: "dll_loading".into(),
+            detail: Some("x".repeat(MAX_MESSAGE_BYTES)),
+            elapsed_ms: None,
+        }),
+        Err(ProtocolError::TooLarge)
+    );
+    assert_eq!(
+        decode_response_line(&vec![b' '; MAX_MESSAGE_BYTES + 1]),
+        Err(ProtocolError::TooLarge)
+    );
+}

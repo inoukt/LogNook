@@ -1,7 +1,8 @@
 mod worker_client;
 
 use crate::{
-    HardwareAdapter,
+    DiagnosticSink, HardwareAdapter,
+    diagnostics::noop_diagnostic_sink,
     model::{
         ConnectionCapabilities, DeviceDescriptor, LogNookError, Sample, SampleOrigin,
         SampleQuality, SignalDefinition,
@@ -24,14 +25,28 @@ use worker_client::WorkerClient;
 
 trait WorkerSession: Send {
     fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, LogNookError>;
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        _sink: &DiagnosticSink,
+    ) -> Result<WorkerResponse, LogNookError> {
+        self.request(request)
+    }
     fn shutdown(&mut self);
 }
 
 pub fn available_openport2_providers(
     worker_path: &Path,
 ) -> Result<J2534ProviderDiscovery, LogNookError> {
+    available_openport2_providers_with_diagnostics(worker_path, noop_diagnostic_sink())
+}
+
+pub fn available_openport2_providers_with_diagnostics(
+    worker_path: &Path,
+    sink: DiagnosticSink,
+) -> Result<J2534ProviderDiscovery, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
-    let result = available_from_session(&mut session);
+    let result = available_from_session_with_diagnostics(&mut session, &sink);
     session.shutdown();
     result
 }
@@ -40,16 +55,32 @@ pub fn identify_openport2(
     worker_path: &Path,
     provider_id: &str,
 ) -> Result<DeviceDescriptor, LogNookError> {
+    identify_openport2_with_diagnostics(worker_path, provider_id, noop_diagnostic_sink())
+}
+
+pub fn identify_openport2_with_diagnostics(
+    worker_path: &Path,
+    provider_id: &str,
+    sink: DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
-    let result = identify_from_session(&mut session, provider_id);
+    let result = identify_from_session_with_diagnostics(&mut session, provider_id, &sink);
     session.shutdown();
     result
 }
 
+#[cfg(test)]
 fn available_from_session(
     session: &mut dyn WorkerSession,
 ) -> Result<J2534ProviderDiscovery, LogNookError> {
-    match session.request(WorkerRequest::ListProviders)? {
+    available_from_session_with_diagnostics(session, &noop_diagnostic_sink())
+}
+
+fn available_from_session_with_diagnostics(
+    session: &mut dyn WorkerSession,
+    sink: &DiagnosticSink,
+) -> Result<J2534ProviderDiscovery, LogNookError> {
+    match session.request_with_progress(WorkerRequest::ListProviders, sink)? {
         WorkerResponse::Providers {
             providers,
             diagnostics,
@@ -61,13 +92,25 @@ fn available_from_session(
     }
 }
 
+#[cfg(test)]
 fn identify_from_session(
     session: &mut dyn WorkerSession,
     provider_id: &str,
 ) -> Result<DeviceDescriptor, LogNookError> {
-    let identity = match session.request(WorkerRequest::Identify {
-        provider_id: provider_id.to_owned(),
-    })? {
+    identify_from_session_with_diagnostics(session, provider_id, &noop_diagnostic_sink())
+}
+
+fn identify_from_session_with_diagnostics(
+    session: &mut dyn WorkerSession,
+    provider_id: &str,
+    sink: &DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
+    let identity = match session.request_with_progress(
+        WorkerRequest::Identify {
+            provider_id: provider_id.to_owned(),
+        },
+        sink,
+    )? {
         WorkerResponse::Identity { identity } => identity,
         response => return Err(unexpected_worker_response("adapter identity", response)),
     };
@@ -109,6 +152,7 @@ pub struct OpenPort2Adapter {
     started: Option<Instant>,
     ecu_id: Option<String>,
     supported_pids: HashSet<u8>,
+    diagnostic_sink: DiagnosticSink,
 }
 
 impl OpenPort2Adapter {
@@ -121,6 +165,7 @@ impl OpenPort2Adapter {
             started: None,
             ecu_id: None,
             supported_pids: HashSet::new(),
+            diagnostic_sink: noop_diagnostic_sink(),
         }
     }
 
@@ -134,16 +179,20 @@ impl OpenPort2Adapter {
         if self.session.is_none() {
             self.session = Some(Box::new(WorkerClient::spawn(&self.worker_path)?));
         }
+        let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "connect");
         let session = self.session.as_deref_mut().expect("session was created");
-        let identity = match session.request(WorkerRequest::Connect {
-            provider_id: self.provider_id.clone(),
-        })? {
+        let identity = match session.request_with_progress(
+            WorkerRequest::Connect {
+                provider_id: self.provider_id.clone(),
+            },
+            &sink,
+        )? {
             WorkerResponse::Connected { identity } => identity,
             response => return Err(unexpected_worker_response("connect", response)),
         };
         self.connected = true;
 
-        let responses = match session.request(WorkerRequest::DiscoverMode01)? {
+        let responses = match session.request_with_progress(WorkerRequest::DiscoverMode01, &sink)? {
             WorkerResponse::Mode01Responses { responses } => responses,
             response => {
                 return Err(unexpected_worker_response(
@@ -179,7 +228,8 @@ impl OpenPort2Adapter {
             .session
             .as_deref_mut()
             .ok_or_else(|| LogNookError::new("OpenPort adapter is not connected"))?;
-        match session.request(WorkerRequest::ReadMode01 { pid })? {
+        let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "acquisition");
+        match session.request_with_progress(WorkerRequest::ReadMode01 { pid }, &sink)? {
             WorkerResponse::Mode01Responses { responses } if responses.len() == 1 => Ok(responses
                 .into_iter()
                 .next()
@@ -193,6 +243,9 @@ impl OpenPort2Adapter {
 }
 
 impl HardwareAdapter for OpenPort2Adapter {
+    fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
+        self.diagnostic_sink = sink;
+    }
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.connected {
             return Err(LogNookError::new("OpenPort adapter is already connected"));
@@ -284,6 +337,17 @@ impl HardwareAdapter for OpenPort2Adapter {
         self.ecu_id = None;
         self.supported_pids.clear();
     }
+}
+
+fn contextual_sink(sink: &DiagnosticSink, provider_id: &str, operation: &str) -> DiagnosticSink {
+    let sink = sink.clone();
+    let adapter_id = provider_id.to_owned();
+    let operation = operation.to_owned();
+    std::sync::Arc::new(move |mut event| {
+        event.adapter_id = Some(adapter_id.clone());
+        event.operation = operation.clone();
+        sink(event);
+    })
 }
 
 fn parse_supported_pages(

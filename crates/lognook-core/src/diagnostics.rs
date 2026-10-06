@@ -53,6 +53,18 @@ pub(crate) fn diagnostic_error_detail(message: &str) -> String {
             return format!("{prefix}[response redacted])");
         }
     }
+    const UNEXPECTED_OPENPORT_PREFIX: &str = "OpenPort worker returned an unexpected response for ";
+    if message.starts_with(UNEXPECTED_OPENPORT_PREFIX)
+        && let Some((action, response)) = message.split_once(": ")
+    {
+        let response_class = response.split_whitespace().next().unwrap_or("unknown");
+        let response_class = match response_class {
+            "Progress" | "Providers" | "Identity" | "Connected" | "Mode01Responses"
+            | "Disconnected" | "Error" => response_class,
+            _ => "unknown",
+        };
+        return format!("{action}: {response_class} [response detail redacted]");
+    }
     const ELM_TIMEOUT_PREFIX: &str = "Timed out waiting for the ELM327 > prompt after ";
     const OPENPORT_PARSER_PREFIX: &str =
         "OpenPort worker returned malformed output: Malformed J2534 worker message: ";
@@ -163,5 +175,13 @@ mod tests {
         ] {
             assert_eq!(super::diagnostic_error_detail(message), message);
         }
+    }
+    #[test]
+    fn unexpected_openport_response_detail_redacts_the_debug_payload() {
+        let error = "OpenPort worker returned an unexpected response for adapter identity: Mode01Responses { responses: [Mode01Payload { ecu_id: \"7E8\", bytes: [65, 12, 26, 248], latency_us: 11300 }] }";
+        assert_eq!(
+            super::diagnostic_error_detail(error),
+            "OpenPort worker returned an unexpected response for adapter identity: Mode01Responses [response detail redacted]"
+        );
     }
 }

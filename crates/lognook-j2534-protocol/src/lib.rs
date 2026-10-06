@@ -65,6 +65,11 @@ pub enum WorkerRequest {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkerResponse {
+    Progress {
+        stage: String,
+        detail: Option<String>,
+        elapsed_ms: Option<u64>,
+    },
     Providers {
         providers: Vec<J2534Provider>,
         diagnostics: Vec<String>,
@@ -136,6 +141,7 @@ pub fn decode_response_line(line: &[u8]) -> Result<WorkerResponse, ProtocolError
     let value = parse_json_line(line)?;
     let kind = message_type(&value)?;
     let fields = match kind {
+        "progress" => &["type", "stage", "detail", "elapsed_ms"][..],
         "disconnected" => &["type"][..],
         "providers" => &["type", "providers", "diagnostics"][..],
         "identity" | "connected" => &["type", "identity"][..],

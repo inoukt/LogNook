@@ -1,5 +1,5 @@
-use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
 use super::unexpected_worker_response;
+use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
 use crate::{EngineEvent, HardwareAdapter, LogNookEngine, SignalDefinition, standard_obd_signals};
 use lognook_j2534_protocol::{
     J2534Identity, J2534Provider, Mode01Payload, WorkerErrorKind, WorkerRequest, WorkerResponse,
@@ -111,7 +111,10 @@ fn provider_listing_uses_only_typed_worker_provider_response() {
     })]);
     let discovery = available_from_session(&mut session).unwrap();
     assert_eq!(discovery.providers[0].id, "opta");
-    assert_eq!(discovery.diagnostics, ["Ignored DENSO: unsupported by LogNook"]);
+    assert_eq!(
+        discovery.diagnostics,
+        ["Ignored DENSO: unsupported by LogNook"]
+    );
     assert_eq!(
         *state.requests.lock().unwrap(),
         vec![WorkerRequest::ListProviders]
@@ -391,4 +394,115 @@ fn adapter_rejects_unsupported_signal_ids_before_worker_read() {
 #[allow(dead_code)]
 fn _worker_error_kind_is_covered(kind: WorkerErrorKind) -> WorkerErrorKind {
     kind
+}
+
+struct ProgressSession(FakeSession);
+impl WorkerSession for ProgressSession {
+    fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, crate::LogNookError> {
+        self.0.request(request)
+    }
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        sink: &crate::DiagnosticSink,
+    ) -> Result<WorkerResponse, crate::LogNookError> {
+        let stage = match &request {
+            WorkerRequest::ListProviders => "provider_resolution",
+            WorkerRequest::Identify { .. } => "version_read",
+            WorkerRequest::Connect { .. } => "filter_setup",
+            WorkerRequest::DiscoverMode01 => "mode01_discovery",
+            WorkerRequest::ReadMode01 { .. } => "pid_read",
+            WorkerRequest::Disconnect => "disconnect",
+        };
+        sink(crate::DiagnosticProgress {
+            adapter_id: None,
+            operation: "fixture".into(),
+            stage: stage.into(),
+            phase: crate::DiagnosticPhase::Progress,
+            duration_ms: Some(1),
+            signal_ids: vec![],
+            detail: None,
+            transient: None,
+        });
+        self.request(request)
+    }
+    fn shutdown(&mut self) {
+        self.0.shutdown();
+    }
+}
+
+#[test]
+fn discovery_and_identify_helpers_use_progress_aware_session() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let sink: crate::DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+    let (fake, state) = FakeSession::new([
+        Ok(WorkerResponse::Providers {
+            providers: vec![],
+            diagnostics: vec![],
+        }),
+        Ok(WorkerResponse::Identity {
+            identity: identity(),
+        }),
+    ]);
+    let mut session = ProgressSession(fake);
+    super::available_from_session_with_diagnostics(&mut session, &sink).unwrap();
+    super::identify_from_session_with_diagnostics(&mut session, "opta", &sink).unwrap();
+    assert_eq!(
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.stage.clone())
+            .collect::<Vec<_>>(),
+        ["provider_resolution", "version_read"]
+    );
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        [
+            WorkerRequest::ListProviders,
+            WorkerRequest::Identify {
+                provider_id: "opta".into()
+            }
+        ]
+    );
+}
+
+#[test]
+fn adapter_progress_keeps_connect_and_acquisition_context_without_payloads() {
+    let (fake, state) = FakeSession::new([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let mut adapter = OpenPort2Adapter::new(PathBuf::from("worker.exe"), "opta".into())
+        .with_session(Box::new(ProgressSession(fake)));
+    adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+    adapter.connect().unwrap();
+    let samples = adapter.read_samples(&[rpm()]).unwrap();
+    assert_eq!(samples.len(), 1);
+    adapter.disconnect();
+    let events = events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|e| (e.operation.as_str(), e.stage.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("connect", "filter_setup"),
+            ("connect", "mode01_discovery"),
+            ("acquisition", "pid_read")
+        ]
+    );
+    assert!(
+        events
+            .iter()
+            .all(|e| e.adapter_id.as_deref() == Some("opta") && e.detail.is_none())
+    );
+    assert_eq!(state.requests.lock().unwrap().len(), 4);
 }
