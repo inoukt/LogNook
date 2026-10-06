@@ -1,5 +1,5 @@
 use crate::{
-    HardwareAdapter, SimulatedObdAdapter,
+    HardwareAdapter, ResearchTestRequest, ResearchTestResult, SimulatedObdAdapter,
     acquisition::AcquisitionHandle,
     csv_io::export_recording_csv,
     derived::{CompiledDerivedSignal, compile_derived_signals},
@@ -176,6 +176,17 @@ impl LogNookEngine {
 
     pub fn is_recording(&self) -> bool {
         self.pipeline.is_recording()
+    }
+
+    pub fn execute_research_test(
+        &self,
+        request: ResearchTestRequest,
+    ) -> Result<ResearchTestResult, LogNookError> {
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No adapter is connected"))?
+            .execute_research_test(request)
     }
 
     pub fn publish_research_sample(&self, mut sample: Sample) -> Result<(), LogNookError> {
@@ -426,6 +437,46 @@ mod tests {
         fn disconnect(&mut self) {
             self.disconnected.store(true, Ordering::Release);
         }
+    }
+
+    #[test]
+    fn research_test_requires_an_active_acquisition_adapter() {
+        let mut engine = LogNookEngine::new(|_| {});
+        let request =
+            || crate::ResearchTestRequest::A30ReadTest(crate::A30ReadTest::Mode01EngineRpm);
+        assert!(
+            engine
+                .execute_research_test(request())
+                .unwrap_err()
+                .to_string()
+                .contains("No adapter is connected")
+        );
+        let disconnected = Arc::new(AtomicBool::new(false));
+        engine
+            .connect_adapter(
+                Box::new(EmptyAdapter {
+                    disconnected: disconnected.clone(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        assert!(
+            engine
+                .execute_research_test(request())
+                .unwrap_err()
+                .to_string()
+                .contains("does not support read-only research tests")
+        );
+        assert!(engine.is_connected());
+        assert!(!disconnected.load(Ordering::Acquire));
+        engine.disconnect().unwrap();
+        assert!(
+            engine
+                .execute_research_test(request())
+                .unwrap_err()
+                .to_string()
+                .contains("No adapter is connected")
+        );
     }
 
     #[test]
