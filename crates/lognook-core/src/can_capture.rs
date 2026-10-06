@@ -21,6 +21,55 @@ const HEADER: [&str; 8] = [
     "flags",
 ];
 
+// Generated classic CAN rows and the header fit comfortably within this cap,
+// including CRLF. Never grow a line buffer to match malformed input size.
+const MAX_LINE_BYTES: usize = 256;
+
+enum PhysicalLine {
+    End,
+    Bytes(Vec<u8>),
+    Oversized,
+}
+
+fn read_physical_line(reader: &mut impl BufRead) -> std::io::Result<PhysicalLine> {
+    let mut line = Vec::with_capacity(MAX_LINE_BYTES);
+    let mut oversized = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(if oversized {
+                PhysicalLine::Oversized
+            } else if line.is_empty() {
+                PhysicalLine::End
+            } else {
+                PhysicalLine::Bytes(line)
+            });
+        }
+        let newline = available.iter().position(|&byte| byte == b'\n');
+        let count = newline.map_or(available.len(), |index| index + 1);
+        if !oversized {
+            if count <= MAX_LINE_BYTES - line.len() {
+                line.extend_from_slice(&available[..count]);
+            } else {
+                oversized = true;
+            }
+        }
+        // Once oversized, consume chunks directly without retaining the tail.
+        reader.consume(count);
+        if newline.is_some() {
+            return Ok(if oversized {
+                PhysicalLine::Oversized
+            } else {
+                PhysicalLine::Bytes(line)
+            });
+        }
+    }
+}
+
+fn oversized_line_error() -> LogNookError {
+    LogNookError::new("CAN capture physical line exceeds 256-byte limit")
+}
+
 pub struct CanCaptureWriter<W: Write = File> {
     csv: csv::Writer<W>,
 }
@@ -91,6 +140,7 @@ impl fmt::Display for CanCaptureRowError {
 }
 impl std::error::Error for CanCaptureRowError {}
 
+/// Raw token CSV with physical lines capped at 256 bytes, including CRLF.
 pub struct CanCaptureReader<R: Read = File> {
     reader: BufReader<R>,
     row: u64,
@@ -104,9 +154,13 @@ impl CanCaptureReader<File> {
 impl<R: Read> CanCaptureReader<R> {
     pub fn from_reader(reader: R) -> Result<Self, LogNookError> {
         let mut reader = BufReader::new(reader);
-        let mut header = String::new();
-        reader.read_line(&mut header)?;
-        let record = record(&header)?;
+        let header = match read_physical_line(&mut reader)? {
+            PhysicalLine::Bytes(header) => header,
+            PhysicalLine::Oversized => return Err(oversized_line_error()),
+            PhysicalLine::End => return Err(LogNookError::new("Empty CAN capture header")),
+        };
+        let header = std::str::from_utf8(&header).map_err(|e| LogNookError::new(e.to_string()))?;
+        let record = record(header)?;
         if !record.iter().eq(HEADER) {
             return Err(LogNookError::new("Invalid raw CAN capture CSV header"));
         }
@@ -124,16 +178,16 @@ impl<R: Read> Iterator for CanCaptureReader<R> {
         if self.exhausted {
             return None;
         }
-        let mut line = Vec::new();
         self.row += 1;
-        let result = match self.reader.read_until(b'\n', &mut line) {
-            Ok(0) => {
+        let result = match read_physical_line(&mut self.reader) {
+            Ok(PhysicalLine::End) => {
                 self.exhausted = true;
                 return None;
             }
-            Ok(_) => std::str::from_utf8(&line)
+            Ok(PhysicalLine::Bytes(line)) => std::str::from_utf8(&line)
                 .map_err(|e| LogNookError::new(e.to_string()))
                 .and_then(parse_frame),
+            Ok(PhysicalLine::Oversized) => Err(oversized_line_error()),
             Err(e) => {
                 self.exhausted = true;
                 Err(e.into())
@@ -149,9 +203,14 @@ impl<R: Read> Iterator for CanCaptureReader<R> {
 // All raw columns are numeric tokens/enums. Restrict to one physical line so
 // a damaged quote cannot swallow later valid evidence as a multiline record.
 fn record(line: &str) -> Result<csv::StringRecord, LogNookError> {
-    if line.contains('"') {
+    let line = if let Some(line) = line.strip_suffix('\n') {
+        line.strip_suffix('\r').unwrap_or(line)
+    } else {
+        line
+    };
+    if line.contains('"') || line.contains('\r') || line.contains('\n') {
         return Err(LogNookError::new(
-            "Quoted fields are not valid raw CAN tokens",
+            "Quotes and embedded line terminators are not valid raw CAN tokens",
         ));
     }
     let mut reader = csv::ReaderBuilder::new()

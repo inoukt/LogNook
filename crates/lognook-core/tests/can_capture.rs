@@ -107,6 +107,69 @@ fn broken_quote_and_non_utf8_row_cannot_swallow_next_frame() {
 }
 
 #[test]
+fn oversized_rows_are_discarded_and_later_valid_frames_survive() {
+    let huge_timestamp = "0".repeat(2 * 1024 * 1024);
+    let csv = format!(
+        "{HEADER}{huge_timestamp},0,rx,123,standard,1,00,0\n0,1,rx,123,standard,1,AA,0\n{huge_timestamp},2,rx,123,standard,1,00,0"
+    );
+    let rows: Vec<_> = CanCaptureReader::from_reader(csv.as_bytes())
+        .unwrap()
+        .collect();
+    assert_eq!(rows.len(), 3);
+    for index in [0, 2] {
+        let error = rows[index].as_ref().unwrap_err();
+        assert_eq!(error.row, index as u64 + 2);
+        assert!(error.message.contains("exceeds"));
+    }
+    assert_eq!(rows[1].as_ref().unwrap().data, vec![0xAA]);
+}
+
+#[test]
+fn oversized_header_is_rejected_by_the_line_bound() {
+    let header = "0".repeat(2 * 1024 * 1024);
+    let error = CanCaptureReader::from_reader(header.as_bytes())
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("exceeds"));
+}
+
+#[test]
+fn embedded_carriage_return_in_header_cannot_hide_extra_content() {
+    let header = format!("{}\rhidden,content\n", HEADER.trim_end_matches('\n'));
+    assert!(CanCaptureReader::from_reader(header.as_bytes()).is_err());
+}
+
+#[test]
+fn embedded_carriage_return_in_frame_is_an_error_and_recovery_continues() {
+    let csv = format!(
+        "{HEADER}0,0,rx,123,standard,1,00,0\r0,1,rx,123,standard,1,BB,0\n0,2,rx,123,standard,1,AA,0\n"
+    );
+    let rows: Vec<_> = CanCaptureReader::from_reader(csv.as_bytes())
+        .unwrap()
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].as_ref().unwrap_err().row, 2);
+    assert_eq!(rows[1].as_ref().unwrap().data, vec![0xAA]);
+}
+
+#[test]
+fn terminal_crlf_remains_valid_for_headers_and_frames() {
+    let csv = format!(
+        "{}\r\n0,0,rx,123,standard,1,AA,0\r\n",
+        HEADER.trim_end_matches('\n')
+    );
+    assert_eq!(
+        CanCaptureReader::from_reader(csv.as_bytes())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .data,
+        vec![0xAA]
+    );
+}
+
+#[test]
 fn replay_uses_analyzer_and_decoder_and_surfaces_row_errors() {
     let csv = format!(
         "{HEADER}100,0,rx,123,standard,1,02,0\n100,1,rx,123,standard,2,03,0\n200,10,rx,123,standard,1,04,0\n300,20,tx,123,standard,1,08,0\n"
