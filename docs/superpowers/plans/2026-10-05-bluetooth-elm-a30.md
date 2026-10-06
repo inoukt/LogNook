@@ -77,4 +77,4 @@
 - [x] Update architecture notes, A30 protocol notes, and project status with implemented behavior and limitations.
 - [x] Run `cargo test --workspace -j 1` (**185 passed**), `cargo check --workspace -j 1`, `cargo build -p lognook-desktop --features tauri/custom-protocol -j 1`, `npm run test:ui` (**70 passed**), `npm run build` (0 Svelte errors/warnings), targeted `rustfmt --check`, and `git diff --check`.
 - [x] Record build/launch commands and the first hardware smoke test in `PROJECT_STATUS.md`.
-- [ ] Pair a physical ELM327 or A30, confirm Identify/Connect, then capture a real supported PID and one source-backed candidate response. No commit or push has been made.
+- [ ] Pair a physical ELM327 or A30, confirm Identify/Connect, then capture a real supported PID and one source-backed candidate response. The implementation is committed and pushed; physical hardware validation remains pending.
