@@ -31,7 +31,8 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    A30GraphValue, BluetoothSppDevice, CanFrame, CanScanResult, CanSignalDefinition, CanTransportError, CanTxStatus,
+    A30GraphValue, BluetoothSppDevice, CanFrame, CanScanResult, CanSignalDefinition, CanTransportError,
+    CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, RecordingInfo, ResearchRunViewState, Sample, SignalDefinition,
   } from "./types";
@@ -108,6 +109,7 @@
   let canScanResults: CanScanResult[] = [];
   let canTxStatuses: CanTxStatus[] = [];
   let canTransportErrors: CanTransportError[] = [];
+  let canTriggerCapture: CanTriggerCaptureResult | null = null;
   let canScanRunning = false;
   let canCaptureOpen = false;
   let canCapturePath = "";
@@ -159,6 +161,10 @@
 
   $: derivedOptions = derivedSignalOptions(derivedSignalDefinitions);
   $: canSignalOptions = canSignalDefinitions.map(canSignalOption);
+  $: canCorrelationSamples = Object.values(series)
+    .flat()
+    .filter((sample) => !sample.source_id.startsWith("can:"))
+    .slice(-1024);
   $: availableSignals = session
     ? session.signals.map((recorded): SignalOption => {
         const known = signalCatalog.find((signal) => signal.id === recorded.id)
@@ -409,6 +415,7 @@
         canScanResults = empty.scanResults;
         canTxStatuses = empty.txStatuses;
         canTransportErrors = empty.transportErrors;
+        canTriggerCapture = empty.triggerCapture;
         canScanRunning = empty.scanRunning;
         queuedCanFrames = [];
         canCaptureOpen = false;
@@ -446,6 +453,8 @@
       canTxStatuses = [...canTxStatuses, event.payload].slice(-50);
     } else if (event.type === "canTransportError") {
       canTransportErrors = [...canTransportErrors, event.payload].slice(-50);
+    } else if (event.type === "canTriggerCapture") {
+      canTriggerCapture = event.payload;
     } else if (event.type === "sample") {
       const sample = event.payload;
       if (sample.origin === "live") {
@@ -488,6 +497,7 @@
       canScanRunning = false;
       canCaptureOpen = false;
       canCapturePath = "";
+      canTriggerCapture = null;
       clearCanSignalSamples();
       activeAdapterDescriptor = null;
       status = "Disconnected";
@@ -1387,6 +1397,8 @@
           scanResults={canScanResults}
           txStatuses={canTxStatuses}
           transportErrors={canTransportErrors}
+          triggerCapture={canTriggerCapture}
+          correlationSamples={canCorrelationSamples}
           scanRunning={canScanRunning}
           bind:captureOpen={canCaptureOpen}
           bind:capturePath={canCapturePath}

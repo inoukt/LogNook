@@ -278,6 +278,64 @@ fn a_single_worker_owns_io_and_decoded_rx_samples_enter_the_recording_pipeline()
 }
 
 #[test]
+fn manual_trigger_is_marked_on_the_owner_and_returns_a_bounded_window() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, _transmitted, owners) = transport();
+    engine
+        .connect_can_transport(config(true), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+
+    assert!(engine.arm_can_trigger(60_001, 0, 4).is_err());
+    assert!(engine.arm_can_trigger(0, 0, 100_001).is_err());
+    engine.arm_can_trigger(0, 0, 4).unwrap();
+    engine.trigger_can_now().unwrap();
+    wait_until(|| {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event, EngineEvent::CanTriggerCapture(_)))
+    });
+    let captured = events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            EngineEvent::CanTriggerCapture(capture) => Some(capture.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(captured.source_capture_id, 1);
+    assert_eq!(captured.source_id, "can:test-adapter");
+    assert!(captured.capture.complete);
+    assert!(captured.capture.frames.is_empty());
+    assert_eq!(captured.capture.max_frames, 4);
+    assert!(
+        std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path))
+            .unwrap()
+            .contains("trigger_completed")
+    );
+    assert_eq!(
+        owners
+            .lock()
+            .unwrap()
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        1
+    );
+
+    engine.stop_can_capture().unwrap();
+    drop(engine);
+    cleanup_capture(&capture_path);
+}
+
+#[test]
 fn scan_uses_the_configured_id_range_and_stop_cancels_before_the_next_send() {
     let mut engine = LogNookEngine::new(|_| {});
     let (transport, _incoming, transmitted, _owners) = transport();

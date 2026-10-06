@@ -1,14 +1,15 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import {
-    buildCanScanConfig, canSignalDefinitionError, canTransmitEnabled, createCanTxFrame,
+    buildCanScanConfig, canSignalDefinitionError, canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
     createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload,
     recentCanRates, replaySidecarStatus,
     type CanScanKind,
   } from "./canWorkbench";
   import type {
-    CanCaptureReplayReport, CanDeviceCandidate, CanFrame, CanScanConfig, CanScanResult,
-    CanSignalDefinition, CanTransportError, CanTxStatus, CanWorkbenchStatus,
+    CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanFrame, CanScanConfig,
+    CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult, CanTxStatus,
+    CanWorkbenchStatus, Sample,
   } from "./types";
 
   export let hidden = false;
@@ -20,6 +21,8 @@
   export let scanResults: CanScanResult[] = [];
   export let txStatuses: CanTxStatus[] = [];
   export let transportErrors: CanTransportError[] = [];
+  export let triggerCapture: CanTriggerCaptureResult | null = null;
+  export let correlationSamples: Sample[] = [];
   export let scanRunning = false;
   export let captureOpen = false;
   export let capturePath = "";
@@ -65,6 +68,13 @@
   let txRepeat = 1;
   let replayReport: CanCaptureReplayReport | null = null;
   let replayPath = "";
+  let comparison: CanCaptureComparison | null = null;
+  let comparisonPath = "";
+  let triggerPreMs = 5000;
+  let triggerPostMs = 2000;
+  let triggerMaxFrames = 10000;
+  let triggerArmed = false;
+  let triggerWaiting = false;
 
   $: selectedAdapter = adapters.find(({ id }) => id === selectedAdapterId);
   $: connected = Boolean(status?.connected);
@@ -206,8 +216,67 @@
     await runBusy(async () => {
       const path = await commands.chooseCaptureOpenPath();
       if (!path) return;
-      replayReport = await commands.replay(path, fields);
+      replayReport = await commands.replay(path, fields, correlationSamples);
       replayPath = path;
+      comparison = null;
+      comparisonPath = "";
+    });
+  }
+
+  async function compareCapture() {
+    if (!replayPath || captureOpen || busy || workspaceBusy) return;
+    await runBusy(async () => {
+      const path = await commands.chooseCaptureOpenPath();
+      if (!path) return;
+      comparison = await commands.compareCaptures(replayPath, path);
+      comparisonPath = path;
+    });
+  }
+
+  async function exportDbc() {
+    if (!replayPath || busy || workspaceBusy) return;
+    await runBusy(async () => {
+      const path = await commands.chooseDbcExportPath();
+      if (path) await commands.exportDbcSkeleton(replayPath, path);
+    });
+  }
+
+  async function armTrigger() {
+    const validation = canTriggerConfigError(triggerPreMs, triggerPostMs, triggerMaxFrames);
+    if (!captureOpen || validation) {
+      error = validation ?? "Start a paired raw capture before arming a CAN trigger.";
+      return;
+    }
+    await runBusy(async () => {
+      await commands.armTrigger(triggerPreMs, triggerPostMs, triggerMaxFrames);
+      triggerArmed = true;
+      triggerWaiting = false;
+    });
+  }
+
+  async function markTrigger() {
+    if (!triggerArmed || triggerWaiting || busy || workspaceBusy) return;
+    await runBusy(async () => {
+      const previousCapture = triggerCapture;
+      await commands.triggerNow();
+      triggerArmed = false;
+      triggerWaiting = triggerCapture === previousCapture;
+    });
+  }
+
+  async function disarmTrigger() {
+    await runBusy(async () => {
+      await commands.disarmTrigger();
+      triggerArmed = false;
+      triggerWaiting = false;
+    });
+  }
+
+  async function saveTrigger() {
+    if (!triggerCapture || busy || workspaceBusy) return;
+    await runBusy(async () => {
+      const path = await commands.chooseTriggerSavePath();
+      if (path) await commands.saveTriggerCapture(path, triggerCapture);
     });
   }
 
@@ -217,6 +286,32 @@
 
   function scanOutcome(result: CanScanResult): string {
     return typeof result.outcome === "string" ? result.outcome : JSON.stringify(result.outcome);
+  }
+
+  function timingOutcome(outcome: string | Record<string, unknown>): string {
+    if (typeof outcome === "string") return outcome;
+    const [name, detail] = Object.entries(outcome)[0] ?? ["Unknown", null];
+    if (detail && typeof detail === "object" && "nrc" in detail) {
+      return `${name} · NRC 0x${Number(detail.nrc).toString(16).padStart(2, "0").toUpperCase()}`;
+    }
+    return name;
+  }
+
+  function byteCounts(counts: Record<string, number>): string {
+    return Object.entries(counts).map(([value, count]) => `${Number(value).toString(16).padStart(2, "0").toUpperCase()}:${count}`).join(" ") || "—";
+  }
+
+  function differs(left: Record<string, number>, right: Record<string, number>): boolean {
+    return JSON.stringify(left) !== JSON.stringify(right);
+  }
+
+  $: if (triggerCapture) {
+    triggerArmed = false;
+    triggerWaiting = false;
+  }
+  $: if (!connected || !captureOpen) {
+    triggerArmed = false;
+    triggerWaiting = false;
   }
 
   async function runBusy(action: () => Promise<void>) {
@@ -309,6 +404,29 @@
     {/if}
     {#if captureAction}<span class="can-muted">{captureAction}</span>{/if}
   </div>
+
+  <details class="can-trigger-settings">
+    <summary>Manual trigger window</summary>
+    <p class="can-muted">Capture a bounded frame window around a manual mark. Frames continue through the serialized Candlelight owner.</p>
+    <div class="can-trigger-form">
+      <label>Pre-trigger (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={triggerPreMs} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} /></label>
+      <label>Post-trigger (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={triggerPostMs} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} /></label>
+      <label>Maximum frames<input class="text-input" type="number" min="1" max="100000" bind:value={triggerMaxFrames} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} /></label>
+      <button class="button secondary" onclick={armTrigger} disabled={!connected || !captureOpen || busy || workspaceBusy || triggerArmed || triggerWaiting}>Arm window</button>
+      <button class="button primary" onclick={markTrigger} disabled={!triggerArmed || triggerWaiting || busy || workspaceBusy}>Mark trigger now</button>
+      {#if triggerArmed}<span class="can-muted" role="status">Armed · mark a trigger when ready</span>{:else if triggerWaiting}<span class="can-muted" role="status">Waiting for post-trigger frames…</span>{/if}
+      {#if triggerArmed || triggerWaiting}<button class="button secondary" onclick={disarmTrigger} disabled={busy || workspaceBusy}>Disarm</button>{/if}
+    </div>
+    {#if triggerCapture}
+      <div class="can-trigger-result" role="status">
+        <strong>Triggered window · {triggerCapture.capture.frames.length} frames</strong>
+        <span>{(triggerCapture.capture.pre_ns / 1e6).toFixed(0)} ms pre / {(triggerCapture.capture.post_ns / 1e6).toFixed(0)} ms post · limit {triggerCapture.capture.max_frames.toLocaleString()}</span>
+        <span>{triggerCapture.capture.complete ? "Complete" : "Incomplete"}{triggerCapture.capture.truncated ? " · frame limit reached" : ""}</span>
+        <span>{triggerCapture.source_id} · source capture {triggerCapture.source_capture_id}</span>
+        <button class="button secondary" onclick={saveTrigger} disabled={busy || workspaceBusy}>Save as raw CSV + JSONL</button>
+      </div>
+    {/if}
+  </details>
 
   <details class="can-scan-settings">
     <summary>Scan configuration</summary>
@@ -435,23 +553,59 @@
 
   <details class="can-replay-report">
     <summary>Replay a saved capture and review Rust analysis</summary>
-    <button class="button secondary" onclick={replayCapture} disabled={captureOpen || busy || workspaceBusy}>Open .candump.csv</button>
+    <div class="can-report-actions">
+      <button class="button secondary" onclick={replayCapture} disabled={captureOpen || busy || workspaceBusy}>Open .candump.csv</button>
+      <button class="button secondary" onclick={compareCapture} disabled={!replayReport || captureOpen || busy || workspaceBusy}>Compare another CSV</button>
+      <button class="button secondary" onclick={exportDbc} disabled={!replayReport || busy || workspaceBusy}>Export UNVERIFIED DBC skeleton</button>
+    </div>
     {#if captureOpen}<p class="can-hint">Stop the current capture before replaying its CSV and JSONL sidecar.</p>{/if}
     {#if replayReport}
       <p class="can-muted" title={replayPath}>{replayPath}</p>
       <p class="can-report-status">{replaySidecarStatus(replayReport)}</p>
+      {#if replayReport.source_id}<p class="can-muted">Adapter: {replayReport.source_id} · {replayReport.bitrate?.toLocaleString()} bit/s · {replayReport.listen_only ? "listen-only" : "active"}</p>{/if}
       {#if replayReport.evidence_journal_error}<p class="can-error" role="status">{replayReport.evidence_journal_error}</p>{/if}
       <div class="can-report-counts">
         <span>{replayReport.frames.toLocaleString()} frames</span><span>{replayReport.decoded_samples.toLocaleString()} field samples</span>
         <span>{replayReport.evidence_records.toLocaleString()} evidence records</span><span>{replayReport.scan_results.toLocaleString()} scans</span>
         <span>{replayReport.tx_submitted.toLocaleString()} TX</span><span>{replayReport.tx_echo_confirmed.toLocaleString()} echoes</span>
-        <span>{replayReport.transport_errors.toLocaleString()} transport errors</span>
+        <span>{replayReport.transport_errors.toLocaleString()} transport errors</span><span>{replayReport.trigger_marks.toLocaleString()} trigger marks</span><span>{replayReport.trigger_completions.toLocaleString()} trigger windows</span><span>{replayReport.trigger_window_exports.toLocaleString()} trigger exports</span>
       </div>
       {#if replayReport.evidence_journal}<small class="can-muted">Sidecar: {replayReport.evidence_journal}</small>{/if}
       {#if replayReport.evidence_errors.length || replayReport.analyzer_issues.length || replayReport.malformed_rows.length}
         <ul class="can-event-list" aria-label="Replay issues">
           {#each [...replayReport.evidence_errors, ...replayReport.analyzer_issues, ...replayReport.malformed_rows].slice(0, 20) as issue, index (`${index}:${issue}`)}<li class="can-error">{issue}</li>{/each}
         </ul>
+      {/if}
+      {#if replayReport.timings.length}
+        <h3>Request/reply timing · routes from evidence journal</h3>
+        <ul class="can-event-list" aria-label="Recorded CAN diagnostic route sources">
+          {#each replayReport.route_provenance as provenance (`${provenance.route.request_id}:${provenance.route.response_id}`)}
+            <li>0x{provenance.route.request_id.toString(16).toUpperCase()} → 0x{provenance.route.response_id.toString(16).toUpperCase()} · {provenance.source_candidate_ids.join(", ") || "operator-configured bench route"}</li>
+          {/each}
+        </ul>
+        <div class="can-table-wrap">
+          <table aria-label="CAN diagnostic request and reply timing">
+            <thead><tr><th>Route</th><th>Latency</th><th>Outcome</th><th>Request → reply (raw PDU)</th></tr></thead>
+            <tbody>
+              {#each replayReport.timings as timing, index (`${timing.request_elapsed_ns}:${index}`)}
+                <tr><td>0x{timing.route.request_id.toString(16).toUpperCase()} → 0x{timing.route.response_id.toString(16).toUpperCase()}</td><td>{(timing.latency_ns / 1e6).toFixed(2)} ms</td><td>{timingOutcome(timing.outcome)}</td><td><code>{bytesHex(timing.request_payload)} → {bytesHex(timing.response_payload)}</code></td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <p class="can-muted">No request/reply pairs found for the routes recorded in this capture’s JSONL evidence.</p>
+      {/if}
+      <h3>CAN-to-OBD correlation hypotheses</h3>
+      <p class="can-muted">{replayReport.correlation_sample_count} timestamped app samples supplied · correlations are research hypotheses only, never decoded or vehicle-validated signals.</p>
+      {#if replayReport.correlation_hypotheses.length}
+        <ul class="can-event-list" aria-label="CAN-to-OBD correlation hypotheses">
+          {#each replayReport.correlation_hypotheses as hypothesis (`${hypothesis.field_id}:${hypothesis.obd_signal_id}:${hypothesis.obd_source_id}`)}
+            <li><strong>{hypothesis.field_id}</strong> ↔ {hypothesis.obd_signal_id} · r={hypothesis.pearson_r.toFixed(3)} · {hypothesis.pairs} pairs · hypothesis only</li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="can-muted">No matching field/sample pairs were close enough in wall-clock time to report a correlation.</p>
       {/if}
       <h3>CAN ID census · Rust calculated rates</h3>
       <div class="can-table-wrap">
@@ -462,7 +616,7 @@
               <tr>
                 <td>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()}</td><td>{row.count}</td><td>{row.rx_count}</td><td>{row.tx_count}</td><td>{row.rate_hz === null ? "—" : `${row.rate_hz.toFixed(1)} Hz`}</td>
                 <td><details><summary>{row.bytes.reduce((total, byte) => total + byte.changes, 0)} changes</summary>
-                  <ul class="can-byte-list">{#each row.bytes as byte, index}<li><strong>B{index}</strong> · {byte.min ?? "—"}–{byte.max ?? "—"} · {byte.changes} changes{#if byte.is_static} · static{/if}{#if byte.counter_hypothesis} · counter?{/if}{#if byte.checksum_hypothesis} · checksum?{/if}</li>{/each}</ul>
+                  <ul class="can-byte-list">{#each row.bytes as byte, index}<li><strong>B{index}</strong> · {byte.min ?? "—"}–{byte.max ?? "—"} · {byte.changes} changes{#if byte.is_static} · static{/if}{#if byte.counter_hypothesis} · counter?{/if}{#if byte.checksum_hypothesis} · checksum?{/if}<details><summary>Values: {byte.observations}</summary><code>{byteCounts(byte.value_counts)}</code></details></li>{/each}</ul>
                 </details></td>
               </tr>
             {:else}
@@ -471,6 +625,28 @@
           </tbody>
         </table>
       </div>
+      {#if comparison}
+        <h3>Capture comparison · {comparison.left.frames} vs {comparison.right.frames} frames</h3>
+        <p class="can-muted" title={comparisonPath}>Right capture: {comparisonPath}</p>
+        <p class="can-muted">Left: {comparison.left.source_id ?? "unknown source"} · {comparison.left.session_finalized === true ? "closed cleanly" : "not finalized"} · Right: {comparison.right.source_id ?? "unknown source"} · {comparison.right.session_finalized === true ? "closed cleanly" : "not finalized"}</p>
+        {#if comparison.left.evidence_journal_error}<p class="can-error">Left JSONL: {comparison.left.evidence_journal_error}</p>{/if}
+        {#if comparison.right.evidence_journal_error}<p class="can-error">Right JSONL: {comparison.right.evidence_journal_error}</p>{/if}
+        {#each [...comparison.left.evidence_errors, ...comparison.right.evidence_errors, ...comparison.left.malformed_rows, ...comparison.right.malformed_rows, ...comparison.left.analyzer_issues, ...comparison.right.analyzer_issues].slice(0, 10) as issue, index (`${index}:${issue}`)}<p class="can-error">{issue}</p>{/each}
+        <div class="can-table-wrap">
+          <table aria-label="CAN identifier and payload-byte capture differences">
+            <thead><tr><th>ID</th><th>Frame counts</th><th>Changed byte distributions</th></tr></thead>
+            <tbody>
+              {#each comparison.differences.filter((row) => row.left_count !== row.right_count || row.bytes.some((byte) => differs(byte.left, byte.right))) as row (`${row.can_id}:${row.extended}`)}
+                <tr><td>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()}</td><td>{row.left_count} → {row.right_count}</td><td>
+                  <ul class="can-byte-list">{#each row.bytes as byte, index}{#if differs(byte.left, byte.right)}<li><strong>B{index}</strong> · L {byteCounts(byte.left)} · R {byteCounts(byte.right)}</li>{/if}{/each}</ul>
+                </td></tr>
+              {:else}
+                <tr><td colspan="3" class="can-muted">No ID counts or byte distributions differ.</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
     {/if}
   </details>
 
@@ -499,7 +675,10 @@
   .can-source { flex:1 1 100%; color:var(--text-muted,#9badb8); font-size:.75rem; overflow-wrap:anywhere; }
   details { min-width:0; padding:.55rem; }
   summary { cursor:pointer; color:var(--accent,#56c8bd); font-weight:650; }
-  .can-scan-form,.can-field-form { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; margin-top:.65rem; }
+  .can-scan-form,.can-field-form,.can-trigger-form,.can-report-actions { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; margin-top:.65rem; }
+  .can-trigger-form label { min-width:7rem; flex:1 1 8rem; }
+  .can-trigger-result { display:flex; flex-wrap:wrap; align-items:center; gap:.55rem; margin-top:.55rem; padding:.55rem; border:1px solid var(--border,#344652); border-radius:.45rem; color:var(--text-muted,#9badb8); font-size:.75rem; }
+  .can-trigger-result strong { color:var(--text-primary,#e7edf2); }
   .can-scan-form label,.can-field-form label { min-width:7rem; flex:1 1 8rem; }
   .can-field-form label.can-check,.can-scan-form label.can-check { flex:0 0 auto; min-height:2.5rem; }
   .can-error { color:var(--danger,#ff7f86); font-size:.78rem; }

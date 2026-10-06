@@ -2,7 +2,8 @@
 use crate::candlelight::{CandlelightError, CandlelightTransport};
 use crate::{
     CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanDiagnosticOutcome, CanDirection, CanFrame,
-    CanSignalDefinition, EngineEvent, LogNookError, SamplePublisher,
+    CanSignalDefinition, CanTriggerCapture, CanTriggerConfig, CanTriggerRecorder, EngineEvent,
+    LogNookError, SamplePublisher,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -50,6 +51,15 @@ pub struct CanWorkbenchStatus {
     pub listen_only: bool,
     /// Candlelight VID/PID/serial-derived source identity; USB IDs alone are not authenticity proof.
     pub source_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanTriggerCaptureResult {
+    pub source_capture_id: u64,
+    pub source_id: String,
+    pub bitrate: u32,
+    pub listen_only: bool,
+    pub capture: CanTriggerCapture,
 }
 
 impl CanWorkbenchConfig {
@@ -441,6 +451,34 @@ pub enum CanEvidenceRecord {
         error: CanTransportError,
         frame: Option<CanFrame>,
     },
+    TriggerMarked {
+        capture_id: u64,
+        trigger_elapsed_ns: i64,
+        pre_ns: i64,
+        post_ns: i64,
+        max_frames: usize,
+    },
+    TriggerCompleted {
+        capture_id: u64,
+        trigger_elapsed_ns: i64,
+        max_frames: usize,
+        frame_count: usize,
+        truncated: bool,
+        complete: bool,
+    },
+    TriggerWindowExported {
+        source_capture_id: u64,
+        source_id: String,
+        bitrate: u32,
+        listen_only: bool,
+        trigger_elapsed_ns: i64,
+        pre_ns: i64,
+        post_ns: i64,
+        max_frames: usize,
+        frame_count: usize,
+        truncated: bool,
+        complete: bool,
+    },
 }
 
 pub fn can_evidence_path(path: impl AsRef<Path>) -> std::path::PathBuf {
@@ -623,6 +661,37 @@ impl CanWorkbench {
 
     pub fn stop_capture(&self) -> Result<(), LogNookError> {
         self.request(Command::StopCapture)
+    }
+
+    pub fn arm_trigger(
+        &self,
+        pre_ms: u64,
+        post_ms: u64,
+        max_frames: usize,
+    ) -> Result<(), LogNookError> {
+        if pre_ms > 60_000 || post_ms > 60_000 || !(1..=100_000).contains(&max_frames) {
+            return Err(LogNookError::new(
+                "CAN trigger windows must be at most 60000 ms and 1-100000 frames",
+            ));
+        }
+        self.request(|reply| {
+            Command::ArmTrigger(
+                CanTriggerConfig {
+                    pre_ns: (pre_ms * 1_000_000) as i64,
+                    post_ns: (post_ms * 1_000_000) as i64,
+                    max_frames,
+                },
+                reply,
+            )
+        })
+    }
+
+    pub fn trigger_now(&self) -> Result<(), LogNookError> {
+        self.request(Command::TriggerNow)
+    }
+
+    pub fn disarm_trigger(&self) -> Result<(), LogNookError> {
+        self.request(Command::DisarmTrigger)
     }
 
     pub fn send_frame(

@@ -1,7 +1,8 @@
 use super::scan::{self, ScanTask, accept_scan_response, task_finished, tick_scan};
 use super::{
     CanEvidenceRecord, CanScanConfig, CanSignalDefinition, CanTransport, CanTransportError,
-    CanTransportEvent, CanWorkbenchStatus,
+    CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig, CanTriggerRecorder,
+    CanWorkbenchStatus,
 };
 use crate::{
     CanCaptureWriter, CanDirection, CanFrame, EngineEvent, SamplePublisher, decode_can_signal,
@@ -29,6 +30,9 @@ pub(super) enum Command {
     SendFrame(CanFrame, u64, u32, mpsc::Sender<Result<(), String>>),
     StartScan(CanScanConfig, mpsc::Sender<Result<(), String>>),
     StopScan(mpsc::Sender<Result<(), String>>),
+    ArmTrigger(CanTriggerConfig, mpsc::Sender<Result<(), String>>),
+    TriggerNow(mpsc::Sender<Result<(), String>>),
+    DisarmTrigger(mpsc::Sender<Result<(), String>>),
     Shutdown,
 }
 
@@ -168,6 +172,7 @@ pub(super) fn run_worker(
     let mut pending_tx = HashMap::<u32, PendingTx>::new();
     let mut next_tx_sequence = 1u64;
     let mut next_capture_id = 1u64;
+    let mut trigger: Option<(CanTriggerRecorder, u64, CanTriggerConfig)> = None;
     let mut disconnected = false;
     loop {
         if disconnected {
@@ -186,6 +191,8 @@ pub(super) fn run_worker(
                 bitrate,
                 listen_only,
                 &mut next_capture_id,
+                &mut trigger,
+                &started,
             ),
             Err(mpsc::TryRecvError::Empty) => {}
         }
@@ -296,6 +303,7 @@ pub(super) fn run_worker(
                         &event_sink,
                         &mut frames,
                     );
+                    feed_trigger(&mut trigger, &frame, &event_sink);
                     if let Some(task) = scan_task.as_mut() {
                         accept_scan_response(
                             task,
@@ -332,14 +340,17 @@ pub(super) fn run_worker(
                     echo_id,
                     frame,
                     raw_usb,
-                })) => confirm_tx_echo(
-                    echo_id,
-                    frame,
-                    raw_usb,
-                    &mut pending_tx,
-                    &mut capture,
-                    &event_sink,
-                ),
+                })) => {
+                    feed_trigger(&mut trigger, &frame, &event_sink);
+                    confirm_tx_echo(
+                        echo_id,
+                        frame,
+                        raw_usb,
+                        &mut pending_tx,
+                        &mut capture,
+                        &event_sink,
+                    )
+                }
                 Ok(None) => {}
                 Err(error) => {
                     report_transport_error(&event_sink, &mut capture, error.clone(), None);
@@ -372,6 +383,32 @@ pub(super) fn run_worker(
             (event_sink)(EngineEvent::CanFrames(std::mem::take(&mut frames)));
             last_flush = Instant::now();
         }
+        advance_trigger(
+            &mut trigger,
+            &started,
+            &source_id,
+            bitrate,
+            listen_only,
+            &mut capture,
+            &event_sink,
+        );
+    }
+    if let Some((mut recorder, capture_id, _config)) = trigger.take()
+        && let Some(window) = recorder.take_capture()
+    {
+        if let Err(error) = record_trigger_completion(&mut capture, capture_id, &window) {
+            (event_sink)(EngineEvent::Error(format!(
+                "Could not persist trigger completion evidence: {error}"
+            )));
+        }
+        emit_trigger_capture(
+            window,
+            capture_id,
+            &source_id,
+            bitrate,
+            listen_only,
+            &event_sink,
+        );
     }
     if let Some(writer) = capture.take() {
         if let Err(error) = writer.finish() {
@@ -402,6 +439,8 @@ fn handle_command(
     bitrate: u32,
     listen_only: bool,
     next_capture_id: &mut u64,
+    trigger: &mut Option<(CanTriggerRecorder, u64, CanTriggerConfig)>,
+    started: &Instant,
 ) {
     match command {
         Command::SetFields(next, reply) => {
@@ -437,10 +476,26 @@ fn handle_command(
                 Ok(())
             };
             *send_task = None;
+            let trigger_result = if let Some((mut recorder, capture_id, _)) = trigger.take()
+                && let Some(window) = recorder.take_capture()
+            {
+                let result = record_trigger_completion(capture, capture_id, &window);
+                emit_trigger_capture(
+                    window,
+                    capture_id,
+                    source_id,
+                    bitrate,
+                    listen_only,
+                    event_sink,
+                );
+                result
+            } else {
+                Ok(())
+            };
             let finish_result = capture.take().map_or(Ok(()), |writer| {
                 writer.finish().map_err(|error| error.to_string())
             });
-            let _ = reply.send(stop_result.and(finish_result));
+            let _ = reply.send(stop_result.and(trigger_result).and(finish_result));
         }
         Command::SendFrame(frame, pacing_ms, repeat, reply) => {
             let result = if capture.as_ref().is_none_or(CanCaptureSession::failed) {
@@ -502,12 +557,140 @@ fn handle_command(
             *send_task = None;
             let _ = reply.send(result);
         }
+        Command::ArmTrigger(config, reply) => {
+            let result = if let Some(capture) = capture.as_ref() {
+                CanTriggerRecorder::new(config.clone())
+                    .map_err(|error| error.to_string())
+                    .and_then(|recorder| {
+                        *trigger = Some((recorder, capture.capture_id(), config));
+                        Ok(())
+                    })
+            } else {
+                Err("Start a paired raw capture before arming a CAN trigger".into())
+            };
+            let _ = reply.send(result);
+        }
+        Command::TriggerNow(reply) => {
+            let now_ns = elapsed_ns(started);
+            let result = if let Some(session) = capture.as_mut() {
+                trigger
+                    .as_mut()
+                    .ok_or_else(|| "Arm a CAN trigger before marking its time".to_owned())
+                    .and_then(|(recorder, capture_id, config)| {
+                        recorder
+                            .trigger(now_ns)
+                            .map_err(|error| error.to_string())?;
+                        session.record(&CanEvidenceRecord::TriggerMarked {
+                            capture_id: *capture_id,
+                            trigger_elapsed_ns: now_ns,
+                            pre_ns: config.pre_ns,
+                            post_ns: config.post_ns,
+                            max_frames: config.max_frames,
+                        })
+                    })
+            } else {
+                Err("Paired raw capture closed before the trigger".into())
+            };
+            let _ = reply.send(result);
+        }
+        Command::DisarmTrigger(reply) => {
+            *trigger = None;
+            let _ = reply.send(Ok(()));
+        }
         Command::Shutdown => {}
     }
 }
 
 fn transport_mode_conflicts(send: bool, scan: bool) -> bool {
     send || scan
+}
+
+fn elapsed_ns(started: &Instant) -> i64 {
+    started.elapsed().as_nanos().min(i64::MAX as u128) as i64
+}
+
+fn feed_trigger(
+    trigger: &mut Option<(CanTriggerRecorder, u64, CanTriggerConfig)>,
+    frame: &CanFrame,
+    event_sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
+) {
+    if let Some((recorder, _, _)) = trigger
+        && let Err(error) = recorder.feed(frame)
+    {
+        trigger.take();
+        (event_sink)(EngineEvent::Error(format!(
+            "CAN trigger capture stopped: {error}"
+        )));
+    }
+}
+
+fn advance_trigger(
+    trigger: &mut Option<(CanTriggerRecorder, u64, CanTriggerConfig)>,
+    started: &Instant,
+    source_id: &str,
+    bitrate: u32,
+    listen_only: bool,
+    capture: &mut Option<CanCaptureSession>,
+    event_sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
+) {
+    let Some((recorder, _, _)) = trigger.as_mut() else {
+        return;
+    };
+    recorder.advance_time(elapsed_ns(started));
+    let window = recorder.take_completed_capture();
+    if let Some(window) = window {
+        let Some((_, source_capture_id, _)) = trigger.take() else {
+            return;
+        };
+        if let Err(error) = record_trigger_completion(capture, source_capture_id, &window) {
+            (event_sink)(EngineEvent::Error(format!(
+                "Could not persist trigger completion evidence: {error}"
+            )));
+        }
+        emit_trigger_capture(
+            window,
+            source_capture_id,
+            source_id,
+            bitrate,
+            listen_only,
+            event_sink,
+        );
+    }
+}
+
+fn record_trigger_completion(
+    capture: &mut Option<CanCaptureSession>,
+    capture_id: u64,
+    window: &crate::CanTriggerCapture,
+) -> Result<(), String> {
+    let Some(session) = capture.as_mut() else {
+        return Ok(());
+    };
+    session.record(&CanEvidenceRecord::TriggerCompleted {
+        capture_id,
+        trigger_elapsed_ns: window.trigger_elapsed_ns,
+        max_frames: window.max_frames,
+        frame_count: window.frames.len(),
+        truncated: window.truncated,
+        complete: window.complete,
+    })
+}
+
+fn emit_trigger_capture(
+    capture: crate::CanTriggerCapture,
+    source_capture_id: u64,
+    source_id: &str,
+    bitrate: u32,
+    listen_only: bool,
+    event_sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
+) {
+    (event_sink)(EngineEvent::CanTriggerCapture(CanTriggerCaptureResult {
+        source_capture_id,
+        source_id: source_id.to_owned(),
+        bitrate,
+        listen_only,
+        capture,
+    }));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -891,6 +1074,8 @@ mod tests {
         let mut fields = Vec::new();
         let mut send_task = None;
         let mut next_capture_id = 2;
+        let mut trigger = None;
+        let started = Instant::now();
         let event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync> = Arc::new(|_| {});
         let (reply, response) = mpsc::channel();
         handle_command(
@@ -904,6 +1089,8 @@ mod tests {
             500_000,
             false,
             &mut next_capture_id,
+            &mut trigger,
+            &started,
         );
         assert!(response.recv().unwrap().is_err());
         assert!(scan_task.is_none());

@@ -1,16 +1,19 @@
 use super::engine;
 use crate::AppState;
 use lognook_core::{
-    CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanDeviceCandidate, CanDeviceSelection,
-    CanEvidenceRecord, CanFrame, CanScanConfig, CanSignalDefinition, CanWorkbenchConfig,
-    CanWorkbenchStatus, OemCandidateTrySpec, OemCatalog,
-    available_can_adapters as list_can_adapters, can_evidence_path, decode_can_signal,
-    oem_candidate_scan_config,
+    CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanCaptureWriter, CanCorrelationHypothesis,
+    CanDeviceCandidate, CanDeviceSelection, CanDiagnosticRoute, CanEvidenceRecord, CanFrame,
+    CanIdComparison, CanRequestTiming, CanScanConfig, CanScanMode, CanSignalDefinition,
+    CanTriggerCapture, CanTriggerCaptureResult, CanWorkbenchConfig, CanWorkbenchStatus,
+    OemCandidateTrySpec, OemCatalog, Sample, SampleQuality,
+    available_can_adapters as list_can_adapters, can_dbc_skeleton, can_evidence_path,
+    compare_can_census, decode_can_signal, oem_candidate_scan_config,
 };
 use serde::Serialize;
 use std::{
-    fs::File,
-    io::{self, BufRead, BufReader},
+    collections::{BTreeMap, BTreeSet},
+    fs::{File, OpenOptions},
+    io::{self, BufRead, BufReader, Write},
     path::Path,
 };
 use tauri::{AppHandle, State};
@@ -50,6 +53,43 @@ pub async fn choose_can_capture_open_path(app: AppHandle) -> Result<Option<Strin
         .map(|file| file.into_path().map_err(|error| error.to_string()))
         .transpose()
         .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn choose_can_dbc_export_path(app: AppHandle) -> Result<Option<String>, String> {
+    app.dialog()
+        .file()
+        .add_filter("DBC files", &["dbc"])
+        .set_file_name("can-research-skeleton.dbc")
+        .blocking_save_file()
+        .map(|file| file.into_path().map_err(|error| error.to_string()))
+        .transpose()
+        .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn choose_can_trigger_save_path(app: AppHandle) -> Result<Option<String>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("CAN captures", &["csv"])
+        .set_file_name("trigger-window.candump.csv")
+        .blocking_save_file();
+    selected
+        .map(|file| {
+            let path = file.into_path().map_err(|error| error.to_string())?;
+            let path = if path
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with(".candump.csv")
+            {
+                path
+            } else {
+                path.with_extension("candump.csv")
+            };
+            Ok(path.to_string_lossy().into_owned())
+        })
+        .transpose()
 }
 
 #[tauri::command]
@@ -121,6 +161,40 @@ pub async fn stop_can_scan(state: State<'_, AppState>) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn arm_can_trigger(
+    state: State<'_, AppState>,
+    pre_ms: u64,
+    post_ms: u64,
+    max_frames: usize,
+) -> Result<(), String> {
+    engine(&state)?
+        .arm_can_trigger(pre_ms, post_ms, max_frames)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn trigger_can_now(state: State<'_, AppState>) -> Result<(), String> {
+    engine(&state)?
+        .trigger_can_now()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn disarm_can_trigger(state: State<'_, AppState>) -> Result<(), String> {
+    engine(&state)?
+        .disarm_can_trigger()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_can_trigger_capture(
+    path: String,
+    capture: CanTriggerCaptureResult,
+) -> Result<(), String> {
+    save_trigger_capture_path(Path::new(&path), &capture)
+}
+
 /// The catalog performs source-revision, license, identifier-width, and exact-route checks
 /// before this explicit one-candidate read can transmit.
 #[tauri::command]
@@ -145,51 +219,110 @@ pub struct CanCaptureReplayReport {
     pub malformed_rows: Vec<String>,
     pub analyzer_issues: Vec<String>,
     pub census: Vec<lognook_core::CanCensusRow>,
+    /// Exact routes read from the paired journal; absent when no route was recorded.
+    pub diagnostic_routes: Vec<CanDiagnosticRoute>,
+    pub route_provenance: Vec<CanRouteProvenance>,
+    pub timings: Vec<CanRequestTiming>,
+    pub correlation_sample_count: usize,
+    pub correlation_hypotheses: Vec<CanCorrelationHypothesis>,
     pub evidence_journal: Option<String>,
     pub evidence_journal_error: Option<String>,
     pub session_finalized: Option<bool>,
+    pub source_id: Option<String>,
+    pub bitrate: Option<u32>,
+    pub listen_only: Option<bool>,
     pub evidence_records: u64,
     pub scan_results: u64,
     pub tx_submitted: u64,
     pub tx_echo_confirmed: u64,
     pub transport_errors: u64,
+    pub trigger_marks: u64,
+    pub trigger_completions: u64,
+    pub trigger_window_exports: u64,
     pub evidence_errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CanRouteProvenance {
+    pub route: CanDiagnosticRoute,
+    pub scan_modes: Vec<String>,
+    pub source_candidate_ids: Vec<String>,
 }
 
 #[tauri::command]
 pub async fn replay_can_capture_report(
     path: String,
     fields: Vec<CanSignalDefinition>,
+    obd_samples: Vec<Sample>,
 ) -> Result<CanCaptureReplayReport, String> {
     for field in &fields {
         field.validate().map_err(|error| error.to_string())?;
     }
-    replay_can_capture_report_path(Path::new(&path), &fields)
+    replay_can_capture_report_path_with_samples(Path::new(&path), &fields, &obd_samples)
 }
 
 fn replay_can_capture_report_path(
     path: &Path,
     fields: &[CanSignalDefinition],
 ) -> Result<CanCaptureReplayReport, String> {
+    replay_can_capture_report_path_with_samples(path, fields, &[])
+}
+
+fn replay_can_capture_report_path_with_samples(
+    path: &Path,
+    fields: &[CanSignalDefinition],
+    obd_samples: &[Sample],
+) -> Result<CanCaptureReplayReport, String> {
+    let obd_samples = &obd_samples[..obd_samples.len().min(1024)];
     let mut reader = CanCaptureReader::open(path).map_err(|error| error.to_string())?;
-    let mut analyzer =
-        CanAnalyzer::new(CanAnalysisConfig::default()).map_err(|error| error.to_string())?;
     let mut report = CanCaptureReplayReport {
         frames: 0,
         decoded_samples: 0,
         malformed_rows: Vec::new(),
         analyzer_issues: Vec::new(),
         census: Vec::new(),
+        diagnostic_routes: Vec::new(),
+        route_provenance: Vec::new(),
+        timings: Vec::new(),
+        correlation_sample_count: 0,
+        correlation_hypotheses: Vec::new(),
         evidence_journal: None,
         evidence_journal_error: None,
         session_finalized: None,
+        source_id: None,
+        bitrate: None,
+        listen_only: None,
         evidence_records: 0,
         scan_results: 0,
         tx_submitted: 0,
         tx_echo_confirmed: 0,
         transport_errors: 0,
+        trigger_marks: 0,
+        trigger_completions: 0,
+        trigger_window_exports: 0,
         evidence_errors: Vec::new(),
     };
+    summarize_evidence_journal(path, &mut report);
+    let mut analysis_config = CanAnalysisConfig::default();
+    analysis_config.diagnostic_routes = report.diagnostic_routes.clone();
+    let mut analyzer = CanAnalyzer::new(analysis_config).map_err(|error| error.to_string())?;
+    if let Some((capture_wall_ns, capture_elapsed_ns)) = first_capture_time(path) {
+        for sample in obd_samples {
+            let mut sample = sample.clone();
+            sample.elapsed_ns = sample
+                .wall_time_unix_ns
+                .saturating_sub(capture_wall_ns)
+                .saturating_add(capture_elapsed_ns);
+            analyzer.feed_obd_sample(&sample);
+            if sample.quality == SampleQuality::Valid
+                && sample.elapsed_ns >= 0
+                && sample.value.is_finite()
+            {
+                report.correlation_sample_count += 1;
+            }
+        }
+    }
+    let mut last_elapsed_ns = None;
     while let Some(row) = reader.next() {
         let frame = match row {
             Ok(frame) => frame,
@@ -201,6 +334,7 @@ fn replay_can_capture_report_path(
             }
         };
         report.frames += 1;
+        last_elapsed_ns = Some(frame.elapsed_ns);
         if let Err(error) = analyzer.feed(&frame) {
             if report.analyzer_issues.len() < 100 {
                 report.analyzer_issues.push(error.to_string());
@@ -220,11 +354,214 @@ fn replay_can_capture_report_path(
         }
     }
     report.census = analyzer.census();
-    summarize_evidence_journal(path, &mut report);
+    if let Some(last) = last_elapsed_ns {
+        analyzer.advance_time(last.saturating_add(1_000_000_001));
+    }
+    report.timings = analyzer.timings();
+    report.correlation_hypotheses = correlation_hypotheses(&analyzer, fields, obd_samples);
     Ok(report)
 }
 
+fn first_capture_time(path: &Path) -> Option<(i64, i64)> {
+    CanCaptureReader::open(path)
+        .ok()?
+        .find_map(Result::ok)
+        .map(|frame| (frame.wall_time_unix_ns, frame.elapsed_ns))
+}
+
+fn correlation_hypotheses(
+    analyzer: &CanAnalyzer,
+    fields: &[CanSignalDefinition],
+    samples: &[Sample],
+) -> Vec<CanCorrelationHypothesis> {
+    let sources: BTreeSet<_> = samples
+        .iter()
+        .map(|sample| {
+            (
+                sample.source_id.as_str(),
+                sample.ecu_id.as_deref(),
+                sample.signal_id.as_str(),
+            )
+        })
+        .collect();
+    let mut hypotheses = Vec::new();
+    for field in fields.iter().take(64) {
+        for (source, ecu, signal) in sources.iter().take(64) {
+            if let Ok(Some(hypothesis)) = analyzer.correlate(field, source, *ecu, signal)
+                && hypotheses.len() < 256
+            {
+                hypotheses.push(hypothesis);
+            }
+        }
+    }
+    hypotheses
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CanCaptureComparisonSource {
+    pub frames: u64,
+    pub evidence_journal: Option<String>,
+    pub evidence_journal_error: Option<String>,
+    pub session_finalized: Option<bool>,
+    pub source_id: Option<String>,
+    pub bitrate: Option<u32>,
+    pub listen_only: Option<bool>,
+    pub evidence_errors: Vec<String>,
+    pub malformed_rows: Vec<String>,
+    pub analyzer_issues: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CanCaptureComparison {
+    pub left: CanCaptureComparisonSource,
+    pub right: CanCaptureComparisonSource,
+    pub differences: Vec<CanIdComparison>,
+}
+
+#[tauri::command]
+pub async fn compare_can_captures(
+    left_path: String,
+    right_path: String,
+) -> Result<CanCaptureComparison, String> {
+    compare_can_capture_paths(Path::new(&left_path), Path::new(&right_path))
+}
+
+fn compare_can_capture_paths(
+    left_path: &Path,
+    right_path: &Path,
+) -> Result<CanCaptureComparison, String> {
+    let left = replay_can_capture_report_path(left_path, &[])?;
+    let right = replay_can_capture_report_path(right_path, &[])?;
+    Ok(CanCaptureComparison {
+        left: comparison_source(&left),
+        right: comparison_source(&right),
+        differences: compare_can_census(&left.census, &right.census),
+    })
+}
+
+fn comparison_source(report: &CanCaptureReplayReport) -> CanCaptureComparisonSource {
+    CanCaptureComparisonSource {
+        frames: report.frames,
+        evidence_journal: report.evidence_journal.clone(),
+        evidence_journal_error: report.evidence_journal_error.clone(),
+        session_finalized: report.session_finalized,
+        source_id: report.source_id.clone(),
+        bitrate: report.bitrate,
+        listen_only: report.listen_only,
+        evidence_errors: report.evidence_errors.clone(),
+        malformed_rows: report.malformed_rows.clone(),
+        analyzer_issues: report.analyzer_issues.clone(),
+    }
+}
+
+#[tauri::command]
+pub async fn export_can_dbc_skeleton(capture_path: String, path: String) -> Result<(), String> {
+    let report = replay_can_capture_report_path(Path::new(&capture_path), &[])?;
+    let output = can_dbc_skeleton(&report.census);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = file
+        .write_all(output.as_bytes())
+        .and_then(|()| file.sync_data())
+    {
+        let _ = std::fs::remove_file(path);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+fn save_trigger_capture_path(path: &Path, result: &CanTriggerCaptureResult) -> Result<(), String> {
+    validate_trigger_capture(&result.capture)?;
+    let journal_path = can_evidence_path(path);
+    let mut journal = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&journal_path)
+        .map_err(|error| format!("Cannot create trigger evidence journal: {error}"))?;
+    let mut writer = match CanCaptureWriter::create_new(path) {
+        Ok(writer) => writer,
+        Err(error) => {
+            let _ = std::fs::remove_file(journal_path);
+            return Err(error.to_string());
+        }
+    };
+    let write_result = (|| {
+        for frame in &result.capture.frames {
+            writer
+                .write_frame(frame)
+                .map_err(|error| error.to_string())?;
+        }
+        writer.finish().map_err(|error| error.to_string())?;
+        let records = [
+            CanEvidenceRecord::SessionStarted {
+                format_version: 2,
+                capture_id: result.source_capture_id,
+                bitrate: result.bitrate,
+                listen_only: result.listen_only,
+                source_id: result.source_id.clone(),
+            },
+            CanEvidenceRecord::TriggerWindowExported {
+                source_capture_id: result.source_capture_id,
+                source_id: result.source_id.clone(),
+                bitrate: result.bitrate,
+                listen_only: result.listen_only,
+                trigger_elapsed_ns: result.capture.trigger_elapsed_ns,
+                pre_ns: result.capture.pre_ns,
+                post_ns: result.capture.post_ns,
+                max_frames: result.capture.max_frames,
+                frame_count: result.capture.frames.len(),
+                truncated: result.capture.truncated,
+                complete: result.capture.complete,
+            },
+            CanEvidenceRecord::SessionFinished {
+                capture_id: result.source_capture_id,
+            },
+        ];
+        for record in records {
+            serde_json::to_writer(&mut journal, &record).map_err(|error| error.to_string())?;
+            journal
+                .write_all(b"\n")
+                .map_err(|error| error.to_string())?;
+        }
+        journal.flush().map_err(|error| error.to_string())?;
+        journal.sync_data().map_err(|error| error.to_string())
+    })();
+    if let Err(error) = write_result {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(journal_path);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn validate_trigger_capture(capture: &CanTriggerCapture) -> Result<(), String> {
+    if capture.trigger_elapsed_ns < 0
+        || capture.pre_ns < 0
+        || capture.post_ns < 0
+        || capture.max_frames == 0
+        || capture.frames.len() > capture.max_frames
+    {
+        return Err("Invalid CAN trigger capture bounds".into());
+    }
+    let mut last_time = None;
+    for frame in &capture.frames {
+        frame.validate().map_err(|error| error.to_string())?;
+        if last_time.is_some_and(|previous| frame.elapsed_ns < previous) {
+            return Err("Trigger capture frames must be in timestamp order".into());
+        }
+        last_time = Some(frame.elapsed_ns);
+    }
+    Ok(())
+}
+
 fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) {
+    let mut routes = BTreeMap::<(u32, u32, bool), CanDiagnosticRoute>::new();
+    let mut route_modes = BTreeMap::<(u32, u32, bool), BTreeSet<String>>::new();
+    let mut route_candidates = BTreeMap::<(u32, u32, bool), BTreeSet<String>>::new();
+    let mut route_limit_reported = false;
     let journal_path = can_evidence_path(path);
     let file = match File::open(&journal_path) {
         Ok(file) => file,
@@ -265,11 +602,52 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
         };
         match serde_json::from_slice::<CanEvidenceRecord>(&line) {
             Ok(record) => {
+                let scan_config = match &record {
+                    CanEvidenceRecord::ScanStarted { config }
+                    | CanEvidenceRecord::ScanStopped { config }
+                    | CanEvidenceRecord::ScanCompleted { config } => Some(config),
+                    CanEvidenceRecord::ScanResult { result } => Some(&result.config),
+                    _ => None,
+                };
+                if let Some(config) = scan_config
+                    && let Some(route) = diagnostic_route(&config.mode)
+                {
+                    let key = (route.request_id, route.response_id, route.extended);
+                    if routes.contains_key(&key) || routes.len() < 256 {
+                        routes.entry(key).or_insert(route);
+                        let modes = route_modes.entry(key).or_default();
+                        if modes.len() < 32 {
+                            modes.insert(serde_json::to_string(&config.mode).unwrap_or_default());
+                        }
+                        if let Some(candidate_id) = &config.source_candidate_id {
+                            let candidates = route_candidates.entry(key).or_default();
+                            if candidates.len() < 32 {
+                                candidates.insert(candidate_id.clone());
+                            }
+                        }
+                    } else if !route_limit_reported {
+                        route_limit_reported = true;
+                        push_bounded(
+                            &mut report.evidence_errors,
+                            "Journal has more than 256 diagnostic routes; timing analysis was capped"
+                                .into(),
+                        );
+                    }
+                }
                 report.evidence_records += 1;
                 match record {
-                    CanEvidenceRecord::SessionStarted { capture_id, .. } => {
+                    CanEvidenceRecord::SessionStarted {
+                        capture_id,
+                        source_id,
+                        bitrate,
+                        listen_only,
+                        ..
+                    } => {
                         active_capture_id = Some(capture_id);
-                        report.session_finalized = Some(false)
+                        report.session_finalized = Some(false);
+                        report.source_id = Some(source_id);
+                        report.bitrate = Some(bitrate);
+                        report.listen_only = Some(listen_only);
                     }
                     CanEvidenceRecord::SessionFinished { capture_id }
                         if active_capture_id == Some(capture_id) =>
@@ -286,6 +664,11 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
                     CanEvidenceRecord::TxSubmitted { .. } => report.tx_submitted += 1,
                     CanEvidenceRecord::TxEchoConfirmed { .. } => report.tx_echo_confirmed += 1,
                     CanEvidenceRecord::TransportError { .. } => report.transport_errors += 1,
+                    CanEvidenceRecord::TriggerMarked { .. } => report.trigger_marks += 1,
+                    CanEvidenceRecord::TriggerCompleted { .. } => report.trigger_completions += 1,
+                    CanEvidenceRecord::TriggerWindowExported { .. } => {
+                        report.trigger_window_exports += 1
+                    }
                     _ => {}
                 }
             }
@@ -295,6 +678,57 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
             ),
         }
     }
+    report.diagnostic_routes = routes.values().cloned().collect();
+    report.route_provenance = routes
+        .into_iter()
+        .map(|(key, route)| CanRouteProvenance {
+            route,
+            scan_modes: route_modes
+                .remove(&key)
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            source_candidate_ids: route_candidates
+                .remove(&key)
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+        })
+        .collect();
+}
+
+fn diagnostic_route(mode: &CanScanMode) -> Option<CanDiagnosticRoute> {
+    let (request_id, response_id, extended) = match mode {
+        CanScanMode::CanIdRange { .. } => return None,
+        CanScanMode::Mode21 {
+            request_id,
+            response_id,
+            extended,
+            ..
+        }
+        | CanScanMode::Mode22 {
+            request_id,
+            response_id,
+            extended,
+            ..
+        }
+        | CanScanMode::Mode01Support {
+            request_id,
+            response_id,
+            extended,
+        }
+        | CanScanMode::Mode01Pids {
+            request_id,
+            response_id,
+            extended,
+            ..
+        } => (*request_id, *response_id, *extended),
+    };
+    Some(CanDiagnosticRoute {
+        request_id,
+        response_id,
+        extended,
+    })
 }
 
 fn evidence_journal_open_error(error: &io::Error) -> Option<String> {
@@ -354,7 +788,8 @@ mod tests {
     use super::*;
     use lognook_core::{
         CanByteOrder, CanCaptureWriter, CanDiagnosticOutcome, CanDirection, CanEvidenceScanConfig,
-        CanEvidenceScanResult, CanFrame, CanScanMode, CanSignalDefinition,
+        CanEvidenceScanResult, CanFrame, CanScanMode, CanSignalDefinition, CanTriggerCapture,
+        CanTriggerCaptureResult, SampleOrigin, SampleQuality,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -618,5 +1053,233 @@ mod tests {
             let _ = std::fs::remove_file(path);
             let _ = std::fs::remove_file(journal_path);
         }
+    }
+
+    #[test]
+    fn replay_report_pairs_only_journal_routes_and_preserves_nrc_and_raw_payloads() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-timing-{stamp}.candump.csv"));
+        let mut writer = CanCaptureWriter::create_new(&path).unwrap();
+        let mut request = CanFrame {
+            elapsed_ns: 100,
+            wall_time_unix_ns: 1_000,
+            can_id: 0x700,
+            extended: false,
+            direction: CanDirection::Tx,
+            data: vec![2, 0x21, 1],
+            flags: 0,
+        };
+        writer.write_frame(&request).unwrap();
+        request.elapsed_ns = 120;
+        request.wall_time_unix_ns = 1_020;
+        request.can_id = 0x708;
+        request.direction = CanDirection::Rx;
+        request.data = vec![3, 0x7f, 0x21, 0x33];
+        writer.write_frame(&request).unwrap();
+        writer.finish().unwrap();
+
+        let journal_path = can_evidence_path(&path);
+        std::fs::write(
+            &journal_path,
+            serde_json::to_vec(&CanEvidenceRecord::ScanStarted {
+                config: CanEvidenceScanConfig {
+                    mode: CanScanMode::Mode21 {
+                        request_id: 0x700,
+                        response_id: 0x708,
+                        extended: false,
+                        start_pid: 1,
+                        end_pid: 1,
+                    },
+                    pacing_ms: 100,
+                    response_timeout_ms: 1_000,
+                    source_candidate_id: Some("source:research".into()),
+                },
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = replay_can_capture_report_path(&path, &[]).unwrap();
+        assert_eq!(report.timings.len(), 1);
+        assert_eq!(report.timings[0].latency_ns, 20);
+        assert_eq!(report.timings[0].request_payload, vec![0x21, 1]);
+        assert_eq!(report.timings[0].response_payload, vec![0x7f, 0x21, 0x33]);
+        assert_eq!(
+            report.timings[0].outcome,
+            CanDiagnosticOutcome::Negative { nrc: 0x33 }
+        );
+        assert_eq!(report.diagnostic_routes.len(), 1);
+        assert_eq!(
+            report.route_provenance[0].source_candidate_ids,
+            vec!["source:research"]
+        );
+
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(journal_path);
+    }
+
+    #[test]
+    fn saved_report_is_deterministic_and_correlates_explicit_timestamped_obd_samples() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-correlation-{stamp}.candump.csv"));
+        let mut writer = CanCaptureWriter::create_new(&path).unwrap();
+        for index in 0..4i64 {
+            writer
+                .write_frame(&CanFrame {
+                    elapsed_ns: index * 10,
+                    wall_time_unix_ns: 10_000 + index * 10,
+                    can_id: 0x123,
+                    extended: false,
+                    direction: CanDirection::Rx,
+                    data: vec![index as u8],
+                    flags: 0,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let field = CanSignalDefinition {
+            id: "can:observed-byte".into(),
+            name: "Observed byte".into(),
+            can_id: 0x123,
+            extended: false,
+            start_bit: 0,
+            bit_length: 8,
+            byte_order: CanByteOrder::Intel,
+            signed: false,
+            factor: 1.0,
+            offset: 0.0,
+            unit: "raw".into(),
+        };
+        let samples: Vec<_> = (0..4i64)
+            .map(|index| Sample {
+                elapsed_ns: 50_000,
+                wall_time_unix_ns: 10_000 + index * 10,
+                source_id: "obd:test".into(),
+                ecu_id: Some("engine".into()),
+                signal_id: "rpm".into(),
+                value: index as f64 * 100.0,
+                unit: "rpm".into(),
+                quality: SampleQuality::Valid,
+                origin: SampleOrigin::Live,
+                raw_bytes: None,
+            })
+            .collect();
+
+        let first =
+            replay_can_capture_report_path_with_samples(&path, &[field.clone()], &samples).unwrap();
+        let second =
+            replay_can_capture_report_path_with_samples(&path, &[field], &samples).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
+        assert_eq!(first.census[0].bytes[0].value_counts.len(), 4);
+        assert_eq!(first.correlation_sample_count, 4);
+        assert_eq!(first.correlation_hypotheses.len(), 1);
+        assert_eq!(first.correlation_hypotheses[0].pairs, 4);
+        assert!((first.correlation_hypotheses[0].pearson_r - 1.0).abs() < 1e-12);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn saved_capture_comparison_includes_ids_present_on_either_side_and_byte_counts() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let left = std::env::temp_dir().join(format!("lognook-left-{stamp}.candump.csv"));
+        let right = std::env::temp_dir().join(format!("lognook-right-{stamp}.candump.csv"));
+        for (path, frames) in [
+            (&left, vec![(0x100, vec![1, 2]), (0x100, vec![1, 2])]),
+            (&right, vec![(0x100, vec![1, 3]), (0x101, vec![9])]),
+        ] {
+            let mut writer = CanCaptureWriter::create_new(path).unwrap();
+            for (index, (can_id, data)) in frames.into_iter().enumerate() {
+                writer
+                    .write_frame(&CanFrame {
+                        elapsed_ns: index as i64,
+                        wall_time_unix_ns: 1_000 + index as i64,
+                        can_id,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data,
+                        flags: 0,
+                    })
+                    .unwrap();
+            }
+            writer.finish().unwrap();
+        }
+        let comparison = compare_can_capture_paths(&left, &right).unwrap();
+        assert_eq!(comparison.differences.len(), 2);
+        assert_eq!(comparison.differences[0].left_count, 2);
+        assert_eq!(comparison.differences[0].right_count, 1);
+        assert_eq!(comparison.differences[0].bytes[1].left.get(&2), Some(&2));
+        assert_eq!(comparison.differences[0].bytes[1].right.get(&3), Some(&1));
+        assert_eq!(comparison.differences[1].can_id, 0x101);
+        assert_eq!(comparison.differences[1].right_count, 1);
+
+        let _ = std::fs::remove_file(left);
+        let _ = std::fs::remove_file(right);
+    }
+
+    #[test]
+    fn triggered_window_export_writes_a_paired_csv_and_clean_provenance_sidecar() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-trigger-{stamp}.candump.csv"));
+        let result = CanTriggerCaptureResult {
+            source_capture_id: 44,
+            source_id: "can:rh02-test".into(),
+            bitrate: 500_000,
+            listen_only: true,
+            capture: CanTriggerCapture {
+                trigger_elapsed_ns: 100,
+                pre_ns: 10,
+                post_ns: 10,
+                max_frames: 4,
+                frames: vec![
+                    CanFrame {
+                        elapsed_ns: 90,
+                        wall_time_unix_ns: 1_090,
+                        can_id: 0x123,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data: vec![1],
+                        flags: 0,
+                    },
+                    CanFrame {
+                        elapsed_ns: 100,
+                        wall_time_unix_ns: 1_100,
+                        can_id: 0x123,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data: vec![2],
+                        flags: 0,
+                    },
+                ],
+                truncated: false,
+                complete: true,
+            },
+        };
+        save_trigger_capture_path(&path, &result).unwrap();
+        let report = replay_can_capture_report_path(&path, &[]).unwrap();
+        assert_eq!(report.frames, 2);
+        assert_eq!(report.session_finalized, Some(true));
+        assert_eq!(report.source_id.as_deref(), Some("can:rh02-test"));
+        assert_eq!(report.trigger_window_exports, 1);
+        assert!(report.evidence_errors.is_empty());
+        assert!(save_trigger_capture_path(&path, &result).is_err());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(can_evidence_path(&path));
     }
 }

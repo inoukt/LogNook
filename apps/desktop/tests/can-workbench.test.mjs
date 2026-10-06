@@ -119,7 +119,7 @@ test("recent per-ID counts and RX rates use only the bounded timestamped frame b
 test("a new CAN session resets its event history and only its own signal samples", () => {
   assert.ok(can, "CAN workbench helpers exist");
   assert.deepEqual(can.emptyCanSessionEvents(), {
-    frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false,
+    frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false, triggerCapture: null,
   });
   const latest = {
     engine_rpm: { signal_id: "engine_rpm", value: 900 },
@@ -188,7 +188,7 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
     ["start_can_scan", { config: { mode: { kind: "mode_01_support", request_id: 0x7e0, response_id: 0x7e8, extended: false }, pacing_ms: 100, response_timeout_ms: 1000 } }],
     ["stop_can_scan", undefined],
     ["start_can_oem_candidate", { candidateId: "scion:21:0100" }],
-    ["replay_can_capture_report", { path: "D:/captures/run.candump.csv", fields: [field] }],
+    ["replay_can_capture_report", { path: "D:/captures/run.candump.csv", fields: [field], obdSamples: [] }],
   ]);
 });
 
@@ -209,6 +209,10 @@ test("capture path dialogs are native and registered for paired CAN CSV evidence
   assert.match(commands, /choose_can_capture_open_path/);
   assert.match(registration, /commands::choose_can_capture_save_path/);
   assert.match(registration, /commands::choose_can_capture_open_path/);
+  for (const command of ["choose_can_dbc_export_path", "choose_can_trigger_save_path", "save_can_trigger_capture", "compare_can_captures", "export_can_dbc_skeleton"]) {
+    assert.match(commands, new RegExp(command));
+    assert.match(registration, new RegExp(`commands::${command}`));
+  }
 });
 
 test("Workbench renders bounded frames, scan results, echo status, transport evidence, and Rust replay census", () => {
@@ -234,4 +238,43 @@ test("OEM catalog can launch a source-backed CAN candidate through the serialize
   assert.match(app, /canCandidateDisabled=/);
   assert.match(app, /canCandidateDisabled=\{!canTransmitEnabled\(canWorkbenchStatus, canCaptureOpen\)/, "the CAN action requires an active connection and open paired capture");
   assert.match(oemPanel, /disabled=\{canCandidateDisabled\}/, "the OEM candidate action obeys the CAN transmit gate");
+});
+
+test("saved capture reports expose timing hypotheses, comparisons, and unverified DBC export", async () => {
+  const calls = [];
+  const api = can.createCanWorkbenchCommands(async (name, args) => { calls.push([name, args]); return null; });
+  await api.compareCaptures("left.candump.csv", "right.candump.csv");
+  await api.exportDbcSkeleton("left.candump.csv", "left.dbc");
+  assert.deepEqual(calls, [
+    ["compare_can_captures", { leftPath: "left.candump.csv", rightPath: "right.candump.csv" }],
+    ["export_can_dbc_skeleton", { capturePath: "left.candump.csv", path: "left.dbc" }],
+  ]);
+  for (const marker of ["compareCaptures", "exportDbcSkeleton", "timings", "correlation_hypotheses", "UNVERIFIED"]) {
+    assert.ok(panel.includes(marker), `CAN report UI presents ${marker}`);
+  }
+});
+
+test("bounded manual trigger controls use the serialized backend and save the captured window", async () => {
+  const calls = [];
+  const api = can.createCanWorkbenchCommands(async (name, args) => { calls.push([name, args]); return null; });
+  await api.armTrigger(5000, 2000, 1000);
+  await api.triggerNow();
+  await api.saveTriggerCapture("window.candump.csv", { trigger_elapsed_ns: 7, frames: [] });
+  assert.deepEqual(calls, [
+    ["arm_can_trigger", { preMs: 5000, postMs: 2000, maxFrames: 1000 }],
+    ["trigger_can_now", undefined],
+    ["save_can_trigger_capture", { path: "window.candump.csv", capture: { trigger_elapsed_ns: 7, frames: [] } }],
+  ]);
+  assert.match(panel, /Pre-trigger \(ms\)/);
+  assert.match(panel, /Post-trigger \(ms\)/);
+  assert.match(panel, /Mark trigger now/);
+  assert.match(app, /event\.type === "canTriggerCapture"/);
+});
+
+test("trigger windows enforce bounded millisecond durations and frame counts", () => {
+  assert.equal(can.canTriggerConfigError(0, 60_000, 1), null);
+  assert.match(can.canTriggerConfigError(-1, 10, 1), /0–60000/);
+  assert.match(can.canTriggerConfigError(10, 60_001, 1), /0–60000/);
+  assert.match(can.canTriggerConfigError(10, 10, 0), /1–100000/);
+  assert.match(can.canTriggerConfigError(10, 10, 100_001), /1–100000/);
 });

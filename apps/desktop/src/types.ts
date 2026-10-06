@@ -254,9 +254,76 @@ export type CanByteSummary = {
   changes: number;
   min: number | null;
   max: number | null;
+  value_counts: Record<string, number>;
   is_static: boolean;
   counter_hypothesis: boolean;
   checksum_hypothesis: boolean;
+};
+export type CanDiagnosticOutcome = string | Record<string, unknown>;
+export type CanDiagnosticRoute = { request_id: number; response_id: number; extended: boolean };
+export type CanRouteProvenance = {
+  route: CanDiagnosticRoute;
+  scan_modes: string[];
+  source_candidate_ids: string[];
+};
+export type CanRequestTiming = {
+  route: CanDiagnosticRoute;
+  request_elapsed_ns: number;
+  response_elapsed_ns: number;
+  latency_ns: number;
+  request_payload: number[];
+  response_payload: number[];
+  outcome: CanDiagnosticOutcome;
+};
+export type CanCorrelationHypothesis = {
+  field_id: string;
+  obd_source_id: string;
+  obd_ecu_id: string | null;
+  obd_signal_id: string;
+  pairs: number;
+  pearson_r: number;
+  hypothesis: boolean;
+};
+export type CanTriggerCapture = {
+  trigger_elapsed_ns: number;
+  pre_ns: number;
+  post_ns: number;
+  max_frames: number;
+  frames: CanFrame[];
+  truncated: boolean;
+  complete: boolean;
+};
+export type CanTriggerCaptureResult = {
+  source_capture_id: number;
+  source_id: string;
+  bitrate: number;
+  listen_only: boolean;
+  capture: CanTriggerCapture;
+};
+export type CanByteDistributionComparison = { left: Record<string, number>; right: Record<string, number> };
+export type CanIdComparison = {
+  can_id: number;
+  extended: boolean;
+  left_count: number;
+  right_count: number;
+  bytes: CanByteDistributionComparison[];
+};
+export type CanCaptureComparisonSource = {
+  frames: number;
+  evidence_journal: string | null;
+  evidence_journal_error: string | null;
+  session_finalized: boolean | null;
+  source_id: string | null;
+  bitrate: number | null;
+  listen_only: boolean | null;
+  evidence_errors: string[];
+  malformed_rows: string[];
+  analyzer_issues: string[];
+};
+export type CanCaptureComparison = {
+  left: CanCaptureComparisonSource;
+  right: CanCaptureComparisonSource;
+  differences: CanIdComparison[];
 };
 export type CanCensusRow = {
   can_id: number;
@@ -279,14 +346,25 @@ export type CanCaptureReplayReport = {
   malformed_rows: string[];
   analyzer_issues: string[];
   census: CanCensusRow[];
+  diagnostic_routes: CanDiagnosticRoute[];
+  route_provenance: CanRouteProvenance[];
+  timings: CanRequestTiming[];
+  correlation_sample_count: number;
+  correlation_hypotheses: CanCorrelationHypothesis[];
   evidence_journal: string | null;
   evidence_journal_error: string | null;
   session_finalized: boolean | null;
+  source_id: string | null;
+  bitrate: number | null;
+  listen_only: boolean | null;
   evidence_records: number;
   scan_results: number;
   tx_submitted: number;
   tx_echo_confirmed: number;
   transport_errors: number;
+  trigger_marks: number;
+  trigger_completions: number;
+  trigger_window_exports: number;
   evidence_errors: string[];
 };
 
@@ -374,6 +452,7 @@ export type EngineEvent =
   | { type: "canWorkbenchStatus"; payload: CanWorkbenchStatus }
   | { type: "canTxStatus"; payload: CanTxStatus }
   | { type: "canTransportError"; payload: CanTransportError }
+  | { type: "canTriggerCapture"; payload: CanTriggerCaptureResult }
   | { type: "playbackSample"; payload: { session_id: number; sample: Sample } }
   | { type: "marker"; payload: Marker }
   | { type: "triggerStatus"; payload: AutomaticTriggerStatus }

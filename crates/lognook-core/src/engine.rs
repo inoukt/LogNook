@@ -234,6 +234,32 @@ impl LogNookEngine {
             .stop_capture()
     }
 
+    pub fn arm_can_trigger(
+        &self,
+        pre_ms: u64,
+        post_ms: u64,
+        max_frames: usize,
+    ) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before arming a CAN trigger"))?
+            .arm_trigger(pre_ms, post_ms, max_frames)
+    }
+
+    pub fn trigger_can_now(&self) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .trigger_now()
+    }
+
+    pub fn disarm_can_trigger(&self) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .disarm_trigger()
+    }
+
     pub fn send_can_frame(
         &self,
         frame: crate::CanFrame,

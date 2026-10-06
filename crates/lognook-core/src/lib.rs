@@ -38,17 +38,18 @@ pub use bluetooth_spp::{
 };
 pub use can::{CanByteOrder, CanDirection, CanFrame, CanSignalDefinition, decode_can_signal};
 pub use can_analysis::{
-    CanAnalysisConfig, CanAnalyzer, CanByteSummary, CanCensusRow, CanCorrelationHypothesis,
-    CanDiagnosticOutcome, CanDiagnosticRoute, CanRequestTiming, CanTriggerCapture,
-    CanTriggerConfig, CanTriggerRecorder,
+    CanAnalysisConfig, CanAnalyzer, CanByteDistributionComparison, CanByteSummary, CanCensusRow,
+    CanCorrelationHypothesis, CanDiagnosticOutcome, CanDiagnosticRoute, CanIdComparison,
+    CanRequestTiming, CanTriggerCapture, CanTriggerConfig, CanTriggerRecorder, can_dbc_skeleton,
+    compare_can_census,
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
 pub use can_workbench::{
     CanDeviceCandidate, CanDeviceSelection, CanEvidenceRecord, CanEvidenceScanConfig,
     CanEvidenceScanResult, CanScanConfig, CanScanMode, CanScanResult, CanTransport,
-    CanTransportError, CanTransportErrorKind, CanTransportEvent, CanWorkbench, CanWorkbenchConfig,
-    CanWorkbenchStatus, available_can_adapters, can_evidence_path, oem_candidate_scan_config,
-    open_candlelight, replay_can_capture_file,
+    CanTransportError, CanTransportErrorKind, CanTransportEvent, CanTriggerCaptureResult,
+    CanWorkbench, CanWorkbenchConfig, CanWorkbenchStatus, available_can_adapters,
+    can_evidence_path, oem_candidate_scan_config, open_candlelight, replay_can_capture_file,
 };
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};

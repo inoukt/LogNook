@@ -237,6 +237,7 @@ pub enum EngineEvent {
         confirmed: bool,
     },
     CanTransportError(crate::CanTransportError),
+    CanTriggerCapture(crate::CanTriggerCaptureResult),
     Marker(Marker),
     TriggerStatus(AutomaticTriggerStatus),
     PlaybackMarker {

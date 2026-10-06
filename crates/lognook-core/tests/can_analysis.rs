@@ -46,6 +46,40 @@ fn census_keeps_rates_periods_and_tentative_byte_statistics() {
     assert_eq!(r.bytes[1].changes, 3);
     assert_eq!(r.bytes[1].min, Some(0));
     assert_eq!(r.bytes[1].max, Some(3));
+    assert_eq!(r.bytes[1].value_counts.get(&2), Some(&1));
+    assert_eq!(r.bytes[1].value_counts.len(), 4);
+}
+
+#[test]
+fn capture_comparison_reports_id_and_per_byte_value_count_differences() {
+    let mut left = analyzer();
+    let mut right = analyzer();
+    left.feed(&frame(0, 0x123, &[1, 2])).unwrap();
+    left.feed(&frame(1, 0x123, &[1, 2])).unwrap();
+    right.feed(&frame(0, 0x123, &[1, 3])).unwrap();
+    right.feed(&frame(1, 0x124, &[9])).unwrap();
+
+    let comparison = compare_can_census(&left.census(), &right.census());
+    assert_eq!(
+        comparison
+            .iter()
+            .map(|row| (row.can_id, row.left_count, row.right_count))
+            .collect::<Vec<_>>(),
+        vec![(0x123, 2, 1), (0x124, 0, 1)]
+    );
+    assert_eq!(comparison[0].bytes[1].left.get(&2), Some(&2));
+    assert_eq!(comparison[0].bytes[1].right.get(&3), Some(&1));
+    assert_eq!(comparison[1].bytes[0].right.get(&9), Some(&1));
+}
+
+#[test]
+fn dbc_skeleton_marks_all_placeholder_signal_layouts_unverified() {
+    let mut a = analyzer();
+    a.feed(&frame(0, 0x123, &[1, 2])).unwrap();
+    let dbc = can_dbc_skeleton(&a.census());
+    assert!(dbc.contains("UNVERIFIED"));
+    assert!(dbc.contains("BO_ 291 CAN_123: 2 Vector__XXX"));
+    assert!(dbc.contains("SG_ UNVERIFIED_PLACEHOLDER"));
 }
 
 #[test]

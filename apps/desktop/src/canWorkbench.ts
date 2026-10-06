@@ -1,8 +1,8 @@
 import type { SignalOption } from "./workspace";
 import type {
-  CanCaptureReplayReport, CanDeviceCandidate, CanDeviceSelection, CanFrame, CanScanConfig,
-  CanScanResult, CanSignalDefinition, CanTransportError, CanTxStatus, CanWorkbenchConfig,
-  CanWorkbenchStatus, Sample,
+  CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanDeviceSelection, CanFrame,
+  CanScanConfig, CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult,
+  CanTxStatus, CanWorkbenchConfig, CanWorkbenchStatus, Sample,
 } from "./types";
 
 export const defaultCanWorkbenchConfig: CanWorkbenchConfig = { bitrate: 500_000, listen_only: true };
@@ -23,8 +23,20 @@ export function createCanWorkbenchCommands(invoke: CanInvoke) {
     stopScan: () => invoke<void>("stop_can_scan"),
     startOemCandidate: (candidateId: string) =>
       invoke<unknown>("start_can_oem_candidate", { candidateId }),
-    replay: (path: string, fields: CanSignalDefinition[]) =>
-      invoke<CanCaptureReplayReport>("replay_can_capture_report", { path, fields }),
+    replay: (path: string, fields: CanSignalDefinition[], obdSamples: Sample[] = []) =>
+      invoke<CanCaptureReplayReport>("replay_can_capture_report", { path, fields, obdSamples }),
+    compareCaptures: (leftPath: string, rightPath: string) =>
+      invoke<CanCaptureComparison>("compare_can_captures", { leftPath, rightPath }),
+    exportDbcSkeleton: (capturePath: string, path: string) =>
+      invoke<void>("export_can_dbc_skeleton", { capturePath, path }),
+    chooseDbcExportPath: () => invoke<string | null>("choose_can_dbc_export_path"),
+    armTrigger: (preMs: number, postMs: number, maxFrames: number) =>
+      invoke<void>("arm_can_trigger", { preMs, postMs, maxFrames }),
+    triggerNow: () => invoke<void>("trigger_can_now"),
+    disarmTrigger: () => invoke<void>("disarm_can_trigger"),
+    chooseTriggerSavePath: () => invoke<string | null>("choose_can_trigger_save_path"),
+    saveTriggerCapture: (path: string, capture: CanTriggerCaptureResult) =>
+      invoke<void>("save_can_trigger_capture", { path, capture }),
     chooseCaptureSavePath: () => invoke<string | null>("choose_can_capture_save_path"),
     chooseCaptureOpenPath: () => invoke<string | null>("choose_can_capture_open_path"),
   };
@@ -148,6 +160,14 @@ export function canTransmitEnabled(
   return Boolean(status?.connected && !status.listen_only && captureOpen);
 }
 
+export function canTriggerConfigError(preMs: number, postMs: number, maxFrames: number): string | null {
+  if (!integerInRange(preMs, 0, 60_000) || !integerInRange(postMs, 0, 60_000)) {
+    return "Trigger windows must be 0–60000 ms";
+  }
+  if (!integerInRange(maxFrames, 1, 100_000)) return "Trigger frame limit must be 1–100000";
+  return null;
+}
+
 export function canSignalOption(field: CanSignalDefinition): SignalOption {
   const bitRange = field.byte_order === "intel"
     ? `bits ${field.start_bit}–${field.start_bit + field.bit_length - 1} · Intel`
@@ -234,10 +254,11 @@ export type CanSessionEvents = {
   txStatuses: CanTxStatus[];
   transportErrors: CanTransportError[];
   scanRunning: boolean;
+  triggerCapture: null;
 };
 
 export function emptyCanSessionEvents(): CanSessionEvents {
-  return { frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false };
+  return { frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false, triggerCapture: null };
 }
 
 export function clearCanSessionSamples(

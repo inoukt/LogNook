@@ -42,6 +42,9 @@ pub struct CanByteSummary {
     pub changes: u64,
     pub min: Option<u8>,
     pub max: Option<u8>,
+    /// Exact bounded histogram: a CAN byte has at most 256 distinct values.
+    #[serde(default)]
+    pub value_counts: BTreeMap<u8, u64>,
     pub is_static: bool,
     pub counter_hypothesis: bool,
     pub checksum_hypothesis: bool,
@@ -117,6 +120,91 @@ pub struct CanCorrelationHypothesis {
     pub pairs: usize,
     pub pearson_r: f64,
     pub hypothesis: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CanByteDistributionComparison {
+    pub left: BTreeMap<u8, u64>,
+    pub right: BTreeMap<u8, u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CanIdComparison {
+    pub can_id: u32,
+    pub extended: bool,
+    pub left_count: u64,
+    pub right_count: u64,
+    pub bytes: [CanByteDistributionComparison; 8],
+}
+
+/// Compare exact per-byte value frequencies, retaining IDs found on either side.
+pub fn compare_can_census(left: &[CanCensusRow], right: &[CanCensusRow]) -> Vec<CanIdComparison> {
+    let left_by_id: BTreeMap<_, _> = left
+        .iter()
+        .map(|row| ((row.can_id, row.extended), row))
+        .collect();
+    let right_by_id: BTreeMap<_, _> = right
+        .iter()
+        .map(|row| ((row.can_id, row.extended), row))
+        .collect();
+    let ids: std::collections::BTreeSet<_> = left_by_id
+        .keys()
+        .chain(right_by_id.keys())
+        .copied()
+        .collect();
+    ids.into_iter()
+        .map(|(can_id, extended)| {
+            let left_row = left_by_id.get(&(can_id, extended)).copied();
+            let right_row = right_by_id.get(&(can_id, extended)).copied();
+            CanIdComparison {
+                can_id,
+                extended,
+                left_count: left_row.map_or(0, |row| row.count),
+                right_count: right_row.map_or(0, |row| row.count),
+                bytes: std::array::from_fn(|index| CanByteDistributionComparison {
+                    left: left_row
+                        .map_or_else(BTreeMap::new, |row| row.bytes[index].value_counts.clone()),
+                    right: right_row
+                        .map_or_else(BTreeMap::new, |row| row.bytes[index].value_counts.clone()),
+                }),
+            }
+        })
+        .collect()
+}
+
+/// Emit observed message IDs and a deliberately meaningless placeholder signal per ID.
+pub fn can_dbc_skeleton(census: &[CanCensusRow]) -> String {
+    let mut rows = census.to_vec();
+    rows.sort_by_key(|row| (row.can_id, row.extended));
+    let mut dbc = String::from(
+        "VERSION \"LogNook CAN research skeleton - UNVERIFIED placeholders\"\n\nNS_ :\n    NS_DESC_\n\nBS_:\n\nBU_: Vector__XXX\n\n",
+    );
+    for row in rows {
+        let id = if row.extended {
+            row.can_id | 0x8000_0000
+        } else {
+            row.can_id
+        };
+        let length = row
+            .dlc_counts
+            .iter()
+            .rposition(|count| *count > 0)
+            .unwrap_or(0);
+        let name = format!(
+            "CAN_{}{:X}",
+            if row.extended { "EXT_" } else { "" },
+            row.can_id
+        );
+        dbc.push_str(&format!("BO_ {id} {name}: {length} Vector__XXX\n"));
+        dbc.push_str(" SG_ UNVERIFIED_PLACEHOLDER : 0|1@1+ (1,0) [0|1] \"\" Vector__XXX\n");
+        dbc.push_str(&format!(
+            "CM_ BO_ {id} \"UNVERIFIED: observed identifier only; payload field layout is a placeholder.\";\n"
+        ));
+        dbc.push_str(&format!(
+            "CM_ SG_ {id} UNVERIFIED_PLACEHOLDER \"UNVERIFIED placeholder: bit location, scaling, and meaning are not decoded or validated.\";\n\n"
+        ));
+    }
+    dbc
 }
 
 pub struct CanAnalyzer {
@@ -213,6 +301,7 @@ impl CanAnalyzer {
         for (i, &value) in frame.data.iter().enumerate() {
             let byte = &mut row.bytes[i];
             byte.observations += 1;
+            *byte.value_counts.entry(value).or_default() += 1;
             if let Some(previous) = byte.previous {
                 byte.changes += u64::from(previous != value);
                 byte.increments += u64::from(previous.wrapping_add(1) == value);
@@ -522,11 +611,12 @@ pub struct CanTriggerConfig {
     pub post_ns: i64,
     pub max_frames: usize,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct CanTriggerCapture {
     pub trigger_elapsed_ns: i64,
     pub pre_ns: i64,
     pub post_ns: i64,
+    pub max_frames: usize,
     pub frames: Vec<CanFrame>,
     pub truncated: bool,
     pub complete: bool,
@@ -599,6 +689,7 @@ impl CanTriggerRecorder {
             trigger_elapsed_ns: elapsed_ns,
             pre_ns: self.config.pre_ns,
             post_ns: self.config.post_ns,
+            max_frames: self.config.max_frames,
             frames: self
                 .pre
                 .iter()
@@ -620,5 +711,13 @@ impl CanTriggerRecorder {
     /// Taking early explicitly returns an incomplete capture; no synthetic end frame is added.
     pub fn take_capture(&mut self) -> Option<CanTriggerCapture> {
         self.capture.take()
+    }
+
+    pub fn take_completed_capture(&mut self) -> Option<CanTriggerCapture> {
+        self.capture
+            .as_ref()
+            .is_some_and(|capture| capture.complete)
+            .then(|| self.capture.take())
+            .flatten()
     }
 }
