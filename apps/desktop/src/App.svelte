@@ -13,6 +13,7 @@
   import SettingsPanel from "./SettingsPanel.svelte";
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
+  import ResearchRunResults from "./ResearchRunResults.svelte";
   import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
   import { reconcileSxPorts } from "./adapterDiscovery";
   import {
@@ -26,7 +27,7 @@
   import type { ShortcutAction } from "./shortcuts";
   import type {
     A30GraphValue, BluetoothSppDevice, ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
-    J2534Provider, J2534ProviderDiscovery, RecordingInfo, Sample, SignalDefinition,
+    J2534Provider, J2534ProviderDiscovery, RecordingInfo, ResearchRunViewState, Sample, SignalDefinition,
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, graphRefreshIntervalMs, orderMarkersForTimeline,
@@ -108,6 +109,11 @@
   let refreshingSxPorts = false;
   let sxDiscoveryError = "";
   let researchSignalOptions: SignalOption[] = [];
+  let researchRunView: ResearchRunViewState = {
+    rows: [], running: false, currentItem: "", completedCount: 0, totalCount: 0, report: null,
+  };
+  let reportExporting = false;
+  let researchReportExportPath = "";
   $: bluetoothIdentityMatches = Boolean(bluetoothIdentity?.path === selectedBluetoothAddress
     && (selectedAdapter === "elm327"
       ? bluetoothIdentity?.hardware_family.includes("ELM327")
@@ -986,6 +992,24 @@
     graphSignalIds = [...new Set([...graphSignalIds, value.signal_id])];
   }
 
+  function updateResearchRunView(view: ResearchRunViewState) {
+    researchRunView = view;
+    researchReportExportPath = "";
+  }
+
+  async function exportResearchRunReport() {
+    const report = researchRunView.report;
+    if (!report || reportExporting) return;
+    reportExporting = true;
+    try {
+      researchReportExportPath = await invoke<string | null>("export_research_run_report", { report }) ?? "";
+    } catch (reason) {
+      showError(reason);
+    } finally {
+      reportExporting = false;
+    }
+  }
+
   function resetPreferences() {
     const preferences = restoreWorkspacePreferences(null, signalCatalog.map(({ id }) => id), defaultWorkspacePreferences, Math.max(36, window.innerHeight * 0.3));
     logSignalIds = preferences.logSignalIds;
@@ -1109,7 +1133,7 @@
         <span class="toolbar-divider" aria-hidden="true"></span>
         <div class="toolbar-group connection-actions" role="group" aria-label="Connection and recording controls">
           {#if connected}
-            <button class="button secondary" onclick={disconnect} disabled={busy}>Disconnect</button>
+            <button class="button secondary" onclick={disconnect} disabled={busy || researchRunView.running}>Disconnect</button>
           {:else}
             <select class="text-input adapter-select" value={selectedAdapter} onchange={(event) => selectAdapter(event.currentTarget.value as AdapterKind)} aria-label="Adapter" disabled={busy || recording || replaying}>
               <option value="simulator">Simulator</option>
@@ -1198,8 +1222,8 @@
         <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : "PID DATABASE"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : "OEM research"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : "OEM catalog"}</span></div>
         {#if !session}
           <div class="pid-picker-tabs" role="group" aria-label="PID source">
-            <button class:active={pidPickerView === "signals"} aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"}>Live PIDs</button>
-            <button class:active={pidPickerView === "oem"} aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"}>OEM Research</button>
+            <button class:active={pidPickerView === "signals"} aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live PIDs</button>
+            <button class:active={pidPickerView === "oem"} aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"} disabled={researchRunView.running}>Test Workbench</button>
           </div>
         {/if}
         {#if session || pidPickerView === "signals"}
@@ -1237,7 +1261,9 @@
           {selectedAdapter}
           onGraphCandidate={graphResearchCandidate}
           onGraphReadValue={graphA30ReadValue}
-          disabled={busy || connected || recording || replaying || session !== null}
+          onRunUpdate={updateResearchRunView}
+          disabled={busy || !connected || replaying || session !== null}
+          scionProbeDisabled={busy || connected || recording || replaying || session !== null}
         />
         {/if}
       </aside>
@@ -1259,6 +1285,14 @@
             timeWindow={session ? timeWindow : undefined}
             markers={session ? markers : []}
             playheadNs={session ? playback.position_ns : undefined}
+          />
+        {/if}
+        {#if !session && pidPickerView === "oem"}
+          <ResearchRunResults
+            state={researchRunView}
+            exportDisabled={reportExporting}
+            exportPath={researchReportExportPath}
+            onExport={exportResearchRunReport}
           />
         {/if}
       </section>

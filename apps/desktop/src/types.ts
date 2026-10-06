@@ -1,4 +1,5 @@
 import type { AutomaticTriggerStatus } from "./automaticTrigger";
+import type { A30ReadTestId } from "./a30ReadTests";
 
 export type SignalDefinition = {
   id: string;
@@ -150,6 +151,47 @@ export type OemCandidateTryResult = {
   error: string | null;
   evidence_saved: boolean;
   evidence_save_error: string | null;
+};
+
+export type ResearchTestSelection =
+  | { type: "oemCandidate"; payload: OemCandidate }
+  | { type: "a30ReadTest"; payload: A30ReadTestId };
+
+export type ResearchTestResult =
+  | { type: "oemCandidate"; payload: OemCandidateTryResult }
+  | { type: "a30ReadTest"; payload: A30ReadTestResult };
+
+export type ResearchRunItem = {
+  queue_index: number;
+  queue_size: number;
+  selection: ResearchTestSelection;
+  result: ResearchTestResult;
+};
+
+export type ResearchRunReport = {
+  run_id: string;
+  adapter: DeviceDescriptor;
+  started_at_unix_ms: number;
+  completed_at_unix_ms: number;
+  items: ResearchRunItem[];
+};
+
+export type ResearchRunRow = {
+  queue_index: number;
+  queue_size: number;
+  selection: ResearchTestSelection;
+  status: "queued" | "running" | "completed" | "error" | "skipped";
+  result: ResearchTestResult | null;
+  error: string | null;
+};
+
+export type ResearchRunViewState = {
+  rows: ResearchRunRow[];
+  running: boolean;
+  currentItem: string;
+  completedCount: number;
+  totalCount: number;
+  report: ResearchRunReport | null;
 };
 
 export type Sample = {

@@ -2,15 +2,22 @@
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { oemCandidateTryState } from "./oemCandidateControls";
-  import { A30_READ_TESTS } from "./a30ReadTests";
-  import type { A30GraphValue, A30ReadTestResult, OemCandidateTryResult, OemCatalogPage, OemCandidate, ScionMode21ProbeResult } from "./types";
+  import { A30_READ_TESTS, type A30ReadTestId } from "./a30ReadTests";
+  import { runResearchQueue, toggleCandidateSelection } from "./researchQueue";
+  import type {
+    A30GraphValue, A30ReadTestResult, OemCandidateTryResult, OemCatalogPage, OemCandidate,
+    ResearchRunItem, ResearchRunReport, ResearchRunRow, ResearchRunViewState, ResearchTestResult,
+    ResearchTestSelection, ScionMode21ProbeResult,
+  } from "./types";
 
   export let selectedPort = "";
   export let selectedBluetoothAddress = "";
   export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx";
   export let disabled = false;
+  export let scionProbeDisabled = false;
   export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
   export let onGraphReadValue: (value: A30GraphValue) => void = () => {};
+  export let onRunUpdate: (state: ResearchRunViewState) => void = () => {};
 
   const pageSize = 50;
   let query = "";
@@ -21,18 +28,26 @@
   let page: OemCatalogPage | null = null;
   let loading = false;
   let probing = false;
-  let probingCandidateId: string | null = null;
-  let candidateTryResults: Record<string, OemCandidateTryResult> = {};
-  let candidateTryErrors: Record<string, string> = {};
+  let selectedCandidateIds: string[] = [];
+  let selectedCandidateMetadata: Record<string, OemCandidate> = {};
   let error = "";
   let probeError = "";
   let probe: ScionMode21ProbeResult | null = null;
   let searchTimer: number | undefined;
   let requestId = 0;
-  let selectedA30Test = A30_READ_TESTS[0][0];
-  let testingA30Mode = false;
-  let a30ReadTest: A30ReadTestResult | null = null;
-  let a30ReadTestError = "";
+  let selectedA30Test: A30ReadTestId = A30_READ_TESTS[0][0];
+  let runRows: ResearchRunRow[] = [];
+  let runInProgress = false;
+  let stopRequested = false;
+  let currentItemLabel = "";
+  let currentQueueKey = "";
+  let completedRunReport: ResearchRunReport | null = null;
+  let completedCount = 0;
+  let totalCount = 0;
+  let canTryCandidates = false;
+  $: completedCount = runRows.filter(({ status }) => status === "completed" || status === "error").length;
+  $: totalCount = runRows.length;
+  $: canTryCandidates = selectedAdapter === "obdlink_sx" || selectedAdapter === "a30" || selectedAdapter === "elm327";
 
   onMount(() => { void loadPage(); });
   onDestroy(() => window.clearTimeout(searchTimer));
@@ -66,7 +81,7 @@
   }
 
   async function runScionProbe() {
-    if (selectedAdapter !== "obdlink_sx" || !selectedPort || disabled || probing || probingCandidateId !== null) return;
+    if (selectedAdapter !== "obdlink_sx" || !selectedPort || scionProbeDisabled || probing || runInProgress) return;
     probing = true;
     probe = null;
     probeError = "";
@@ -79,49 +94,154 @@
     }
   }
 
-  async function tryCandidate(candidate: OemCandidate) {
-    const bluetoothAdapter = selectedAdapter === "a30" || selectedAdapter === "elm327";
-    const device = bluetoothAdapter ? selectedBluetoothAddress : selectedPort;
-    const state = oemCandidateTryState(candidate, device, disabled || probing || probingCandidateId !== null || testingA30Mode, selectedAdapter);
-    if (state.disabled) return;
-    probingCandidateId = candidate.candidate_id;
-    candidateTryErrors = { ...candidateTryErrors, [candidate.candidate_id]: "" };
-    try {
-      const command = selectedAdapter === "a30"
-        ? "try_a30_oem_candidate"
-        : selectedAdapter === "elm327" ? "try_elm_oem_candidate" : "try_oem_candidate";
-      const args = bluetoothAdapter
-        ? { address: selectedBluetoothAddress, candidateId: candidate.candidate_id }
-        : { portName: selectedPort, candidateId: candidate.candidate_id };
-      const result = await invoke<OemCandidateTryResult>(command, args);
-      candidateTryResults = { ...candidateTryResults, [candidate.candidate_id]: result };
-      if (result.outcome === "positive" && Number.isFinite(result.decoded_value?.value)) {
-        onGraphCandidate(candidate);
-      }
-    } catch (caught) {
-      candidateTryErrors = { ...candidateTryErrors, [candidate.candidate_id]: String(caught) };
-    } finally {
-      probingCandidateId = null;
+  function selectCandidate(candidate: OemCandidate, selected: boolean) {
+    selectedCandidateIds = toggleCandidateSelection(selectedCandidateIds, candidate.candidate_id, selected);
+    if (selected) {
+      selectedCandidateMetadata = { ...selectedCandidateMetadata, [candidate.candidate_id]: candidate };
+    } else {
+      const { [candidate.candidate_id]: _removed, ...remaining } = selectedCandidateMetadata;
+      selectedCandidateMetadata = remaining;
     }
   }
 
-  async function runA30ReadTest() {
-    if (selectedAdapter !== "a30" || !selectedBluetoothAddress || disabled || testingA30Mode) return;
-    testingA30Mode = true;
-    a30ReadTest = null;
-    a30ReadTestError = "";
-    try {
-      const result = await invoke<A30ReadTestResult>("try_a30_read_test", {
-        address: selectedBluetoothAddress,
-        test: selectedA30Test,
-      });
-      a30ReadTest = result;
-      for (const value of result.graph_values) onGraphReadValue(value);
-    } catch (caught) {
-      a30ReadTestError = String(caught);
-    } finally {
-      testingA30Mode = false;
+  function publishRunUpdate() {
+    onRunUpdate({
+      rows: runRows,
+      running: runInProgress,
+      currentItem: currentItemLabel,
+      completedCount: runRows.filter(({ status }) => status === "completed" || status === "error").length,
+      totalCount: runRows.length,
+      report: completedRunReport,
+    });
+  }
+
+  type QueueSelection = { id: string; label: string; selection: ResearchTestSelection };
+
+  async function runQueue(items: QueueSelection[]) {
+    if (disabled || runInProgress || !items.length) return;
+    const runId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const queueSize = items.length;
+    stopRequested = false;
+    runInProgress = true;
+    currentItemLabel = "";
+    currentQueueKey = "";
+    completedRunReport = null;
+    runRows = items.map(({ selection }, index) => ({
+      queue_index: index + 1,
+      queue_size: queueSize,
+      selection,
+      status: "queued",
+      result: null,
+      error: null,
+    }));
+    publishRunUpdate();
+
+    await runResearchQueue<ResearchTestResult>(
+      items.map(({ id }) => id),
+      async (id, index) => {
+        const item = items[index];
+        currentItemLabel = item.label;
+        currentQueueKey = id;
+        runRows = runRows.map((row, rowIndex) => rowIndex === index ? { ...row, status: "running" } : row);
+        publishRunUpdate();
+
+        if (item.selection.type === "a30ReadTest") {
+          const payload = await invoke<A30ReadTestResult>("try_a30_read_test", {
+            test: item.selection.payload,
+            runId,
+            queueIndex: index + 1,
+            queueSize,
+          });
+          return { type: "a30ReadTest", payload };
+        }
+
+        const command = selectedAdapter === "a30"
+          ? "try_a30_oem_candidate"
+          : selectedAdapter === "elm327" ? "try_elm_oem_candidate" : "try_oem_candidate";
+        const payload = await invoke<OemCandidateTryResult>(command, {
+          candidateId: id,
+          runId,
+          queueIndex: index + 1,
+          queueSize,
+        });
+        return { type: "oemCandidate", payload };
+      },
+      () => stopRequested,
+      (_id, index, result) => {
+        const item = items[index];
+        runRows = runRows.map((row, rowIndex) => rowIndex !== index ? row : result instanceof Error
+          ? { ...row, status: "error", error: result.message }
+          : { ...row, status: "completed", result, error: null });
+        if (!(result instanceof Error)) {
+          if (result.type === "oemCandidate" && item.selection.type === "oemCandidate"
+            && result.payload.outcome === "positive" && Number.isFinite(result.payload.decoded_value?.value)) {
+            onGraphCandidate(item.selection.payload);
+          } else if (result.type === "a30ReadTest" && result.payload.outcome === "positive") {
+            for (const value of result.payload.graph_values) {
+              if (Number.isFinite(value.value)) onGraphReadValue(value);
+            }
+          }
+        }
+        publishRunUpdate();
+      },
+    );
+
+    runRows = runRows.map((row) => row.status === "queued" ? { ...row, status: "skipped" } : row);
+    runInProgress = false;
+    currentItemLabel = "";
+    currentQueueKey = "";
+    const itemsWithResults: ResearchRunItem[] = runRows.flatMap((row) => row.result ? [{
+      queue_index: row.queue_index,
+      queue_size: row.queue_size,
+      selection: row.selection,
+      result: row.result,
+    }] : []);
+    const firstResult = itemsWithResults[0]?.result;
+    const adapter = firstResult?.payload.adapter;
+    if (adapter && itemsWithResults.length) {
+      completedRunReport = {
+        run_id: runId,
+        adapter,
+        started_at_unix_ms: startedAt,
+        completed_at_unix_ms: Date.now(),
+        items: itemsWithResults,
+      };
     }
+    publishRunUpdate();
+  }
+
+  function runSelectedCandidates() {
+    const items = selectedCandidateIds.flatMap((id) => {
+      const candidate = selectedCandidateMetadata[id];
+      return candidate ? [{ id, label: candidate.name, selection: { type: "oemCandidate" as const, payload: candidate } }] : [];
+    });
+    void runQueue(items);
+  }
+
+  function runA30ReadTest() {
+    const label = A30_READ_TESTS.find(([id]) => id === selectedA30Test)?.[1] ?? selectedA30Test;
+    void runQueue([{
+      id: selectedA30Test,
+      label,
+      selection: { type: "a30ReadTest", payload: selectedA30Test },
+    }]);
+  }
+
+  function stopQueue() {
+    if (runInProgress) stopRequested = true;
+  }
+
+  function tryCandidate(candidate: OemCandidate) {
+    const bluetoothAdapter = selectedAdapter === "a30" || selectedAdapter === "elm327";
+    const device = bluetoothAdapter ? selectedBluetoothAddress : selectedPort;
+    const state = oemCandidateTryState(candidate, device, disabled || probing || runInProgress, selectedAdapter);
+    if (state.disabled) return;
+    void runQueue([{
+      id: candidate.candidate_id,
+      label: candidate.name,
+      selection: { type: "oemCandidate", payload: candidate },
+    }]);
   }
 
   function displayUnit(unit: string) {
@@ -155,30 +275,16 @@
         <select class="text-input" bind:value={selectedA30Test} aria-label="A30 read mode">
           {#each A30_READ_TESTS as [value, label]}<option {value}>{label}</option>{/each}
         </select>
-        <button class="button secondary" onclick={runA30ReadTest} disabled={disabled || !selectedBluetoothAddress || testingA30Mode || probingCandidateId !== null}>
-          {testingA30Mode ? "Testing…" : "Try once"}
+        <button class="button secondary" onclick={runA30ReadTest} disabled={disabled || !selectedBluetoothAddress || runInProgress}>
+          {runInProgress && currentQueueKey === selectedA30Test ? "Running…" : "Try once"}
         </button>
       </div>
-      {#if a30ReadTestError}<p class="oem-error" role="alert">A30 read test failed: {a30ReadTestError}</p>{/if}
-      {#if a30ReadTest}
-        <div class="candidate-try-result" aria-live="polite">
-          <strong>{a30ReadTest.outcome.replaceAll("_", " ")} · {a30ReadTest.latency_ms} ms</strong>
-          <p>{a30ReadTest.request_description} · {a30ReadTest.responder_header ?? "no responding ECU"}</p>
-          {#if a30ReadTest.detail}<p>{a30ReadTest.detail}</p>{/if}
-          {#each a30ReadTest.graph_values as value (value.signal_id)}
-            <p>{value.name}: {value.value.toFixed(2)} {displayUnit(value.unit)} · raw {value.raw_value} · added to graph</p>
-          {/each}
-          {#if a30ReadTest.negative_response_code !== null}<p>NRC 0x{a30ReadTest.negative_response_code.toString(16).toUpperCase().padStart(2, "0")}</p>{/if}
-          {#if a30ReadTest.evidence_saved}<p>Raw read evidence saved in app data, outside the catalog.</p>{:else if a30ReadTest.evidence_save_error}<p class="oem-error">Evidence could not be saved: {a30ReadTest.evidence_save_error}</p>{/if}
-          <details><summary>Exact request and raw A30 response</summary><code>{a30ReadTest.exact_adapter_command}</code><pre>{a30ReadTest.raw_response || "No A30 reply frame received"}</pre></details>
-        </div>
-      {/if}
     </div>
   {/if}
 
   {#if selectedAdapter === "obdlink_sx"}<div class="scion-probe-card">
     <div><strong>Scion xB 2014 · 21 01</strong><p>One source-backed read via the selected OBDLink SX. Only use on the 2AZ-FE Scion xB, stationary in Park with the parking brake set, ignition on and engine off. Close other diagnostic apps.</p></div>
-    <button class="button secondary" onclick={runScionProbe} disabled={disabled || !selectedPort || probing || probingCandidateId !== null}>
+    <button class="button secondary" onclick={runScionProbe} disabled={scionProbeDisabled || !selectedPort || probing || runInProgress}>
       {probing ? "Reading once…" : "Read 21 01 once"}
     </button>
   </div>{/if}
@@ -202,17 +308,35 @@
     </article>
   {/if}
 
+  <div class="research-queue-controls">
+    <span class="selected-candidate-count"><strong>{selectedCandidateIds.length}</strong> selected</span>
+    <button class="button primary" onclick={runSelectedCandidates} disabled={disabled || runInProgress || !canTryCandidates || selectedCandidateIds.length === 0}>Run selected</button>
+    <button class="button secondary" onclick={stopQueue} disabled={!runInProgress || stopRequested}>{stopRequested ? "Stopping…" : "Stop"}</button>
+  </div>
+  <p class="research-queue-progress" aria-live="polite">
+    {#if runInProgress}
+      {completedCount} of {totalCount} completed · {stopRequested ? "Stopping after the current read" : `Running ${completedCount + 1} of ${totalCount}: ${currentItemLabel}`}
+    {:else if totalCount}
+      {completedCount} of {totalCount} completed · {runRows.filter(({ status }) => status === "skipped").length} skipped
+    {:else if !canTryCandidates}
+      OEM candidate reads are unavailable for {selectedAdapter}.
+    {:else}
+      Select source-backed candidates; selection order is retained across search and pages.
+    {/if}
+  </p>
+
   {#if error}<p class="oem-error" role="alert">Catalog unavailable: {error}</p>
   {:else if loading && !page}<p class="oem-empty">Loading the local PID catalog…</p>
   {:else if page}
     <div class="oem-catalog-list" aria-busy={loading}>
       {#each page.candidates as candidate (candidate.candidate_id)}
         {@const candidateDevice = selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : selectedPort}
-        {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || probing || probingCandidateId !== null || testingA30Mode, selectedAdapter)}
+        {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || probing || runInProgress, selectedAdapter)}
         <article class="oem-candidate">
           <header>
+            <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name}`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
             <strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
-            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{probingCandidateId === candidate.candidate_id ? "Trying…" : "Try once"}</button>
+            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
           </header>
           <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
           <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
@@ -235,23 +359,6 @@
             {#if candidate.source_url}<a href={candidate.source_url} target="_blank" rel="noreferrer">Open source record</a>{/if}
             {#if candidate.license_url}<a href={candidate.license_url} target="_blank" rel="noreferrer">Open source license</a>{/if}
           </details>
-          {#if candidateTryErrors[candidate.candidate_id]}<p class="oem-error" role="alert">Try failed: {candidateTryErrors[candidate.candidate_id]}</p>{/if}
-          {#if candidateTryResults[candidate.candidate_id]}
-            {@const result = candidateTryResults[candidate.candidate_id]}
-            <div class="candidate-try-result" aria-live="polite">
-              <strong>Try result: {result.outcome.replaceAll("_", " ")} · {result.latency_ms} ms</strong>
-              <p>{result.adapter.hardware_family} · {result.adapter.stable_id} · {result.responder_header ?? "no responding ECU"}</p>
-              <code>{result.exact_adapter_command}</code>
-              {#if result.decoded_value}
-                <p>Raw {result.decoded_value.raw_value}{result.decoded_value.enum_value ? ` · ${result.decoded_value.enum_value}` : result.decoded_value.value === null ? "" : ` · ${result.decoded_value.value.toFixed(2)} ${displayUnit(result.decoded_value.unit)}`}</p>
-                {#if result.decoded_value.within_catalog_range === false}<p class="oem-error">Decoded value is outside the catalog range; treat this as research evidence.</p>{/if}
-              {/if}
-              {#if result.error}<p class="oem-error">{result.error}</p>{/if}
-              {#if result.decode_error}<p class="oem-error">Response received but not decoded: {result.decode_error}</p>{/if}
-              {#if result.evidence_saved}<p>One-shot evidence saved outside the read-only catalog.</p>{:else if result.evidence_save_error}<p class="oem-error">Evidence save failed: {result.evidence_save_error}</p>{/if}
-              <details><summary>Raw response</summary><pre>{result.raw_response || "No response text received"}</pre></details>
-            </div>
-          {/if}
         </article>
       {:else}
         <p class="oem-empty">No candidates match these filters.</p>
@@ -263,7 +370,7 @@
       <button class="button secondary" onclick={() => setPage(offset + pageSize)} disabled={offset + pageSize >= page.total || loading}>Next</button>
     </footer>
   {/if}
-  <p class="oem-footnote">Candidates remain research-only until validated on the exact vehicle. Probe evidence is saved outside the read-only catalog.</p>
+  <p class="oem-footnote">Candidate responses remain research evidence until validated on the exact vehicle. Numeric results use the shared graph and recording pipeline.</p>
 </section>
 
 <style>
@@ -280,6 +387,12 @@
   .a30-mode-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
   .a30-mode-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 29px; padding: 4px 6px; font-size: 10px; }
   .a30-mode-test-controls .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }
+  .research-queue-controls { display: flex; align-items: center; gap: 5px; }
+  .selected-candidate-count { flex: 1 1 auto; color: var(--text-muted); font-size: 10px; }
+  .selected-candidate-count strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .research-queue-controls .button { min-height: 29px; padding: 4px 8px; font-size: 10px; }
+  .research-queue-progress { min-height: 13px; margin: -5px 0 0 !important; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
+  .candidate-select { flex: 0 0 auto; accent-color: var(--accent); }
   .scion-probe-card, .probe-result { padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: #142029; }
   .scion-probe-card strong, .probe-result strong { font-size: 11px; }
   .scion-probe-card .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }
@@ -289,9 +402,6 @@
   .oem-candidate > header strong { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
   .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 30%; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-try-button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
-  .candidate-try-result { margin-top: 5px; padding: 6px; border-radius: 5px; background: #202d37; }
-  .candidate-try-result > strong { color: var(--text); font-size: 9px; }
-  .candidate-try-result code { color: var(--text-muted); font-size: 8px; overflow-wrap: anywhere; }
   .oem-address { color: #b8c9d3 !important; }
   .oem-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
   .oem-badges span { padding: 2px 5px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; }
