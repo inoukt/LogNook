@@ -4,7 +4,7 @@
 2. Start with the most specific model/year source; use make fallback only when needed.
 3. Generate a plan with `tools/build_validation_plan.py`.
 4. For ordinary signal validation, test only the exact source-backed read request and addressing under the standing project authorization. Keep the result as a candidate until applicability and decoding are verified.
-5. If a procedure requires session/security access or any state-changing action (including clear, reset, write, erase, routine, or actuator control), stop and obtain explicit approval for that exact test before transmission. Never perform such actions from normal acquisition or automatic polling. Flashing/programming is prohibited.
+5. This catalog-validation workflow does not govern raw bench experiments. The local Test Workbench bench mode may send operator-configured CAN frames and run user-started scans without a per-request approval prompt; keep those results as research evidence, separate from validation promotion. Never run bench operations from normal acquisition or automatic polling. Firmware flashing/programming is outside the CAN Workbench scope.
 6. Record the raw response before decoding.
 7. Record negative/no-response/wrong-length outcomes; never discard them.
 8. Check decoded values for physical plausibility at rest and during a controlled change.

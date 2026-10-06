@@ -1,10 +1,10 @@
 # RH-02 Candlelight CAN Workbench
 
-**Status:** Proposed design for user review; implementation has not started.
+**Status:** Revised after user direction; implementation has not started.
 
 ## Purpose
 
-Add a developer-oriented CAN Workbench for the Jhoinrch RH-02 USB-CAN adapter. It supports passive frame sniffing and active, read-only vehicle diagnostics through the same device. Numeric decoded measurements continue through LogNook's existing sample, graph, recording, and replay pipeline. Raw CAN frames remain distinguishable from decoded measurements.
+Add a developer-oriented CAN Workbench for the Jhoinrch RH-02 USB-CAN adapter. It supports passive frame sniffing and operator-directed active CAN tests through the same device. Numeric decoded measurements continue through LogNook's existing sample, graph, recording, and replay pipeline. Raw CAN frames remain distinguishable from decoded measurements and catalog evidence.
 
 ## Hardware and transport
 
@@ -39,9 +39,12 @@ Add a typed `CanFrame` model carrying host elapsed/UTC time, arbitration ID and 
 - Implement only the ISO-TP behavior needed by eligible catalog definitions; retain exact raw request/response frames, ECU identity, timestamps, and typed outcomes in the existing research results/evidence flow.
 - Finite decoded numeric values use the existing research sample pipeline. They do not promote the candidate's research or vehicle-validation state.
 
-## Transmission boundary
+### Manual CAN tests and scans
 
-The active Workbench supports standard OBD-II Mode 01 reads and source-backed service 21/22 candidates. Passive mode is strictly listen-only. Do not add arbitrary raw-hex frame entry, unrestricted CAN-ID sweeps, writes, DTC clears, session/security changes, routines, or actuator commands. A broader active exploration requires its own finite, source-scoped procedure and approval.
+- Bench mode exposes an operator-configured raw CAN frame sender for standard or extended CAN 2.0 IDs, payload bytes, pacing, and a finite repeat count. It also exposes configurable CAN-ID, Mode 21, and Mode 22 scans; the user may select the full range supported by the chosen request form.
+- Each scan requires explicit adapter/bitrate/route/range selection and a user Start action. It is cancellable and records its configuration, every transmitted frame, all received frames, and the typed result. No source or decoder is required to send a bench frame, and scan results remain raw research evidence unless separately decoded and validated.
+- Active scans are not background tasks and never start on connect. Normal acquisition and polling remain separate. Manual frame traffic is labeled experimental and the UI does not classify an operator-entered frame as harmless or read-only.
+- This feature does not implement adapter firmware updates, ECU flashing/programming sequences, or automatic state-changing routines.
 
 ## User interface
 
@@ -51,12 +54,12 @@ The firmware's support for hardware ID filtering is not assumed. Apply filters o
 
 ## Verification
 
-- Unit fixtures cover GS_USB control-transfer/frame encoding, standard and extended frame decoding, listen-only setup, bitrate validation, disconnect/errors, and frame timestamps.
-- Fake-device tests prove only one owner reads the USB endpoint and that active OBD responses retain their ECU IDs and exact raw frames.
+- Unit fixtures cover GS_USB control-transfer/frame encoding, standard and extended frame decoding, listen-only setup, raw frame transmission, bitrate validation, disconnect/errors, and frame timestamps.
+- Fake-device tests prove only one owner reads the USB endpoint, that scans honor configured ranges/pacing/Stop, and that active OBD responses retain their ECU IDs and exact raw frames.
 - Core tests prove Mode 01 samples and finite OEM values use the existing sample pipeline without mixing ECU identities or changing catalog validation.
-- UI tests cover device selection, listen/active mode controls, bitrate selection, Start/Stop, frame/rate display state, and capture export.
+- UI tests cover device selection, listen/active bench modes, bitrate and raw-frame controls, scan range/pacing/Stop, frame/rate display state, and capture export.
 - Acceptance on hardware: enumerate the RH-02, confirm Candlelight/GS_USB identity, verify passive capture without TX, verify a standard Mode 01 supported-PID response and selected live signal, then try one source-backed Toyota/Scion catalog candidate. Record the actual bitrate, ECU route, latency, raw request/response, and observed rate. A returned response is evidence, not automatic vehicle validation.
 
 ## Out of scope
 
-SLCAN firmware support, automatic bitrate scanning, raw frame injection, broad identifier sweeps, DBC-based signal decoding, and replaying raw CAN captures are separate work. The first implementation focuses on the factory Candlelight path and the Workbench functions above.
+SLCAN firmware support, automatic bitrate detection, DBC-based signal decoding, raw CAN capture replay, adapter firmware updates, and ECU firmware flashing/programming workflows are separate work. The first implementation focuses on the factory Candlelight path and the Workbench functions above.
