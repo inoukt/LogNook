@@ -31,7 +31,15 @@ pub(crate) fn noop_diagnostic_sink() -> DiagnosticSink {
     Arc::new(|_| {})
 }
 
-pub(crate) fn diagnostic_error_detail(message: &str) -> String {
+pub fn diagnostic_error_detail(message: &str) -> String {
+    if message.starts_with("Read failed after ")
+        && let Some((prefix, cause)) = message.split_once(" consecutive transient failures: ")
+    {
+        return format!(
+            "{prefix} consecutive transient failures: {}",
+            diagnostic_error_detail(cause)
+        );
+    }
     for prefix in [
         "OBDLink SX did not acknowledge ",
         "ELM327 rejected adapter setup command ",
@@ -175,6 +183,21 @@ mod tests {
         ] {
             assert_eq!(super::diagnostic_error_detail(message), message);
         }
+    }
+    #[test]
+    fn wrapped_transient_error_redacts_embedded_request_and_parser_detail() {
+        assert_eq!(
+            super::diagnostic_error_detail(
+                "Read failed after 3 consecutive transient failures: Timed out waiting for the ELM327 > prompt after 010C"
+            ),
+            "Read failed after 3 consecutive transient failures: Timed out waiting for the ELM327 > prompt after [request redacted]"
+        );
+        assert_eq!(
+            super::diagnostic_error_detail(
+                "OpenPort worker returned malformed output: Malformed J2534 worker message: unknown field `sample_value_1234`"
+            ),
+            "OpenPort worker returned malformed output: Malformed J2534 worker message: [parser detail redacted]"
+        );
     }
     #[test]
     fn unexpected_openport_response_detail_redacts_the_debug_payload() {

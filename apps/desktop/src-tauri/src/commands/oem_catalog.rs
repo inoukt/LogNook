@@ -1,4 +1,4 @@
-use super::engine;
+use super::{diagnose, engine};
 use crate::AppState;
 use lognook_core::{
     A30GraphValue, A30ReadOutcome, A30ReadTest, A30ReadTestResult, OemCandidate,
@@ -34,35 +34,49 @@ pub async fn probe_scion_xb_mode21(
     state: State<'_, AppState>,
     port_name: String,
 ) -> Result<ScionMode21ProbeResult, String> {
-    let engine = engine(&state)?;
-    if engine.is_connected() || engine.is_recording() {
-        return Err(
-            "Disconnect acquisition and stop recording before the one-shot OEM read".into(),
-        );
-    }
-    let spec = OemCatalog::new(&state.pid_catalog_path).scion_xb_mode21_probe()?;
-    let mut result = run_probe(port_name, &spec).map_err(|error| error.to_string())?;
-    let save_attempt = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&state.oem_validation_log)
-            .map_err(|error| format!("Could not open evidence log: {error}"))?;
-        let mut evidence = result.clone();
-        evidence.evidence_saved = true;
-        let envelope = serde_json::json!({
-            "os": std::env::consts::OS,
-            "app_version": env!("CARGO_PKG_VERSION"),
-            "probe": evidence,
-        });
-        serde_json::to_writer(&mut file, &envelope).map_err(|error| error.to_string())?;
-        file.write_all(b"\n").map_err(|error| error.to_string())
-    })();
-    match save_attempt {
-        Ok(()) => result.evidence_saved = true,
-        Err(error) => result.evidence_save_error = Some(error),
-    }
-    Ok(result)
+    diagnose(
+        &state,
+        Some(format!("obdlink-sx:{port_name}")),
+        "research",
+        vec!["scion_xb_mode21".into()],
+        |op| {
+            let engine = engine(&state)?;
+            if engine.is_connected() || engine.is_recording() {
+                return Err(
+                    "Disconnect acquisition and stop recording before the one-shot OEM read".into(),
+                );
+            }
+            let spec = OemCatalog::new(&state.pid_catalog_path).scion_xb_mode21_probe()?;
+            let mut result = run_probe(port_name, &spec).map_err(|error| error.to_string())?;
+            let save_attempt = (|| -> Result<(), String> {
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&state.oem_validation_log)
+                    .map_err(|error| format!("Could not open evidence log: {error}"))?;
+                let mut evidence = result.clone();
+                evidence.evidence_saved = true;
+                let envelope = serde_json::json!({
+                    "os": std::env::consts::OS,
+                    "app_version": env!("CARGO_PKG_VERSION"),
+                    "probe": evidence,
+                });
+                serde_json::to_writer(&mut file, &envelope).map_err(|error| error.to_string())?;
+                file.write_all(b"\n").map_err(|error| error.to_string())
+            })();
+            match save_attempt {
+                Ok(()) => result.evidence_saved = true,
+                Err(error) => result.evidence_save_error = Some(error),
+            }
+            op.research_outcome(
+                &result.outcome,
+                None,
+                result.evidence_saved,
+                result.evidence_save_error.as_deref(),
+            );
+            Ok(result)
+        },
+    )
 }
 
 #[tauri::command]
@@ -126,28 +140,45 @@ fn execute_candidate_try(
     queue_index: usize,
     queue_size: usize,
 ) -> Result<OemCandidateTryResult, String> {
-    validate_run_item(run_id, queue_index, queue_size)?;
-    let engine = engine(state)?;
-    let spec = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(candidate_id)?;
-    let result = engine
-        .execute_research_test(ResearchTestRequest::OemCandidate(spec.clone()))
-        .map_err(|error| error.to_string())?;
-    let ResearchTestResult::OemCandidate(mut result) = result else {
-        return Err("Active adapter returned the wrong research result type".into());
-    };
-    match append_oem_candidate_try_evidence(
-        &state.oem_candidate_try_log,
-        &spec.candidate,
-        &result,
-        run_id,
-        queue_index,
-        queue_size,
-    ) {
-        Ok(()) => result.evidence_saved = true,
-        Err(error) => result.evidence_save_error = Some(error),
-    }
-    publish_graphable_candidate_sample(&engine, &spec, &result)?;
-    Ok(result)
+    diagnose(
+        state,
+        None,
+        "research",
+        vec![candidate_id.to_owned()],
+        |op| {
+            validate_run_item(run_id, queue_index, queue_size)?;
+            let engine = engine(state)?;
+            let spec = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(candidate_id)?;
+            let result = engine
+                .execute_research_test(ResearchTestRequest::OemCandidate(spec.clone()))
+                .map_err(|error| error.to_string())?;
+            let ResearchTestResult::OemCandidate(mut result) = result else {
+                return Err("Active adapter returned the wrong research result type".into());
+            };
+            match append_oem_candidate_try_evidence(
+                &state.oem_candidate_try_log,
+                &spec.candidate,
+                &result,
+                run_id,
+                queue_index,
+                queue_size,
+            ) {
+                Ok(()) => result.evidence_saved = true,
+                Err(error) => result.evidence_save_error = Some(error),
+            }
+            publish_graphable_candidate_sample(&engine, &spec, &result)?;
+            op.research_outcome(
+                serde_json::to_value(&result.outcome)
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                result.negative_response_code,
+                result.evidence_saved,
+                result.evidence_save_error.as_deref(),
+            );
+            Ok(result)
+        },
+    )
 }
 
 fn execute_a30_read_test(
@@ -157,28 +188,51 @@ fn execute_a30_read_test(
     queue_index: usize,
     queue_size: usize,
 ) -> Result<A30ReadTestResult, String> {
-    validate_run_item(run_id, queue_index, queue_size)?;
-    let engine = engine(state)?;
-    let result = engine
-        .execute_research_test(ResearchTestRequest::A30ReadTest(test))
-        .map_err(|error| error.to_string())?;
-    let ResearchTestResult::A30ReadTest(mut result) = result else {
-        return Err("Active adapter returned the wrong research result type".into());
-    };
-    match append_a30_read_test_evidence(
-        &state.a30_read_test_log,
-        &result,
-        run_id,
-        queue_index,
-        queue_size,
-    ) {
-        Ok(()) => result.evidence_saved = true,
-        Err(error) => result.evidence_save_error = Some(error),
-    }
-    for value in &result.graph_values {
-        publish_a30_graph_value(&engine, value, &result)?;
-    }
-    Ok(result)
+    diagnose(
+        state,
+        None,
+        "research",
+        vec![
+            serde_json::to_value(test)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        ],
+        |op| {
+            validate_run_item(run_id, queue_index, queue_size)?;
+            let engine = engine(state)?;
+            let result = engine
+                .execute_research_test(ResearchTestRequest::A30ReadTest(test))
+                .map_err(|error| error.to_string())?;
+            let ResearchTestResult::A30ReadTest(mut result) = result else {
+                return Err("Active adapter returned the wrong research result type".into());
+            };
+            match append_a30_read_test_evidence(
+                &state.a30_read_test_log,
+                &result,
+                run_id,
+                queue_index,
+                queue_size,
+            ) {
+                Ok(()) => result.evidence_saved = true,
+                Err(error) => result.evidence_save_error = Some(error),
+            }
+            for value in &result.graph_values {
+                publish_a30_graph_value(&engine, value, &result)?;
+            }
+            op.research_outcome(
+                serde_json::to_value(&result.outcome)
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                result.negative_response_code,
+                result.evidence_saved,
+                result.evidence_save_error.as_deref(),
+            );
+            Ok(result)
+        },
+    )
 }
 
 fn publish_graphable_candidate_sample(
@@ -437,6 +491,12 @@ mod tests {
     fn app_state(directory: &std::path::Path, catalog: std::path::PathBuf) -> crate::AppState {
         crate::AppState {
             engine: std::sync::Mutex::new(lognook_core::LogNookEngine::new(|_| {})),
+            diagnostics: crate::diagnostics::DiagnosticsService::start(
+                directory.join("diagnostics/operations.jsonl"),
+                |_| {},
+            )
+            .unwrap(),
+            diagnostics_path: directory.join("diagnostics/operations.jsonl"),
             recordings_dir: directory.into(),
             pid_catalog_path: catalog,
             oem_validation_log: directory.join("probe.jsonl"),

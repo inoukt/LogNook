@@ -35,7 +35,9 @@ pub use bluetooth_spp::{
 };
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
-pub use diagnostics::{DiagnosticPhase, DiagnosticProgress, DiagnosticSink};
+pub use diagnostics::{
+    DiagnosticPhase, DiagnosticProgress, DiagnosticSink, diagnostic_error_detail,
+};
 pub use elm327::{
     Elm327Adapter, identify_elm327, identify_elm327_with_diagnostics, try_elm_oem_candidate,
 };
