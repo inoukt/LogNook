@@ -1,11 +1,10 @@
 use super::engine;
 use crate::AppState;
 use lognook_core::{
-    A30GraphValue, A30ReadTest, A30ReadTestResult, OemCandidate, OemCandidateOutcome,
-    OemCandidateTryResult, OemCandidateTrySpec, OemCatalog, OemCatalogPage, Sample, SampleOrigin,
-    SampleQuality, ScionMode21ProbeResult, probe_scion_xb_mode21 as run_probe,
-    run_a30_read_test as run_a30_mode_test, try_a30_oem_candidate as run_a30_oem_candidate_try,
-    try_elm_oem_candidate as run_elm_oem_candidate_try, try_oem_candidate as run_oem_candidate_try,
+    A30GraphValue, A30ReadOutcome, A30ReadTest, A30ReadTestResult, OemCandidate,
+    OemCandidateOutcome, OemCandidateTryResult, OemCandidateTrySpec, OemCatalog, OemCatalogPage,
+    ResearchTestRequest, ResearchTestResult, Sample, SampleOrigin, SampleQuality,
+    ScionMode21ProbeResult, probe_scion_xb_mode21 as run_probe,
 };
 use std::{fs::OpenOptions, io::Write};
 use tauri::State;
@@ -69,105 +68,121 @@ pub async fn probe_scion_xb_mode21(
 #[tauri::command]
 pub async fn try_oem_candidate(
     state: State<'_, AppState>,
-    port_name: String,
     candidate_id: String,
+    run_id: String,
+    queue_index: usize,
+    queue_size: usize,
 ) -> Result<OemCandidateTryResult, String> {
-    let engine = engine(&state)?;
-    if engine.is_connected() || engine.is_recording() {
-        return Err(
-            "Disconnect acquisition and stop recording before trying an OEM candidate".into(),
-        );
-    }
-    drop(engine);
-    let candidate = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(&candidate_id)?;
-    let mut result =
-        run_oem_candidate_try(port_name, &candidate).map_err(|error| error.to_string())?;
-    match append_oem_candidate_try_evidence(
-        &state.oem_candidate_try_log,
-        &candidate.candidate,
-        &result,
-    ) {
-        Ok(()) => result.evidence_saved = true,
-        Err(error) => result.evidence_save_error = Some(error),
-    }
-    publish_graphable_candidate_sample(&state, &candidate, &result)?;
-    Ok(result)
+    execute_candidate_try(&state, &candidate_id, &run_id, queue_index, queue_size)
 }
 
 #[tauri::command]
 pub async fn try_a30_oem_candidate(
     state: State<'_, AppState>,
-    address: String,
     candidate_id: String,
+    run_id: String,
+    queue_index: usize,
+    queue_size: usize,
 ) -> Result<OemCandidateTryResult, String> {
-    let engine = engine(&state)?;
-    if engine.is_connected() || engine.is_recording() {
-        return Err(
-            "Disconnect acquisition and stop recording before trying an OEM candidate".into(),
-        );
-    }
-    drop(engine);
-    let spec = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(&candidate_id)?;
-    let mut result =
-        run_a30_oem_candidate_try(address, &spec).map_err(|error| error.to_string())?;
-    match append_oem_candidate_try_evidence(&state.oem_candidate_try_log, &spec.candidate, &result)
-    {
-        Ok(()) => result.evidence_saved = true,
-        Err(error) => result.evidence_save_error = Some(error),
-    }
-    publish_graphable_candidate_sample(&state, &spec, &result)?;
-    Ok(result)
+    execute_candidate_try(&state, &candidate_id, &run_id, queue_index, queue_size)
 }
 
 #[tauri::command]
 pub async fn try_elm_oem_candidate(
     state: State<'_, AppState>,
-    address: String,
     candidate_id: String,
+    run_id: String,
+    queue_index: usize,
+    queue_size: usize,
 ) -> Result<OemCandidateTryResult, String> {
-    let engine = engine(&state)?;
-    if engine.is_connected() || engine.is_recording() {
-        return Err(
-            "Disconnect acquisition and stop recording before trying an OEM candidate".into(),
-        );
-    }
-    drop(engine);
-    let spec = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(&candidate_id)?;
-    let mut result =
-        run_elm_oem_candidate_try(address, &spec).map_err(|error| error.to_string())?;
-    match append_oem_candidate_try_evidence(&state.oem_candidate_try_log, &spec.candidate, &result)
-    {
-        Ok(()) => result.evidence_saved = true,
-        Err(error) => result.evidence_save_error = Some(error),
-    }
-    publish_graphable_candidate_sample(&state, &spec, &result)?;
-    Ok(result)
+    execute_candidate_try(&state, &candidate_id, &run_id, queue_index, queue_size)
 }
 
 #[tauri::command]
 pub async fn try_a30_read_test(
     state: State<'_, AppState>,
-    address: String,
     test: A30ReadTest,
+    run_id: String,
+    queue_index: usize,
+    queue_size: usize,
 ) -> Result<A30ReadTestResult, String> {
-    let engine = engine(&state)?;
-    if engine.is_connected() || engine.is_recording() {
-        return Err("Disconnect acquisition and stop recording before the A30 read test".into());
+    execute_a30_read_test(&state, test, &run_id, queue_index, queue_size)
+}
+
+fn validate_run_item(run_id: &str, queue_index: usize, queue_size: usize) -> Result<(), String> {
+    if run_id.trim().is_empty() || run_id.len() > 256 {
+        return Err("Choose a valid research run ID".into());
     }
-    drop(engine);
-    let mut result = run_a30_mode_test(address, test).map_err(|error| error.to_string())?;
-    match append_a30_read_test_evidence(&state.a30_read_test_log, &result) {
+    if queue_index == 0 || queue_index > queue_size {
+        return Err("Research queue index must be between 1 and its queue size".into());
+    }
+    Ok(())
+}
+
+fn execute_candidate_try(
+    state: &AppState,
+    candidate_id: &str,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
+) -> Result<OemCandidateTryResult, String> {
+    validate_run_item(run_id, queue_index, queue_size)?;
+    let engine = engine(state)?;
+    let spec = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(candidate_id)?;
+    let result = engine
+        .execute_research_test(ResearchTestRequest::OemCandidate(spec.clone()))
+        .map_err(|error| error.to_string())?;
+    let ResearchTestResult::OemCandidate(mut result) = result else {
+        return Err("Active adapter returned the wrong research result type".into());
+    };
+    match append_oem_candidate_try_evidence(
+        &state.oem_candidate_try_log,
+        &spec.candidate,
+        &result,
+        run_id,
+        queue_index,
+        queue_size,
+    ) {
+        Ok(()) => result.evidence_saved = true,
+        Err(error) => result.evidence_save_error = Some(error),
+    }
+    publish_graphable_candidate_sample(&engine, &spec, &result)?;
+    Ok(result)
+}
+
+fn execute_a30_read_test(
+    state: &AppState,
+    test: A30ReadTest,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
+) -> Result<A30ReadTestResult, String> {
+    validate_run_item(run_id, queue_index, queue_size)?;
+    let engine = engine(state)?;
+    let result = engine
+        .execute_research_test(ResearchTestRequest::A30ReadTest(test))
+        .map_err(|error| error.to_string())?;
+    let ResearchTestResult::A30ReadTest(mut result) = result else {
+        return Err("Active adapter returned the wrong research result type".into());
+    };
+    match append_a30_read_test_evidence(
+        &state.a30_read_test_log,
+        &result,
+        run_id,
+        queue_index,
+        queue_size,
+    ) {
         Ok(()) => result.evidence_saved = true,
         Err(error) => result.evidence_save_error = Some(error),
     }
     for value in &result.graph_values {
-        publish_a30_graph_value(&state, value, &result)?;
+        publish_a30_graph_value(&engine, value, &result)?;
     }
     Ok(result)
 }
 
 fn publish_graphable_candidate_sample(
-    state: &State<'_, AppState>,
+    engine: &lognook_core::LogNookEngine,
     spec: &OemCandidateTrySpec,
     result: &OemCandidateTryResult,
 ) -> Result<(), String> {
@@ -203,16 +218,19 @@ fn publish_graphable_candidate_sample(
         origin: SampleOrigin::Live,
         raw_bytes: Some(result.response_payload.clone()),
     };
-    publish_research_sample(state, sample)
+    publish_research_sample(engine, sample)
 }
 
 fn publish_a30_graph_value(
-    state: &State<'_, AppState>,
+    engine: &lognook_core::LogNookEngine,
     value: &A30GraphValue,
     result: &A30ReadTestResult,
 ) -> Result<(), String> {
+    if result.outcome != A30ReadOutcome::Positive || !value.value.is_finite() {
+        return Ok(());
+    }
     publish_research_sample(
-        state,
+        engine,
         Sample {
             elapsed_ns: 0,
             wall_time_unix_ns: std::time::SystemTime::now()
@@ -232,8 +250,11 @@ fn publish_a30_graph_value(
     )
 }
 
-fn publish_research_sample(state: &State<'_, AppState>, sample: Sample) -> Result<(), String> {
-    engine(state)?
+fn publish_research_sample(
+    engine: &lognook_core::LogNookEngine,
+    sample: Sample,
+) -> Result<(), String> {
+    engine
         .publish_research_sample(sample)
         .map_err(|error| error.to_string())
 }
@@ -241,6 +262,9 @@ fn publish_research_sample(state: &State<'_, AppState>, sample: Sample) -> Resul
 fn append_a30_read_test_evidence(
     path: &std::path::Path,
     result: &A30ReadTestResult,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
 ) -> Result<(), String> {
     let mut evidence = result.clone();
     evidence.evidence_saved = true;
@@ -248,6 +272,9 @@ fn append_a30_read_test_evidence(
     let envelope = serde_json::json!({
         "os": std::env::consts::OS,
         "app_version": env!("CARGO_PKG_VERSION"),
+        "run_id": run_id,
+        "queue_index": queue_index,
+        "queue_size": queue_size,
         "probe": evidence,
     });
     let mut file = OpenOptions::new()
@@ -263,12 +290,19 @@ fn append_oem_candidate_try_evidence(
     path: &std::path::Path,
     candidate: &OemCandidate,
     result: &OemCandidateTryResult,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
 ) -> Result<(), String> {
     let mut evidence = result.clone();
     evidence.evidence_saved = true;
+    evidence.evidence_save_error = None;
     let envelope = serde_json::json!({
         "os": std::env::consts::OS,
         "app_version": env!("CARGO_PKG_VERSION"),
+        "run_id": run_id,
+        "queue_index": queue_index,
+        "queue_size": queue_size,
         "candidate": candidate,
         "probe": evidence,
     });
@@ -283,13 +317,311 @@ fn append_oem_candidate_try_evidence(
 
 #[cfg(test)]
 mod tests {
-    use super::{append_a30_read_test_evidence, append_oem_candidate_try_evidence};
+    use super::{
+        append_a30_read_test_evidence, append_oem_candidate_try_evidence, execute_a30_read_test,
+        execute_candidate_try,
+    };
     use lognook_core::{
         A30ReadOutcome, A30ReadTest, A30ReadTestResult, DeviceDescriptor, OemCandidate,
         OemCandidateOutcome, OemCandidateTryResult,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn catalog_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../PIDs/LogNook_PID_Master_v0_3/data/lognook_pids.sqlite")
+    }
+
+    fn test_directory(label: &str) -> std::path::PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("lognook-{label}-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn adapter() -> DeviceDescriptor {
+        DeviceDescriptor {
+            stable_id: "active-adapter".into(),
+            hardware_family: "test".into(),
+            firmware: None,
+            path: None,
+        }
+    }
+
+    fn candidate_result(candidate_id: &str) -> OemCandidateTryResult {
+        OemCandidateTryResult {
+            candidate_id: candidate_id.into(),
+            exact_adapter_command: "STPX H:7E0, D:2101, T:250".into(),
+            adapter: adapter(),
+            protocol: "CAN".into(),
+            started_at_unix_ms: 1,
+            latency_ms: 2,
+            outcome: OemCandidateOutcome::NoResponse,
+            raw_response: "NO DATA".into(),
+            responder_header: None,
+            response_payload: Vec::new(),
+            negative_response_code: None,
+            decoded_value: None,
+            decode_error: None,
+            error: None,
+            evidence_saved: false,
+            evidence_save_error: None,
+        }
+    }
+
+    fn a30_result(test: A30ReadTest) -> A30ReadTestResult {
+        A30ReadTestResult {
+            test,
+            request_description: "captured read".into(),
+            exact_adapter_command: "A30 RFCOMM TX".into(),
+            adapter: adapter(),
+            protocol: "A30".into(),
+            started_at_unix_ms: 3,
+            latency_ms: 4,
+            outcome: A30ReadOutcome::NegativeResponse,
+            responder_header: Some("7E8".into()),
+            response_payloads: vec![vec![0x7F, 0x06, 0x12]],
+            negative_response_code: Some(0x12),
+            graph_values: Vec::new(),
+            detail: None,
+            raw_response: "7F 06 12".into(),
+            evidence_saved: false,
+            evidence_save_error: None,
+        }
+    }
+
+    struct ActiveAdapter {
+        requests: std::sync::Arc<std::sync::Mutex<Vec<lognook_core::OemCandidateTrySpec>>>,
+        reads: std::sync::Arc<std::sync::Mutex<Vec<A30ReadTest>>>,
+    }
+
+    impl lognook_core::HardwareAdapter for ActiveAdapter {
+        fn connect(
+            &mut self,
+        ) -> Result<lognook_core::ConnectionCapabilities, lognook_core::LogNookError> {
+            Ok(lognook_core::ConnectionCapabilities {
+                device: adapter(),
+                protocol: "CAN".into(),
+                read_only: true,
+                supported_signals: lognook_core::standard_obd_signals(),
+            })
+        }
+        fn read_samples(
+            &mut self,
+            _: &[lognook_core::SignalDefinition],
+        ) -> Result<Vec<lognook_core::Sample>, lognook_core::LogNookError> {
+            Ok(Vec::new())
+        }
+        fn execute_research_test(
+            &mut self,
+            request: lognook_core::ResearchTestRequest,
+        ) -> Result<lognook_core::ResearchTestResult, lognook_core::LogNookError> {
+            Ok(match request {
+                lognook_core::ResearchTestRequest::OemCandidate(spec) => {
+                    let result = candidate_result(&spec.candidate.candidate_id);
+                    self.requests.lock().unwrap().push(spec);
+                    lognook_core::ResearchTestResult::OemCandidate(result)
+                }
+                lognook_core::ResearchTestRequest::A30ReadTest(test) => {
+                    self.reads.lock().unwrap().push(test);
+                    lognook_core::ResearchTestResult::A30ReadTest(a30_result(test))
+                }
+            })
+        }
+    }
+
+    fn app_state(directory: &std::path::Path, catalog: std::path::PathBuf) -> crate::AppState {
+        crate::AppState {
+            engine: std::sync::Mutex::new(lognook_core::LogNookEngine::new(|_| {})),
+            recordings_dir: directory.into(),
+            pid_catalog_path: catalog,
+            oem_validation_log: directory.join("probe.jsonl"),
+            oem_candidate_try_log: directory.join("tries.jsonl"),
+            a30_read_test_log: directory.join("reads.jsonl"),
+        }
+    }
+
+    #[test]
+    fn candidate_is_reloaded_before_active_session_request() {
+        let directory = test_directory("reload-candidate");
+        let copied_catalog = directory.join("catalog.sqlite");
+        std::fs::copy(catalog_path(), &copied_catalog).unwrap();
+        let catalog = lognook_core::OemCatalog::new(&copied_catalog);
+        let candidate = catalog
+            .search("", "Scion", "xB", Some("21"), 0, 100)
+            .unwrap()
+            .candidates
+            .into_iter()
+            .find(|candidate| catalog.candidate_for_try(&candidate.candidate_id).is_ok())
+            .unwrap();
+        let original = catalog.candidate_for_try(&candidate.candidate_id).unwrap();
+        let state = app_state(&directory, copied_catalog.clone());
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    requests: requests.clone(),
+                    reads: Default::default(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .start_recording(&directory.join("active.lognook"))
+            .unwrap();
+
+        for (run_id, index, size) in [
+            ("", 1, 1),
+            ("run-1", 0, 1),
+            ("run-1", 2, 1),
+            ("run-1", 1, 0),
+        ] {
+            assert!(
+                execute_candidate_try(&state, &candidate.candidate_id, run_id, index, size)
+                    .is_err()
+            );
+            assert!(requests.lock().unwrap().is_empty());
+        }
+        assert!(execute_candidate_try(&state, "missing-candidate", "run-1", 1, 1).is_err());
+        assert!(requests.lock().unwrap().is_empty());
+        let connection = rusqlite::Connection::open(&copied_catalog).unwrap();
+        for sql in [
+            "UPDATE oem_candidates SET source_blob_sha='stale' WHERE candidate_id=?1",
+            "UPDATE oem_candidates SET service='2E' WHERE candidate_id=?1",
+            "UPDATE oem_candidates SET request_header='' WHERE candidate_id=?1",
+            "UPDATE oem_candidates SET identifier='000001' WHERE candidate_id=?1",
+        ] {
+            connection.execute(sql, [&candidate.candidate_id]).unwrap();
+            assert!(execute_candidate_try(&state, &candidate.candidate_id, "run-1", 1, 1).is_err());
+            assert!(requests.lock().unwrap().is_empty());
+            connection.execute("UPDATE oem_candidates SET source_blob_sha=?1,service=?2,request_header=?3,identifier=?4 WHERE candidate_id=?5",
+                rusqlite::params![candidate.source_blob_sha, candidate.service, candidate.request_header, candidate.identifier, candidate.candidate_id]).unwrap();
+        }
+        connection
+            .execute("CREATE TEMP TABLE removed_candidate AS SELECT * FROM oem_candidates WHERE candidate_id=?1", [&candidate.candidate_id])
+            .unwrap();
+        connection
+            .execute(
+                "DELETE FROM oem_candidates WHERE candidate_id=?1",
+                [&candidate.candidate_id],
+            )
+            .unwrap();
+        assert!(execute_candidate_try(&state, &candidate.candidate_id, "run-1", 1, 1).is_err());
+        assert!(requests.lock().unwrap().is_empty());
+        connection
+            .execute(
+                "INSERT INTO oem_candidates SELECT * FROM removed_candidate",
+                [],
+            )
+            .unwrap();
+        // A selection held by the UI is only an ID; a valid backend change must be reloaded.
+        connection
+            .execute(
+                "UPDATE oem_candidates SET notes='fresh backend definition' WHERE candidate_id=?1",
+                [&candidate.candidate_id],
+            )
+            .unwrap();
+        let result = execute_candidate_try(&state, &candidate.candidate_id, "run-1", 1, 1).unwrap();
+        assert_eq!(result.adapter.stable_id, "active-adapter");
+        assert_eq!(result.outcome, OemCandidateOutcome::NoResponse);
+        assert!(result.evidence_saved);
+        let sent = requests.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].candidate.notes, "fresh backend definition");
+        assert_eq!(
+            sent[0].candidate.source_blob_sha,
+            original.candidate.source_blob_sha
+        );
+        drop(sent);
+        state.engine.lock().unwrap().stop_recording().unwrap();
+        state.engine.lock().unwrap().disconnect().unwrap();
+        drop(connection);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn research_evidence_records_run_order() {
+        let directory = test_directory("run-evidence");
+        let state = app_state(&directory, catalog_path());
+        let candidate = lognook_core::OemCatalog::new(catalog_path())
+            .search("", "Scion", "xB", Some("21"), 0, 1)
+            .unwrap()
+            .candidates
+            .remove(0);
+        let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    requests: Default::default(),
+                    reads: reads.clone(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        let mut negative = candidate_result(&candidate.candidate_id);
+        negative.outcome = OemCandidateOutcome::NegativeResponse;
+        negative.raw_response = "7F 21 12".into();
+        negative.response_payload = vec![0x7F, 0x21, 0x12];
+        negative.negative_response_code = Some(0x12);
+        append_oem_candidate_try_evidence(
+            &state.oem_candidate_try_log,
+            &candidate,
+            &negative,
+            "run-order",
+            1,
+            3,
+        )
+        .unwrap();
+        append_oem_candidate_try_evidence(
+            &state.oem_candidate_try_log,
+            &candidate,
+            &candidate_result(&candidate.candidate_id),
+            "run-order",
+            2,
+            3,
+        )
+        .unwrap();
+        let result =
+            execute_a30_read_test(&state, A30ReadTest::Mode06TidA2, "run-order", 3, 3).unwrap();
+        assert_eq!(result.outcome, A30ReadOutcome::NegativeResponse);
+        assert!(result.evidence_saved);
+        assert_eq!(*reads.lock().unwrap(), [A30ReadTest::Mode06TidA2]);
+        let candidate_text = std::fs::read_to_string(&state.oem_candidate_try_log).unwrap();
+        let a30_text = std::fs::read_to_string(&state.a30_read_test_log).unwrap();
+        let records = candidate_text
+            .lines()
+            .chain(a30_text.lines())
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        for (position, evidence) in records.iter().enumerate() {
+            assert_eq!(evidence["run_id"], "run-order");
+            assert_eq!(evidence["queue_index"], position + 1);
+            assert_eq!(evidence["queue_size"], 3);
+            assert_eq!(evidence["probe"]["evidence_saved"], true);
+        }
+        assert_eq!(records[0]["probe"]["outcome"], "negative_response");
+        assert_eq!(records[0]["probe"]["negative_response_code"], 0x12);
+        assert_eq!(records[1]["probe"]["outcome"], "no_response");
+        assert_eq!(
+            records[2]["probe"]["response_payloads"],
+            serde_json::json!([[0x7F, 0x06, 0x12]])
+        );
+        state.engine.lock().unwrap().disconnect().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn candidate_try_evidence_appends_source_request_and_raw_result() {
         let id = SystemTime::now()
@@ -360,7 +692,7 @@ mod tests {
             evidence_save_error: None,
         };
 
-        append_oem_candidate_try_evidence(&path, &candidate, &result).unwrap();
+        append_oem_candidate_try_evidence(&path, &candidate, &result, "one-shot", 1, 1).unwrap();
         let line = std::fs::read_to_string(&path).unwrap();
         let evidence: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(evidence["candidate"]["source_blob_sha"], "sha");
@@ -374,6 +706,96 @@ mod tests {
             serde_json::json!([0x61, 0x01, 0x64])
         );
         assert_eq!(evidence["probe"]["evidence_saved"], true);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn research_graph_publication_records_only_successful_finite_measurements() {
+        let directory = test_directory("research-graph");
+        let state = app_state(&directory, catalog_path());
+        let candidate = lognook_core::OemCatalog::new(catalog_path())
+            .search("", "Scion", "xB", Some("21"), 0, 1)
+            .unwrap()
+            .candidates
+            .remove(0);
+        let spec = lognook_core::OemCatalog::new(catalog_path())
+            .candidate_for_try(&candidate.candidate_id)
+            .unwrap();
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    requests: Default::default(),
+                    reads: Default::default(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        let recording_path = directory.join("active.lognook");
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .start_recording(&recording_path)
+            .unwrap();
+        let mut result = candidate_result(&candidate.candidate_id);
+        result.outcome = OemCandidateOutcome::Positive;
+        result.response_payload = vec![0x61, 0x01, 0x64];
+        result.decoded_value = Some(lognook_core::OemCandidateDecodedValue {
+            raw_value: "64".into(),
+            value: Some(123.0),
+            enum_value: None,
+            unit: spec.candidate.unit.clone(),
+            formula: "A".into(),
+            within_catalog_range: Some(false),
+        });
+        super::publish_graphable_candidate_sample(&state.engine.lock().unwrap(), &spec, &result)
+            .unwrap();
+        result.decoded_value.as_mut().unwrap().value = Some(f64::NAN);
+        super::publish_graphable_candidate_sample(&state.engine.lock().unwrap(), &spec, &result)
+            .unwrap();
+        result.decoded_value.as_mut().unwrap().value = Some(999.0);
+        result.outcome = OemCandidateOutcome::NoResponse;
+        super::publish_graphable_candidate_sample(&state.engine.lock().unwrap(), &spec, &result)
+            .unwrap();
+
+        let mut read = a30_result(A30ReadTest::Mode06TidA2);
+        let mut graph = lognook_core::A30GraphValue {
+            signal_id: "raw-mode06-count".into(),
+            name: "Raw count".into(),
+            service: 6,
+            pid: Some(0xA2),
+            value: 456.0,
+            unit: "raw count".into(),
+            raw_value: "456".into(),
+        };
+        super::publish_a30_graph_value(&state.engine.lock().unwrap(), &graph, &read).unwrap();
+        read.outcome = A30ReadOutcome::Positive;
+        super::publish_a30_graph_value(&state.engine.lock().unwrap(), &graph, &read).unwrap();
+        graph.value = f64::INFINITY;
+        super::publish_a30_graph_value(&state.engine.lock().unwrap(), &graph, &read).unwrap();
+        state.engine.lock().unwrap().stop_recording().unwrap();
+        state.engine.lock().unwrap().disconnect().unwrap();
+        let recording = lognook_core::read_recording(&recording_path).unwrap();
+        assert_eq!(
+            recording
+                .samples
+                .iter()
+                .map(|sample| sample.value)
+                .collect::<Vec<_>>(),
+            [123.0, 456.0]
+        );
+        assert_eq!(
+            recording.samples[0].quality,
+            lognook_core::SampleQuality::Suspect
+        );
+        assert_eq!(
+            recording.samples[0].raw_bytes.as_deref(),
+            Some(&[0x61, 0x01, 0x64][..])
+        );
+        assert_eq!(recording.samples[1].signal_id, "raw-mode06-count");
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -410,7 +832,7 @@ mod tests {
             evidence_save_error: None,
         };
 
-        append_a30_read_test_evidence(&path, &result).unwrap();
+        append_a30_read_test_evidence(&path, &result, "one-shot", 1, 1).unwrap();
         let line = std::fs::read_to_string(&path).unwrap();
         let evidence: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(evidence["probe"]["test"], "mode_06_tid_a2");

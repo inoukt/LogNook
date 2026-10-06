@@ -1839,6 +1839,7 @@ name = "lognook-desktop"
 version = "0.1.0-beta.1"
 dependencies = [
  "lognook-core",
+ "rusqlite",
  "serde_json",
  "tauri",
  "tauri-build",

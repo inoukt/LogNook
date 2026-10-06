@@ -168,9 +168,7 @@ pub async fn stop_replay(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-fn engine<'a>(
-    state: &'a State<'a, AppState>,
-) -> Result<MutexGuard<'a, lognook_core::LogNookEngine>, String> {
+fn engine<'a>(state: &'a AppState) -> Result<MutexGuard<'a, lognook_core::LogNookEngine>, String> {
     state
         .engine
         .lock()

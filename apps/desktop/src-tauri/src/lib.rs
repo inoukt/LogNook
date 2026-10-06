@@ -80,6 +80,7 @@ pub fn run() {
             commands::insert_marker,
             commands::export_csv,
             commands::export_live_csv,
+            commands::export_research_run_report,
             commands::share_recording_csv,
             commands::save_recording_as,
             commands::replay_last,
