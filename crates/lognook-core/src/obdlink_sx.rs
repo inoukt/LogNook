@@ -28,6 +28,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 pub struct ObdLinkSxAdapter {
     transport: SerialTransport,
     serial_number: Option<String>,
+    device: Option<DeviceDescriptor>,
     supported_pids: Vec<u8>,
     ecu_id: Option<String>,
     fast_tx_header: Option<String>,
@@ -49,6 +50,7 @@ impl ObdLinkSxAdapter {
         Self {
             transport: SerialTransport::new(port_name.into()),
             serial_number: None,
+            device: None,
             supported_pids: Vec::new(),
             ecu_id: None,
             fast_tx_header: None,
@@ -101,6 +103,7 @@ impl ObdLinkSxAdapter {
         self.ecu_id = ecu_id;
         self.fast_tx_header = fast_tx_header;
         self.serial_number = Some(device.stable_id.clone());
+        self.device = Some(device.clone());
         self.supported_pids = supported_pids;
         self.started = Some(Instant::now());
         Ok(ConnectionCapabilities {
@@ -210,6 +213,22 @@ pub fn identify_obdlink_sx(port_name: impl Into<String>) -> Result<DeviceDescrip
 }
 
 impl HardwareAdapter for ObdLinkSxAdapter {
+    fn execute_research_test(
+        &mut self,
+        request: crate::ResearchTestRequest,
+    ) -> Result<crate::ResearchTestResult, LogNookError> {
+        let crate::ResearchTestRequest::OemCandidate(spec) = request else {
+            return Err(LogNookError::new(
+                "OBDLink SX does not support A30 captured read tests",
+            ));
+        };
+        if self.started.is_none() {
+            return Err(LogNookError::new("OBDLink SX adapter is not connected"));
+        }
+        self.read_connected_candidate(&spec)
+            .map(crate::ResearchTestResult::OemCandidate)
+    }
+
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.started.is_some() {
             return Err(LogNookError::new("OBDLink SX adapter is already connected"));
@@ -320,6 +339,7 @@ impl HardwareAdapter for ObdLinkSxAdapter {
         self.restore_adapter_settings();
         self.transport.close();
         self.serial_number = None;
+        self.device = None;
         self.supported_pids.clear();
         self.ecu_id = None;
         self.fast_tx_header = None;

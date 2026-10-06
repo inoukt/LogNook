@@ -1,6 +1,4 @@
-use super::{
-    ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTrySpec, build_oem_candidate_command,
-};
+use super::{ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTrySpec};
 use crate::{HardwareAdapter, OemCandidate};
 use std::{
     io::{Cursor, Read, Write},
@@ -84,9 +82,7 @@ fn sx_one_shot_sends_one_catalog_command_and_restores_adapter_settings() {
     };
     let mut adapter = ObdLinkSxAdapter::with_port("COM4", Box::new(port));
     let spec = spec();
-    let command = build_oem_candidate_command(&spec).unwrap();
-
-    let result = adapter.try_oem_candidate_inner(&spec, command).unwrap();
+    let result = adapter.try_oem_candidate_inner(&spec).unwrap();
     adapter.disconnect();
 
     assert_eq!(result.outcome, OemCandidateOutcome::Positive);
@@ -95,4 +91,62 @@ fn sx_one_shot_sends_one_catalog_command_and_restores_adapter_settings() {
         &*written.lock().unwrap(),
         b"STI\rSTDI\rSTSN\rSTPRS\rATE0\rAT H1\rAT SH 7DF\rSTPX H:7E0, D:2101, T:250\rAT H0\rAT SH 7DF\rATE1\r"
     );
+}
+
+#[test]
+fn sx_candidate_reuses_connected_session() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let port = FixturePort {
+        input: Cursor::new(format!(
+            "{}4100 00 10 00 00\r>ISO 15765-4 (CAN 11/500)\r>OK\r>OK\r>OK\r>7E8 06 41 00 00 10 00 00\r>7E8 03 61 01 64\r>7E8 04 62 12 34 64\r>",
+            include_str!("../../tests/fixtures/obdlink_sx/physical_ford_identity.txt"),
+        ).into_bytes()),
+        written: written.clone(),
+    };
+    let mut adapter = ObdLinkSxAdapter::with_port("no-second-open", Box::new(port));
+    let capabilities = adapter.connect().unwrap();
+    written.lock().unwrap().clear();
+
+    let crate::ResearchTestResult::OemCandidate(result) = adapter
+        .execute_research_test(crate::ResearchTestRequest::OemCandidate(spec()))
+        .unwrap()
+    else {
+        panic!("expected candidate result")
+    };
+
+    assert_eq!(result.adapter, capabilities.device);
+    assert_eq!(result.outcome, OemCandidateOutcome::Positive);
+    assert_eq!(&*written.lock().unwrap(), b"STPX H:7E0, D:2101, T:250\r");
+
+    let mut did = spec();
+    did.candidate.service = "22".into();
+    did.candidate.identifier = "1234".into();
+    let crate::ResearchTestResult::OemCandidate(result) = adapter
+        .execute_research_test(crate::ResearchTestRequest::OemCandidate(did))
+        .unwrap()
+    else {
+        panic!("expected candidate result")
+    };
+    assert_eq!(result.response_payload, [0x62, 0x12, 0x34, 0x64]);
+    assert_eq!(
+        &*written.lock().unwrap(),
+        b"STPX H:7E0, D:2101, T:250\rSTPX H:7E0, D:221234, T:250\r"
+    );
+
+    written.lock().unwrap().clear();
+    let mut invalid = spec();
+    invalid.candidate.request_header = "unverified".into();
+    assert!(
+        adapter
+            .execute_research_test(crate::ResearchTestRequest::OemCandidate(invalid))
+            .is_err()
+    );
+    assert!(
+        adapter
+            .execute_research_test(crate::ResearchTestRequest::A30ReadTest(
+                crate::A30ReadTest::Mode03StoredDtcs
+            ))
+            .is_err()
+    );
+    assert!(written.lock().unwrap().is_empty());
 }

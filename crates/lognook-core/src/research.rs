@@ -23,18 +23,28 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_adapter_rejects_research_test() {
-        let error = UnsupportedAdapter
-            .execute_research_test(crate::ResearchTestRequest::A30ReadTest(
-                crate::A30ReadTest::Mode01EngineRpm,
-            ))
-            .unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("does not support read-only research tests")
-        );
+    fn unsupported_adapter_does_not_transmit() {
+        let mut adapters: Vec<Box<dyn HardwareAdapter>> = vec![
+            Box::new(UnsupportedAdapter),
+            Box::new(crate::SimulatedObdAdapter::default()),
+            // An attempted worker launch would fail instead of returning the default error.
+            Box::new(crate::OpenPort2Adapter::new(
+                "missing-worker-must-not-be-opened.exe".into(),
+                "research-unsupported".into(),
+            )),
+        ];
+        for adapter in &mut adapters {
+            let error = adapter
+                .execute_research_test(crate::ResearchTestRequest::A30ReadTest(
+                    crate::A30ReadTest::Mode01EngineRpm,
+                ))
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("does not support read-only research tests")
+            );
+        }
     }
 
     #[test]

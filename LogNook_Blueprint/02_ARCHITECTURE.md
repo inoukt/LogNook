@@ -176,6 +176,17 @@ Sources: [OBDLink FRPM Rev F](https://www.scantool.net/scantool/downloads/682/ob
 
 ## Current POC boundaries
 
+The typed `HardwareAdapter::execute_research_test` boundary now executes source-backed
+service 21/22 candidates on the existing SX, ELM327, or A30 connection. A30 also
+executes its fixed captured read tests on the same session. Public one-shot
+helpers share these request/decoder paths. SX retains the connected device
+identity and requires its verified CAN 11/500 setup; ELM restores functional
+`7DF` addressing after a candidate so normal Mode 01 acquisition can resume.
+Neither research method reconnects or repeats acquisition discovery. Simulator
+and OpenPort retain the unsupported trait default. Catalog provenance/route/echo
+checks and A30 checksummed framing remain in the shared adapter read paths.
+Acquisition-worker scheduling and the workbench UI are separate follow-up slices.
+
 - The earlier OpenPort inventory and passive probe are recorded in [the OpenPort 2 report](../docs/hardware/2026-10-02-openport2.md). The signed x86 OPTA DLL returned firmware `1.17.4877`, DLL `0.1.0`, API `04.04`, and accepted passive CAN5 at 500 kbit/s with requested sniff flags `0x10000800`; its first raw J2534 read was rejected after 109 ms because the returned message combined frame data. That remains historical transport evidence, not decoded PID support. The x86 worker and read-only standard Mode 01 adapter are now implemented and tested with fixtures, but have not yet been tested on a vehicle. No vehicle diagnostic request was sent during the historical passive probe; no driver replacement or firmware update occurred.
 
 - Physical validation covers one SX/Ford connection, 41 advertised generic PIDs, successful reads for all 35 auto-requestable seed candidates, live samples for all five original UI signals, and a roughly 66-second recording of those five. The diagnostic bench measured 81.42 aggregate PID values/second across width-aware grouped queries. A live LogNook application run is still needed to verify application-level rate and stability.

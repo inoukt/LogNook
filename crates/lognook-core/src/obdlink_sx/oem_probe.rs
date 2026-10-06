@@ -398,9 +398,9 @@ pub fn try_oem_candidate(
     port_name: impl Into<String>,
     spec: &OemCandidateTrySpec,
 ) -> Result<OemCandidateTryResult, LogNookError> {
-    let exact_adapter_command = build_oem_candidate_command(spec)?;
+    build_oem_candidate_command(spec)?;
     let mut adapter = ObdLinkSxAdapter::new(port_name);
-    let result = adapter.try_oem_candidate_inner(spec, exact_adapter_command);
+    let result = adapter.try_oem_candidate_inner(spec);
     adapter.disconnect();
     result
 }
@@ -409,7 +409,6 @@ impl ObdLinkSxAdapter {
     fn try_oem_candidate_inner(
         &mut self,
         spec: &OemCandidateTrySpec,
-        exact_adapter_command: String,
     ) -> Result<OemCandidateTryResult, LogNookError> {
         self.open()?;
         let device = self.read_identity()?;
@@ -420,6 +419,24 @@ impl ObdLinkSxAdapter {
             ));
         }
         self.configure_can_headers()?;
+        self.device = Some(device);
+        self.read_connected_candidate(spec)
+    }
+
+    pub(super) fn read_connected_candidate(
+        &mut self,
+        spec: &OemCandidateTrySpec,
+    ) -> Result<OemCandidateTryResult, LogNookError> {
+        let exact_adapter_command = build_oem_candidate_command(spec)?;
+        if !self.restore_adapter_settings {
+            return Err(LogNookError::new(
+                "OEM read requires OBDLink SX ISO 15765-4 CAN 11/500",
+            ));
+        }
+        let device = self
+            .device
+            .clone()
+            .ok_or_else(|| LogNookError::new("OBDLink SX identity is unavailable"))?;
         let started_at_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

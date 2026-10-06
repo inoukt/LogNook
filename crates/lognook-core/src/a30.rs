@@ -559,6 +559,29 @@ impl A30Adapter {
 }
 
 impl HardwareAdapter for A30Adapter {
+    fn execute_research_test(
+        &mut self,
+        request: crate::ResearchTestRequest,
+    ) -> Result<crate::ResearchTestResult, LogNookError> {
+        if self.started.is_none() {
+            return Err(LogNookError::new("A30 adapter is not connected"));
+        }
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| LogNookError::new("A30 adapter is not connected"))?;
+        match request {
+            crate::ResearchTestRequest::OemCandidate(spec) => {
+                read_a30_oem_candidate(session, &self.address, &spec)
+                    .map(crate::ResearchTestResult::OemCandidate)
+            }
+            crate::ResearchTestRequest::A30ReadTest(test) => {
+                read_a30_test(session, &self.address, test)
+                    .map(crate::ResearchTestResult::A30ReadTest)
+            }
+        }
+    }
+
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.started.is_some() {
             return Err(LogNookError::new("A30 adapter is already connected"));
@@ -638,6 +661,14 @@ pub fn try_a30_oem_candidate(
 
 fn run_a30_oem_candidate(
     mut session: A30Session,
+    address: &str,
+    spec: &OemCandidateTrySpec,
+) -> Result<OemCandidateTryResult, LogNookError> {
+    read_a30_oem_candidate(&mut session, address, spec)
+}
+
+fn read_a30_oem_candidate(
+    session: &mut A30Session,
     address: &str,
     spec: &OemCandidateTrySpec,
 ) -> Result<OemCandidateTryResult, LogNookError> {
@@ -724,6 +755,14 @@ fn run_a30_read_test_with_session(
     address: &str,
     test: A30ReadTest,
 ) -> Result<A30ReadTestResult, LogNookError> {
+    read_a30_test(&mut session, address, test)
+}
+
+fn read_a30_test(
+    session: &mut A30Session,
+    address: &str,
+    test: A30ReadTest,
+) -> Result<A30ReadTestResult, LogNookError> {
     let device = a30_device(&address)?;
     let (description, service, object, slot, payload, trailer, wait, expected_header) =
         test.request();
@@ -758,7 +797,7 @@ fn run_a30_read_test_with_session(
     let response_payloads = replies.iter().map(|reply| reply.payload.clone()).collect();
     let negative_response_code = replies.iter().find_map(|reply| {
         (reply.payload.len() >= 3 && reply.payload[0] == 0x7F && reply.payload[1] == service)
-            .then_some(reply.payload[2])
+            .then(|| reply.payload[2])
     });
     let wrong_responder = expected_header.is_some_and(|expected| {
         !replies.is_empty()
@@ -1898,6 +1937,133 @@ mod tests {
         assert_eq!(*command, 0xFFEC);
         assert_eq!(&record[9..13], &[0xE0, 0x02, 0x21, 0x01]);
         assert_eq!(record[18], 0xFF);
+    }
+
+    #[test]
+    fn a30_candidate_and_captured_read_reuse_open_session() {
+        let (dongle, requests) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        adapter.connect().unwrap();
+        requests.lock().unwrap().clear();
+        let crate::ResearchTestResult::OemCandidate(candidate) = adapter
+            .execute_research_test(crate::ResearchTestRequest::OemCandidate(
+                scion_mode21_candidate(),
+            ))
+            .unwrap()
+        else {
+            panic!("expected candidate result")
+        };
+        let crate::ResearchTestResult::A30ReadTest(read) = adapter
+            .execute_research_test(crate::ResearchTestRequest::A30ReadTest(
+                A30ReadTest::Mode02FreezeFrameRpm,
+            ))
+            .unwrap()
+        else {
+            panic!("expected captured read result")
+        };
+        let crate::ResearchTestResult::OemCandidate(did) = adapter
+            .execute_research_test(crate::ResearchTestRequest::OemCandidate(
+                source_mode22_candidate(),
+            ))
+            .unwrap()
+        else {
+            panic!("expected candidate result")
+        };
+        assert_eq!(candidate.outcome, OemCandidateOutcome::Positive);
+        assert_eq!(read.outcome, A30ReadOutcome::Positive);
+        assert_eq!(did.response_payload, [0x62, 0x12, 0x34, 0x64]);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            requests[0],
+            (
+                0xFFEC,
+                vec![
+                    1, 0, 0x10, 0x61, 4, 0, 0x0B, 8, 7, 0xE0, 2, 0x21, 1, 0, 0, 0, 0, 0, 0xFF
+                ]
+            )
+        );
+        assert_eq!(
+            requests[1],
+            (
+                0xFFEC,
+                vec![
+                    1, 0, 0x10, 0x61, 4, 0, 0x0B, 8, 7, 0xDF, 3, 2, 0x0C, 0, 0, 0, 0, 0, 0xFF
+                ]
+            )
+        );
+        assert_eq!(
+            requests[2],
+            (
+                0xFFEC,
+                vec![
+                    1, 0, 0x10, 0x61, 4, 0, 0x0B, 8, 7, 0xE0, 3, 0x22, 0x12, 0x34, 0, 0, 0, 0, 0xFF
+                ]
+            )
+        );
+        assert!(adapter.started.is_some());
+        drop(requests);
+        let mut invalid = scion_mode21_candidate();
+        invalid.candidate.request_header = "123".into();
+        assert!(
+            adapter
+                .execute_research_test(crate::ResearchTestRequest::OemCandidate(invalid))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn connected_captured_reads_cover_mode03_mode07_and_mode0a() {
+        let (dongle, requests) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        adapter.connect().unwrap();
+        requests.lock().unwrap().clear();
+        for test in [
+            A30ReadTest::Mode03StoredDtcs,
+            A30ReadTest::Mode07PendingDtcs,
+            A30ReadTest::Mode0aPermanentDtcs,
+        ] {
+            let crate::ResearchTestResult::A30ReadTest(result) = adapter
+                .execute_research_test(crate::ResearchTestRequest::A30ReadTest(test))
+                .unwrap()
+            else {
+                panic!("expected captured read result")
+            };
+            assert_eq!(result.outcome, A30ReadOutcome::Positive);
+            assert!(result.graph_values.is_empty());
+        }
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        for (request, service) in requests.iter().zip([0x03, 0x07, 0x0A]) {
+            assert_eq!(
+                request,
+                &(
+                    0xFFEC,
+                    vec![
+                        1, 0, 0x10, 0x61, 4, 0, 0x0B, 8, 7, 0xDF, 1, service, 0, 0, 0, 0, 0, 0,
+                        0xFF
+                    ]
+                )
+            );
+        }
     }
 
     #[test]

@@ -237,6 +237,27 @@ impl Elm327Adapter {
 }
 
 impl HardwareAdapter for Elm327Adapter {
+    fn execute_research_test(
+        &mut self,
+        request: crate::ResearchTestRequest,
+    ) -> Result<crate::ResearchTestResult, LogNookError> {
+        let crate::ResearchTestRequest::OemCandidate(spec) = request else {
+            return Err(LogNookError::new(
+                "ELM327 does not support A30 captured read tests",
+            ));
+        };
+        if self.started.is_none() {
+            return Err(LogNookError::new("ELM327 adapter is not connected"));
+        }
+        build_oem_candidate_command(&spec)?;
+        let result = self.read_connected_candidate(&spec);
+        if self.stream.is_some() {
+            // Mode 01 acquisition uses functional addressing again after research.
+            self.set_candidate_header("7DF")?;
+        }
+        result.map(crate::ResearchTestResult::OemCandidate)
+    }
+
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.started.is_some() {
             return Err(LogNookError::new("ELM327 adapter is already connected"));
@@ -319,50 +340,72 @@ fn run_elm_oem_candidate_with_stream(
 ) -> Result<OemCandidateTryResult, LogNookError> {
     let mut adapter = Elm327Adapter::new(address);
     adapter.stream = Some(stream);
-    let device = adapter.identify()?;
+    adapter.identify()?;
     adapter.configure()?;
-    adapter.set_candidate_header(&spec.candidate.request_header)?;
-
-    let started_at_unix_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let request_started = Instant::now();
-    let response = adapter.read_source_candidate(spec);
-    let latency_ms = request_started.elapsed().as_millis() as u64;
-    let (raw_response, decoded) = match response {
-        Ok((_command, raw)) => (raw.clone(), decode_oem_candidate_response(spec, &raw)),
-        Err(error) => {
-            let mut decoded = decode_oem_candidate_response(spec, "");
-            decoded.error = Some(error.to_string());
-            (String::new(), decoded)
-        }
-    };
-    let exact_adapter_command = format!(
-        "ATSH{}\\r{}{}\\r",
-        spec.candidate.request_header.to_ascii_uppercase(),
-        spec.candidate.service.to_ascii_uppercase(),
-        spec.candidate.identifier.to_ascii_uppercase(),
-    );
+    let result = adapter.read_connected_candidate(spec);
     adapter.disconnect();
-    Ok(OemCandidateTryResult {
-        candidate_id: spec.candidate.candidate_id.clone(),
-        exact_adapter_command,
-        adapter: device,
-        protocol: "ISO 15765-4 (CAN 11/500) via ELM327 SPP".into(),
-        started_at_unix_ms,
-        latency_ms,
-        outcome: decoded.outcome,
-        raw_response,
-        responder_header: decoded.responder_header,
-        response_payload: decoded.payload,
-        negative_response_code: decoded.negative_response_code,
-        decoded_value: decoded.decoded_value,
-        decode_error: decoded.decode_error,
-        error: decoded.error,
-        evidence_saved: false,
-        evidence_save_error: None,
-    })
+    result
+}
+
+impl Elm327Adapter {
+    fn read_connected_candidate(
+        &mut self,
+        spec: &OemCandidateTrySpec,
+    ) -> Result<OemCandidateTryResult, LogNookError> {
+        build_oem_candidate_command(spec)?;
+        let device = DeviceDescriptor {
+            stable_id: format!(
+                "bt-elm327-{}",
+                crate::format_bluetooth_address(crate::parse_bluetooth_address(&self.address)?)
+            ),
+            hardware_family: "ELM327 Bluetooth SPP".into(),
+            firmware: self.firmware.clone(),
+            path: Some(crate::format_bluetooth_address(
+                crate::parse_bluetooth_address(&self.address)?,
+            )),
+        };
+        self.set_candidate_header(&spec.candidate.request_header)?;
+
+        let started_at_unix_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let request_started = Instant::now();
+        let response = self.read_source_candidate(spec);
+        let latency_ms = request_started.elapsed().as_millis() as u64;
+        let (raw_response, decoded) = match response {
+            Ok((_command, raw)) => (raw.clone(), decode_oem_candidate_response(spec, &raw)),
+            Err(error) => {
+                let mut decoded = decode_oem_candidate_response(spec, "");
+                decoded.error = Some(error.to_string());
+                (String::new(), decoded)
+            }
+        };
+        let exact_adapter_command = format!(
+            "ATSH{}\\r{}{}\\r",
+            spec.candidate.request_header.to_ascii_uppercase(),
+            spec.candidate.service.to_ascii_uppercase(),
+            spec.candidate.identifier.to_ascii_uppercase(),
+        );
+        Ok(OemCandidateTryResult {
+            candidate_id: spec.candidate.candidate_id.clone(),
+            exact_adapter_command,
+            adapter: device,
+            protocol: "ISO 15765-4 (CAN 11/500) via ELM327 SPP".into(),
+            started_at_unix_ms,
+            latency_ms,
+            outcome: decoded.outcome,
+            raw_response,
+            responder_header: decoded.responder_header,
+            response_payload: decoded.payload,
+            negative_response_code: decoded.negative_response_code,
+            decoded_value: decoded.decoded_value,
+            decode_error: decoded.decode_error,
+            error: decoded.error,
+            evidence_saved: false,
+            evidence_save_error: None,
+        })
+    }
 }
 
 fn is_allowed_command(command: &str) -> bool {
@@ -579,6 +622,70 @@ mod tests {
         spec.candidate.service = "22".into();
         spec.candidate.identifier = "1234".into();
         spec
+    }
+
+    #[test]
+    fn elm_candidate_reuses_paired_stream() {
+        let (mut adapter, capabilities, written) = connected_adapter(&[
+            "OK\r>",
+            "7E8 03 61 01 64\r>",
+            "OK\r>",
+            "OK\r>",
+            "7E8 04 62 12 34 64\r>",
+            "OK\r>",
+            "7E8 04 41 0C 1A F8\r>",
+        ]);
+        written.lock().unwrap().clear();
+        let crate::ResearchTestResult::OemCandidate(result) = adapter
+            .execute_research_test(crate::ResearchTestRequest::OemCandidate(source_candidate()))
+            .unwrap()
+        else {
+            panic!("expected candidate result")
+        };
+
+        assert_eq!(result.adapter, capabilities.device);
+        assert_eq!(result.outcome, OemCandidateOutcome::Positive);
+        assert_eq!(&*written.lock().unwrap(), b"ATSH7E0\r2101\rATSH7DF\r");
+        assert!(adapter.started.is_some());
+        let crate::ResearchTestResult::OemCandidate(result) = adapter
+            .execute_research_test(crate::ResearchTestRequest::OemCandidate(
+                source_mode22_candidate(),
+            ))
+            .unwrap()
+        else {
+            panic!("expected candidate result")
+        };
+        assert_eq!(result.response_payload, [0x62, 0x12, 0x34, 0x64]);
+        let rpm = capabilities
+            .supported_signals
+            .iter()
+            .find(|signal| signal.pid == 0x0C)
+            .unwrap();
+        assert_eq!(
+            adapter.read_samples(std::slice::from_ref(rpm)).unwrap()[0].value,
+            1726.0
+        );
+        assert_eq!(
+            &*written.lock().unwrap(),
+            b"ATSH7E0\r2101\rATSH7DF\rATSH7E0\r221234\rATSH7DF\r010C\r"
+        );
+
+        written.lock().unwrap().clear();
+        let mut invalid = source_candidate();
+        invalid.candidate.identifier = "0101".into();
+        assert!(
+            adapter
+                .execute_research_test(crate::ResearchTestRequest::OemCandidate(invalid))
+                .is_err()
+        );
+        assert!(
+            adapter
+                .execute_research_test(crate::ResearchTestRequest::A30ReadTest(
+                    crate::A30ReadTest::Mode03StoredDtcs
+                ))
+                .is_err()
+        );
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]

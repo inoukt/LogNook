@@ -6,6 +6,8 @@ This Git checkout preserves the existing source and external-agent reports. The 
 
 ## Delivered
 
+- Vehicle Test Workbench adapter slice: SX/ELM/A30 implement typed research reads through their existing connection/session; existing public one-shot helpers share those request paths. SX/ELM reject A30-only checks, Simulator/OpenPort retain the unsupported default, and source-backed service/identifier/route validation remains required. ELM restores the Mode 01 broadcast header after candidate reads. The A30 Mode 03/07/0A coverage also fixes short positive DTC replies panicking during NRC extraction. Focused SX/ELM/A30 suites pass (25/8/16 tests); `cargo test -p lognook-core` passes 156 tests and scoped formatting checks pass. This slice has synthetic connected-session coverage; acquisition queue integration and UI delivery are next.
+
 - Rust workspace and shared `HardwareAdapter`, capability, signal, sample, quality, and marker types.
 - Read-only simulated Mode 01 acquisition with timestamped values for all 35 seeded, auto-requestable generic signals. The simulator targets a 17 ms sample cycle (about 60 Hz) for the usual three logged PIDs; the physical SX retains a conservative 100 ms target.
 - `ObdLinkSxAdapter` over serial: rechecks USB VID/PID `0403:6015` before opening the selected COM port at 115200 8-N-1. It starts with the adapter-only `STI` query, validates its reply through `>`, then queries `STDI` and `STSN`. A queued startup banner/prompt is optional. Each subsequent command waits for a reply prompt.
