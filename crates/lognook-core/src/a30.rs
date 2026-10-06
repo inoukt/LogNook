@@ -672,6 +672,7 @@ fn read_a30_oem_candidate(
     address: &str,
     spec: &OemCandidateTrySpec,
 ) -> Result<OemCandidateTryResult, LogNookError> {
+    build_oem_candidate_command(spec)?;
     let (object, slot, payload) = candidate_request(spec)?;
     let device = a30_device(address)?;
     let started_at_unix_ms = now_unix_ns().max(0) as u64 / 1_000_000;
@@ -2063,6 +2064,57 @@ mod tests {
                     ]
                 )
             );
+        }
+    }
+
+    #[test]
+    fn connected_a30_rejects_invalid_candidates_before_transmitting() {
+        let (dongle, requests) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        adapter.connect().unwrap();
+        let transmitted = requests.lock().unwrap().len();
+
+        let mut invalid_width21 = scion_mode21_candidate();
+        invalid_width21.candidate.identifier = "0101".into();
+        let mut invalid_width22 = source_mode22_candidate();
+        invalid_width22.candidate.identifier = "12".into();
+        let mut missing_revision = scion_mode21_candidate();
+        missing_revision.candidate.source_blob_sha.clear();
+        let mut missing_source = scion_mode21_candidate();
+        missing_source.candidate.source_url = None;
+        let mut missing_license = scion_mode21_candidate();
+        missing_license.candidate.license = None;
+        let mut missing_license_url = scion_mode21_candidate();
+        missing_license_url.candidate.license_url = None;
+        let mut invalid_response_route = scion_mode21_candidate();
+        invalid_response_route.candidate.response_header = "800".into();
+
+        for (case, spec) in [
+            ("Mode 21 identifier width", invalid_width21),
+            ("Mode 22 identifier width", invalid_width22),
+            ("source revision", missing_revision),
+            ("source URL", missing_source),
+            ("license", missing_license),
+            ("license URL", missing_license_url),
+            ("response route", invalid_response_route),
+        ] {
+            let result =
+                adapter.execute_research_test(crate::ResearchTestRequest::OemCandidate(spec));
+            assert_eq!(
+                requests.lock().unwrap().len(),
+                transmitted,
+                "{case} transmitted a frame"
+            );
+            assert!(result.is_err(), "{case} was accepted");
         }
     }
 
