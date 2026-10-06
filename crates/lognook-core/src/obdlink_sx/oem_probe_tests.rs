@@ -1,8 +1,9 @@
 use super::{ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTrySpec};
-use crate::{HardwareAdapter, OemCandidate};
+use crate::{HardwareAdapter, OemCandidate, ResearchTestRequest, ResearchTestResult};
 use std::{
     io::{Cursor, Read, Write},
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 struct FixturePort {
@@ -149,4 +150,85 @@ fn sx_candidate_reuses_connected_session() {
             .is_err()
     );
     assert!(written.lock().unwrap().is_empty());
+}
+
+struct BrokenPort {
+    written: Arc<Mutex<Vec<u8>>>,
+}
+
+impl Read for BrokenPort {
+    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "USB transport disconnected",
+        ))
+    }
+}
+
+impl Write for BrokenPort {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.written.lock().unwrap().extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn connected_candidate_propagates_serial_transport_failure() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = ObdLinkSxAdapter::with_port(
+        "COM4",
+        Box::new(BrokenPort {
+            written: written.clone(),
+        }),
+    );
+    adapter.device = Some(crate::DeviceDescriptor {
+        stable_id: "sx-test".into(),
+        hardware_family: "OBDLink SX".into(),
+        firmware: None,
+        path: Some("COM4".into()),
+    });
+    adapter.restore_adapter_settings = true;
+    adapter.started = Some(Instant::now());
+
+    let error = adapter
+        .execute_research_test(ResearchTestRequest::OemCandidate(spec()))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("USB transport disconnected"));
+    assert_eq!(*written.lock().unwrap(), b"STPX H:7E0, D:2101, T:250\r");
+}
+
+#[test]
+fn ecu_no_response_text_remains_a_typed_candidate_outcome() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = ObdLinkSxAdapter::with_port(
+        "COM4",
+        Box::new(FixturePort {
+            input: Cursor::new(b"NO DATA\r>".to_vec()),
+            written: written.clone(),
+        }),
+    );
+    adapter.device = Some(crate::DeviceDescriptor {
+        stable_id: "sx-test".into(),
+        hardware_family: "OBDLink SX".into(),
+        firmware: None,
+        path: Some("COM4".into()),
+    });
+    adapter.restore_adapter_settings = true;
+    adapter.started = Some(Instant::now());
+
+    let ResearchTestResult::OemCandidate(result) = adapter
+        .execute_research_test(ResearchTestRequest::OemCandidate(spec()))
+        .unwrap()
+    else {
+        panic!("expected candidate result")
+    };
+
+    assert_eq!(result.outcome, OemCandidateOutcome::NoResponse);
+    assert_eq!(result.raw_response, "NO DATA\r>");
+    assert_eq!(*written.lock().unwrap(), b"STPX H:7E0, D:2101, T:250\r");
 }

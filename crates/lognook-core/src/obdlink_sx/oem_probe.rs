@@ -442,25 +442,9 @@ impl ObdLinkSxAdapter {
             .unwrap_or_default()
             .as_millis() as u64;
         let request_started = Instant::now();
-        let raw_response = self.command(&exact_adapter_command);
+        let raw_response = self.command(&exact_adapter_command)?;
         let latency_ms = request_started.elapsed().as_millis() as u64;
-        let (raw_response, decoded) = match raw_response {
-            Ok(raw) => (raw.clone(), decode_oem_candidate_response(spec, &raw)),
-            Err(error) => {
-                let error = error.to_string();
-                (
-                    String::new(),
-                    response(
-                        OemCandidateOutcome::NoResponse,
-                        None,
-                        Vec::new(),
-                        None,
-                        None,
-                        Some(error),
-                    ),
-                )
-            }
-        };
+        let decoded = decode_oem_candidate_response(spec, &raw_response);
         Ok(OemCandidateTryResult {
             candidate_id: spec.candidate.candidate_id.clone(),
             exact_adapter_command,
