@@ -146,6 +146,7 @@ pub struct CanCaptureReplayReport {
     pub analyzer_issues: Vec<String>,
     pub census: Vec<lognook_core::CanCensusRow>,
     pub evidence_journal: Option<String>,
+    pub evidence_journal_error: Option<String>,
     pub session_finalized: Option<bool>,
     pub evidence_records: u64,
     pub scan_results: u64,
@@ -180,6 +181,7 @@ fn replay_can_capture_report_path(
         analyzer_issues: Vec::new(),
         census: Vec::new(),
         evidence_journal: None,
+        evidence_journal_error: None,
         session_finalized: None,
         evidence_records: 0,
         scan_results: 0,
@@ -224,8 +226,15 @@ fn replay_can_capture_report_path(
 
 fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) {
     let journal_path = can_evidence_path(path);
-    let Ok(file) = File::open(&journal_path) else {
-        return;
+    let file = match File::open(&journal_path) {
+        Ok(file) => file,
+        Err(error) => {
+            if let Some(message) = evidence_journal_open_error(&error) {
+                report.evidence_journal = Some(journal_path.to_string_lossy().into_owned());
+                report.evidence_journal_error = Some(message);
+            }
+            return;
+        }
     };
     report.evidence_journal = Some(journal_path.to_string_lossy().into_owned());
     let mut reader = BufReader::new(file);
@@ -288,6 +297,10 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
     }
 }
 
+fn evidence_journal_open_error(error: &io::Error) -> Option<String> {
+    (error.kind() != io::ErrorKind::NotFound).then(|| error.to_string())
+}
+
 const MAX_EVIDENCE_LINE_BYTES: usize = 256 * 1024;
 
 enum EvidenceLine {
@@ -344,6 +357,19 @@ mod tests {
         CanEvidenceScanResult, CanFrame, CanScanMode, CanSignalDefinition,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn sidecar_open_errors_only_classify_not_found_as_absent() {
+        assert_eq!(
+            evidence_journal_open_error(&io::Error::from(io::ErrorKind::NotFound)),
+            None
+        );
+        let denied = io::Error::new(io::ErrorKind::PermissionDenied, "permission denied");
+        assert_eq!(
+            evidence_journal_open_error(&denied),
+            Some("permission denied".to_owned())
+        );
+    }
 
     #[test]
     fn replay_counts_and_decodes_valid_rows_after_census_capacity() {

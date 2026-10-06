@@ -160,6 +160,22 @@ export function canSignalOption(field: CanSignalDefinition): SignalOption {
   };
 }
 
+export function canSignalIdsNeedingReset(
+  previous: CanSignalDefinition[],
+  next: CanSignalDefinition[],
+): string[] {
+  const nextById = new Map(next.map((field) => [field.id, field]));
+  return previous
+    .filter((field) => {
+      const replacement = nextById.get(field.id);
+      if (!replacement) return true;
+      const keys = new Set([...Object.keys(field), ...Object.keys(replacement)]);
+      return [...keys].some((key) =>
+        field[key as keyof CanSignalDefinition] !== replacement[key as keyof CanSignalDefinition]);
+    })
+    .map(({ id }) => id);
+}
+
 export function appendCanFrames(current: CanFrame[], incoming: CanFrame[], limit = 400): CanFrame[] {
   return [...current, ...incoming].slice(-limit);
 }
@@ -237,8 +253,9 @@ export function clearCanSessionSamples(
 }
 
 export function replaySidecarStatus(
-  report: Pick<CanCaptureReplayReport, "evidence_journal" | "session_finalized">,
+  report: Pick<CanCaptureReplayReport, "evidence_journal" | "evidence_journal_error" | "session_finalized">,
 ): string {
+  if (report.evidence_journal_error !== null) return "JSONL sidecar is unreadable";
   if (report.evidence_journal === null) return "No JSONL sidecar found";
   if (report.session_finalized === true) return "JSONL session closed cleanly";
   if (report.session_finalized === false) return "JSONL session is incomplete";

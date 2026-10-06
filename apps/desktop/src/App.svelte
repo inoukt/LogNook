@@ -16,8 +16,8 @@
   import ResearchRunResults from "./ResearchRunResults.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
   import {
-    appendCanFrames, canSignalOption, canTransmitEnabled, clearCanSessionSamples as withoutCanSamples,
-    emptyCanSessionEvents,
+    appendCanFrames, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
+    clearCanSessionSamples as withoutCanSamples, emptyCanSessionEvents,
   } from "./canWorkbench";
   import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
   import { reconcileSxPorts } from "./adapterDiscovery";
@@ -1007,6 +1007,8 @@
   }
 
   function updateCanSignalDefinitions(fields: CanSignalDefinition[]) {
+    const resetSignalIds = canSignalIdsNeedingReset(canSignalDefinitions, fields);
+    if (resetSignalIds.length) clearCanSignalSamples(resetSignalIds);
     const oldIds = new Set(canSignalDefinitions.map(({ id }) => id));
     const nextIds = new Set(fields.map(({ id }) => id));
     canSignalDefinitions = fields;
@@ -1017,11 +1019,11 @@
     graphSignalIds = graphSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id));
   }
 
-  function clearCanSignalSamples() {
+  function clearCanSignalSamples(signalIds = canSignalDefinitions.map(({ id }) => id)) {
     const cleared = withoutCanSamples(
       latest,
       series,
-      canSignalDefinitions.map(({ id }) => id),
+      signalIds,
     );
     latest = cleared.latest;
     series = cleared.series;

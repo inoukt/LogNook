@@ -280,6 +280,7 @@ export type CanCaptureReplayReport = {
   analyzer_issues: string[];
   census: CanCensusRow[];
   evidence_journal: string | null;
+  evidence_journal_error: string | null;
   session_finalized: boolean | null;
   evidence_records: number;
   scan_results: number;

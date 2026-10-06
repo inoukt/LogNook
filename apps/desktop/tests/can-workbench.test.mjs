@@ -142,13 +142,29 @@ test("a new CAN session resets its event history and only its own signal samples
   assert.match(app, /event\.type === "disconnected"[\s\S]*?clearCanSignalSamples\(\)/, "disconnect clears CAN samples before another elapsed timeline starts");
 });
 
+test("changed and removed CAN definitions clear stale values while unchanged definitions stay live", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  const unchanged = { id: "can:unchanged", can_id: 1, name: "Steady", unit: "rpm", factor: 1 };
+  const changed = { id: "can:changed", can_id: 2, name: "Old", unit: "rpm", factor: 1 };
+  const removed = { id: "can:removed", can_id: 3, name: "Removed", unit: "rpm", factor: 1 };
+  assert.deepEqual(can.canSignalIdsNeedingReset(
+    [unchanged, changed, removed],
+    [unchanged, { ...changed, can_id: 4 }],
+  ), ["can:changed", "can:removed"]);
+  assert.match(app, /canSignalIdsNeedingReset\(canSignalDefinitions, fields\)/, "field updates detect removed or redefined CAN IDs");
+  assert.match(app, /clearCanSignalSamples\(resetSignalIds\)/, "only affected CAN signal values are cleared");
+});
+
 test("replay status distinguishes absent sidecars from sidecars without a recognized session close", () => {
   assert.ok(can, "CAN workbench helpers exist");
-  assert.equal(can.replaySidecarStatus({ evidence_journal: null, session_finalized: null }), "No JSONL sidecar found");
-  assert.equal(can.replaySidecarStatus({ evidence_journal: null, session_finalized: false }), "No JSONL sidecar found");
-  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", session_finalized: null }), "JSONL sidecar found; session state is unrecognized");
-  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", session_finalized: false }), "JSONL session is incomplete");
-  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", session_finalized: true }), "JSONL session closed cleanly");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: null, evidence_journal_error: null, session_finalized: null }), "No JSONL sidecar found");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: null, evidence_journal_error: null, session_finalized: false }), "No JSONL sidecar found");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", evidence_journal_error: null, session_finalized: null }), "JSONL sidecar found; session state is unrecognized");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", evidence_journal_error: null, session_finalized: false }), "JSONL session is incomplete");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", evidence_journal_error: null, session_finalized: true }), "JSONL session closed cleanly");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", evidence_journal_error: "permission denied", session_finalized: null }), "JSONL sidecar is unreadable");
+  assert.match(panel, /evidence_journal_error/, "unreadable sidecar errors are visible in the replay report");
+  assert.match(commands, /evidence_journal_open_error/);
 });
 
 test("typed CAN command wrappers keep Tauri names and argument shapes aligned", async () => {

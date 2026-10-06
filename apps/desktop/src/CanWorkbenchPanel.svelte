@@ -440,6 +440,7 @@
     {#if replayReport}
       <p class="can-muted" title={replayPath}>{replayPath}</p>
       <p class="can-report-status">{replaySidecarStatus(replayReport)}</p>
+      {#if replayReport.evidence_journal_error}<p class="can-error" role="status">{replayReport.evidence_journal_error}</p>{/if}
       <div class="can-report-counts">
         <span>{replayReport.frames.toLocaleString()} frames</span><span>{replayReport.decoded_samples.toLocaleString()} field samples</span>
         <span>{replayReport.evidence_records.toLocaleString()} evidence records</span><span>{replayReport.scan_results.toLocaleString()} scans</span>
