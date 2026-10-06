@@ -250,3 +250,9 @@ Channel setup emits version-read, channel-connect, and filter-setup progress at
 the corresponding existing calls; polling, ECU protocol, and teardown order are
 unchanged. Diagnostic error redaction removes unexpected worker response debug
 payloads while preserving the original returned error for callers.
+
+## Diagnostics view and support export — 2026-10-06
+
+`App.svelte` owns the single `diagnostics-event` subscription, its disposal, and native recording-picker/support-export invocation. It retains at most 500 live metadata records. `DiagnosticsPanel.svelte` is mounted once behind the Settings entry; its native modal preserves filters, optional recording selection, and export feedback while closed. On opening or Refresh, it merges `diagnostic_snapshot` with live records by sequence ID, preserving events that arrived during the snapshot request and bounding the merged view to 500.
+
+The typed view formats operation/stage/status/duration, sanitized backend detail, omitted-event/storage failures, and per-signal success/rate/latency summaries. Its explicit field projection excludes packet and measurement fields. Adapter, operation, and errors-only filters affect only display. Opening, refreshing, and exporting diagnostics use no acquisition or research commands. Recording selection defaults to `null`, changes only after an explicit successful picker result, and can be removed. Picker/save cancellation preserves panel state. Native ZIP export receives Tauri's camelCase `recordingPath` argument for the backend's `recording_path` parameter.

@@ -11,6 +11,8 @@
   import { adapterLabel, connectionControlState, type AdapterKind } from "./connectionControls";
   import AutomaticTriggerPanel from "./AutomaticTriggerPanel.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
+  import DiagnosticsPanel from "./DiagnosticsPanel.svelte";
+  import { mergeDiagnostics, supportBundleArgs } from "./diagnostics";
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import ResearchRunResults from "./ResearchRunResults.svelte";
@@ -26,7 +28,7 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    A30GraphValue, BluetoothSppDevice, ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
+    A30GraphValue, BluetoothSppDevice, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, RecordingInfo, ResearchRunViewState, Sample, SignalDefinition,
   } from "./types";
   import {
@@ -106,6 +108,18 @@
   let statusResize: { y: number; height: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
+  let diagnosticsUnlisten: UnlistenFn | undefined;
+  let diagnosticsOpen = false;
+  let diagnosticRecords: DiagnosticRecord[] = [];
+  let diagnosticsListenerError = "";
+
+  function chooseDiagnosticsRecording() {
+    return invoke<string | null>("choose_diagnostics_recording");
+  }
+
+  function exportSupportBundle(recordingPath: string | null) {
+    return invoke<string | null>("export_support_bundle", supportBundleArgs(recordingPath));
+  }
   let sxPortRefreshTimer: number | undefined;
   let refreshingSxPorts = false;
   let sxDiscoveryError = "";
@@ -243,6 +257,13 @@
     listen<EngineEvent>("lognook-event", ({ payload }) => handleEvent(payload))
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
+    if (isTauri()) {
+      listen<DiagnosticRecord>("diagnostics-event", ({ payload }) => {
+        diagnosticRecords = mergeDiagnostics(diagnosticRecords, [payload]);
+      })
+        .then((stop) => disposed ? stop() : diagnosticsUnlisten = stop)
+        .catch(() => diagnosticsListenerError = "Live diagnostics are unavailable. Refresh to load the latest snapshot.");
+    }
     void refreshSxPorts();
     void refreshBluetoothDevices();
     const refreshSelectedSx = () => {
@@ -293,6 +314,7 @@
       window.removeEventListener("focus", refreshSelectedSx);
       document.removeEventListener("visibilitychange", refreshSelectedSx);
       unlisten?.();
+      diagnosticsUnlisten?.();
     };
   });
 
@@ -1103,6 +1125,8 @@
       resetDisabled={!workspacePreferencesReady || connected || recording || replaying || session !== null || researchRunView.running}
       onAction={runShortcut}
       onReset={resetPreferences}
+      diagnosticsOpen={diagnosticsOpen}
+      onDiagnostics={() => diagnosticsOpen = !diagnosticsOpen}
     />
     <div class="session-tools">
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
@@ -1116,6 +1140,14 @@
     <span class="milestone">OBDLinkSX-Beta1</span>
   </header>
 
+  <DiagnosticsPanel
+    open={diagnosticsOpen}
+    liveRecords={diagnosticRecords}
+    listenerError={diagnosticsListenerError}
+    onClose={() => diagnosticsOpen = false}
+    onChooseRecording={chooseDiagnosticsRecording}
+    onExport={exportSupportBundle}
+  />
   <main>
     <section class="workspace-toolbar" aria-label="Acquisition controls">
       <div class="workspace-title"><p class="eyebrow">LIVE WORKSPACE</p><h1>Acquisition</h1></div>
