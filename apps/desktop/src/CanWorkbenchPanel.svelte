@@ -4,7 +4,8 @@
     buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
     canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
     createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload,
-    formatCanCorrelationSource, formatCanDiagnosticRoute, recentCanRates, replaySidecarStatus,
+    canCorrelationHypothesisKey, formatCanCorrelationSource,
+    formatCanDiagnosticRoute, recentCanRates, replaySidecarStatus,
     type CanScanKind,
   } from "./canWorkbench";
   import type {
@@ -601,7 +602,7 @@
       <p class="can-muted">{replayReport.correlation_sample_count} timestamped app samples supplied · correlations are research hypotheses only, never decoded or vehicle-validated signals.</p>
       {#if replayReport.correlation_hypotheses.length}
         <ul class="can-event-list" aria-label="CAN-to-OBD correlation hypotheses">
-          {#each replayReport.correlation_hypotheses as hypothesis (`${hypothesis.field_id}:${hypothesis.obd_signal_id}:${hypothesis.obd_source_id}`)}
+          {#each replayReport.correlation_hypotheses as hypothesis (canCorrelationHypothesisKey(hypothesis))}
             <li><strong>{hypothesis.field_id}</strong> ↔ {hypothesis.obd_signal_id} · {formatCanCorrelationSource(hypothesis)} · r={hypothesis.pearson_r.toFixed(3)} · {hypothesis.pairs} pairs · hypothesis only</li>
           {/each}
         </ul>

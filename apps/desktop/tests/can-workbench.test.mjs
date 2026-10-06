@@ -274,6 +274,15 @@ test("correlation hypothesis rows identify their OBD source and ECU with fallbac
   assert.match(panel, /formatCanCorrelationSource\(hypothesis\)/);
 });
 
+test("correlation hypothesis keys distinguish the same source and signal from different ECUs", () => {
+  const engine7e8 = {
+    field_id: "can:engine-speed", obd_signal_id: "rpm", obd_source_id: "obd:scion", obd_ecu_id: "7E8",
+  };
+  const engine7e9 = { ...engine7e8, obd_ecu_id: "7E9" };
+  assert.notEqual(can.canCorrelationHypothesisKey(engine7e8), can.canCorrelationHypothesisKey(engine7e9));
+  assert.match(panel, /#each replayReport\.correlation_hypotheses as hypothesis \(canCorrelationHypothesisKey\(hypothesis\)\)/);
+});
+
 test("bounded manual trigger controls use the serialized backend and save the captured window", async () => {
   const calls = [];
   const api = can.createCanWorkbenchCommands(async (name, args) => { calls.push([name, args]); return null; });

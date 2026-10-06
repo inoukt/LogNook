@@ -188,6 +188,17 @@ export function formatCanCorrelationSource(
   return `${source} · ECU ${ecu}`;
 }
 
+export function canCorrelationHypothesisKey(
+  hypothesis: Pick<CanCorrelationHypothesis, "field_id" | "obd_signal_id" | "obd_source_id" | "obd_ecu_id">,
+): string {
+  return JSON.stringify([
+    hypothesis.field_id,
+    hypothesis.obd_signal_id,
+    hypothesis.obd_source_id,
+    hypothesis.obd_ecu_id ?? "unknown ECU",
+  ]);
+}
+
 export function canSignalOption(field: CanSignalDefinition): SignalOption {
   const bitRange = field.byte_order === "intel"
     ? `bits ${field.start_bit}–${field.start_bit + field.bit_length - 1} · Intel`
