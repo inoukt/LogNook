@@ -217,7 +217,23 @@ fn identity_only_physical_fixture_sends_no_vehicle_query() {
     let (mut adapter, written) = adapter_for(
         include_str!("../../tests/fixtures/obdlink_sx/physical_ford_identity.txt").into(),
     );
+    let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+    let captured = events.clone();
+    adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
     let device = adapter.identify_inner().unwrap();
+    let events = events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.phase == crate::DiagnosticPhase::Succeeded)
+            .map(|event| event.stage.as_str())
+            .collect::<Vec<_>>(),
+        ["transport_open", "adapter_identity"]
+    );
+    assert_eq!(
+        events.last().unwrap().adapter_id.as_deref(),
+        Some("113011166292")
+    );
     assert_eq!(device.stable_id, "113011166292");
     assert_eq!(&*written.lock().unwrap(), b"STI\rSTDI\rSTSN\r");
 }
@@ -343,7 +359,26 @@ fn read_samples_sends_only_selected_supported_pid_and_keeps_raw_response() {
         include_str!("../../tests/fixtures/obdlink_sx/mode01_rpm.txt")
     );
     let (mut adapter, written) = adapter_for(transcript);
+    let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+    let captured = events.clone();
+    adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
     adapter.connect().unwrap();
+    let stages: Vec<_> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|event| event.phase == crate::DiagnosticPhase::Succeeded)
+        .map(|event| event.stage.clone())
+        .collect();
+    assert_eq!(
+        stages,
+        [
+            "transport_open",
+            "adapter_identity",
+            "supported_pid_discovery",
+            "protocol_setup"
+        ]
+    );
     let rpm = standard_obd_signals()
         .into_iter()
         .find(|signal| signal.id == "engine_rpm")
@@ -352,6 +387,14 @@ fn read_samples_sends_only_selected_supported_pid_and_keeps_raw_response() {
     let samples = adapter.read_samples(&[rpm]).unwrap();
     assert_eq!(samples.len(), 1);
     assert_eq!(samples[0].signal_id, "engine_rpm");
+    let events = events.lock().unwrap();
+    let read = events.last().unwrap();
+    assert_eq!(read.stage, "pid_read");
+    assert_eq!(read.signal_ids, ["engine_rpm"]);
+    assert_eq!(read.phase, crate::DiagnosticPhase::Succeeded);
+    assert!(read.duration_ms.is_some());
+    assert_eq!(read.adapter_id.as_deref(), Some("113012345678"));
+    assert!(read.detail.is_none());
     assert_eq!(samples[0].value, 1726.0);
     assert_eq!(samples[0].ecu_id.as_deref(), Some("7E8"));
     assert_eq!(samples[0].source_id, "obdlink-sx:113012345678");
@@ -507,4 +550,45 @@ fn selected_com_port_must_still_match_the_sx_usb_identity() {
     assert!(is_selected_sx_port("COM4", &sx));
     assert!(!is_selected_sx_port("COM5", &sx));
     assert!(!is_selected_sx_port("COM4", &openport));
+}
+
+#[test]
+fn grouped_read_failure_reports_all_requested_signals() {
+    let (mut adapter, _) = adapter_for("NO DATA\r>".into());
+    let signals: Vec<_> = standard_obd_signals()
+        .into_iter()
+        .filter(|s| [0x0C, 0x05].contains(&s.pid))
+        .collect();
+    adapter.serial_number = Some("113011166292".into());
+    adapter.supported_pids = signals.iter().map(|s| s.pid).collect();
+    adapter.fast_tx_header = Some("7E0".into());
+    adapter.started = Some(Instant::now());
+    let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+    let captured = events.clone();
+    adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+    let error = adapter.read_samples(&signals).unwrap_err();
+    let events = events.lock().unwrap();
+    let event = events.last().unwrap();
+    assert_eq!(event.phase, crate::DiagnosticPhase::Failed);
+    let mut actual = event.signal_ids.clone();
+    actual.sort();
+    let mut expected: Vec<_> = signals.iter().map(|s| s.id.clone()).collect();
+    expected.sort();
+    assert_eq!(actual, expected);
+    assert_eq!(event.detail.as_deref(), Some(error.to_string().as_str()));
+    assert!(event.duration_ms.is_some());
+}
+
+#[test]
+fn legacy_sx_identify_wrapper_preserves_missing_port_error() {
+    let port = "lognook-test-nonexistent-port";
+    assert_eq!(
+        super::identify_obdlink_sx(port).unwrap_err().to_string(),
+        super::identify_obdlink_sx_with_diagnostics(
+            port,
+            crate::diagnostics::noop_diagnostic_sink()
+        )
+        .unwrap_err()
+        .to_string()
+    );
 }

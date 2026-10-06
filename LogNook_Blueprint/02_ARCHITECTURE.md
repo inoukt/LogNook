@@ -20,6 +20,10 @@ Raw CAN monitoring takes a parallel path to the raw-frame recorder/DBC decoder. 
 `Event {timestamp, source, kind, payload}` / `Marker` / `TriggerRule` / `Session`.
 All domain models are defined in a single common crate and serialized through schema-versioned APIs. Adapter implementations depend on the common interfaces; the engine never imports vendor-specific types.
 
+### Adapter progress diagnostics
+
+`HardwareAdapter::set_diagnostic_sink` installs a synchronous, prompt callback on the serialized adapter owner. SX, ELM327, and A30 emit metadata-only started/completed stage events for Identify/Connect and selected PID reads, including duration, stable adapter identity when known, and signal IDs. Grouped SX responses report one shared duration and the full requested signal set; errors remain the original adapter errors with only command/payload fragments redacted in diagnostic detail. Identify wrappers preserve their adapter-only behavior. The desktop consumer owns persistence and coalescing of successful read timing; adapter instrumentation never starts requests or changes sample delivery.
+
 ## Ownership and concurrency
 - One writer/serialized command owner per physical hardware interface; bounded read and decode queues; bus/session scheduler controls requests and timeouts.
 - Separate high-priority ingest and recorder workers from low-priority graph refresh, screenshot, indexing, sharing and AI tasks. Slow consumers receive pressure metrics and drop optional UI previews, NEVER silently drop saved samples.

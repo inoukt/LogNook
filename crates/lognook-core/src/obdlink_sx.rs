@@ -1,3 +1,4 @@
+use crate::{DiagnosticSink, diagnostics::noop_diagnostic_sink};
 mod oem_probe;
 mod scion_probe;
 mod serial;
@@ -34,6 +35,7 @@ pub struct ObdLinkSxAdapter {
     fast_tx_header: Option<String>,
     restore_adapter_settings: bool,
     started: Option<Instant>,
+    diagnostic_sink: DiagnosticSink,
 }
 
 fn mode01_read_error(error: Mode01ResponseError) -> LogNookError {
@@ -56,6 +58,7 @@ impl ObdLinkSxAdapter {
             fast_tx_header: None,
             restore_adapter_settings: false,
             started: None,
+            diagnostic_sink: noop_diagnostic_sink(),
         }
     }
 
@@ -79,15 +82,59 @@ impl ObdLinkSxAdapter {
         self.transport.read_prompt()
     }
 
+    fn stage<T>(
+        &mut self,
+        operation: &str,
+        stage: &str,
+        signals: Vec<String>,
+        action: impl FnOnce(&mut Self) -> Result<T, LogNookError>,
+    ) -> Result<T, LogNookError> {
+        let sink = self.diagnostic_sink.clone();
+        // Identity is learned during this stage, so use the newly known ID at completion.
+        let started = Instant::now();
+        let mut event = crate::DiagnosticProgress {
+            adapter_id: self.serial_number.clone(),
+            operation: operation.into(),
+            stage: stage.into(),
+            phase: crate::DiagnosticPhase::Started,
+            duration_ms: None,
+            signal_ids: signals,
+            detail: None,
+            transient: None,
+        };
+        sink(event.clone());
+        let result = action(self);
+        event.adapter_id = self.serial_number.clone();
+        crate::diagnostics::diagnostic_stage_finished(&sink, event, started, &result);
+        result
+    }
+
     fn connect_inner(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
-        self.open()?;
-        let device = self.read_identity()?;
-        let (mut supported_pids, mut ecu_id) = self.discover_supported_pids()?;
-        let protocol = self.command("STPRS")?;
+        self.stage("connect", "transport_open", vec![], Self::open)?;
+        let device = self.stage("connect", "adapter_identity", vec![], Self::read_identity)?;
+        let (mut supported_pids, mut ecu_id) = self.stage(
+            "connect",
+            "supported_pid_discovery",
+            vec![],
+            Self::discover_supported_pids,
+        )?;
+        let protocol = self.stage("connect", "protocol_setup", vec![], |adapter| {
+            adapter.command("STPRS")
+        })?;
         let mut fast_tx_header = None;
         if protocol.contains("ISO 15765-4 (CAN 11/500)") {
-            self.configure_can_headers()?;
-            (supported_pids, ecu_id) = self.discover_supported_pids()?;
+            self.stage(
+                "connect",
+                "protocol_setup",
+                vec![],
+                Self::configure_can_headers,
+            )?;
+            (supported_pids, ecu_id) = self.stage(
+                "connect",
+                "supported_pid_discovery",
+                vec![],
+                Self::discover_supported_pids,
+            )?;
             fast_tx_header = ecu_id.as_deref().and_then(physical_request_header);
         }
         let supported_signals: Vec<_> = standard_obd_signals()
@@ -167,6 +214,7 @@ impl ObdLinkSxAdapter {
                 "OBDLink SX returned an invalid factory serial number",
             ));
         }
+        self.serial_number = Some(serial_number.clone());
         Ok(DeviceDescriptor {
             stable_id: serial_number,
             hardware_family: "OBDLink SX".into(),
@@ -176,8 +224,8 @@ impl ObdLinkSxAdapter {
     }
 
     fn identify_inner(&mut self) -> Result<DeviceDescriptor, LogNookError> {
-        self.open()?;
-        self.read_identity()
+        self.stage("identify", "transport_open", vec![], Self::open)?;
+        self.stage("identify", "adapter_identity", vec![], Self::read_identity)
     }
 
     fn configure_can_headers(&mut self) -> Result<(), LogNookError> {
@@ -206,13 +254,25 @@ impl ObdLinkSxAdapter {
 }
 
 pub fn identify_obdlink_sx(port_name: impl Into<String>) -> Result<DeviceDescriptor, LogNookError> {
+    identify_obdlink_sx_with_diagnostics(port_name, noop_diagnostic_sink())
+}
+
+pub fn identify_obdlink_sx_with_diagnostics(
+    port_name: impl Into<String>,
+    sink: DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut adapter = ObdLinkSxAdapter::new(port_name);
+    adapter.set_diagnostic_sink(sink);
     let result = adapter.identify_inner();
     adapter.disconnect();
     result
 }
 
 impl HardwareAdapter for ObdLinkSxAdapter {
+    fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
+        self.diagnostic_sink = sink;
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -264,45 +324,52 @@ impl HardwareAdapter for ObdLinkSxAdapter {
             let mut samples: Vec<Option<Sample>> = vec![None; signals.len()];
             for group in groups {
                 let group_signals: Vec<_> = group.iter().map(|index| &signals[*index]).collect();
-                let data = format!(
-                    "01{}",
-                    group_signals
-                        .iter()
-                        .map(|signal| format!("{:02X}", signal.pid))
-                        .collect::<String>()
-                );
-                let mut payload_length = 1;
-                for signal in &group_signals {
-                    let width = mode01_pid_data_width(signal.pid).ok_or_else(|| {
-                        LogNookError::new(format!(
-                            "No data width is defined for PID {:02X}",
-                            signal.pid
-                        ))
-                    })?;
-                    payload_length += 1 + width;
-                }
-                let frames = isotp_frame_count(payload_length);
-                let response_text =
-                    self.command(&format!("STPX H:{header}, D:{data}, R:{frames}, T:250"))?;
-                for index in group {
-                    let signal = &signals[index];
-                    let mut responses =
-                        parse_mode01_responses(&response_text, signal.service, signal.pid)
-                            .map_err(mode01_read_error)?;
-                    if responses.len() != 1 {
-                        return Err(LogNookError::new(
-                            "Multiple ECU responders are not supported by this SX adapter",
-                        ));
+                let signal_ids = group_signals
+                    .iter()
+                    .map(|signal| signal.id.clone())
+                    .collect();
+                self.stage("acquisition", "pid_read", signal_ids, |adapter| {
+                    let data = format!(
+                        "01{}",
+                        group_signals
+                            .iter()
+                            .map(|signal| format!("{:02X}", signal.pid))
+                            .collect::<String>()
+                    );
+                    let mut payload_length = 1;
+                    for signal in &group_signals {
+                        let width = mode01_pid_data_width(signal.pid).ok_or_else(|| {
+                            LogNookError::new(format!(
+                                "No data width is defined for PID {:02X}",
+                                signal.pid
+                            ))
+                        })?;
+                        payload_length += 1 + width;
                     }
-                    let response = responses.pop().expect("one response was checked");
-                    samples[index] = Some(sample_from_response(
-                        signal,
-                        &response,
-                        &serial_number,
-                        started,
-                        self.ecu_id.as_deref(),
-                    )?);
-                }
+                    let frames = isotp_frame_count(payload_length);
+                    let response_text = adapter
+                        .command(&format!("STPX H:{header}, D:{data}, R:{frames}, T:250"))?;
+                    for index in group {
+                        let signal = &signals[index];
+                        let mut responses =
+                            parse_mode01_responses(&response_text, signal.service, signal.pid)
+                                .map_err(mode01_read_error)?;
+                        if responses.len() != 1 {
+                            return Err(LogNookError::new(
+                                "Multiple ECU responders are not supported by this SX adapter",
+                            ));
+                        }
+                        let response = responses.pop().expect("one response was checked");
+                        samples[index] = Some(sample_from_response(
+                            signal,
+                            &response,
+                            &serial_number,
+                            started,
+                            adapter.ecu_id.as_deref(),
+                        )?);
+                    }
+                    Ok(())
+                })?;
             }
             return samples
                 .into_iter()
@@ -314,23 +381,31 @@ impl HardwareAdapter for ObdLinkSxAdapter {
 
         let mut samples = Vec::with_capacity(signals.len());
         for signal in signals {
-            let command = format!("01{:02X}", signal.pid);
-            let response_text = self.command(&command)?;
-            let responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
-                .map_err(mode01_read_error)?;
-            if responses.len() != 1 {
-                return Err(LogNookError::new(
-                    "Multiple ECU responders are not supported by this SX adapter",
-                ));
-            }
-            let response = &responses[0];
-            samples.push(sample_from_response(
-                signal,
-                response,
-                &serial_number,
-                started,
-                self.ecu_id.as_deref(),
-            )?);
+            self.stage(
+                "acquisition",
+                "pid_read",
+                vec![signal.id.clone()],
+                |adapter| {
+                    let command = format!("01{:02X}", signal.pid);
+                    let response_text = adapter.command(&command)?;
+                    let responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
+                        .map_err(mode01_read_error)?;
+                    if responses.len() != 1 {
+                        return Err(LogNookError::new(
+                            "Multiple ECU responders are not supported by this SX adapter",
+                        ));
+                    }
+                    let response = &responses[0];
+                    samples.push(sample_from_response(
+                        signal,
+                        response,
+                        &serial_number,
+                        started,
+                        adapter.ecu_id.as_deref(),
+                    )?);
+                    Ok(())
+                },
+            )?;
         }
         Ok(samples)
     }

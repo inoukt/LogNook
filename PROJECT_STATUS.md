@@ -4,6 +4,11 @@ Updated 2026-10-06 · Current named beta: **OBDLinkSX-Beta1 (`0.1.0-beta.1`)**. 
 
 This Git checkout preserves the existing source and external-agent reports. The hardware records are [OBDLink SX / Ford physical test](docs/hardware/2026-10-02-sx-ford.md), [the direct current-check log](docs/hardware/2026-10-02-sx-current-check.log), [the key-on retry log](docs/hardware/2026-10-02-sx-key-on-retry.log), and [the remaining-PID log](docs/hardware/2026-10-02-sx-remaining-pids.log).
 
+## Adapter progress diagnostics — 2026-10-06
+
+- SX, ELM327, and A30 retain the core metadata-only diagnostic sink and report Identify/Connect stages plus selected PID read duration and errors. Grouped SX reads retain the complete requested signal set. Existing Identify entry points remain no-op-sink wrappers; the new `*_with_diagnostics` entry points expose the same operations with progress.
+- Adapter commands, timeout/retry settings, and sample contracts are unchanged. Desktop diagnostics persistence and success aggregation remain the next integration task.
+
 ## Delivered
 
 - Vehicle Test Workbench: SX, ELM327, and A30/A30M perform eligible catalog-backed service 21/22 candidate reads through their already-connected acquisition adapter. The A30/A30M selector exposes the captured fixed Mode 01/02/03/06/07/09/0A quick reads; Simulator and OpenPort research actions remain unsupported. The selection queue is sequential, Stop is cooperative, typed ECU outcomes advance while rejected active-session calls halt the queue, and the complete queue can be exported as JSON. Finite graphable values use the existing sample and recording pipeline; no UI-synthesized samples or validation promotion are introduced.

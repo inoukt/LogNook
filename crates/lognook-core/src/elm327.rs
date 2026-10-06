@@ -10,6 +10,10 @@ use crate::{
     },
     standard_obd_signals,
 };
+use crate::{
+    DiagnosticSink,
+    diagnostics::{diagnostic_stage, noop_diagnostic_sink},
+};
 use std::{
     io::{ErrorKind, Read, Write},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -25,6 +29,7 @@ pub struct Elm327Adapter {
     supported_pids: Vec<u8>,
     ecu_id: Option<String>,
     started: Option<Instant>,
+    diagnostic_sink: DiagnosticSink,
 }
 
 impl Elm327Adapter {
@@ -36,6 +41,7 @@ impl Elm327Adapter {
             supported_pids: Vec::new(),
             ecu_id: None,
             started: None,
+            diagnostic_sink: noop_diagnostic_sink(),
         }
     }
 
@@ -217,11 +223,35 @@ impl Elm327Adapter {
         Ok(())
     }
 
+    fn stage<T>(
+        &mut self,
+        operation: &str,
+        stage: &str,
+        signals: Vec<String>,
+        action: impl FnOnce(&mut Self) -> Result<T, LogNookError>,
+    ) -> Result<T, LogNookError> {
+        let sink = self.diagnostic_sink.clone();
+        let id = crate::parse_bluetooth_address(&self.address)
+            .ok()
+            .map(|address| format!("bt-elm327-{}", crate::format_bluetooth_address(address)));
+        diagnostic_stage(&sink, id, operation, stage, signals, || action(self))
+    }
+
+    fn identify_inner(&mut self) -> Result<DeviceDescriptor, LogNookError> {
+        self.stage("identify", "transport_open", vec![], Self::open)?;
+        self.stage("identify", "adapter_identity", vec![], Self::identify)
+    }
+
     fn connect_inner(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
-        self.open()?;
-        let device = self.identify()?;
-        self.configure()?;
-        self.discover_supported_pids()?;
+        self.stage("connect", "transport_open", vec![], Self::open)?;
+        let device = self.stage("connect", "adapter_identity", vec![], Self::identify)?;
+        self.stage("connect", "protocol_setup", vec![], Self::configure)?;
+        self.stage(
+            "connect",
+            "supported_pid_discovery",
+            vec![],
+            Self::discover_supported_pids,
+        )?;
         self.started = Some(Instant::now());
         let supported_signals = standard_obd_signals()
             .into_iter()
@@ -237,6 +267,10 @@ impl Elm327Adapter {
 }
 
 impl HardwareAdapter for Elm327Adapter {
+    fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
+        self.diagnostic_sink = sink;
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -286,21 +320,29 @@ impl HardwareAdapter for Elm327Adapter {
         signals
             .iter()
             .map(|signal| {
-                let response_text = self.command(&format!("01{:02X}", signal.pid))?;
-                let mut responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
-                    .map_err(elm_response_error)?;
-                if responses.len() != 1 {
-                    return Err(LogNookError::new(
-                        "Multiple ECU responders are not supported by this ELM adapter",
-                    ));
-                }
-                let response = responses.pop().expect("one response was checked");
-                sample_from_response(
-                    signal,
-                    &response,
-                    &self.address,
-                    started,
-                    self.ecu_id.as_deref(),
+                self.stage(
+                    "acquisition",
+                    "pid_read",
+                    vec![signal.id.clone()],
+                    |adapter| {
+                        let response_text = adapter.command(&format!("01{:02X}", signal.pid))?;
+                        let mut responses =
+                            parse_mode01_responses(&response_text, 0x01, signal.pid)
+                                .map_err(elm_response_error)?;
+                        if responses.len() != 1 {
+                            return Err(LogNookError::new(
+                                "Multiple ECU responders are not supported by this ELM adapter",
+                            ));
+                        }
+                        let response = responses.pop().expect("one response was checked");
+                        sample_from_response(
+                            signal,
+                            &response,
+                            &adapter.address,
+                            started,
+                            adapter.ecu_id.as_deref(),
+                        )
+                    },
                 )
             })
             .collect()
@@ -316,9 +358,16 @@ impl HardwareAdapter for Elm327Adapter {
 }
 
 pub fn identify_elm327(address: impl Into<String>) -> Result<DeviceDescriptor, LogNookError> {
+    identify_elm327_with_diagnostics(address, noop_diagnostic_sink())
+}
+
+pub fn identify_elm327_with_diagnostics(
+    address: impl Into<String>,
+    sink: DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut adapter = Elm327Adapter::new(address);
-    adapter.open()?;
-    let result = adapter.identify();
+    adapter.set_diagnostic_sink(sink);
+    let result = adapter.identify_inner();
     adapter.disconnect();
     result
 }
@@ -547,6 +596,17 @@ mod tests {
         crate::ConnectionCapabilities,
         Arc<Mutex<Vec<u8>>>,
     ) {
+        connected_adapter_with_diagnostics(extra, crate::diagnostics::noop_diagnostic_sink())
+    }
+
+    fn connected_adapter_with_diagnostics(
+        extra: &[&str],
+        sink: crate::DiagnosticSink,
+    ) -> (
+        Elm327Adapter,
+        crate::ConnectionCapabilities,
+        Arc<Mutex<Vec<u8>>>,
+    ) {
         let replies = [
             "ELM327 v2.2\r\0>",
             "OK\r>",
@@ -569,6 +629,7 @@ mod tests {
         fragmented_banner.extend(replies);
         let (stream, written) = ScriptedStream::new(fragmented_banner);
         let mut adapter = Elm327Adapter::with_stream("AA:BB:CC:DD:EE:FF", Box::new(stream));
+        adapter.set_diagnostic_sink(sink);
         let capabilities = adapter.connect().unwrap();
         (adapter, capabilities, written)
     }
@@ -622,6 +683,80 @@ mod tests {
         spec.candidate.service = "22".into();
         spec.candidate.identifier = "1234".into();
         spec
+    }
+
+    #[test]
+    fn identify_progress_does_not_send_vehicle_queries() {
+        let (stream, written) = ScriptedStream::new([b"ELM327 v2.2\r>".to_vec()]);
+        let mut adapter = Elm327Adapter::with_stream("AA:BB:CC:DD:EE:FF", Box::new(stream));
+        let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+        adapter.identify_inner().unwrap();
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.phase == crate::DiagnosticPhase::Succeeded)
+                .map(|event| event.stage.as_str())
+                .collect::<Vec<_>>(),
+            ["transport_open", "adapter_identity"]
+        );
+        assert!(events.iter().all(|event| event.operation == "identify"));
+        assert_eq!(&*written.lock().unwrap(), b"ATI\r");
+    }
+
+    #[test]
+    fn diagnostics_follow_connect_and_selected_read_stages() {
+        let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+        let captured = events.clone();
+        let (mut adapter, caps, _) = connected_adapter_with_diagnostics(
+            &["7E8 04 41 0C 1A F8\r>"],
+            Arc::new(move |event| captured.lock().unwrap().push(event)),
+        );
+        let rpm = caps
+            .supported_signals
+            .iter()
+            .find(|signal| signal.pid == 0x0C)
+            .unwrap();
+        adapter.read_samples(std::slice::from_ref(rpm)).unwrap();
+        let events = events.lock().unwrap();
+        let stages: Vec<_> = events
+            .iter()
+            .filter(|event| event.phase == crate::DiagnosticPhase::Succeeded)
+            .map(|event| event.stage.as_str())
+            .collect();
+        assert_eq!(
+            stages,
+            [
+                "transport_open",
+                "adapter_identity",
+                "protocol_setup",
+                "supported_pid_discovery",
+                "pid_read"
+            ]
+        );
+        assert!(
+            events
+                .iter()
+                .filter(|event| event.phase != crate::DiagnosticPhase::Started)
+                .all(|event| event.duration_ms.is_some())
+        );
+        assert_eq!(events.last().unwrap().signal_ids, ["engine_rpm"]);
+        assert!(events.iter().all(|event| event.detail.is_none()));
+    }
+
+    #[test]
+    fn legacy_identify_wrapper_preserves_invalid_address_error() {
+        assert_eq!(
+            super::identify_elm327("invalid").unwrap_err().to_string(),
+            super::identify_elm327_with_diagnostics(
+                "invalid",
+                crate::diagnostics::noop_diagnostic_sink()
+            )
+            .unwrap_err()
+            .to_string()
+        );
     }
 
     #[test]
@@ -729,7 +864,18 @@ mod tests {
             .find(|signal| signal.pid == 0x0C)
             .unwrap();
 
-        assert!(adapter.read_samples(&[rpm]).is_err());
+        let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+        let error = adapter.read_samples(&[rpm]).unwrap_err();
+        let events = events.lock().unwrap();
+        assert_eq!(events.last().unwrap().signal_ids, ["engine_rpm"]);
+        assert_eq!(events.last().unwrap().phase, crate::DiagnosticPhase::Failed);
+        assert_eq!(
+            events.last().unwrap().detail.as_deref(),
+            Some(error.to_string().as_str())
+        );
+        assert!(events.last().unwrap().duration_ms.is_some());
     }
 
     #[test]
