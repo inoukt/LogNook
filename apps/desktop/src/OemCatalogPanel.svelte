@@ -16,7 +16,10 @@
   export let activeAdapter: DeviceDescriptor | null = null;
   export let disabled = false;
   export let scionProbeDisabled = false;
+  export let canConnected = false;
+  export let canCandidateDisabled = true;
   export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
+  export let onTryCanCandidate: (candidateId: string) => void = () => {};
   export let onGraphReadValue: (value: A30GraphValue) => void = () => {};
   export let onRunUpdate: (state: ResearchRunViewState) => void = () => {};
 
@@ -349,6 +352,9 @@
             <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name}`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
             <strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
             <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
+            {#if canConnected}
+              <button class="button secondary oem-try-button" onclick={() => onTryCanCandidate(candidate.candidate_id)} disabled={canCandidateDisabled} title="Read this source-backed service 21/22 candidate over the active Candlelight CAN route" aria-label={`Try ${candidate.name} over CAN`}>CAN read</button>
+            {/if}
           </header>
           {#if tryState.disabled && !runInProgress && !probing}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
           <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>

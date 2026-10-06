@@ -14,6 +14,8 @@
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import ResearchRunResults from "./ResearchRunResults.svelte";
+  import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
+  import { appendCanFrames, canSignalOption, canTransmitEnabled } from "./canWorkbench";
   import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
   import { reconcileSxPorts } from "./adapterDiscovery";
   import {
@@ -26,7 +28,8 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    A30GraphValue, BluetoothSppDevice, ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
+    A30GraphValue, BluetoothSppDevice, CanFrame, CanScanResult, CanSignalDefinition, CanTransportError, CanTxStatus,
+    CanWorkbenchStatus, ChartTrace, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, RecordingInfo, ResearchRunViewState, Sample, SignalDefinition,
   } from "./types";
   import {
@@ -95,7 +98,18 @@
   let derivedSignalDialog: HTMLDialogElement | undefined;
   let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
-  let pidPickerView: "signals" | "oem" = "signals";
+  let pidPickerView: "signals" | "oem" | "can" = "signals";
+  let canWorkbenchStatus: CanWorkbenchStatus | null = null;
+  let canSignalDefinitions: CanSignalDefinition[] = [];
+  let canFrames: CanFrame[] = [];
+  let canScanResults: CanScanResult[] = [];
+  let canTxStatuses: CanTxStatus[] = [];
+  let canTransportErrors: CanTransportError[] = [];
+  let canScanRunning = false;
+  let canCaptureOpen = false;
+  let canCapturePath = "";
+  let queuedCanFrames: CanFrame[] = [];
+  let canFrameFlushScheduled = false;
   let theme: WorkspaceTheme = defaultWorkspacePreferences.theme;
   let highContrast = defaultWorkspacePreferences.highContrast;
   let uiScale = defaultWorkspacePreferences.uiScale;
@@ -141,6 +155,7 @@
   });
 
   $: derivedOptions = derivedSignalOptions(derivedSignalDefinitions);
+  $: canSignalOptions = canSignalDefinitions.map(canSignalOption);
   $: availableSignals = session
     ? session.signals.map((recorded): SignalOption => {
         const known = signalCatalog.find((signal) => signal.id === recorded.id)
@@ -152,7 +167,7 @@
           description: "Recorded signal",
         };
       })
-    : [...signalCatalog, ...derivedOptions, ...researchSignalOptions];
+    : [...signalCatalog, ...derivedOptions, ...researchSignalOptions, ...canSignalOptions];
   $: visibleSignals = graphSignalIds.flatMap((id) => {
     const signal = availableSignals.find((candidate) => candidate.id === id);
     return signal ? [signal] : [];
@@ -384,6 +399,37 @@
       const sample = event.payload.sample;
       readoutRequest++;
       latest = { ...latest, [sample.signal_id]: sample };
+    } else if (event.type === "canWorkbenchStatus") {
+      canWorkbenchStatus = event.payload;
+      connected = event.payload.connected;
+      activeAdapterDescriptor = null;
+      if (event.payload.connected) {
+        status = `Candlelight CAN · ${event.payload.bitrate.toLocaleString()} bit/s · ${event.payload.listen_only ? "listen-only" : "active"}`;
+      } else {
+        canCaptureOpen = false;
+        canCapturePath = "";
+        status = "Disconnected";
+      }
+    } else if (event.type === "canFrames") {
+      queuedCanFrames = appendCanFrames(queuedCanFrames, event.payload);
+      if (!canFrameFlushScheduled) {
+        canFrameFlushScheduled = true;
+        requestAnimationFrame(() => {
+          canFrames = appendCanFrames(canFrames, queuedCanFrames);
+          queuedCanFrames = [];
+          canFrameFlushScheduled = false;
+        });
+      }
+    } else if (event.type === "canScanStarted") {
+      canScanRunning = true;
+    } else if (event.type === "canScanStopped" || event.type === "canScanCompleted") {
+      canScanRunning = false;
+    } else if (event.type === "canScanResult") {
+      canScanResults = [...canScanResults, event.payload].slice(-500);
+    } else if (event.type === "canTxStatus") {
+      canTxStatuses = [...canTxStatuses, event.payload].slice(-50);
+    } else if (event.type === "canTransportError") {
+      canTransportErrors = [...canTransportErrors, event.payload].slice(-50);
     } else if (event.type === "sample") {
       const sample = event.payload;
       if (sample.origin === "live") {
@@ -422,6 +468,10 @@
         : `${event.payload.device.hardware_family} · read only`;
     } else if (event.type === "disconnected") {
       connected = false;
+      canWorkbenchStatus = null;
+      canScanRunning = false;
+      canCaptureOpen = false;
+      canCapturePath = "";
       activeAdapterDescriptor = null;
       status = "Disconnected";
     } else if (event.type === "playbackState") {
@@ -939,6 +989,24 @@
     }
   }
 
+  function updateCanSignalDefinitions(fields: CanSignalDefinition[]) {
+    const oldIds = new Set(canSignalDefinitions.map(({ id }) => id));
+    const nextIds = new Set(fields.map(({ id }) => id));
+    canSignalDefinitions = fields;
+    logSignalIds = [...new Set([
+      ...logSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id)),
+      ...fields.map(({ id }) => id),
+    ])];
+    graphSignalIds = graphSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id));
+  }
+
+  function startCanOemCandidate(candidateId: string) {
+    return run(async () => {
+      await invoke("start_can_oem_candidate", { candidateId });
+      status = `Started source-backed CAN read · ${candidateId}`;
+    });
+  }
+
   function updateDerivedSignals(definitions: DerivedSignalDefinition[]) {
     const oldIds = new Set(derivedSignalDefinitions.map(({ id }) => id));
     const nextIds = new Set(definitions.map(({ id }) => id));
@@ -1088,7 +1156,7 @@
 
 <svelte:head>
   <title>LogNook · Acquisition</title>
-  <meta name="description" content="Read-only OBD acquisition, recording, and CSV playback." />
+  <meta name="description" content="Vehicle signal acquisition, recording, replay, and CAN bench research." />
 </svelte:head>
 
 <div class="app-shell" data-theme={theme} data-high-contrast={highContrast} style={`--status-height:${statusHeight}px;--ui-scale-factor:${uiScale / 100}`}>
@@ -1228,12 +1296,13 @@
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible} disabled={researchRunView.running}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
-        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : "PID DATABASE"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : "OEM research"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : "OEM catalog"}</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
         {#if !session}
-          <div class="pid-picker-tabs" role="group" aria-label="PID source">
-            <button class:active={pidPickerView === "signals"} aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live PIDs</button>
-            <button class:active={pidPickerView === "oem"} aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"} disabled={researchRunView.running}>Test Workbench</button>
-          </div>
+          <div class="pid-picker-tabs three-tabs" role="group" aria-label="Signal source and workbench">
+          <button class:active={pidPickerView === "signals"} aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live PIDs</button>
+            <button class:active={pidPickerView === "oem"} aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"} disabled={researchRunView.running}>OEM Research</button>
+          <button class:active={pidPickerView === "can"} aria-pressed={pidPickerView === "can"} onclick={() => pidPickerView = "can"} disabled={researchRunView.running}>CAN Workbench</button>
+        </div>
         {/if}
         {#if session || pidPickerView === "signals"}
           <input class="text-input signal-search" type="search" bind:this={signalSearchInput} bind:value={signalSearch} placeholder="Search PID, name or unit" aria-label="Search signals" />
@@ -1263,7 +1332,7 @@
             {/each}
           </div>
           <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
-        {:else}
+        {:else if pidPickerView === "oem"}
         <OemCatalogPanel
           selectedPort={selectedAdapter === "obdlink_sx" ? selectedSxPort : ""}
           selectedBluetoothAddress={selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : ""}
@@ -1272,10 +1341,28 @@
           onGraphCandidate={graphResearchCandidate}
           onGraphReadValue={graphA30ReadValue}
           onRunUpdate={updateResearchRunView}
+          canConnected={canWorkbenchStatus?.connected ?? false}
+          canCandidateDisabled={!canTransmitEnabled(canWorkbenchStatus, canCaptureOpen) || busy || canScanRunning}
+          onTryCanCandidate={startCanOemCandidate}
           disabled={busy || !connected || !activeAdapterDescriptor || replaying || session !== null}
           scionProbeDisabled={busy || connected || recording || replaying || session !== null}
         />
         {/if}
+        <CanWorkbenchPanel
+          hidden={session !== null || pidPickerView !== "can"}
+          workspaceBusy={busy || replaying || researchRunView.running || session !== null}
+          otherAdapterConnected={connected && !canWorkbenchStatus?.connected}
+          status={canWorkbenchStatus}
+          fields={canSignalDefinitions}
+          frames={canFrames}
+          scanResults={canScanResults}
+          txStatuses={canTxStatuses}
+          transportErrors={canTransportErrors}
+          scanRunning={canScanRunning}
+          bind:captureOpen={canCaptureOpen}
+          bind:capturePath={canCapturePath}
+          onFieldsChanged={updateCanSignalDefinitions}
+        />
       </aside>
 
       <section class="measurements" aria-label="Measurements">

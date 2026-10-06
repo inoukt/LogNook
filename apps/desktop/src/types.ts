@@ -198,6 +198,97 @@ export type ResearchRunViewState = {
   report: ResearchRunReport | null;
 };
 
+export type CanByteOrder = "intel" | "motorola";
+export type CanDirection = "rx" | "tx";
+export type CanDeviceCandidate = {
+  id: string;
+  bus_id: string;
+  device_address: number;
+  vendor_id: number;
+  product_id: number;
+  product: string | null;
+  serial_number: string | null;
+};
+export type CanDeviceSelection = { id: string; interface_number: number; channel: number };
+export type CanWorkbenchConfig = { bitrate: number; listen_only: boolean };
+export type CanWorkbenchStatus = CanWorkbenchConfig & { connected: boolean; source_id: string };
+export type CanFrame = {
+  elapsed_ns: number;
+  wall_time_unix_ns: number;
+  can_id: number;
+  extended: boolean;
+  direction: CanDirection;
+  data: number[];
+  flags: number;
+};
+export type CanSignalDefinition = {
+  id: string;
+  name: string;
+  can_id: number;
+  extended: boolean;
+  start_bit: number;
+  bit_length: number;
+  byte_order: CanByteOrder;
+  signed: boolean;
+  factor: number;
+  offset: number;
+  unit: string;
+};
+export type CanScanMode =
+  | { kind: "can_id_range"; start_id: number; end_id: number; extended: boolean; payload: number[] }
+  | { kind: "mode_21"; request_id: number; response_id: number; extended: boolean; start_pid: number; end_pid: number }
+  | { kind: "mode_22"; request_id: number; response_id: number; extended: boolean; start_did: number; end_did: number }
+  | { kind: "mode_01_support"; request_id: number; response_id: number; extended: boolean }
+  | { kind: "mode_01_pids"; request_id: number; response_id: number; extended: boolean; pids: number[]; repeat: boolean };
+export type CanScanConfig = { mode: CanScanMode; pacing_ms: number; response_timeout_ms: number };
+export type CanScanResult = {
+  config: CanScanConfig;
+  identifier: string;
+  request: CanFrame;
+  response_frames: CanFrame[];
+  outcome: string | Record<string, unknown>;
+  supported_pids: number[] | null;
+};
+export type CanByteSummary = {
+  observations: number;
+  changes: number;
+  min: number | null;
+  max: number | null;
+  is_static: boolean;
+  counter_hypothesis: boolean;
+  checksum_hypothesis: boolean;
+};
+export type CanCensusRow = {
+  can_id: number;
+  extended: boolean;
+  count: number;
+  rx_count: number;
+  tx_count: number;
+  first_elapsed_ns: number;
+  last_elapsed_ns: number;
+  dlc_counts: number[];
+  rate_hz: number | null;
+  mean_period_ns: number | null;
+  bytes: CanByteSummary[];
+};
+export type CanTransportError = { kind: string; message: string; raw_usb: number[] | null };
+export type CanTxStatus = { capture_id: number; sequence: number; echo_id: number; frame: CanFrame; confirmed: boolean };
+export type CanCaptureReplayReport = {
+  frames: number;
+  decoded_samples: number;
+  malformed_rows: string[];
+  analyzer_issues: string[];
+  census: CanCensusRow[];
+  evidence_journal: string | null;
+  session_finalized: boolean | null;
+  evidence_records: number;
+  scan_results: number;
+  tx_submitted: number;
+  tx_echo_confirmed: number;
+  transport_errors: number;
+  evidence_errors: string[];
+};
+
 export type Sample = {
   elapsed_ns: number;
   wall_time_unix_ns: number;
@@ -274,6 +365,14 @@ export type EngineEvent =
   | { type: "connected"; payload: ConnectionCapabilities }
   | { type: "disconnected"; payload?: null }
   | { type: "sample"; payload: Sample }
+  | { type: "canFrames"; payload: CanFrame[] }
+  | { type: "canScanResult"; payload: CanScanResult }
+  | { type: "canScanStarted"; payload: CanScanConfig }
+  | { type: "canScanStopped"; payload?: null }
+  | { type: "canScanCompleted"; payload: CanScanConfig }
+  | { type: "canWorkbenchStatus"; payload: CanWorkbenchStatus }
+  | { type: "canTxStatus"; payload: CanTxStatus }
+  | { type: "canTransportError"; payload: CanTransportError }
   | { type: "playbackSample"; payload: { session_id: number; sample: Sample } }
   | { type: "marker"; payload: Marker }
   | { type: "triggerStatus"; payload: AutomaticTriggerStatus }

@@ -1,0 +1,212 @@
+import type { SignalOption } from "./workspace";
+import type {
+  CanCaptureReplayReport, CanDeviceCandidate, CanDeviceSelection, CanFrame, CanScanConfig,
+  CanSignalDefinition, CanWorkbenchConfig, CanWorkbenchStatus,
+} from "./types";
+
+export const defaultCanWorkbenchConfig: CanWorkbenchConfig = { bitrate: 500_000, listen_only: true };
+
+export type CanInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+
+export function createCanWorkbenchCommands(invoke: CanInvoke) {
+  return {
+    availableAdapters: () => invoke<CanDeviceCandidate[]>("available_can_adapters"),
+    connect: (selection: CanDeviceSelection, config: CanWorkbenchConfig) =>
+      invoke<CanWorkbenchStatus>("connect_candlelight", { selection, config }),
+    configureFields: (fields: CanSignalDefinition[]) => invoke<void>("configure_can_signals", { fields }),
+    startCapture: (path: string) => invoke<void>("start_can_capture", { path }),
+    stopCapture: () => invoke<void>("stop_can_capture"),
+    sendFrame: (frame: CanFrame, pacingMs: number, repeat: number) =>
+      invoke<void>("send_can_frame", { frame, pacingMs, repeat }),
+    startScan: (config: CanScanConfig) => invoke<void>("start_can_scan", { config }),
+    stopScan: () => invoke<void>("stop_can_scan"),
+    startOemCandidate: (candidateId: string) =>
+      invoke<unknown>("start_can_oem_candidate", { candidateId }),
+    replay: (path: string, fields: CanSignalDefinition[]) =>
+      invoke<CanCaptureReplayReport>("replay_can_capture_report", { path, fields }),
+    chooseCaptureSavePath: () => invoke<string | null>("choose_can_capture_save_path"),
+    chooseCaptureOpenPath: () => invoke<string | null>("choose_can_capture_open_path"),
+  };
+}
+
+export function parseCanId(text: string, extended: boolean): number | null {
+  const trimmed = text.trim().replace(/^0x/i, "");
+  if (!/^[\da-f]+$/i.test(trimmed)) return null;
+  const value = Number.parseInt(trimmed, 16);
+  return Number.isSafeInteger(value) && value >= 0 && value <= (extended ? 0x1fff_ffff : 0x7ff)
+    ? value
+    : null;
+}
+
+function integerInRange(value: number, min: number, max: number): boolean {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
+
+export function canSignalDefinitionError(field: CanSignalDefinition): string | null {
+  if (!field.id.trim() || !field.name.trim()) return "Signal ID and name are required";
+  if (!/^can:[a-z0-9:_-]+$/i.test(field.id.trim())) return "CAN signal ID must start with can:";
+  if (!integerInRange(field.can_id, 0, field.extended ? 0x1fff_ffff : 0x7ff)) return "CAN ID exceeds the selected frame format";
+  if (!integerInRange(field.bit_length, 1, 64)) return "Bit length must be 1–64";
+  if (!integerInRange(field.start_bit, 0, 63)) return "Start bit must be 0–63";
+  if (!Number.isFinite(field.factor) || !Number.isFinite(field.offset)) return "Factor and offset must be finite numbers";
+  let bit = field.start_bit;
+  for (let index = 0; index < field.bit_length; index++) {
+    if (bit >= 64) return "Signal field exceeds the 8-byte CAN payload";
+    bit = field.byte_order === "motorola" ? bit % 8 === 0 ? bit + 15 : bit - 1 : bit + 1;
+  }
+  return null;
+}
+
+function validRoute(mode: { request_id: number; response_id: number; extended: boolean }): boolean {
+  const max = mode.extended ? 0x1fff_ffff : 0x7ff;
+  return integerInRange(mode.request_id, 0, max)
+    && integerInRange(mode.response_id, 0, max)
+    && mode.request_id !== mode.response_id;
+}
+
+export function canScanConfigError(config: CanScanConfig): string | null {
+  if (!integerInRange(config.pacing_ms, 1, 60_000)) return "Pacing must be 1–60000 ms";
+  if (!integerInRange(config.response_timeout_ms, 10, 10_000)) return "Response timeout must be 10–10000 ms";
+  const mode = config.mode;
+  if (mode.kind === "can_id_range") {
+    const max = mode.extended ? 0x1fff_ffff : 0x7ff;
+    if (!integerInRange(mode.start_id, 0, max) || !integerInRange(mode.end_id, mode.start_id, max)) return "Invalid CAN ID range";
+    return mode.payload.length <= 8 && mode.payload.every((byte) => integerInRange(byte, 0, 0xff))
+      ? null
+      : "Classic CAN payload must contain up to 8 bytes";
+  }
+  if (!validRoute(mode)) return "Request and response IDs must be valid and different";
+  if (mode.kind === "mode_21" && !integerInRange(mode.start_pid, 0, 0xff)) return "Mode 21 PID range must fit one byte";
+  if (mode.kind === "mode_21" && !integerInRange(mode.end_pid, mode.start_pid, 0xff)) return "Mode 21 start PID must not exceed end PID";
+  if (mode.kind === "mode_22" && !integerInRange(mode.start_did, 0, 0xffff)) return "Mode 22 DID range must fit two bytes";
+  if (mode.kind === "mode_22" && !integerInRange(mode.end_did, mode.start_did, 0xffff)) return "Mode 22 start DID must not exceed end DID";
+  if (mode.kind === "mode_01_pids" && (!mode.pids.length || mode.pids.some((pid) => !integerInRange(pid, 0, 0xff)))) return "Mode 01 requires one or more byte-sized PIDs";
+  if (mode.kind === "mode_01_pids" && new Set(mode.pids).size !== mode.pids.length) return "Mode 01 PID list cannot contain duplicates";
+  return null;
+}
+
+export type CanScanKind = "can_id_range" | "mode_01_support" | "mode_01_pids" | "mode_21" | "mode_22";
+export type CanScanInput = {
+  kind: CanScanKind;
+  requestId: string;
+  responseId: string;
+  extended: boolean;
+  start: string;
+  end: string;
+  payload?: string;
+  pacingMs: number;
+  responseTimeoutMs: number;
+};
+
+function parseHexValue(text: string): number | null {
+  const value = text.trim().replace(/^0x/i, "");
+  if (!/^[\da-f]+$/i.test(value)) return null;
+  const parsed = Number.parseInt(value, 16);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+export function buildCanScanConfig(input: CanScanInput): CanScanConfig | null {
+  if (input.kind === "can_id_range") {
+    const start_id = parseCanId(input.start, input.extended);
+    const end_id = parseCanId(input.end, input.extended);
+    const payload = parseCanPayload(input.payload ?? "");
+    if (start_id === null || end_id === null || payload === null) return null;
+    const config: CanScanConfig = {
+      mode: { kind: input.kind, start_id, end_id, extended: input.extended, payload },
+      pacing_ms: input.pacingMs,
+      response_timeout_ms: input.responseTimeoutMs,
+    };
+    return canScanConfigError(config) ? null : config;
+  }
+  const request_id = parseCanId(input.requestId, input.extended);
+  const response_id = parseCanId(input.responseId, input.extended);
+  if (request_id === null || response_id === null) return null;
+  const mode = input.kind === "mode_01_support"
+    ? { kind: input.kind, request_id, response_id, extended: input.extended } as const
+    : (() => {
+        const start = parseHexValue(input.start);
+        const end = parseHexValue(input.end);
+        if (start === null || end === null) return null;
+        if (input.kind === "mode_01_pids") {
+          if (start < 0 || start > 0xff || end < 0 || end > 0xff || end < start) return null;
+          return { kind: input.kind, request_id, response_id, extended: input.extended, pids: Array.from({ length: end - start + 1 }, (_, index) => start + index), repeat: false } as const;
+        }
+        return input.kind === "mode_21"
+          ? { kind: input.kind, request_id, response_id, extended: input.extended, start_pid: start, end_pid: end } as const
+          : { kind: input.kind, request_id, response_id, extended: input.extended, start_did: start, end_did: end } as const;
+      })();
+  if (!mode) return null;
+  const config = { mode, pacing_ms: input.pacingMs, response_timeout_ms: input.responseTimeoutMs } as CanScanConfig;
+  return canScanConfigError(config) ? null : config;
+}
+
+export function canTransmitEnabled(
+  status: Pick<CanWorkbenchStatus, "connected" | "listen_only"> | null,
+  captureOpen: boolean,
+): boolean {
+  return Boolean(status?.connected && !status.listen_only && captureOpen);
+}
+
+export function canSignalOption(field: CanSignalDefinition): SignalOption {
+  const bitRange = field.byte_order === "intel"
+    ? `bits ${field.start_bit}–${field.start_bit + field.bit_length - 1} · Intel`
+    : `start bit ${field.start_bit} · ${field.bit_length}-bit Motorola`;
+  return {
+    id: field.id,
+    name: field.name,
+    unit: field.unit,
+    description: `CAN 0x${field.can_id.toString(16).toUpperCase()} · ${bitRange}`,
+  };
+}
+
+export function appendCanFrames(current: CanFrame[], incoming: CanFrame[], limit = 400): CanFrame[] {
+  return [...current, ...incoming].slice(-limit);
+}
+
+export function parseCanPayload(text: string): number[] | null {
+  const tokens = text.trim() ? text.trim().split(/[\s,]+/) : [];
+  if (tokens.length > 8 || tokens.some((token) => !/^(?:0x)?[\da-f]{1,2}$/i.test(token))) return null;
+  return tokens.map((token) => Number.parseInt(token.replace(/^0x/i, ""), 16));
+}
+
+export function createCanTxFrame(canId: number, extended: boolean, data: number[]): CanFrame | null {
+  const maximum = extended ? 0x1fff_ffff : 0x7ff;
+  if (!integerInRange(canId, 0, maximum) || data.length > 8
+    || data.some((byte) => !integerInRange(byte, 0, 0xff))) return null;
+  return { elapsed_ns: 0, wall_time_unix_ns: 0, can_id: canId, extended, direction: "tx", data, flags: 0 };
+}
+
+export type CanRecentIdRate = {
+  can_id: number;
+  extended: boolean;
+  rx_count: number;
+  tx_count: number;
+  rate_hz: number | null;
+};
+
+export function recentCanRates(
+  frames: Array<Pick<CanFrame, "elapsed_ns" | "can_id" | "extended" | "direction">>,
+): CanRecentIdRate[] {
+  const rows = new Map<string, CanRecentIdRate & { firstRxNs: number; lastRxNs: number }>();
+  for (const frame of frames) {
+    const key = `${frame.extended ? 1 : 0}:${frame.can_id}`;
+    let row = rows.get(key);
+    if (!row) {
+      row = { can_id: frame.can_id, extended: frame.extended, rx_count: 0, tx_count: 0, rate_hz: null, firstRxNs: 0, lastRxNs: 0 };
+      rows.set(key, row);
+    }
+    if (frame.direction === "rx") {
+      if (row.rx_count === 0) row.firstRxNs = frame.elapsed_ns;
+      row.rx_count++;
+      row.lastRxNs = frame.elapsed_ns;
+    } else {
+      row.tx_count++;
+    }
+  }
+  return [...rows.values()].map(({ firstRxNs, lastRxNs, ...row }) => ({
+    ...row,
+    rate_hz: row.rx_count > 1 && lastRxNs > firstRxNs
+      ? (row.rx_count - 1) * 1_000_000_000 / (lastRxNs - firstRxNs)
+      : null,
+  }));
+}

@@ -68,6 +68,8 @@ pub fn run() {
             commands::identify_openport2,
             commands::connect_openport2,
             commands::available_can_adapters,
+            commands::choose_can_capture_save_path,
+            commands::choose_can_capture_open_path,
             commands::connect_candlelight,
             commands::configure_can_signals,
             commands::start_can_capture,

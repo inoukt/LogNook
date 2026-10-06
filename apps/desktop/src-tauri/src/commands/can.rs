@@ -13,7 +13,44 @@ use std::{
     io::{self, BufRead, BufReader},
     path::Path,
 };
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
+
+#[tauri::command]
+pub async fn choose_can_capture_save_path(app: AppHandle) -> Result<Option<String>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("CAN captures", &["csv"])
+        .set_file_name("capture.candump.csv")
+        .blocking_save_file();
+    selected
+        .map(|file| {
+            let path = file.into_path().map_err(|error| error.to_string())?;
+            let path = if path
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with(".candump.csv")
+            {
+                path
+            } else {
+                path.with_extension("candump.csv")
+            };
+            Ok(path.to_string_lossy().into_owned())
+        })
+        .transpose()
+}
+
+#[tauri::command]
+pub async fn choose_can_capture_open_path(app: AppHandle) -> Result<Option<String>, String> {
+    app.dialog()
+        .file()
+        .add_filter("CAN captures", &["csv"])
+        .blocking_pick_file()
+        .map(|file| file.into_path().map_err(|error| error.to_string()))
+        .transpose()
+        .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+}
 
 #[tauri::command]
 pub async fn available_can_adapters() -> Result<Vec<CanDeviceCandidate>, String> {
