@@ -44,7 +44,7 @@
 **Interfaces:**
 - Produces `CanFrame { elapsed_ns, wall_time_unix_ns, can_id, extended, direction, data, flags }`, `CanSignalDefinition { id, name, can_id, extended, start_bit, bit_length, byte_order, signed, factor, offset, unit }`, and `decode_can_signal(&CanFrame, &CanSignalDefinition, &str) -> Result<Option<Sample>, LogNookError>`.
 - Defines `start_bit` using the DBC convention: Intel fields progress from the selected LSB0 bit; Motorola fields progress from the selected MSB0 bit with sawtooth byte transitions. `bit_length` is 1–64.
-- Produces `LogNookEngine::publish_timestamped_sample(Sample) -> Result<(), LogNookError>`; unlike the existing research helper, it preserves a frame's elapsed timestamp and advances the pipeline marker clock monotonically.
+- Produces a cloneable `SamplePublisher` backed by the existing bounded pipeline, and `LogNookEngine::publish_timestamped_sample(Sample) -> Result<(), LogNookError>`. Both preserve a frame's elapsed timestamp and advance the pipeline marker clock monotonically.
 
 - [ ] **Step 1: Write failing tests** for standard/extended ID bounds, payload/DLC validation, Intel and Motorola bit extraction, signed and unsigned scaling, short-frame rejection, non-finite scale rejection, and sample source/signal/raw-byte/timestamp preservation.
 - [ ] **Step 2: Run** `cargo test -p lognook-core --test can_signals`; confirm the new APIs/behaviors fail.
@@ -61,9 +61,10 @@
 **Interfaces:**
 - Consumes Task 1 `CanFrame` and `CanSignalDefinition`.
 - Produces `CanAnalyzer::feed(&CanFrame)`, census rows (ID/count/rate/DLC/period/active/static/counter/checksum candidates), per-byte history, request/reply timing rows, OBD-to-field correlation hypotheses, and `CanTriggerRecorder` with configurable pre/post durations.
+- Produces `CanAnalyzer::feed_obd_sample(&Sample)` so correlation uses timestamped OBD samples from the common pipeline alongside broadcast frames.
 - Analyzer labels for counter/checksum/correlation remain explicitly tentative.
 
-- [ ] **Step 1: Write failing tests** for rate/inter-arrival and byte summaries, bounded history, ISO-TP request/reply pairing with NRC preservation, known synthetic OBD/byte correlation, and trigger windows that contain exactly the configured pre/post frames.
+- [ ] **Step 1: Write failing tests** for rate/inter-arrival and byte summaries, bounded history, ISO-TP request/reply pairing with NRC preservation, known synthetic OBD/byte correlation using explicit sample timestamps, and trigger windows that contain exactly the configured pre/post frames.
 - [ ] **Step 2: Run** `cargo test -p lognook-core --test can_analysis`; confirm expected failures.
 - [ ] **Step 3: Implement** streaming analyzers with bounded memory and no independent transport or sample owner.
 - [ ] **Step 4: Run** `cargo test -p lognook-core --test can_analysis`; require all assertions to pass.
@@ -108,6 +109,7 @@
 **Files:**
 - Create: `crates/lognook-core/src/can_workbench.rs`
 - Modify: `crates/lognook-core/src/lib.rs`
+- Modify: `crates/lognook-core/src/model.rs`
 - Modify: `crates/lognook-core/src/engine.rs`
 - Modify: `apps/desktop/src-tauri/src/lib.rs`
 - Create: `apps/desktop/src-tauri/src/commands/can.rs`
@@ -116,7 +118,8 @@
 
 **Interfaces:**
 - Consumes Tasks 1–4 and the existing OEM catalog/read pipeline.
-- Produces one `CanWorkbench` owner with explicit connect/listen/stop, raw capture start/stop, manual one-frame send, cancellable finite CAN-ID/Mode 21/Mode 22 scans, Mode 01 support discovery and selected-PID polling, and source-backed OEM candidate reads. The manager emits timestamped `CanFrame` events and publishes decoded `Sample`s via `publish_timestamped_sample`.
+- Produces one `CanWorkbench` worker owned by `LogNookEngine`, with explicit connect/listen/stop, raw capture start/stop, manual one-frame send, cancellable finite CAN-ID/Mode 21/Mode 22 scans, Mode 01 support discovery and selected-PID polling, and source-backed OEM candidate reads. The worker owns the adapter and serializes all USB actions; it emits batched `EngineEvent::CanFrames` and publishes decoded `Sample`s through the Task 1 `SamplePublisher`.
+- `LogNookEngine::connect_candlelight(CanWorkbenchConfig)`, `start_can_capture(path)`, `stop_can_capture()`, `send_can_frame(frame, pacing, repeat)`, `start_can_scan(config)`, and `stop_can_scan()` keep CAN connection/recording state under the existing engine. `is_connected`, ordinary adapter connect, and disconnect account for the one active CAN session, so existing recording gates remain correct.
 - Tauri commands expose discovery, connect, configure fields, capture, send, scan/stop, and capture replay/report; frame I/O never runs on the webview thread.
 
 - [ ] **Step 1: Write failing tests** proving only the owner reads/writes the fake transport, stop cancels before the next scan request, ranges/pacing are honored, raw TX/RX are preserved, slow capture writes apply backpressure without silent frame loss, and selected field samples enter the common recorder with source timestamps.
