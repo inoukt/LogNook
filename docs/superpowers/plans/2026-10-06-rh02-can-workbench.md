@@ -102,10 +102,10 @@
 - Uses `nusb` 0.2.7; recognize known GS_USB/Candlelight IDs `1D50:606F` and `1209:2323`, then verify interface/endpoints and treat USB IDs as hints rather than identity proof. Keep device operations on a worker thread using the crate's blocking `MaybeFuture` API.
 - On Windows, claim the interface and use `Interface::control_in/out` for vendor/interface controls; do not use `Device::control_in/out`. Discover bulk IN/OUT endpoint addresses from descriptors. Encode Candlelight GS_USB fields little-endian without sending optional host-format negotiation; request IDs include host format 0, bit timing 1, mode 2, bus-error reporting 3, timing constants 4, and device configuration 5. Honor the advertised listen-only feature bit; the GS_USB RX echo marker is `0xFFFF_FFFF`.
 
-- [ ] **Step 1: Write failing tests** for request IDs/Windows interface-recipient setup, descriptor-derived endpoint selection, little-endian GS_USB header/control encoding, bitrate validation, standard/extended receive decoding, listen-only feature handling, frame-size/DLC checks, timeout/bus-off/device-removal diagnostics, and RX-marker versus TX-echo direction.
-- [ ] **Step 2: Run** `cargo test -p lognook-core --test candlelight_protocol`; confirm expected failures.
-- [ ] **Step 3: Implement** the USB transport and pure protocol helpers against official GS_USB/Candlelight behavior; add only `nusb` as the needed dependency.
-- [ ] **Step 4: Run** `cargo test -p lognook-core --test candlelight_protocol`; require all assertions to pass.
+- [x] **Step 1: Write failing tests** for request IDs/Windows interface-recipient setup, descriptor-derived endpoint selection, little-endian GS_USB header/control encoding, bitrate validation, standard/extended receive decoding, listen-only feature handling, frame-size/DLC checks, timeout/bus-off/device-removal diagnostics, and RX-marker versus TX-echo direction.
+- [x] **Step 2: Run** `cargo test -p lognook-core --test candlelight_protocol`; confirm expected failures.
+- [x] **Step 3: Implement** the USB transport and pure protocol helpers against official GS_USB/Candlelight behavior; add only `nusb` as the needed dependency.
+- [x] **Step 4: Run** `cargo test -p lognook-core --test candlelight_protocol`; require all assertions to pass.
 
 ### Task 5: Serialized CAN workbench session and commands
 
@@ -122,13 +122,14 @@
 **Interfaces:**
 - Consumes Tasks 1–4 and the existing OEM catalog/read pipeline.
 - Produces one `CanWorkbench` worker owned by `LogNookEngine`, with explicit connect/listen/stop, raw capture start/stop, manual one-frame send, cancellable finite CAN-ID/Mode 21/Mode 22 scans, Mode 01 support discovery and selected-PID polling, and source-backed OEM candidate reads. The worker owns the adapter and serializes all USB actions; it emits batched `EngineEvent::CanFrames` and publishes decoded `Sample`s through the Task 1 `SamplePublisher`.
-- `LogNookEngine::connect_candlelight(CanWorkbenchConfig)`, `start_can_capture(path)`, `stop_can_capture()`, `send_can_frame(frame, pacing, repeat)`, `start_can_scan(config)`, and `stop_can_scan()` keep CAN connection/recording state under the existing engine. `is_connected`, ordinary adapter connect, and disconnect account for the one active CAN session, so existing recording gates remain correct.
-- Tauri commands expose discovery, connect, configure fields, capture, send, scan/stop, and capture replay/report; frame I/O never runs on the webview thread.
+- `LogNookEngine::connect_candlelight(selection, config)`, `start_can_capture(path)`, `stop_can_capture()`, `send_can_frame(frame, pacing, repeat)`, `start_can_scan(config)`, and `stop_can_scan()` keep CAN connection/recording state under the existing engine. `is_connected`, ordinary adapter connect, and disconnect account for the one active CAN session, so existing recording gates remain correct.
+- Active sends and scans require a paired create-new `.candump.csv` and `.candump.jsonl` capture. The streamed sidecar records scan configuration, source-candidate provenance, typed results, TX submission/echo status, structured errors, and clean-close state; replay reports incomplete or mismatched sessions. No transmission proceeds after evidence writing fails.
+- Tauri commands expose discovery, connect, configure fields, capture, send, scan/stop, and capture replay/report; frame I/O never runs on the webview thread. RX/TX timestamps share one monotonic origin, RX frames are persisted before flow-control TX, and the worker distinguishes nonfatal unsupported frames from fatal transport errors.
 
-- [ ] **Step 1: Write failing tests** proving only the owner reads/writes the fake transport, stop cancels before the next scan request, ranges/pacing are honored, raw TX/RX are preserved, slow capture writes apply backpressure without silent frame loss, and selected field samples enter the common recorder with source timestamps.
-- [ ] **Step 2: Run** `cargo test -p lognook-core --test can_workbench`; confirm expected failures.
-- [ ] **Step 3: Implement** the workbench worker, sample path, Tauri state/commands, and event serialization; refuse a second adapter while another connection is active.
-- [ ] **Step 4: Run** `cargo test -p lognook-core --test can_workbench` and Tauri crate tests; require all assertions to pass.
+- [x] **Step 1: Write failing tests** proving only the owner reads/writes the fake transport, stop cancels before the next scan request, ranges/pacing are honored, raw TX/RX are preserved, slow capture writes apply backpressure without silent frame loss, and selected field samples enter the common recorder with source timestamps.
+- [x] **Step 2: Run** `cargo test -p lognook-core --test can_workbench`; confirm expected failures.
+- [x] **Step 3: Implement** the workbench worker, sample path, Tauri state/commands, and event serialization; refuse a second adapter while another connection is active.
+- [x] **Step 4: Run** `cargo test -p lognook-core --test can_workbench` and Tauri crate tests; require all assertions to pass.
 
 ### Task 6: CAN Workbench UI and existing graph integration
 
@@ -142,8 +143,9 @@
 
 **Interfaces:**
 - Consumes Task 5 Tauri commands/events and Tasks 1–3 frame/scope/analyzer types.
-- Produces Candlelight selection/status, bitrate and listen/active mode controls, raw-frame view and per-ID rates, multi-field scope definitions, census/byte/pair/correlation views, trigger capture, raw CSV replay/export, and visible scan/send results.
+- Produces Candlelight selection/status, bitrate and listen/active mode controls, raw-frame view and per-ID rates, multi-field scope definitions, census/byte/pair/correlation views, trigger capture, raw CSV plus JSONL evidence replay/report, and visible scan/send/TX-echo/error results. Active send and scan controls are disabled until the paired evidence capture is open and the adapter is in active mode.
 - Numeric CAN fields appear as normal signal options and use `SignalGraphs`; do not add a second graph or decode frames only in Svelte. Coalesce only UI refreshes, not capture writes.
+- Render raw frames and diagnostics without blocking acquisition; coalesce frame-list UI updates while Rust continues synchronous ordered capture writes. The common event pipeline publishes decoded values to the existing live graph.
 
 - [ ] **Step 1: Write failing UI tests** for command argument shapes, ID/field validation, multiple graph traces, mode/state transitions, replay/trigger display, and stop behavior.
 - [ ] **Step 2: Run** `npm run test:ui --prefix apps/desktop`; confirm the new cases fail.
