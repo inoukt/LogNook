@@ -3,6 +3,7 @@ mod acquisition;
 mod adapter;
 mod bluetooth_spp;
 mod can;
+pub mod candlelight;
 mod can_analysis;
 mod can_capture;
 mod csv_import;
