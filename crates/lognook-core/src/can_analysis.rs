@@ -313,15 +313,15 @@ impl CanAnalyzer {
                 elapsed_ns.saturating_sub(p.timestamp) > self.config.request_timeout_ns
             }) {
                 let p = state.pending.take().unwrap();
+                let partial = std::mem::take(&mut state.response.payload);
+                let outcome = if partial.is_empty() {
+                    CanDiagnosticOutcome::NoResponse
+                } else {
+                    CanDiagnosticOutcome::Malformed
+                };
                 push_bounded(
                     &mut self.timings,
-                    timing(
-                        &state.route,
-                        p,
-                        elapsed_ns,
-                        Vec::new(),
-                        CanDiagnosticOutcome::NoResponse,
-                    ),
+                    timing(&state.route, p, elapsed_ns, partial, outcome),
                     self.config.max_timing_rows,
                 );
                 state.response = Assembly::default();
@@ -472,7 +472,7 @@ impl Assembly {
             }
             1 => {
                 *self = Self::default();
-                if data.len() < 3 {
+                if data.len() != 8 {
                     return Err(());
                 }
                 self.length = ((pci as usize & 15) << 8) | data[1] as usize;
@@ -489,8 +489,12 @@ impl Assembly {
                     *self = Self::default();
                     return Err(());
                 }
-                self.next_sequence = (self.next_sequence + 1) & 15;
                 let needed = self.length - self.payload.len();
+                if data.len() < 8 && data.len() - 1 < needed {
+                    *self = Self::default();
+                    return Err(());
+                }
+                self.next_sequence = (self.next_sequence + 1) & 15;
                 self.payload
                     .extend_from_slice(&data[1..1 + needed.min(data.len() - 1)]);
                 if self.payload.len() == self.length {
@@ -556,7 +560,9 @@ impl CanTriggerRecorder {
         self.last_time = Some(frame.elapsed_ns);
         self.advance_time(frame.elapsed_ns);
         if let Some(c) = &mut self.capture {
-            if !c.complete && frame.elapsed_ns >= c.trigger_elapsed_ns {
+            if frame.elapsed_ns >= c.trigger_elapsed_ns
+                && frame.elapsed_ns <= c.trigger_elapsed_ns.saturating_add(self.config.post_ns)
+            {
                 if c.frames.len() < self.config.max_frames {
                     c.frames.push(frame.clone());
                 } else {

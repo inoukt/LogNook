@@ -246,3 +246,60 @@ fn diagnostic_rows_are_bounded_even_when_pending_repeats() {
     assert_eq!(a.timings().len(), 4);
     assert_eq!(a.timings()[0].response_elapsed_ns, 6);
 }
+
+#[test]
+fn every_frame_at_the_trigger_post_boundary_is_retained() {
+    let mut r = CanTriggerRecorder::new(CanTriggerConfig {
+        pre_ns: 0,
+        post_ns: 10,
+        max_frames: 3,
+    })
+    .unwrap();
+    r.feed(&frame(0, 1, &[0])).unwrap();
+    r.trigger(0).unwrap();
+    r.feed(&frame(10, 1, &[1])).unwrap();
+    r.feed(&frame(10, 2, &[2])).unwrap();
+    let capture = r.take_capture().unwrap();
+    assert!(capture.complete);
+    assert_eq!(
+        capture.frames.iter().map(|f| f.can_id).collect::<Vec<_>>(),
+        vec![1, 1, 2]
+    );
+    assert!(!capture.truncated);
+}
+
+#[test]
+fn short_isotp_first_frame_cannot_become_a_positive_reply() {
+    let mut a = analyzer();
+    a.feed(&frame(0, 0x700, &[3, 0x22, 0x12, 0x34])).unwrap();
+    a.feed(&frame(10, 0x708, &[0x10, 8, 0x62])).unwrap();
+    a.feed(&frame(20, 0x708, &[0x21, 0x12, 0x34, 1, 2, 3, 4, 5]))
+        .unwrap();
+    assert_eq!(a.timings()[0].outcome, CanDiagnosticOutcome::Malformed);
+}
+
+#[test]
+fn short_nonfinal_isotp_consecutive_frame_is_malformed() {
+    let mut a = analyzer();
+    a.feed(&frame(0, 0x700, &[3, 0x22, 0x12, 0x34])).unwrap();
+    a.feed(&frame(10, 0x708, &[0x10, 15, 0x62, 0x12, 0x34, 1, 2, 3]))
+        .unwrap();
+    a.feed(&frame(20, 0x708, &[0x21, 4, 5])).unwrap();
+    a.feed(&frame(30, 0x708, &[0x22, 6, 7, 8, 9, 10, 11, 12]))
+        .unwrap();
+    assert_eq!(a.timings()[0].outcome, CanDiagnosticOutcome::Malformed);
+}
+
+#[test]
+fn timed_out_partial_reply_retains_bytes_and_is_not_silence() {
+    let mut a = analyzer();
+    a.feed(&frame(0, 0x700, &[3, 0x22, 0x12, 0x34])).unwrap();
+    a.feed(&frame(10, 0x708, &[0x10, 9, 0x62, 0x12, 0x34, 1, 2, 3]))
+        .unwrap();
+    a.advance_time(101);
+    assert_eq!(a.timings()[0].outcome, CanDiagnosticOutcome::Malformed);
+    assert_eq!(
+        a.timings()[0].response_payload,
+        vec![0x62, 0x12, 0x34, 1, 2, 3]
+    );
+}
