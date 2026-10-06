@@ -519,6 +519,7 @@ enum Command {
     Start {
         bitrate: u32,
         listen_only: bool,
+        session_origin: Instant,
         reply: mpsc::Sender<Result<(), CandlelightError>>,
     },
     Stop(mpsc::Sender<Result<(), CandlelightError>>),
@@ -562,9 +563,14 @@ impl CandlelightTransport {
                                 Command::Start {
                                     bitrate,
                                     listen_only,
+                                    session_origin,
                                     reply,
                                 } => {
-                                    let _ = reply.send(owner.start(bitrate, listen_only));
+                                    let _ = reply.send(owner.start(
+                                        bitrate,
+                                        listen_only,
+                                        session_origin,
+                                    ));
                                 }
                                 Command::Stop(reply) => {
                                     let _ = reply.send(owner.stop());
@@ -610,9 +616,19 @@ impl CandlelightTransport {
         &self.identity
     }
     pub fn start(&mut self, bitrate: u32, listen_only: bool) -> Result<(), CandlelightError> {
+        self.start_at(bitrate, listen_only, Instant::now())
+    }
+    /// Start using a caller-owned monotonic origin shared with its acquisition worker.
+    pub fn start_at(
+        &mut self,
+        bitrate: u32,
+        listen_only: bool,
+        session_origin: Instant,
+    ) -> Result<(), CandlelightError> {
         self.call(|reply| Command::Start {
             bitrate,
             listen_only,
+            session_origin,
             reply,
         })
     }
@@ -762,7 +778,12 @@ impl UsbOwner {
             .wait()
             .map_err(CandlelightError::from)
     }
-    fn start(&mut self, bitrate: u32, listen_only: bool) -> Result<(), CandlelightError> {
+    fn start(
+        &mut self,
+        bitrate: u32,
+        listen_only: bool,
+        session_origin: Instant,
+    ) -> Result<(), CandlelightError> {
         let timing = self.identity.timing.for_bitrate(bitrate)?;
         let mode = mode_bytes(self.identity.timing.features, listen_only)?;
         self.stop()?;
@@ -771,7 +792,7 @@ impl UsbOwner {
         self.control_out(GsUsbRequest::Mode, &mode)?;
         self.listen_only = listen_only;
         self.started = true;
-        self.started_at = Instant::now();
+        self.started_at = session_origin;
         Ok(())
     }
     fn stop(&mut self) -> Result<(), CandlelightError> {

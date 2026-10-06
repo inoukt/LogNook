@@ -13,7 +13,7 @@ use std::{
         mpsc::{self, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const COMMAND_CAPACITY: usize = 32;
@@ -104,6 +104,7 @@ pub struct CanScanConfig {
     pub pacing_ms: u64,
     pub response_timeout_ms: u64,
     /// Set only by source-backed catalog reads; retained with every result for provenance.
+    #[serde(skip_deserializing)]
     pub source_candidate_id: Option<String>,
 }
 
@@ -257,15 +258,183 @@ pub struct CanScanResult {
     pub supported_pids: Option<Vec<u8>>,
 }
 
+/// Persisted form keeps catalog provenance readable without allowing commands to deserialize it.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanEvidenceScanConfig {
+    pub mode: CanScanMode,
+    pub pacing_ms: u64,
+    pub response_timeout_ms: u64,
+    pub source_candidate_id: Option<String>,
+}
+
+impl From<&CanScanConfig> for CanEvidenceScanConfig {
+    fn from(config: &CanScanConfig) -> Self {
+        Self {
+            mode: config.mode.clone(),
+            pacing_ms: config.pacing_ms,
+            response_timeout_ms: config.response_timeout_ms,
+            source_candidate_id: config.source_candidate_id.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanEvidenceScanResult {
+    pub config: CanEvidenceScanConfig,
+    pub identifier: String,
+    pub request: CanFrame,
+    pub response_frames: Vec<CanFrame>,
+    pub outcome: CanDiagnosticOutcome,
+    pub supported_pids: Option<Vec<u8>>,
+}
+
+impl From<&CanScanResult> for CanEvidenceScanResult {
+    fn from(result: &CanScanResult) -> Self {
+        Self {
+            config: CanEvidenceScanConfig::from(&result.config),
+            identifier: result.identifier.clone(),
+            request: result.request.clone(),
+            response_frames: result.response_frames.clone(),
+            outcome: result.outcome.clone(),
+            supported_pids: result.supported_pids.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanTransportErrorKind {
+    Timeout,
+    Disconnected,
+    BusOff,
+    Controller,
+    UnsupportedFrame,
+    Protocol,
+    Usb,
+    Worker,
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanTransportError {
+    pub kind: CanTransportErrorKind,
+    pub message: String,
+    pub raw_usb: Option<Vec<u8>>,
+}
+
+impl std::fmt::Display for CanTransportError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl CanTransportError {
+    pub fn other(message: impl Into<String>) -> Self {
+        Self {
+            kind: CanTransportErrorKind::Other,
+            message: message.into(),
+            raw_usb: None,
+        }
+    }
+
+    fn from_candlelight(error: CandlelightError) -> Self {
+        let kind = match error.diagnostic() {
+            CandlelightError::Timeout => CanTransportErrorKind::Timeout,
+            CandlelightError::Disconnected => CanTransportErrorKind::Disconnected,
+            CandlelightError::BusOff(_) => CanTransportErrorKind::BusOff,
+            CandlelightError::ControllerError(_) => CanTransportErrorKind::Controller,
+            CandlelightError::UnsupportedFrame(_) => CanTransportErrorKind::UnsupportedFrame,
+            CandlelightError::Protocol(_) => CanTransportErrorKind::Protocol,
+            CandlelightError::Usb(_) => CanTransportErrorKind::Usb,
+            CandlelightError::Worker(_) => CanTransportErrorKind::Worker,
+            CandlelightError::ListenOnlyUnavailable
+            | CandlelightError::NotStarted
+            | CandlelightError::PassiveTransmit
+            | CandlelightError::FrameError { .. } => CanTransportErrorKind::Other,
+        };
+        Self {
+            kind,
+            message: error.to_string(),
+            raw_usb: error.raw_usb().map(<[u8]>::to_vec),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CanTransportEvent {
+    Rx(CanFrame),
+    TxEcho {
+        echo_id: u32,
+        frame: CanFrame,
+        raw_usb: Vec<u8>,
+    },
+}
+
+/// Append-only JSONL metadata paired with a `.candump.csv` raw frame capture.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "record", content = "data", rename_all = "snake_case")]
+pub enum CanEvidenceRecord {
+    SessionStarted {
+        format_version: u32,
+        bitrate: u32,
+        listen_only: bool,
+        source_id: String,
+    },
+    ScanStarted {
+        config: CanEvidenceScanConfig,
+    },
+    ScanStopped {
+        config: CanEvidenceScanConfig,
+    },
+    ScanCompleted {
+        config: CanEvidenceScanConfig,
+    },
+    ScanResult {
+        result: CanEvidenceScanResult,
+    },
+    TxAttempt {
+        sequence: u64,
+        frame: CanFrame,
+    },
+    TxSubmitted {
+        sequence: u64,
+        echo_id: u32,
+        frame: CanFrame,
+    },
+    TxEchoConfirmed {
+        sequence: u64,
+        echo_id: u32,
+        submitted_frame: CanFrame,
+        echo_frame: CanFrame,
+        raw_usb: Vec<u8>,
+    },
+    TransportError {
+        error: CanTransportError,
+        frame: Option<CanFrame>,
+    },
+}
+
+pub fn can_evidence_path(path: impl AsRef<Path>) -> std::path::PathBuf {
+    path.as_ref().with_extension("jsonl")
+}
+
 /// The transport is moved to the engine-owned worker; every method is called on that thread.
 pub trait CanTransport: Send + 'static {
     fn source_id(&self) -> String {
         "can:unknown".into()
     }
-    fn start(&mut self, bitrate: u32, listen_only: bool) -> Result<(), String>;
-    fn receive(&mut self, timeout: Duration) -> Result<Option<CanFrame>, String>;
-    fn transmit(&mut self, frame: &CanFrame) -> Result<(), String>;
-    fn stop(&mut self) -> Result<(), String>;
+    fn start(
+        &mut self,
+        bitrate: u32,
+        listen_only: bool,
+        session_origin: Instant,
+    ) -> Result<(), CanTransportError>;
+    fn receive(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<CanTransportEvent>, CanTransportError>;
+    fn transmit(&mut self, frame: &CanFrame) -> Result<u32, CanTransportError>;
+    fn stop(&mut self) -> Result<(), CanTransportError>;
 }
 
 impl CanTransport for CandlelightTransport {
@@ -279,27 +448,41 @@ impl CanTransport for CandlelightTransport {
         )
     }
 
-    fn start(&mut self, bitrate: u32, listen_only: bool) -> Result<(), String> {
-        CandlelightTransport::start(self, bitrate, listen_only).map_err(|error| error.to_string())
+    fn start(
+        &mut self,
+        bitrate: u32,
+        listen_only: bool,
+        session_origin: Instant,
+    ) -> Result<(), CanTransportError> {
+        CandlelightTransport::start_at(self, bitrate, listen_only, session_origin)
+            .map_err(CanTransportError::from_candlelight)
     }
 
-    fn receive(&mut self, timeout: Duration) -> Result<Option<CanFrame>, String> {
+    fn receive(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<CanTransportEvent>, CanTransportError> {
         match CandlelightTransport::receive(self, timeout) {
-            Ok(frame) if frame.frame.direction == CanDirection::Rx => Ok(Some(frame.frame)),
-            Ok(_) => Ok(None), // Candlelight TX echo; submitted TX is already recorded once.
+            Ok(frame) if frame.frame.direction == CanDirection::Rx => {
+                Ok(Some(CanTransportEvent::Rx(frame.frame)))
+            }
+            Ok(frame) => Ok(Some(CanTransportEvent::TxEcho {
+                echo_id: frame.echo_id,
+                frame: frame.frame,
+                raw_usb: frame.raw_usb,
+            })),
             Err(error) if matches!(error.diagnostic(), CandlelightError::Timeout) => Ok(None),
-            Err(error) => Err(error.to_string()),
+            Err(error) => Err(CanTransportError::from_candlelight(error)),
         }
     }
 
-    fn transmit(&mut self, frame: &CanFrame) -> Result<(), String> {
+    fn transmit(&mut self, frame: &CanFrame) -> Result<u32, CanTransportError> {
         CandlelightTransport::transmit(self, frame.clone(), TRANSMIT_TIMEOUT)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+            .map_err(CanTransportError::from_candlelight)
     }
 
-    fn stop(&mut self) -> Result<(), String> {
-        CandlelightTransport::stop(self).map_err(|error| error.to_string())
+    fn stop(&mut self) -> Result<(), CanTransportError> {
+        CandlelightTransport::stop(self).map_err(CanTransportError::from_candlelight)
     }
 }
 
@@ -329,6 +512,7 @@ impl CanWorkbench {
         let listen_only = config.listen_only;
         let source_id = transport.source_id();
         let worker_source_id = source_id.clone();
+        let session_origin = Instant::now();
         let (commands, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (ready_tx, ready_rx) = mpsc::channel();
         let running = Arc::new(AtomicBool::new(false));
@@ -336,8 +520,10 @@ impl CanWorkbench {
         let worker = thread::Builder::new()
             .name("can-workbench-owner".into())
             .spawn(move || {
-                if let Err(error) = transport.start(config.bitrate, config.listen_only) {
-                    let _ = ready_tx.send(Err(error));
+                if let Err(error) =
+                    transport.start(config.bitrate, config.listen_only, session_origin)
+                {
+                    let _ = ready_tx.send(Err(error.to_string()));
                     return;
                 }
                 thread_running.store(true, Ordering::Release);
@@ -355,6 +541,7 @@ impl CanWorkbench {
                     worker_source_id,
                     bitrate,
                     listen_only,
+                    session_origin,
                 );
                 let _ = thread_running;
             })
@@ -491,6 +678,22 @@ fn validate_diag_route(request: u32, response: u32, extended: bool) -> Result<()
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn candlelight_error_adaptation_preserves_the_exact_usb_packet() {
+        let raw = vec![0x01, 0x02, 0xDE, 0xAD];
+        let error = CanTransportError::from_candlelight(CandlelightError::FrameError {
+            raw_usb: raw.clone(),
+            diagnostic: Box::new(CandlelightError::ControllerError(vec![0x99])),
+        });
+        assert_eq!(error.kind, CanTransportErrorKind::Controller);
+        assert_eq!(error.raw_usb, Some(raw));
+    }
 }
 
 pub fn available_can_adapters() -> Result<Vec<CanDeviceCandidate>, LogNookError> {

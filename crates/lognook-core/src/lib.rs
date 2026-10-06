@@ -44,9 +44,11 @@ pub use can_analysis::{
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
 pub use can_workbench::{
-    CanDeviceCandidate, CanDeviceSelection, CanScanConfig, CanScanMode, CanScanResult,
-    CanTransport, CanWorkbench, CanWorkbenchConfig, CanWorkbenchStatus, available_can_adapters,
-    oem_candidate_scan_config, open_candlelight, replay_can_capture_file,
+    CanDeviceCandidate, CanDeviceSelection, CanEvidenceRecord, CanEvidenceScanConfig,
+    CanEvidenceScanResult, CanScanConfig, CanScanMode, CanScanResult, CanTransport,
+    CanTransportError, CanTransportErrorKind, CanTransportEvent, CanWorkbench, CanWorkbenchConfig,
+    CanWorkbenchStatus, available_can_adapters, can_evidence_path, oem_candidate_scan_config,
+    open_candlelight, replay_can_capture_file,
 };
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
