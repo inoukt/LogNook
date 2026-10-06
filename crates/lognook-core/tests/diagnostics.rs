@@ -219,3 +219,75 @@ fn acquisition_emits_poll_start_and_finish_without_changing_samples() {
     );
     engine.disconnect().unwrap();
 }
+
+struct MalformedOpenPortAdapter;
+
+const MALFORMED_OPENPORT_REPLY: &[u8] = br#"{"type":"mode01_responses","responses":[{"ecu_id":"7E8","bytes":["41 0C 13 4A"],"latency_us":12}]}"#;
+
+fn malformed_openport_error() -> String {
+    let error = lognook_j2534_protocol::decode_response_line(MALFORMED_OPENPORT_REPLY).unwrap_err();
+    format!("OpenPort worker returned malformed output: {error}")
+}
+
+impl HardwareAdapter for MalformedOpenPortAdapter {
+    fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+        SimulatedObdAdapter::default().connect()
+    }
+
+    fn read_samples(&mut self, _: &[SignalDefinition]) -> Result<Vec<Sample>, LogNookError> {
+        // Reproduce the real worker client's wrapper around the protocol's parser error.
+        Err(LogNookError::new(malformed_openport_error()))
+    }
+}
+
+#[test]
+fn acquisition_redacts_openport_parser_payload_without_changing_engine_error() {
+    let original_error = malformed_openport_error();
+    assert!(original_error.contains("41 0C 13 4A"));
+    let (events, event_rx) = mpsc::channel();
+    let (diagnostics, diagnostic_rx) = mpsc::channel();
+    let mut engine = LogNookEngine::new(move |event| {
+        let _ = events.send(event);
+    });
+    engine.set_diagnostic_sink(Arc::new(move |event| {
+        let _ = diagnostics.send(event);
+    }));
+    engine
+        .connect_adapter(Box::new(MalformedOpenPortAdapter), &["engine_rpm".into()])
+        .unwrap();
+    assert_eq!(
+        diagnostic_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .phase,
+        DiagnosticPhase::Started
+    );
+    let failed = diagnostic_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(failed.phase, DiagnosticPhase::Failed);
+    assert_eq!(failed.signal_ids, ["engine_rpm"]);
+    assert_eq!(failed.transient, Some(false));
+    assert_eq!(
+        failed.detail.as_deref(),
+        Some(
+            "OpenPort worker returned malformed output: Malformed J2534 worker message: [parser detail redacted]"
+        )
+    );
+    assert!(
+        !serde_json::to_string(&failed)
+            .unwrap()
+            .contains("41 0C 13 4A")
+    );
+    assert!(matches!(
+        event_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        EngineEvent::Connected(_)
+    ));
+    assert_eq!(
+        event_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        EngineEvent::Error(original_error)
+    );
+    assert_eq!(
+        event_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        EngineEvent::Disconnected
+    );
+    engine.disconnect().unwrap();
+}

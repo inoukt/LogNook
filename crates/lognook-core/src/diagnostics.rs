@@ -33,8 +33,14 @@ pub(crate) fn noop_diagnostic_sink() -> DiagnosticSink {
 
 pub(crate) fn diagnostic_error_detail(message: &str) -> String {
     const ELM_TIMEOUT_PREFIX: &str = "Timed out waiting for the ELM327 > prompt after ";
+    const OPENPORT_PARSER_PREFIX: &str =
+        "OpenPort worker returned malformed output: Malformed J2534 worker message: ";
     if message.starts_with(ELM_TIMEOUT_PREFIX) {
         format!("{ELM_TIMEOUT_PREFIX}[request redacted]")
+    } else if message.starts_with(OPENPORT_PARSER_PREFIX) {
+        // Serde and protocol validation errors may quote arbitrary response values or keys.
+        // Keep the worker/parser failure class, without copying untrusted parser detail.
+        format!("{OPENPORT_PARSER_PREFIX}[parser detail redacted]")
     } else {
         message.to_owned()
     }
