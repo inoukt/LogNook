@@ -3,9 +3,10 @@ mod acquisition;
 mod adapter;
 mod bluetooth_spp;
 mod can;
-pub mod candlelight;
 mod can_analysis;
 mod can_capture;
+mod can_workbench;
+pub mod candlelight;
 mod csv_import;
 mod csv_io;
 mod derived;
@@ -42,6 +43,11 @@ pub use can_analysis::{
     CanTriggerConfig, CanTriggerRecorder,
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
+pub use can_workbench::{
+    CanDeviceCandidate, CanDeviceSelection, CanScanConfig, CanScanMode, CanScanResult,
+    CanTransport, CanWorkbench, CanWorkbenchConfig, CanWorkbenchStatus, available_can_adapters,
+    oem_candidate_scan_config, open_candlelight, replay_can_capture_file,
+};
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
 pub use elm327::{Elm327Adapter, identify_elm327, try_elm_oem_candidate};

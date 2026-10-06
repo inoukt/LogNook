@@ -10,6 +10,8 @@ mod oem_catalog;
 pub use oem_catalog::*;
 mod openport2;
 pub use openport2::*;
+mod can;
+pub use can::*;
 
 use crate::AppState;
 use lognook_core::{

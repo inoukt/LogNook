@@ -1,5 +1,7 @@
 use crate::{
-    HardwareAdapter, ResearchTestRequest, ResearchTestResult, SimulatedObdAdapter,
+    CanDeviceSelection, CanScanConfig, CanSignalDefinition, CanTransport, CanWorkbench,
+    CanWorkbenchConfig, CanWorkbenchStatus, HardwareAdapter, ResearchTestRequest,
+    ResearchTestResult, SimulatedObdAdapter,
     acquisition::AcquisitionHandle,
     csv_io::export_recording_csv,
     derived::{CompiledDerivedSignal, compile_derived_signals},
@@ -28,6 +30,7 @@ pub struct LogNookEngine {
     selected_signal_ids: HashSet<String>,
     derived_signal_definitions: Vec<DerivedSignalDefinition>,
     active_derived_signal_ids: HashSet<String>,
+    can_workbench: Option<CanWorkbench>,
 }
 
 impl LogNookEngine {
@@ -50,6 +53,7 @@ impl LogNookEngine {
             selected_signal_ids: HashSet::new(),
             derived_signal_definitions: Vec::new(),
             active_derived_signal_ids: HashSet::new(),
+            can_workbench: None,
         }
     }
 
@@ -168,10 +172,102 @@ impl LogNookEngine {
         Ok(capabilities)
     }
 
+    /// Connect a test transport through the engine-owned serialized CAN worker.
+    /// This accepts an injected transport for deterministic tests; production uses
+    /// `connect_candlelight` below.
+    pub fn connect_can_transport(
+        &mut self,
+        config: CanWorkbenchConfig,
+        transport: Box<dyn CanTransport>,
+    ) -> Result<CanWorkbenchStatus, LogNookError> {
+        if self.pipeline.is_recording() {
+            return Err(LogNookError::new(
+                "Stop the active recording before connecting another adapter",
+            ));
+        }
+        if self.is_connected() {
+            return Err(LogNookError::new("An adapter is already connected"));
+        }
+        self.stop_playback();
+        let workbench = CanWorkbench::start(
+            transport,
+            config,
+            self.sample_publisher(),
+            self.event_sink.clone(),
+        )?;
+        let status = workbench.status();
+        self.can_workbench = Some(workbench);
+        (self.event_sink)(EngineEvent::CanWorkbenchStatus(status.clone()));
+        Ok(status)
+    }
+
+    pub fn connect_candlelight(
+        &mut self,
+        selection: &CanDeviceSelection,
+        config: CanWorkbenchConfig,
+    ) -> Result<CanWorkbenchStatus, LogNookError> {
+        let transport = crate::open_candlelight(selection)?;
+        self.connect_can_transport(config, transport)
+    }
+
+    pub fn configure_can_signals(
+        &self,
+        fields: Vec<CanSignalDefinition>,
+    ) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before configuring CAN fields"))?
+            .configure_fields(fields)
+    }
+
+    pub fn start_can_capture(&self, path: &Path) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before starting raw capture"))?
+            .start_capture(path)
+    }
+
+    pub fn stop_can_capture(&self) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .stop_capture()
+    }
+
+    pub fn send_can_frame(
+        &self,
+        frame: crate::CanFrame,
+        pacing_ms: u64,
+        repeat: u32,
+    ) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before sending a CAN frame"))?
+            .send_frame(frame, pacing_ms, repeat)
+    }
+
+    pub fn start_can_scan(&self, config: CanScanConfig) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before starting a CAN scan"))?
+            .start_scan(config)
+    }
+
+    pub fn stop_can_scan(&self) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .stop_scan()
+    }
+
     pub fn is_connected(&self) -> bool {
         self.acquisition
             .as_ref()
             .is_some_and(AcquisitionHandle::is_running)
+            || self
+                .can_workbench
+                .as_ref()
+                .is_some_and(CanWorkbench::is_running)
     }
 
     pub fn is_recording(&self) -> bool {
@@ -270,6 +366,12 @@ impl LogNookEngine {
     }
 
     pub fn disconnect(&mut self) -> Result<(), LogNookError> {
+        if let Some(workbench) = self.can_workbench.take() {
+            let mut status = workbench.status();
+            drop(workbench);
+            status.connected = false;
+            (self.event_sink)(EngineEvent::CanWorkbenchStatus(status));
+        }
         if let Some(mut acquisition) = self.acquisition.take() {
             acquisition.stop()?;
         }
@@ -357,6 +459,8 @@ impl LogNookEngine {
             self.disconnect()?;
         } else if let Some(mut acquisition) = self.acquisition.take() {
             acquisition.stop()?;
+        } else {
+            self.can_workbench.take();
         }
         Ok(())
     }
