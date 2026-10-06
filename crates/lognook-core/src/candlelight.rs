@@ -415,7 +415,8 @@ fn decode_frame_inner(
     let echo_id = word(bytes, 0);
     if echo_id != RX_ECHO_ID {
         // Only echo_id and channel identify a TX confirmation. CAN ID, DLC,
-        // flags and payload are unused, and cannot describe an RX error.
+        // flags and payload cannot describe an RX error. Overflow applies to
+        // both RX and TX packets; retain only this recognized indication.
         // The USB owner checks the assigned ID/channel and restores its TX frame.
         let frame = CanFrame {
             elapsed_ns,
@@ -424,7 +425,7 @@ fn decode_frame_inner(
             extended: false,
             direction: CanDirection::Tx,
             data: Vec::new(),
-            flags: 0,
+            flags: u32::from(bytes[10] & 1),
         };
         frame.validate().map_err(|e| protocol(&e.to_string()))?;
         return Ok(GsUsbFrame {

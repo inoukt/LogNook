@@ -319,3 +319,14 @@ fn tx_echo_accepts_partial_unused_payload_between_header_and_dlc() {
         assert_eq!(echo.raw_usb, raw);
     }
 }
+
+#[test]
+fn tx_echo_preserves_overflow_without_validating_unused_can_fields() {
+    let mut raw = fixture(3, 0xFFFF_FFFF, 0xFF);
+    raw[10] = 0xFF;
+    let echo = decode_frame(&raw, 0, 0).unwrap();
+    assert_eq!(echo.echo_id, 3);
+    assert_eq!(echo.frame.direction, CanDirection::Tx);
+    assert_eq!(echo.frame.flags, 1);
+    assert_eq!(echo.raw_usb, raw);
+}
