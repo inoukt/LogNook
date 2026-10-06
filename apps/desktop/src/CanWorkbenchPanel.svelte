@@ -2,7 +2,8 @@
   import { invoke } from "@tauri-apps/api/core";
   import {
     buildCanScanConfig, canSignalDefinitionError, canTransmitEnabled, createCanTxFrame,
-    createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload, recentCanRates,
+    createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload,
+    recentCanRates, replaySidecarStatus,
     type CanScanKind,
   } from "./canWorkbench";
   import type {
@@ -438,7 +439,7 @@
     {#if captureOpen}<p class="can-hint">Stop the current capture before replaying its CSV and JSONL sidecar.</p>{/if}
     {#if replayReport}
       <p class="can-muted" title={replayPath}>{replayPath}</p>
-      <p class="can-report-status">{replayReport.session_finalized === true ? "JSONL session closed cleanly" : replayReport.session_finalized === false ? "JSONL session is incomplete" : "No matching JSONL sidecar found"}</p>
+      <p class="can-report-status">{replaySidecarStatus(replayReport)}</p>
       <div class="can-report-counts">
         <span>{replayReport.frames.toLocaleString()} frames</span><span>{replayReport.decoded_samples.toLocaleString()} field samples</span>
         <span>{replayReport.evidence_records.toLocaleString()} evidence records</span><span>{replayReport.scan_results.toLocaleString()} scans</span>

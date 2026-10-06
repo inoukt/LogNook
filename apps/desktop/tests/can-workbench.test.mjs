@@ -116,6 +116,41 @@ test("recent per-ID counts and RX rates use only the bounded timestamped frame b
   ]);
 });
 
+test("a new CAN session resets its event history and only its own signal samples", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  assert.deepEqual(can.emptyCanSessionEvents(), {
+    frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false,
+  });
+  const latest = {
+    engine_rpm: { signal_id: "engine_rpm", value: 900 },
+    "can:engine-speed": { signal_id: "can:engine-speed", value: 1234 },
+  };
+  const series = {
+    engine_rpm: [latest.engine_rpm],
+    "can:engine-speed": [latest["can:engine-speed"]],
+  };
+  assert.deepEqual(can.clearCanSessionSamples(latest, series, ["can:engine-speed"]), {
+    latest: { engine_rpm: latest.engine_rpm },
+    series: { engine_rpm: [latest.engine_rpm] },
+  });
+  assert.match(app, /if \(event\.payload\.connected && !canWorkbenchStatus\?\.connected\) \{[\s\S]*?const empty = emptyCanSessionEvents\(\)/, "new connected status starts with fresh CAN session event state");
+  for (const assignment of ["canFrames = empty.frames", "canScanResults = empty.scanResults", "canTxStatuses = empty.txStatuses", "canTransportErrors = empty.transportErrors"]) {
+    assert.ok(app.includes(assignment), `new CAN session resets ${assignment}`);
+  }
+  assert.match(app, /emptyCanSessionEvents\(\)/, "a new CAN connection clears the old frame/scan/TX/error view");
+  assert.match(app, /clearCanSignalSamples\(/, "CAN elapsed samples are cleared on session changes");
+  assert.match(app, /event\.type === "disconnected"[\s\S]*?clearCanSignalSamples\(\)/, "disconnect clears CAN samples before another elapsed timeline starts");
+});
+
+test("replay status distinguishes absent sidecars from sidecars without a recognized session close", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: null, session_finalized: null }), "No JSONL sidecar found");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: null, session_finalized: false }), "No JSONL sidecar found");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", session_finalized: null }), "JSONL sidecar found; session state is unrecognized");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", session_finalized: false }), "JSONL session is incomplete");
+  assert.equal(can.replaySidecarStatus({ evidence_journal: "run.candump.jsonl", session_finalized: true }), "JSONL session closed cleanly");
+});
+
 test("typed CAN command wrappers keep Tauri names and argument shapes aligned", async () => {
   assert.ok(can, "CAN workbench helpers exist");
   const calls = [];
@@ -164,7 +199,7 @@ test("Workbench renders bounded frames, scan results, echo status, transport evi
   for (const marker of ["frames={canFrames}", "scanResults={canScanResults}", "txStatuses={canTxStatuses}", "transportErrors={canTransportErrors}", "scanRunning={canScanRunning}"]) {
     assert.ok(app.includes(marker), `App passes ${marker}`);
   }
-  for (const marker of ["aria-label=\"Recent CAN frames\"", "Echo confirmed", "raw_usb", "session_finalized", "rate_hz", "evidence_records", "chooseCaptureOpenPath", "sendFrame"]) {
+  for (const marker of ["aria-label=\"Recent CAN frames\"", "Echo confirmed", "raw_usb", "replaySidecarStatus", "rate_hz", "evidence_records", "chooseCaptureOpenPath", "sendFrame"]) {
     assert.ok(panel.includes(marker), `CAN panel presents ${marker}`);
   }
   assert.match(app, /queuedCanFrames = appendCanFrames\(queuedCanFrames, event\.payload\)/, "pending raw frame display state stays bounded between paints");

@@ -15,7 +15,10 @@
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import ResearchRunResults from "./ResearchRunResults.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
-  import { appendCanFrames, canSignalOption, canTransmitEnabled } from "./canWorkbench";
+  import {
+    appendCanFrames, canSignalOption, canTransmitEnabled, clearCanSessionSamples as withoutCanSamples,
+    emptyCanSessionEvents,
+  } from "./canWorkbench";
   import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
   import { reconcileSxPorts } from "./adapterDiscovery";
   import {
@@ -400,6 +403,18 @@
       readoutRequest++;
       latest = { ...latest, [sample.signal_id]: sample };
     } else if (event.type === "canWorkbenchStatus") {
+      if (event.payload.connected && !canWorkbenchStatus?.connected) {
+        const empty = emptyCanSessionEvents();
+        canFrames = empty.frames;
+        canScanResults = empty.scanResults;
+        canTxStatuses = empty.txStatuses;
+        canTransportErrors = empty.transportErrors;
+        canScanRunning = empty.scanRunning;
+        queuedCanFrames = [];
+        canCaptureOpen = false;
+        canCapturePath = "";
+        clearCanSignalSamples();
+      }
       canWorkbenchStatus = event.payload;
       connected = event.payload.connected;
       activeAdapterDescriptor = null;
@@ -408,6 +423,7 @@
       } else {
         canCaptureOpen = false;
         canCapturePath = "";
+        clearCanSignalSamples();
         status = "Disconnected";
       }
     } else if (event.type === "canFrames") {
@@ -472,6 +488,7 @@
       canScanRunning = false;
       canCaptureOpen = false;
       canCapturePath = "";
+      clearCanSignalSamples();
       activeAdapterDescriptor = null;
       status = "Disconnected";
     } else if (event.type === "playbackState") {
@@ -998,6 +1015,16 @@
       ...fields.map(({ id }) => id),
     ])];
     graphSignalIds = graphSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id));
+  }
+
+  function clearCanSignalSamples() {
+    const cleared = withoutCanSamples(
+      latest,
+      series,
+      canSignalDefinitions.map(({ id }) => id),
+    );
+    latest = cleared.latest;
+    series = cleared.series;
   }
 
   function startCanOemCandidate(candidateId: string) {

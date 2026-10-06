@@ -1,7 +1,8 @@
 import type { SignalOption } from "./workspace";
 import type {
   CanCaptureReplayReport, CanDeviceCandidate, CanDeviceSelection, CanFrame, CanScanConfig,
-  CanSignalDefinition, CanWorkbenchConfig, CanWorkbenchStatus,
+  CanScanResult, CanSignalDefinition, CanTransportError, CanTxStatus, CanWorkbenchConfig,
+  CanWorkbenchStatus, Sample,
 } from "./types";
 
 export const defaultCanWorkbenchConfig: CanWorkbenchConfig = { bitrate: 500_000, listen_only: true };
@@ -209,4 +210,37 @@ export function recentCanRates(
       ? (row.rx_count - 1) * 1_000_000_000 / (lastRxNs - firstRxNs)
       : null,
   }));
+}
+
+export type CanSessionEvents = {
+  frames: CanFrame[];
+  scanResults: CanScanResult[];
+  txStatuses: CanTxStatus[];
+  transportErrors: CanTransportError[];
+  scanRunning: boolean;
+};
+
+export function emptyCanSessionEvents(): CanSessionEvents {
+  return { frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false };
+}
+
+export function clearCanSessionSamples(
+  latest: Record<string, Sample>,
+  series: Record<string, Sample[]>,
+  canSignalIds: readonly string[],
+): { latest: Record<string, Sample>; series: Record<string, Sample[]> } {
+  const canIds = new Set(canSignalIds);
+  return {
+    latest: Object.fromEntries(Object.entries(latest).filter(([id]) => !canIds.has(id))),
+    series: Object.fromEntries(Object.entries(series).filter(([id]) => !canIds.has(id))),
+  };
+}
+
+export function replaySidecarStatus(
+  report: Pick<CanCaptureReplayReport, "evidence_journal" | "session_finalized">,
+): string {
+  if (report.evidence_journal === null) return "No JSONL sidecar found";
+  if (report.session_finalized === true) return "JSONL session closed cleanly";
+  if (report.session_finalized === false) return "JSONL session is incomplete";
+  return "JSONL sidecar found; session state is unrecognized";
 }
