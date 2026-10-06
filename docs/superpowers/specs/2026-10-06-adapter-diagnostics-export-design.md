@@ -11,16 +11,22 @@ Make slow or failed adapter operations diagnosable from a file the user can expo
 - Provider discovery, Identify, Connect, Disconnect, and one-shot research operations are always logged. Acquisition progress is summarized by signal ID, attempt/success/error counts, observed rate and latency; sample values and packet payloads are not copied into the new diagnostics log.
 - **Export support bundle** opens the native save dialog and creates one create-new `.zip` file. It contains environment/app metadata, the bounded diagnostics log, and existing OEM evidence JSONL files. The user may select a `.lognook` recording to include; the default is no recording.
 
+## Diagnostic detail needed
+
+- Every top-level operation has start, progress-stage, and terminal success/error events with wall time and duration. Preserve the exact adapter/provider identity and exact error text/code.
+- Identify and Connect expose adapter-specific stages so a slow 20-second operation is attributable to a particular step. A30 stages include Bluetooth session open, relay/identity handshake, announcement, and supported-PID discovery. SX/ELM stages include serial or Bluetooth open, adapter identity/initialization, CAN or protocol setup where applicable, and supported-PID discovery. OpenPort stages include provider listing/diagnostics, DLL resolve/load, J2534 open/version, channel connect, filter setup, Mode 01 discovery, and selected PID reads.
+- For each selected PID, report requested/supported state, attempts, valid successes, timeouts/errors, first-response delay, observed response rate, and response latency summary. Values and raw payload bytes are omitted; a selected `.lognook` recording can provide measurements when needed.
+
 ## Data flow
 
-1. Tauri command boundaries record operation start and completion, duration, adapter/provider identity, selected or supported signal IDs when available, returned capabilities, and exact error text. Provider and J2534 worker stages remain distinct so an OpenPort failure can be located at discovery, library open, version read, connect, filter setup, or message read.
+1. Tauri command boundaries record operation start, progress, completion, duration, adapter/provider identity, selected or supported signal IDs when available, returned capabilities, and exact error text. Provider and J2534 worker stages remain distinct so an OpenPort failure can be located at discovery, library open, version read, connect, filter setup, or message read.
 2. Acquisition maintains per-signal counters and response timing on the existing adapter owner. It emits an aggregated progress snapshot at most once per second and a final summary on disconnect. Individual errors remain visible immediately. It never emits or persists packet payloads into the diagnostics stream.
 3. A bounded diagnostics writer appends structured JSONL records to `app_data_dir()/diagnostics/operations.jsonl`. Live events are forwarded to the Diagnostics view. If diagnostics storage is full or unavailable, the app reports that condition and continues acquisition without delaying or dropping measurement samples.
 4. Export collects the operation log, app/build/OS metadata, and existing OEM evidence files. If the user selects a recording, the export includes that exact session file. Export uses create-new behavior and reports cancellation or I/O errors in the UI.
 
 ## Event data
 
-Each event has a schema version, event ID, UTC timestamp, elapsed duration when applicable, operation/session correlation ID, adapter family and stable ID, operation/stage, outcome, selected/supported signal IDs when available, optional per-signal attempt/success/error counts and rate/latency summaries, and optional error code/detail. Bundle metadata includes app version and OS name/version/architecture. Unsupported fields stay absent rather than being guessed. The new log has no request or response payload fields.
+Each event has a schema version, event ID, UTC timestamp, elapsed duration when applicable, operation/session correlation ID, adapter family and stable ID, operation/stage, outcome, selected/supported signal IDs when available, optional per-signal attempt/success/error counts, first-response delay, rate/latency summaries, and optional error code/detail. Bundle metadata includes app version and OS name/version/architecture. Unsupported fields stay absent rather than being guessed. The new log has no request or response payload fields.
 
 The diagnostics log does not duplicate measurement samples or raw packet transcripts. Measurements stay in `.lognook` or exported CSV. Device identifiers and existing OEM evidence remain available in the support bundle. The Diagnostics view lets the user inspect included events before export.
 
