@@ -243,18 +243,21 @@ fn connect_with_diagnostics(
         &[String],
     ) -> Result<ConnectionCapabilities, String>,
 ) -> Result<ConnectionCapabilities, String> {
+    // Serialize the pending selection with the command that can actually connect.
+    // Keep lock errors in the Result so they still receive start/terminal diagnostics.
+    let mut engine = engine(state);
     diagnose(
         state,
         Some(adapter_id),
         "connect",
         signal_ids.clone(),
         |op| {
-            let mut engine = engine(state)?;
+            let engine = engine.as_mut().map_err(|error| error.clone())?;
             // A failed second Connect must not replace the existing session's diagnostic route.
             if !engine.is_connected() {
                 engine.set_diagnostic_sink(op.sink());
             }
-            let result = action(&mut engine, &signal_ids);
+            let result = action(engine, &signal_ids);
             if let Ok(capabilities) = &result {
                 op.supported_signals(
                     capabilities
@@ -421,6 +424,108 @@ mod diagnostics_tests {
             summaries.last().unwrap().signal_summaries.as_ref().unwrap()[0].success_count
                 >= first_count + 1
         );
+    }
+    #[test]
+    fn overlapping_connects_keep_the_successful_commands_signal_selection() {
+        let (state, rx) = state();
+        let state = std::sync::Arc::new(state);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first_state = state.clone();
+        let first = std::thread::spawn(move || {
+            connect_with_diagnostics(
+                &first_state,
+                "first".into(),
+                vec!["engine_rpm".into()],
+                |engine, ids| {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    engine
+                        .connect_simulated(ids)
+                        .map_err(|error| error.to_string())
+                },
+            )
+        });
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let first_start = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(first_start.signal_ids, ["engine_rpm"]);
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+        let second_state = state.clone();
+        let second = std::thread::spawn(move || {
+            second_entered_tx.send(()).unwrap();
+            connect_with_diagnostics(
+                &second_state,
+                "second".into(),
+                vec!["vehicle_speed".into()],
+                |engine, ids| {
+                    engine
+                        .connect_simulated(ids)
+                        .map_err(|error| error.to_string())
+                },
+            )
+        });
+        second_entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        // Keep the first connect paused while the second command reaches the held engine lock.
+        // Before the fix its Started row overwrites the first command's pending selection.
+        let mut records = vec![first_start];
+        if let Ok(record) = rx.recv_timeout(Duration::from_millis(300)) {
+            records.push(record);
+        }
+        release_tx.send(()).unwrap();
+        first.join().unwrap().unwrap();
+        assert_eq!(
+            second.join().unwrap().unwrap_err(),
+            "An adapter is already connected"
+        );
+        state
+            .diagnostics
+            .observe_engine(&lognook_core::EngineEvent::Error(
+                "Acquisition failed".into(),
+            ));
+        diagnose(&state, None, "disconnect", vec![], |_| {
+            engine(&state)?
+                .disconnect()
+                .map_err(|error| error.to_string())
+        })
+        .unwrap();
+        loop {
+            let record = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let done = record.operation == "disconnect"
+                && record.stage == "command"
+                && record.phase == DiagnosticPhase::Succeeded;
+            records.push(record);
+            if done {
+                break;
+            }
+        }
+        let acquisition_error = records
+            .iter()
+            .find(|r| r.operation == "acquisition" && r.stage == "engine")
+            .unwrap();
+        assert_eq!(acquisition_error.signal_ids, ["engine_rpm"]);
+        assert!(
+            records
+                .iter()
+                .filter(|r| r.operation == "disconnect")
+                .all(|r| r.signal_ids == ["engine_rpm"])
+        );
+        let first_connected_index = records
+            .iter()
+            .position(|r| {
+                r.operation == "acquisition"
+                    && r.stage == "session"
+                    && r.phase == DiagnosticPhase::Started
+            })
+            .unwrap();
+        let second_started_index = records
+            .iter()
+            .position(|r| {
+                r.adapter_id.as_deref() == Some("second") && r.phase == DiagnosticPhase::Started
+            })
+            .unwrap();
+        assert!(first_connected_index < second_started_index);
     }
     #[test]
     fn provider_discovery_logs_missing_worker_failure() {

@@ -496,7 +496,9 @@ fn adapter_progress_keeps_connect_and_acquisition_context_without_payloads() {
         [
             ("connect", "filter_setup"),
             ("connect", "mode01_discovery"),
-            ("acquisition", "pid_read")
+            ("acquisition", "pid_read"),
+            ("acquisition", "pid_read"),
+            ("acquisition", "pid_read"),
         ]
     );
     assert!(
@@ -504,5 +506,114 @@ fn adapter_progress_keeps_connect_and_acquisition_context_without_payloads() {
             .iter()
             .all(|e| e.adapter_id.as_deref() == Some("opta") && e.detail.is_none())
     );
+    assert_eq!(events[2].phase, crate::DiagnosticPhase::Started);
+    assert_eq!(events[3].phase, crate::DiagnosticPhase::Progress);
+    assert_eq!(events[4].phase, crate::DiagnosticPhase::Succeeded);
+    assert_eq!(events[4].signal_ids, ["engine_rpm"]);
+    assert!(events[4].duration_ms.is_some());
     assert_eq!(state.requests.lock().unwrap().len(), 4);
+}
+
+struct CompletionTimingSession(FakeSession);
+impl WorkerSession for CompletionTimingSession {
+    fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, crate::LogNookError> {
+        self.0.request(request)
+    }
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        sink: &crate::DiagnosticSink,
+    ) -> Result<WorkerResponse, crate::LogNookError> {
+        if matches!(request, WorkerRequest::ReadMode01 { .. }) {
+            sink(crate::DiagnosticProgress {
+                adapter_id: None,
+                operation: "acquisition".into(),
+                stage: "pid_read".into(),
+                phase: crate::DiagnosticPhase::Progress,
+                duration_ms: Some(777),
+                signal_ids: vec![],
+                detail: None,
+                transient: None,
+            });
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        self.0.request(request)
+    }
+    fn shutdown(&mut self) {
+        self.0.shutdown();
+    }
+}
+
+#[test]
+fn selected_openport_reads_emit_real_completion_timing_without_extra_requests() {
+    for response in [
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+        Err("OpenPort Timeout: during read: provider error 0x09".into()),
+    ] {
+        let expected_error = response.as_ref().err().cloned();
+        let (session, state) = FakeSession::new([Ok(connected()), Ok(discovery()), response]);
+        let mut adapter = OpenPort2Adapter::new(PathBuf::from("worker.exe"), "opta".into())
+            .with_session(Box::new(CompletionTimingSession(session)));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+        adapter.connect().unwrap();
+        events.lock().unwrap().clear();
+        let result = adapter.read_samples(&[rpm()]);
+        if let Some(error) = &expected_error {
+            assert_eq!(result.unwrap_err().to_string(), *error);
+        } else {
+            let samples = result.unwrap();
+            assert_eq!(samples.len(), 1);
+            assert_eq!(samples[0].value, 1726.0);
+            assert_eq!(
+                samples[0].raw_bytes.as_deref(),
+                Some(&[0x41, 0x0C, 0x1A, 0xF8][..])
+            );
+        }
+        let records = events.lock().unwrap();
+        let terminal = records
+            .iter()
+            .find(|r| {
+                r.operation == "acquisition"
+                    && r.stage == "pid_read"
+                    && matches!(
+                        r.phase,
+                        crate::DiagnosticPhase::Succeeded | crate::DiagnosticPhase::Failed
+                    )
+            })
+            .expect("OpenPort PID read must emit actual completion timing");
+        assert_eq!(terminal.adapter_id.as_deref(), Some("opta"));
+        assert_eq!(terminal.signal_ids, ["engine_rpm"]);
+        assert!(terminal.duration_ms.unwrap() >= 20);
+        assert_ne!(terminal.duration_ms, Some(777));
+        assert_eq!(
+            terminal.phase,
+            if expected_error.is_some() {
+                crate::DiagnosticPhase::Failed
+            } else {
+                crate::DiagnosticPhase::Succeeded
+            }
+        );
+        assert_eq!(terminal.detail, expected_error);
+        assert_eq!(records[0].phase, crate::DiagnosticPhase::Started);
+        assert_eq!(records[1].phase, crate::DiagnosticPhase::Progress);
+        assert_eq!(records.len(), 3);
+        let json = serde_json::to_string(&*records).unwrap();
+        assert!(!json.contains("raw_bytes"));
+        assert!(!json.contains("1726"));
+        assert!(!json.contains("65,12,26,248"));
+        assert_eq!(
+            *state.requests.lock().unwrap(),
+            [
+                WorkerRequest::Connect {
+                    provider_id: "opta".into()
+                },
+                WorkerRequest::DiscoverMode01,
+                WorkerRequest::ReadMode01 { pid: 0x0C }
+            ]
+        );
+    }
 }

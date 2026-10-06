@@ -2,7 +2,7 @@ mod worker_client;
 
 use crate::{
     DiagnosticSink, HardwareAdapter,
-    diagnostics::noop_diagnostic_sink,
+    diagnostics::{diagnostic_stage, noop_diagnostic_sink},
     model::{
         ConnectionCapabilities, DeviceDescriptor, LogNookError, Sample, SampleOrigin,
         SampleQuality, SignalDefinition,
@@ -289,34 +289,51 @@ impl HardwareAdapter for OpenPort2Adapter {
             .map(|signal| signal.pid)
             .filter(|pid| seen_pids.insert(*pid))
         {
-            let payload = self.read_pid(pid)?;
-            if !payload.ecu_id.eq_ignore_ascii_case(&ecu_id) {
-                return Err(LogNookError::new(
-                    "ECU identity changed during the OpenPort session",
-                ));
-            }
-            let response = parse_mode01_payload(ecu_id.clone(), &payload.bytes, pid)
-                .map_err(LogNookError::new)?;
-            for signal in signals.iter().filter(|signal| signal.pid == pid) {
-                let canonical = catalog
-                    .iter()
-                    .find(|known| known.id == signal.id)
-                    .expect("signal was validated against catalog");
-                let value = decode_signal(canonical, &response).map_err(LogNookError::new)?;
-                let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-                samples.push(Sample {
-                    elapsed_ns,
-                    wall_time_unix_ns: now_unix_ns(),
-                    source_id: format!("openport2:{}", self.provider_id),
-                    ecu_id: Some(ecu_id.clone()),
-                    signal_id: signal.id.clone(),
-                    value,
-                    unit: canonical.unit.clone(),
-                    quality: SampleQuality::Valid,
-                    origin: SampleOrigin::Live,
-                    raw_bytes: Some(response.raw_bytes.clone()),
-                });
-            }
+            let sink = self.diagnostic_sink.clone();
+            let signal_ids = signals
+                .iter()
+                .filter(|signal| signal.pid == pid)
+                .map(|signal| signal.id.clone())
+                .collect();
+            diagnostic_stage(
+                &sink,
+                Some(self.provider_id.clone()),
+                "acquisition",
+                "pid_read",
+                signal_ids,
+                || {
+                    let payload = self.read_pid(pid)?;
+                    if !payload.ecu_id.eq_ignore_ascii_case(&ecu_id) {
+                        return Err(LogNookError::new(
+                            "ECU identity changed during the OpenPort session",
+                        ));
+                    }
+                    let response = parse_mode01_payload(ecu_id.clone(), &payload.bytes, pid)
+                        .map_err(LogNookError::new)?;
+                    for signal in signals.iter().filter(|signal| signal.pid == pid) {
+                        let canonical = catalog
+                            .iter()
+                            .find(|known| known.id == signal.id)
+                            .expect("signal was validated against catalog");
+                        let value =
+                            decode_signal(canonical, &response).map_err(LogNookError::new)?;
+                        let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
+                        samples.push(Sample {
+                            elapsed_ns,
+                            wall_time_unix_ns: now_unix_ns(),
+                            source_id: format!("openport2:{}", self.provider_id),
+                            ecu_id: Some(ecu_id.clone()),
+                            signal_id: signal.id.clone(),
+                            value,
+                            unit: canonical.unit.clone(),
+                            quality: SampleQuality::Valid,
+                            origin: SampleOrigin::Live,
+                            raw_bytes: Some(response.raw_bytes.clone()),
+                        });
+                    }
+                    Ok(())
+                },
+            )?;
         }
         Ok(samples)
     }
