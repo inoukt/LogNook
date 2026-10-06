@@ -75,6 +75,7 @@ pub enum CanDiagnosticOutcome {
     Positive,
     Negative { nrc: u8 },
     ResponsePending { nrc: u8 },
+    TransportError { error: crate::CanTransportError },
     WrongEcho,
     Malformed,
     NoResponse,

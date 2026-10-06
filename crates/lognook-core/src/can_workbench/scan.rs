@@ -1,12 +1,14 @@
-use super::worker::{CanCaptureSession, report_transport_error, submit_frame};
+use super::worker::{CanCaptureSession, PendingTx, stamp_tx, submit_frame};
 use super::{
     CanEvidenceRecord, CanEvidenceScanResult, CanScanConfig, CanScanMode, CanScanResult,
-    CanTransport,
+    CanTransport, CanTransportError,
 };
 use crate::{
     CanDiagnosticOutcome, CanDirection, CanFrame, CanSignalDefinition, EngineEvent,
     SamplePublisher,
-    obdlink_sx_protocol::{decode_signal, parse_mode01_payload, parse_supported_pid_payload},
+    obdlink_sx_protocol::{
+        decode_signal, mode01_pid_data_width, parse_mode01_payload, parse_supported_pid_payload,
+    },
 };
 use std::{
     collections::HashMap,
@@ -23,6 +25,7 @@ pub(super) struct ScanTask {
     due: Instant,
     pending: Option<PendingResponse>,
     repeating: bool,
+    transport_error: Option<CanTransportError>,
 }
 struct PendingResponse {
     identifier: String,
@@ -60,11 +63,38 @@ impl ScanTask {
             due: Instant::now(),
             pending: None,
             repeating,
+            transport_error: None,
         }
     }
 
     pub(super) fn config(&self) -> &CanScanConfig {
         &self.config
+    }
+
+    pub(super) fn terminal_result(&self, error: super::CanTransportError) -> Option<CanScanResult> {
+        let pending = self.pending.as_ref()?;
+        Some(CanScanResult {
+            config: self.config.clone(),
+            identifier: pending.identifier.clone(),
+            request: pending.request.clone(),
+            response_frames: pending.frames.clone(),
+            outcome: CanDiagnosticOutcome::TransportError { error },
+            supported_pids: None,
+        })
+    }
+
+    pub(super) fn take_transport_error(&mut self) -> Option<CanTransportError> {
+        self.transport_error.take()
+    }
+
+    pub(super) fn has_pending_response(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub(super) fn advance_after_send_error(&mut self) {
+        self.pending = None;
+        advance_scan(self);
+        self.due = Instant::now() + Duration::from_millis(self.config.pacing_ms);
     }
 }
 
@@ -78,9 +108,12 @@ pub(super) fn tick_scan(
     batch: &mut Vec<CanFrame>,
     started: &Instant,
     source_id: &str,
-    pending_tx: &mut HashMap<u32, (u64, CanFrame)>,
+    pending_tx: &mut HashMap<u32, PendingTx>,
     next_tx_sequence: &mut u64,
 ) {
+    if task.transport_error.is_some() {
+        return;
+    }
     let now = Instant::now();
     if let Some(pending) = task.pending.as_ref() {
         if now < pending.deadline {
@@ -126,7 +159,7 @@ pub(super) fn tick_scan(
     else {
         return;
     };
-    let frame = CanFrame {
+    let mut frame = CanFrame {
         elapsed_ns: 0,
         wall_time_unix_ns: 0,
         can_id,
@@ -135,6 +168,20 @@ pub(super) fn tick_scan(
         data: payload,
         flags: 0,
     };
+    stamp_tx(&mut frame, started);
+    if response_route.is_some() {
+        task.pending = Some(PendingResponse {
+            identifier,
+            request: frame.clone(),
+            frames: Vec::new(),
+            deadline: Instant::now() + Duration::from_millis(task.config.response_timeout_ms),
+            expected_service,
+            expected_identifier,
+            is_mode01,
+            flow_control_sent: false,
+            overflowed: false,
+        });
+    }
     let (frame, _) = match submit_frame(
         frame,
         transport,
@@ -150,24 +197,16 @@ pub(super) fn tick_scan(
     ) {
         Ok(submitted) => submitted,
         Err(error) => {
-            report_transport_error(event_sink, capture, error, None);
-            advance_scan(task);
-            task.due = Instant::now() + Duration::from_millis(task.config.pacing_ms);
+            task.transport_error = Some(error);
             return;
         }
     };
     if response_route.is_some() {
-        task.pending = Some(PendingResponse {
-            identifier,
-            request: frame,
-            frames: Vec::new(),
-            deadline: Instant::now() + Duration::from_millis(task.config.response_timeout_ms),
-            expected_service,
-            expected_identifier,
-            is_mode01,
-            flow_control_sent: false,
-            overflowed: false,
-        });
+        if let Some(pending) = task.pending.as_mut() {
+            pending.request = frame;
+            pending.deadline =
+                Instant::now() + Duration::from_millis(task.config.response_timeout_ms);
+        }
     } else {
         advance_scan(task);
         task.due = Instant::now() + Duration::from_millis(task.config.pacing_ms);
@@ -287,7 +326,7 @@ pub(super) fn accept_scan_response(
     publisher: &SamplePublisher,
     event_sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
     batch: &mut Vec<CanFrame>,
-    pending_tx: &mut HashMap<u32, (u64, CanFrame)>,
+    pending_tx: &mut HashMap<u32, PendingTx>,
     next_tx_sequence: &mut u64,
 ) {
     let Some(pending) = task.pending.as_mut() else {
@@ -342,7 +381,8 @@ pub(super) fn accept_scan_response(
             pending_tx,
             next_tx_sequence,
         ) {
-            report_transport_error(event_sink, capture, error, Some(flow_control));
+            task.transport_error = Some(error);
+            return;
         }
     }
     if let Some(payload) = isotp_payload(&pending.frames) {
@@ -372,72 +412,77 @@ pub(super) fn accept_scan_response(
         if completed.is_mode01 && outcome == CanDiagnosticOutcome::Positive {
             if completed.expected_service == 0x01 && completed.expected_identifier.len() == 1 {
                 let pid = completed.expected_identifier[0];
-                let ecu = format!("{:03X}", frame.can_id);
-                match parse_mode01_payload(ecu, &payload, pid) {
-                    Ok(parsed) if matches!(task.config.mode, CanScanMode::Mode01Pids { .. }) => {
-                        if let Some(signal) = crate::standard_obd_signals()
-                            .into_iter()
-                            .find(|signal| signal.pid == pid)
-                        {
-                            match decode_signal(&signal, &parsed) {
-                                Ok(value) => {
-                                    let sample = crate::Sample {
-                                        elapsed_ns: frame.elapsed_ns,
-                                        wall_time_unix_ns: frame.wall_time_unix_ns,
-                                        source_id: format!("{source_id}:obd"),
-                                        ecu_id: Some(format!("{:03X}", frame.can_id)),
-                                        signal_id: signal.id,
-                                        value,
-                                        unit: signal.unit,
-                                        quality: crate::SampleQuality::Valid,
-                                        origin: crate::SampleOrigin::Live,
-                                        raw_bytes: Some(
-                                            completed
-                                                .frames
-                                                .iter()
-                                                .flat_map(|frame| frame.data.iter().copied())
-                                                .collect(),
-                                        ),
-                                    };
-                                    if let Err(error) = publisher.publish_timestamped_sample(sample)
-                                    {
-                                        (event_sink)(EngineEvent::Error(error.to_string()));
+                if matches!(&task.config.mode, CanScanMode::Mode01Pids { .. }) {
+                    if mode01_pid_data_width(pid).is_some() {
+                        match parse_mode01_payload(format!("{:03X}", frame.can_id), &payload, pid) {
+                            Ok(parsed) => {
+                                if let Some(signal) = crate::standard_obd_signals()
+                                    .into_iter()
+                                    .find(|signal| signal.pid == pid)
+                                {
+                                    match decode_signal(&signal, &parsed) {
+                                        Ok(value) => {
+                                            let sample = crate::Sample {
+                                                elapsed_ns: frame.elapsed_ns,
+                                                wall_time_unix_ns: frame.wall_time_unix_ns,
+                                                source_id: format!("{source_id}:obd"),
+                                                ecu_id: Some(format!("{:03X}", frame.can_id)),
+                                                signal_id: signal.id,
+                                                value,
+                                                unit: signal.unit,
+                                                quality: crate::SampleQuality::Valid,
+                                                origin: crate::SampleOrigin::Live,
+                                                raw_bytes: Some(
+                                                    completed
+                                                        .frames
+                                                        .iter()
+                                                        .flat_map(|frame| {
+                                                            frame.data.iter().copied()
+                                                        })
+                                                        .collect(),
+                                                ),
+                                            };
+                                            if let Err(error) =
+                                                publisher.publish_timestamped_sample(sample)
+                                            {
+                                                (event_sink)(EngineEvent::Error(error.to_string()));
+                                            }
+                                        }
+                                        Err(error) => {
+                                            outcome = CanDiagnosticOutcome::Malformed;
+                                            (event_sink)(EngineEvent::Error(format!(
+                                                "Mode 01 PID {pid:02X} decode failed: {error}"
+                                            )));
+                                        }
                                     }
-                                }
-                                Err(error) => {
-                                    outcome = CanDiagnosticOutcome::Malformed;
-                                    (event_sink)(EngineEvent::Error(format!(
-                                        "Mode 01 PID {pid:02X} decode failed: {error}"
-                                    )));
-                                }
-                            }
-                        }
-                    }
-                    Ok(_) => {
-                        match parse_supported_pid_payload(
-                            format!("{:03X}", frame.can_id),
-                            &payload,
-                            pid,
-                        ) {
-                            Ok(supported) => {
-                                supported_pids = Some(supported.pids);
-                                if !supported.has_more {
-                                    task.page_index = task.pages.len();
                                 }
                             }
                             Err(error) => {
                                 outcome = CanDiagnosticOutcome::Malformed;
                                 (event_sink)(EngineEvent::Error(format!(
-                                    "Mode 01 support page {pid:02X} decode failed: {error}"
+                                    "Mode 01 PID {pid:02X} decode failed: {error}"
                                 )));
                             }
                         }
                     }
-                    Err(error) => {
-                        outcome = CanDiagnosticOutcome::Malformed;
-                        (event_sink)(EngineEvent::Error(format!(
-                            "Mode 01 PID {pid:02X} decode failed: {error}"
-                        )));
+                } else if matches!(&task.config.mode, CanScanMode::Mode01Support { .. }) {
+                    match parse_supported_pid_payload(
+                        format!("{:03X}", frame.can_id),
+                        &payload,
+                        pid,
+                    ) {
+                        Ok(supported) => {
+                            supported_pids = Some(supported.pids);
+                            if !supported.has_more {
+                                task.page_index = task.pages.len();
+                            }
+                        }
+                        Err(error) => {
+                            outcome = CanDiagnosticOutcome::Malformed;
+                            (event_sink)(EngineEvent::Error(format!(
+                                "Mode 01 support page {pid:02X} decode failed: {error}"
+                            )));
+                        }
                     }
                 }
             }
@@ -459,7 +504,7 @@ pub(super) fn accept_scan_response(
     }
 }
 
-fn emit_result(
+pub(super) fn emit_result(
     result: CanScanResult,
     capture: &mut Option<CanCaptureSession>,
     event_sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,

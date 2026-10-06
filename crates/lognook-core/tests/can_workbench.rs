@@ -17,6 +17,7 @@ struct FakeTransport {
     start_delay: Duration,
     session_origin: Option<Instant>,
     next_echo: u32,
+    transmit_error: Option<CanTransportError>,
 }
 
 enum FakeInput {
@@ -76,6 +77,9 @@ impl CanTransport for FakeTransport {
 
     fn transmit(&mut self, frame: &CanFrame) -> Result<u32, CanTransportError> {
         self.note_owner();
+        if let Some(error) = self.transmit_error.take() {
+            return Err(error);
+        }
         self.transmitted
             .send(frame.clone())
             .map_err(|error| CanTransportError::other(error.to_string()))?;
@@ -107,6 +111,29 @@ fn transport_with_start_delay(
     mpsc::Receiver<CanFrame>,
     Arc<Mutex<Vec<ThreadId>>>,
 ) {
+    transport_with_options(start_delay, None)
+}
+
+fn transport_with_transmit_error(
+    error: CanTransportError,
+) -> (
+    Box<dyn CanTransport>,
+    mpsc::Sender<FakeInput>,
+    mpsc::Receiver<CanFrame>,
+    Arc<Mutex<Vec<ThreadId>>>,
+) {
+    transport_with_options(Duration::ZERO, Some(error))
+}
+
+fn transport_with_options(
+    start_delay: Duration,
+    transmit_error: Option<CanTransportError>,
+) -> (
+    Box<dyn CanTransport>,
+    mpsc::Sender<FakeInput>,
+    mpsc::Receiver<CanFrame>,
+    Arc<Mutex<Vec<ThreadId>>>,
+) {
     let (incoming_tx, incoming_rx) = mpsc::channel();
     let (transmitted_tx, transmitted_rx) = mpsc::channel();
     let owners = Arc::new(Mutex::new(Vec::new()));
@@ -118,6 +145,7 @@ fn transport_with_start_delay(
             start_delay,
             session_origin: None,
             next_echo: 0,
+            transmit_error,
         }),
         incoming_tx,
         transmitted_rx,
@@ -548,6 +576,89 @@ fn submitted_tx_is_unconfirmed_until_echo_and_transport_raw_bytes_are_evidence()
 }
 
 #[test]
+fn delayed_echo_from_closed_capture_is_not_written_into_the_next_capture() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_a = temp_path("candump.csv");
+    engine.start_can_capture(&capture_a).unwrap();
+    engine
+        .send_can_frame(frame(0x321, CanDirection::Tx, &[0x11], 0), 10, 1)
+        .unwrap();
+    let submitted_a = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(
+                event,
+                EngineEvent::CanTxStatus {
+                    sequence: 1,
+                    confirmed: false,
+                    ..
+                }
+            )
+        })
+    });
+    engine.stop_can_capture().unwrap();
+
+    let capture_b = temp_path("candump.csv");
+    engine.start_can_capture(&capture_b).unwrap();
+    let mut delayed_echo = submitted_a.clone();
+    delayed_echo.direction = CanDirection::Tx;
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::TxEcho {
+            echo_id: 0,
+            frame: delayed_echo,
+            raw_usb: vec![0x44],
+        }))
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(
+                event,
+                EngineEvent::CanTxStatus {
+                    sequence: 1,
+                    confirmed: true,
+                    ..
+                }
+            )
+        })
+    });
+    engine.stop_can_capture().unwrap();
+
+    let evidence_b: Vec<lognook_core::CanEvidenceRecord> =
+        std::fs::read_to_string(lognook_core::can_evidence_path(&capture_b))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+    assert!(!evidence_b.iter().any(|record| matches!(
+        record,
+        lognook_core::CanEvidenceRecord::TxEchoConfirmed { .. }
+    )));
+    let evidence_a: Vec<lognook_core::CanEvidenceRecord> =
+        std::fs::read_to_string(lognook_core::can_evidence_path(&capture_a))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+    assert!(evidence_a.iter().any(|record| matches!(
+        record,
+        lognook_core::CanEvidenceRecord::TxSubmitted { frame, .. } if frame == &submitted_a
+    )));
+    assert!(!evidence_a.iter().any(|record| matches!(
+        record,
+        lognook_core::CanEvidenceRecord::TxEchoConfirmed { .. }
+    )));
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_a);
+    cleanup_capture(&capture_b);
+}
+
+#[test]
 fn natural_scan_completion_has_its_own_event_and_journal_record() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let event_sink = events.clone();
@@ -960,6 +1071,281 @@ fn malformed_known_width_mode01_reply_is_not_reported_as_positive() {
     engine.stop_can_capture().unwrap();
     engine.disconnect().unwrap();
     let _ = std::fs::remove_file(capture_path);
+}
+
+#[test]
+fn unknown_width_mode01_positive_reply_stays_positive_raw_evidence() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::Mode01Pids {
+                request_id: 0x7E0,
+                response_id: 0x7E8,
+                extended: false,
+                pids: vec![0xAA, 0x00],
+                repeat: false,
+            },
+            pacing_ms: 10,
+            response_timeout_ms: 100,
+            source_candidate_id: None,
+        })
+        .unwrap();
+    let request = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    let response = frame(
+        0x7E8,
+        CanDirection::Rx,
+        &[3, 0x41, 0xAA, 0x01],
+        request.elapsed_ns + 1_000_000,
+    );
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(response.clone())))
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanScanResult(result) if result.identifier == "01 AA")
+        })
+    });
+    let result = events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            EngineEvent::CanScanResult(result) if result.identifier == "01 AA" => {
+                Some(result.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(result.outcome, lognook_core::CanDiagnosticOutcome::Positive);
+    assert_eq!(result.response_frames, [response]);
+    assert!(result.supported_pids.is_none());
+    assert!(!events.lock().unwrap().iter().any(|event| {
+        matches!(event, EngineEvent::Error(message) if message.contains("Mode 01 PID AA"))
+    }));
+    let request_without_decoder = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(request_without_decoder.data, [2, 0x01, 0x00, 0, 0, 0, 0, 0]);
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(frame(
+            0x7E8,
+            CanDirection::Rx,
+            &[5, 0x41, 0x00, 0x10, 0x00, 0x00],
+            request_without_decoder.elapsed_ns + 1_000_000,
+        ))))
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanScanResult(result)
+                if result.identifier == "01 00" && result.outcome == lognook_core::CanDiagnosticOutcome::Malformed)
+        })
+    });
+    assert!(events.lock().unwrap().iter().any(|event| {
+        matches!(event, EngineEvent::Error(message) if message.contains("Mode 01 PID 00"))
+    }));
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn known_width_mode01_without_decoder_accepts_a_valid_raw_reply() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::Mode01Pids {
+                request_id: 0x7E0,
+                response_id: 0x7E8,
+                extended: false,
+                pids: vec![0x00],
+                repeat: false,
+            },
+            pacing_ms: 10,
+            response_timeout_ms: 100,
+            source_candidate_id: None,
+        })
+        .unwrap();
+    let request = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    let response = frame(
+        0x7E8,
+        CanDirection::Rx,
+        &[6, 0x41, 0x00, 0x10, 0x00, 0x00, 0x00],
+        request.elapsed_ns + 1_000_000,
+    );
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(response.clone())))
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanScanResult(result)
+                if result.identifier == "01 00" && result.outcome == lognook_core::CanDiagnosticOutcome::Positive)
+        })
+    });
+    let result = events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            EngineEvent::CanScanResult(result) if result.identifier == "01 00" => {
+                Some(result.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(result.response_frames, [response]);
+    assert!(result.supported_pids.is_none());
+    assert!(
+        !events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event, EngineEvent::Sample(_)))
+    );
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn pending_scan_gets_a_typed_terminal_result_on_device_removal() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::Mode22 {
+                request_id: 0x7E0,
+                response_id: 0x7E8,
+                extended: false,
+                start_did: 0xF190,
+                end_did: 0xF191,
+            },
+            pacing_ms: 10,
+            response_timeout_ms: 1000,
+            source_candidate_id: Some("scion:22:vin".into()),
+        })
+        .unwrap();
+    let request = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    let partial = frame(
+        0x7E8,
+        CanDirection::Rx,
+        &[0x10, 0x0A, 0x62, 0xF1, 0x90, 1, 2, 3],
+        request.elapsed_ns + 1_000_000,
+    );
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(partial.clone())))
+        .unwrap();
+    assert_eq!(
+        transmitted
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .data,
+        [0x30, 0, 0, 0, 0, 0, 0, 0]
+    );
+    incoming
+        .send(FakeInput::Error(CanTransportError {
+            kind: lognook_core::CanTransportErrorKind::Disconnected,
+            message: "adapter removed".into(),
+            raw_usb: Some(vec![0xBA, 0xD0]),
+        }))
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanScanResult(result)
+                if result.request == request && result.response_frames == [partial.clone()])
+        })
+    });
+    let result = events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            EngineEvent::CanScanResult(result) if result.request == request => Some(result.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        serde_json::to_value(result.outcome)
+            .unwrap()
+            .get("TransportError")
+            .is_some()
+    );
+    assert!(transmitted.recv_timeout(Duration::from_millis(50)).is_err());
+    drop(engine);
+    let journal = std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path)).unwrap();
+    assert!(
+        journal
+            .lines()
+            .any(|line| line.contains("scan_result") && line.contains("TransportError"))
+    );
+    assert!(
+        journal
+            .lines()
+            .any(|line| line.contains("transport_error") && line.contains("adapter removed"))
+    );
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn fatal_bus_off_transmit_stops_the_remaining_scan_range() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, transmitted, _) = transport_with_transmit_error(CanTransportError {
+        kind: lognook_core::CanTransportErrorKind::BusOff,
+        message: "CAN controller bus-off".into(),
+        raw_usb: Some(vec![0xBA, 0xD1]),
+    });
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::Mode21 {
+                request_id: 0x7E0,
+                response_id: 0x7E8,
+                extended: false,
+                start_pid: 1,
+                end_pid: 3,
+            },
+            pacing_ms: 10,
+            response_timeout_ms: 100,
+            source_candidate_id: None,
+        })
+        .unwrap();
+    assert!(
+        transmitted
+            .recv_timeout(Duration::from_millis(150))
+            .is_err()
+    );
+    assert!(events.lock().unwrap().iter().any(|event| {
+        matches!(event, EngineEvent::CanTransportError(error)
+            if matches!(error.kind, lognook_core::CanTransportErrorKind::BusOff))
+    }));
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
 }
 
 #[test]

@@ -301,7 +301,7 @@ impl From<&CanScanResult> for CanEvidenceScanResult {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CanTransportErrorKind {
     Timeout,
@@ -315,7 +315,7 @@ pub enum CanTransportErrorKind {
     Other,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct CanTransportError {
     pub kind: CanTransportErrorKind,
     pub message: String,
@@ -335,6 +335,24 @@ impl CanTransportError {
             message: message.into(),
             raw_usb: None,
         }
+    }
+
+    /// Only a frame-format rejection is safe to skip while scanning a range.
+    pub fn terminates_scan(&self) -> bool {
+        !matches!(self.kind, CanTransportErrorKind::UnsupportedFrame)
+    }
+
+    /// These adapter/controller failures close the serialized transport session.
+    pub fn terminates_session(&self) -> bool {
+        matches!(
+            self.kind,
+            CanTransportErrorKind::Disconnected
+                | CanTransportErrorKind::BusOff
+                | CanTransportErrorKind::Controller
+                | CanTransportErrorKind::Protocol
+                | CanTransportErrorKind::Usb
+                | CanTransportErrorKind::Worker
+        )
     }
 
     fn from_candlelight(error: CandlelightError) -> Self {
@@ -376,9 +394,14 @@ pub enum CanTransportEvent {
 pub enum CanEvidenceRecord {
     SessionStarted {
         format_version: u32,
+        #[serde(default)]
+        capture_id: u64,
         bitrate: u32,
         listen_only: bool,
         source_id: String,
+    },
+    SessionFinished {
+        capture_id: u64,
     },
     ScanStarted {
         config: CanEvidenceScanConfig,
@@ -393,15 +416,21 @@ pub enum CanEvidenceRecord {
         result: CanEvidenceScanResult,
     },
     TxAttempt {
+        #[serde(default)]
+        capture_id: u64,
         sequence: u64,
         frame: CanFrame,
     },
     TxSubmitted {
+        #[serde(default)]
+        capture_id: u64,
         sequence: u64,
         echo_id: u32,
         frame: CanFrame,
     },
     TxEchoConfirmed {
+        #[serde(default)]
+        capture_id: u64,
         sequence: u64,
         echo_id: u32,
         submitted_frame: CanFrame,
@@ -633,7 +662,8 @@ impl CanWorkbench {
             .map_err(|_| LogNookError::new("CAN worker has stopped"))?;
         response
             .recv()
-            .map_err(|_| LogNookError::new("CAN worker did not acknowledge scan stop"))?;
+            .map_err(|_| LogNookError::new("CAN worker did not acknowledge scan stop"))?
+            .map_err(LogNookError::new)?;
         Ok(())
     }
 
@@ -693,6 +723,36 @@ mod tests {
         });
         assert_eq!(error.kind, CanTransportErrorKind::Controller);
         assert_eq!(error.raw_usb, Some(raw));
+    }
+
+    #[test]
+    fn transport_error_classification_stops_bus_off_and_removal_but_skips_unsupported_frames() {
+        for kind in [
+            CanTransportErrorKind::BusOff,
+            CanTransportErrorKind::Disconnected,
+        ] {
+            let error = CanTransportError {
+                kind,
+                message: "terminal".into(),
+                raw_usb: None,
+            };
+            assert!(error.terminates_scan());
+            assert!(error.terminates_session());
+        }
+        let timeout = CanTransportError {
+            kind: CanTransportErrorKind::Timeout,
+            message: "timeout".into(),
+            raw_usb: None,
+        };
+        assert!(timeout.terminates_scan());
+        assert!(!timeout.terminates_session());
+        let unsupported = CanTransportError {
+            kind: CanTransportErrorKind::UnsupportedFrame,
+            message: "unsupported frame".into(),
+            raw_usb: None,
+        };
+        assert!(!unsupported.terminates_scan());
+        assert!(!unsupported.terminates_session());
     }
 }
 

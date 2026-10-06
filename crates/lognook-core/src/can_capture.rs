@@ -77,8 +77,29 @@ pub struct CanCaptureWriter<W: Write = File> {
 impl CanCaptureWriter<File> {
     /// Atomically refuse existing files, retaining any earlier raw evidence.
     pub fn create_new(path: impl AsRef<Path>) -> Result<Self, LogNookError> {
-        Self::from_writer(OpenOptions::new().write(true).create_new(true).open(path)?)
+        let path = path.as_ref();
+        let file = OpenOptions::new().write(true).create_new(true).open(path)?;
+        initialize_created_capture(path, file)
     }
+}
+
+fn initialize_created_capture<W: Write>(
+    path: &Path,
+    writer: W,
+) -> Result<CanCaptureWriter<W>, LogNookError> {
+    let mut capture = match CanCaptureWriter::from_writer(writer) {
+        Ok(capture) => capture,
+        Err(error) => {
+            let _ = std::fs::remove_file(path);
+            return Err(error);
+        }
+    };
+    if let Err(error) = capture.csv.flush() {
+        drop(capture);
+        let _ = std::fs::remove_file(path);
+        return Err(error.into());
+    }
+    Ok(capture)
 }
 
 impl<W: Write> CanCaptureWriter<W> {
@@ -322,4 +343,51 @@ pub fn replay_can_capture<R: Read>(
         }
     }
     Ok(frames)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs::OpenOptions,
+        io,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct FailHeaderWrite(File);
+
+    impl Write for FailHeaderWrite {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("simulated capture header failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.0.flush()
+        }
+    }
+
+    fn temp_path() -> std::path::PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("lognook-header-{stamp}.csv"))
+    }
+
+    #[test]
+    fn header_initialization_failure_removes_only_the_new_capture_file() {
+        let path = temp_path();
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        assert!(initialize_created_capture(&path, FailHeaderWrite(file)).is_err());
+        assert!(!path.exists());
+
+        std::fs::write(&path, b"existing capture").unwrap();
+        assert!(CanCaptureWriter::create_new(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"existing capture");
+        let _ = std::fs::remove_file(path);
+    }
 }

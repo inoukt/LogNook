@@ -109,6 +109,7 @@ pub struct CanCaptureReplayReport {
     pub analyzer_issues: Vec<String>,
     pub census: Vec<lognook_core::CanCensusRow>,
     pub evidence_journal: Option<String>,
+    pub session_finalized: Option<bool>,
     pub evidence_records: u64,
     pub scan_results: u64,
     pub tx_submitted: u64,
@@ -142,6 +143,7 @@ fn replay_can_capture_report_path(
         analyzer_issues: Vec::new(),
         census: Vec::new(),
         evidence_journal: None,
+        session_finalized: None,
         evidence_records: 0,
         scan_results: 0,
         tx_submitted: 0,
@@ -191,6 +193,7 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
     report.evidence_journal = Some(journal_path.to_string_lossy().into_owned());
     let mut reader = BufReader::new(file);
     let mut line_number = 0u64;
+    let mut active_capture_id = None;
     loop {
         let line = match read_evidence_line(&mut reader) {
             Ok(EvidenceLine::End) => break,
@@ -218,6 +221,21 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
             Ok(record) => {
                 report.evidence_records += 1;
                 match record {
+                    CanEvidenceRecord::SessionStarted { capture_id, .. } => {
+                        active_capture_id = Some(capture_id);
+                        report.session_finalized = Some(false)
+                    }
+                    CanEvidenceRecord::SessionFinished { capture_id }
+                        if active_capture_id == Some(capture_id) =>
+                    {
+                        report.session_finalized = Some(true)
+                    }
+                    CanEvidenceRecord::SessionFinished { .. } => {
+                        push_bounded(
+                            &mut report.evidence_errors,
+                            format!("Journal line {line_number}: unmatched session finish"),
+                        );
+                    }
                     CanEvidenceRecord::ScanResult { .. } => report.scan_results += 1,
                     CanEvidenceRecord::TxSubmitted { .. } => report.tx_submitted += 1,
                     CanEvidenceRecord::TxEchoConfirmed { .. } => report.tx_echo_confirmed += 1,
@@ -372,6 +390,7 @@ mod tests {
             "{}",
             serde_json::to_string(&CanEvidenceRecord::SessionStarted {
                 format_version: 1,
+                capture_id: 1,
                 bitrate: 500_000,
                 listen_only: true,
                 source_id: "can:test".into(),
@@ -433,11 +452,13 @@ mod tests {
                 },
             },
             CanEvidenceRecord::TxSubmitted {
+                capture_id: 1,
                 sequence: 1,
                 echo_id: 9,
                 frame: frame.clone(),
             },
             CanEvidenceRecord::TxEchoConfirmed {
+                capture_id: 1,
                 sequence: 1,
                 echo_id: 9,
                 submitted_frame: frame.clone(),
@@ -445,20 +466,22 @@ mod tests {
                 raw_usb: vec![0xAA],
             },
         ];
-        std::fs::write(
-            &journal_path,
-            records
-                .iter()
-                .map(|record| serde_json::to_string(record).unwrap())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-        .unwrap();
+        let mut legacy_submission = serde_json::to_value(&records[1]).unwrap();
+        legacy_submission["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("capture_id");
+        let mut lines: Vec<String> = records
+            .iter()
+            .map(|record| serde_json::to_string(record).unwrap())
+            .collect();
+        lines.push(legacy_submission.to_string());
+        std::fs::write(&journal_path, lines.join("\n")).unwrap();
 
         let report = replay_can_capture_report_path(&path, &[]).unwrap();
-        assert_eq!(report.evidence_records, 3);
+        assert_eq!(report.evidence_records, 4);
         assert_eq!(report.scan_results, 1);
-        assert_eq!(report.tx_submitted, 1);
+        assert_eq!(report.tx_submitted, 2);
         assert_eq!(report.tx_echo_confirmed, 1);
         assert!(report.evidence_errors.is_empty());
         assert_eq!(
@@ -467,5 +490,70 @@ mod tests {
         );
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(journal_path);
+    }
+
+    #[test]
+    fn replay_report_distinguishes_clean_close_from_interrupted_capture() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let started = serde_json::json!({
+            "record":"session_started",
+            "data":{"format_version":2,"capture_id":1,"bitrate":500000,"listen_only":true,"source_id":"can:test"}
+        });
+        let finished = serde_json::json!({"record":"session_finished","data":{"capture_id":1}});
+        let mut reports = Vec::new();
+        for (suffix, journal) in [
+            ("complete", vec![started.clone(), finished]),
+            ("interrupted", vec![started]),
+            (
+                "orphan-finish",
+                vec![serde_json::json!({
+                    "record":"session_finished",
+                    "data":{"capture_id":1}
+                })],
+            ),
+        ] {
+            let path =
+                std::env::temp_dir().join(format!("lognook-close-{stamp}-{suffix}.candump.csv"));
+            CanCaptureWriter::create_new(&path)
+                .unwrap()
+                .finish()
+                .unwrap();
+            let journal_path = can_evidence_path(&path);
+            std::fs::write(
+                &journal_path,
+                journal
+                    .iter()
+                    .map(serde_json::Value::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .unwrap();
+            reports.push((
+                replay_can_capture_report_path(&path, &[]).unwrap(),
+                path,
+                journal_path,
+            ));
+        }
+        let complete = serde_json::to_value(&reports[0].0).unwrap();
+        let interrupted = serde_json::to_value(&reports[1].0).unwrap();
+        assert_eq!(
+            complete.get("session_finalized").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            interrupted
+                .get("session_finalized")
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        assert!(reports[2].0.session_finalized.is_none());
+        assert!(!reports[2].0.evidence_errors.is_empty());
+        for (_, path, journal_path) in reports {
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(journal_path);
+        }
     }
 }

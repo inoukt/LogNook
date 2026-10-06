@@ -230,6 +230,7 @@ pub enum EngineEvent {
     CanWorkbenchStatus(crate::CanWorkbenchStatus),
     CanScanCompleted(crate::CanScanConfig),
     CanTxStatus {
+        capture_id: u64,
         sequence: u64,
         echo_id: u32,
         frame: crate::CanFrame,
