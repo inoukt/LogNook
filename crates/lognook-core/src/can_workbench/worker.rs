@@ -1,8 +1,8 @@
 use super::scan::{self, ScanTask, accept_scan_response, task_finished, tick_scan};
 use super::{
-    CanEvidenceRecord, CanScanConfig, CanSignalDefinition, CanTransport, CanTransportError,
-    CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig, CanTriggerEndReason,
-    CanTriggerRecorder, CanWorkbenchStatus,
+    CanEvidenceRecord, CanManualEventMark, CanScanConfig, CanSignalDefinition, CanTransport,
+    CanTransportError, CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig,
+    CanTriggerEndReason, CanTriggerRecorder, CanWorkbenchStatus,
 };
 use crate::{
     CanCaptureWriter, CanDirection, CanFrame, EngineEvent, SamplePublisher, decode_can_signal,
@@ -32,6 +32,12 @@ pub(super) enum Command {
     StopScan(mpsc::Sender<Result<(), String>>),
     ArmTrigger(CanTriggerConfig, mpsc::Sender<Result<(), String>>),
     TriggerNow(mpsc::Sender<Result<(), String>>),
+    MarkEvent {
+        label: String,
+        pre_ns: i64,
+        post_ns: i64,
+        reply: mpsc::Sender<Result<CanManualEventMark, String>>,
+    },
     DisarmTrigger(mpsc::Sender<Result<(), String>>),
     Shutdown,
 }
@@ -600,6 +606,30 @@ fn handle_command(
                     })
             } else {
                 Err("Paired raw capture closed before the trigger".into())
+            };
+            let _ = reply.send(result);
+        }
+        Command::MarkEvent {
+            label,
+            pre_ns,
+            post_ns,
+            reply,
+        } => {
+            let mark = CanManualEventMark {
+                label,
+                elapsed_ns: elapsed_ns(started),
+                pre_ns,
+                post_ns,
+            };
+            let result = if let Some(session) = capture.as_mut() {
+                session
+                    .record(&CanEvidenceRecord::ManualEventMarked {
+                        capture_id: session.capture_id(),
+                        mark: mark.clone(),
+                    })
+                    .map(|()| mark)
+            } else {
+                Err("Start a raw CAN capture before marking an event".to_owned())
             };
             let _ = reply.send(result);
         }

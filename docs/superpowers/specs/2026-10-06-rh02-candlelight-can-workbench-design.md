@@ -32,6 +32,7 @@ Add a typed `CanFrame` model carrying host elapsed/UTC time, arbitration ID and 
 
 - Run analysis from the same timestamped frame stream used by the raw capture; do not add a second reader or generate display-only samples.
 - Provide a Bus Census with per-ID frame count, rate, observed DLC, inter-arrival timing, active/static payload bytes, and counter/checksum candidates. Candidate labels are statistical hints, not decoded or validated facts.
+- Record repeatable, operator-labeled vehicle event marks during a raw capture, each with its own before/after window. On replay, group marks by label and rank CAN IDs and payload-byte transitions or rate changes that recur around the marked actions. Preserve timestamps and raw frames; present the ranking as research evidence, not decoded meaning.
 - Provide a pinned-ID byte view with recent values and min/max/latest summaries for each observed payload byte.
 - Provide live signal scopes for multiple selected traces on a shared time axis. A raw CAN field definition contains CAN ID and frame format, bit start/length, byte order, signedness, factor, offset, display name, and unit. Support fields up to the classic CAN payload width; reject definitions that do not fit the current frame. Offer byte-aligned integer shortcuts while keeping bit-level selection available.
 - Scope OBD Mode 01 PIDs as decoded measurements alongside raw broadcast fields. Broadcast fields use the frame receive timestamp and enter the existing `Sample` pipeline with their own `source_id`/`signal_id`, unit, and original frame bytes. The existing graph, recording, CSV, and replay paths then render the actual acquired values. Missing frames remain gaps; do not interpolate fabricated values.
@@ -65,7 +66,7 @@ Add a typed `CanFrame` model carrying host elapsed/UTC time, arbitration ID and 
 
 ## User interface
 
-Add a CANable/Candlelight choice to the existing adapter controls. Show detected USB identity, selected bitrate, connection state, mode, receive/transmit counters, and errors. The CAN Workbench provides explicit `Listen` and `Active OBD` modes, `Start`/`Stop`, raw frames, per-ID rates, and capture export. Disable switching adapters while acquisition, recording, replay, or a research queue is active. Do not make the CAN page a second graph or second request owner.
+Add a CANable/Candlelight choice to the existing adapter controls. Show detected USB identity, selected bitrate, connection state, mode, receive/transmit counters, and errors. The CAN Workbench provides explicit `Listen` and `Active OBD` modes, `Start`/`Stop`, raw frames, per-ID rates, repeatable labeled event marks, and capture export. Disable switching adapters while acquisition, recording, replay, or a research queue is active. Do not make the CAN page a second graph or second request owner.
 
 The firmware's support for hardware ID filtering is not assumed. Apply filters only to the displayed summary; retain every captured frame in an active saved capture. Keep capture ingestion and disk writes off the UI thread; coalesce view updates without dropping frames from the saved artifact.
 
@@ -73,7 +74,7 @@ The firmware's support for hardware ID filtering is not assumed. Apply filters o
 
 - Unit fixtures cover GS_USB control-transfer/frame encoding, standard and extended frame decoding, listen-only setup, raw frame transmission, bitrate validation, disconnect/errors, and frame timestamps.
 - Fake-device tests prove only one owner reads the USB endpoint, that scans honor configured ranges/pacing/Stop, and that active OBD responses retain their ECU IDs and exact raw frames.
-- Core tests cover Bus Census timing/byte summaries, payload field extraction (bit positions, signedness, byte order, scaling, short frames), timestamp-preserving scope samples, pre/post trigger windows, and analyzer replay from saved raw CSV.
+- Core tests cover Bus Census timing/byte summaries, repeated manual-event correlation, payload field extraction (bit positions, signedness, byte order, scaling, short frames), timestamp-preserving scope samples, pre/post trigger windows, and analyzer replay from saved raw CSV.
 - Core tests prove Mode 01 samples and finite OEM values use the existing sample pipeline without mixing ECU identities or changing catalog validation.
 - UI tests cover device selection, listen/active bench modes, bitrate and raw-frame controls, scan range/pacing/Stop, frame/rate display state, multiple signal traces, scope field configuration, trigger state, capture export, and replay.
 - Acceptance on hardware: enumerate the RH-02, confirm Candlelight/GS_USB identity, verify passive capture without TX, verify a standard Mode 01 supported-PID response and selected live signal, then try one source-backed Toyota/Scion catalog candidate. Record the actual bitrate, ECU route, latency, raw request/response, and observed rate. A returned response is evidence, not automatic vehicle validation.

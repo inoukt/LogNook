@@ -2,8 +2,8 @@
 use crate::candlelight::{CandlelightError, CandlelightTransport};
 use crate::{
     CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanDiagnosticOutcome, CanDirection, CanFrame,
-    CanSignalDefinition, CanTriggerCapture, CanTriggerConfig, CanTriggerRecorder, EngineEvent,
-    LogNookError, SamplePublisher,
+    CanManualEventMark, CanSignalDefinition, CanTriggerCapture, CanTriggerConfig,
+    CanTriggerRecorder, EngineEvent, LogNookError, SamplePublisher,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -466,6 +466,10 @@ pub enum CanEvidenceRecord {
         post_ns: i64,
         max_frames: usize,
     },
+    ManualEventMarked {
+        capture_id: u64,
+        mark: CanManualEventMark,
+    },
     TriggerCompleted {
         capture_id: u64,
         trigger_elapsed_ns: i64,
@@ -707,6 +711,28 @@ impl CanWorkbench {
         self.request(Command::TriggerNow)
     }
 
+    pub fn mark_event(
+        &self,
+        label: &str,
+        pre_ms: u64,
+        post_ms: u64,
+    ) -> Result<CanManualEventMark, LogNookError> {
+        let label = label.trim();
+        if label.is_empty() || label.len() > 128 {
+            return Err(LogNookError::new("Event label must contain 1-128 bytes"));
+        }
+        if pre_ms > 60_000 || post_ms > 60_000 {
+            return Err(LogNookError::new("Event windows must be at most 60000 ms"));
+        }
+        let label = label.to_owned();
+        self.request(|reply| Command::MarkEvent {
+            label,
+            pre_ns: (pre_ms * 1_000_000) as i64,
+            post_ns: (post_ms * 1_000_000) as i64,
+            reply,
+        })
+    }
+
     pub fn disarm_trigger(&self) -> Result<(), LogNookError> {
         self.request(Command::DisarmTrigger)
     }
@@ -753,10 +779,10 @@ impl CanWorkbench {
         Ok(())
     }
 
-    fn request(
+    fn request<T>(
         &self,
-        command: impl FnOnce(mpsc::Sender<Result<(), String>>) -> Command,
-    ) -> Result<(), LogNookError> {
+        command: impl FnOnce(mpsc::Sender<Result<T, String>>) -> Command,
+    ) -> Result<T, LogNookError> {
         let (reply, response) = mpsc::channel();
         self.commands
             .send(command(reply))

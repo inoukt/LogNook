@@ -2,7 +2,7 @@ import type { SignalOption } from "./workspace";
 import type {
   CanCaptureComparison, CanCaptureReplayReport, CanCorrelationHypothesis, CanDeviceCandidate, CanDeviceSelection,
   CanDiagnosticRoute, CanFrame,
-  CanScanConfig, CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult,
+  CanManualEventMark, CanScanConfig, CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult,
   CanTxStatus, CanWorkbenchConfig, CanWorkbenchStatus, Sample,
 } from "./types";
 
@@ -18,6 +18,8 @@ export function createCanWorkbenchCommands(invoke: CanInvoke) {
     configureFields: (fields: CanSignalDefinition[]) => invoke<void>("configure_can_signals", { fields }),
     startCapture: (path: string) => invoke<void>("start_can_capture", { path }),
     stopCapture: () => invoke<void>("stop_can_capture"),
+    markEvent: (label: string, preMs: number, postMs: number) =>
+      invoke<CanManualEventMark>("mark_can_event", { label, preMs, postMs }),
     sendFrame: (frame: CanFrame, pacingMs: number, repeat: number) =>
       invoke<void>("send_can_frame", { frame, pacingMs, repeat }),
     startScan: (config: CanScanConfig) => invoke<void>("start_can_scan", { config }),

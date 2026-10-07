@@ -16,3 +16,14 @@ test("OEM search results stay in a vertical-only column without covering cards",
   assert.match(list, /scrollbar-gutter:\s*stable/);
   assert.match(candidate, /min-width:\s*0/);
 });
+
+test("OEM research uses the shared heading and compact, single-line candidate rows", () => {
+  const candidateTitle = rule("\\.oem-candidate > header strong");
+  const candidateHeader = rule("\\.oem-candidate > header");
+
+  assert.doesNotMatch(source, /<h3>OEM research catalog<\/h3>/);
+  assert.match(source, /Source-backed candidates · research only/);
+  assert.match(candidateTitle, /white-space:\s*nowrap/);
+  assert.match(candidateHeader, /gap:\s*4px/);
+  assert.match(rule("\\.oem-research"), /gap:\s*4px/);
+});

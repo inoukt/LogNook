@@ -258,6 +258,48 @@ fn trigger_completes_at_post_boundary_without_needing_an_extra_frame() {
 }
 
 #[test]
+fn repeated_manual_event_marks_rank_the_message_that_changes_at_each_mark() {
+    let marks: Vec<_> = (0..6)
+        .map(|index| CanManualEventMark {
+            label: "Traction control toggle".into(),
+            elapsed_ns: 2_000_000_000 + i64::from(index) * 5_000_000_000,
+            pre_ns: 1_000_000_000,
+            post_ns: 1_000_000_000,
+        })
+        .collect();
+    let mut frames = Vec::new();
+    for (index, mark) in marks.iter().enumerate() {
+        let before = (index % 2) as u8;
+        let after = 1 - before;
+        frames.push(frame(mark.elapsed_ns - 100_000_000, 0x123, &[before, 9]));
+        frames.push(frame(mark.elapsed_ns - 90_000_000, 0x124, &[7]));
+        frames.push(frame(mark.elapsed_ns + 100_000_000, 0x123, &[after, 9]));
+        frames.push(frame(mark.elapsed_ns + 110_000_000, 0x124, &[7]));
+    }
+    frames.sort_by_key(|frame| frame.elapsed_ns);
+
+    let report = correlate_can_events(&marks, frames.iter());
+    assert_eq!(report.len(), 1);
+    assert_eq!(report[0].label, "Traction control toggle");
+    assert_eq!(report[0].event_count, 6);
+    assert_eq!(report[0].candidates[0].can_id, 0x123);
+    assert_eq!(report[0].candidates[0].changed_events, 6);
+    assert_eq!(report[0].candidates[0].changed_bytes[0].byte_index, 0);
+    assert_eq!(
+        report[0].candidates[0].changed_bytes[0].transitions.len(),
+        2
+    );
+    assert_eq!(
+        report[0].candidates[0].changed_bytes[0].transitions[0].occurrences,
+        3
+    );
+    assert_eq!(
+        report[0].candidates[0].changed_bytes[0].transitions[1].occurrences,
+        3
+    );
+}
+
+#[test]
 fn segmented_request_latency_starts_at_first_observed_frame() {
     let mut a = analyzer();
     a.feed(&frame(0, 0x700, &[0x10, 8, 0x22, 0x12, 0x34, 1, 2, 3]))

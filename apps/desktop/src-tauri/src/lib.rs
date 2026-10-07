@@ -96,6 +96,7 @@ pub fn run() {
             commands::configure_can_signals,
             commands::start_can_capture,
             commands::stop_can_capture,
+            commands::mark_can_event,
             commands::send_can_frame,
             commands::start_can_scan,
             commands::stop_can_scan,

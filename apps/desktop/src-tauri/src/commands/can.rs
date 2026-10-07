@@ -2,12 +2,13 @@ use super::engine;
 use crate::AppState;
 use lognook_core::{
     CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanCaptureWriter, CanCorrelationHypothesis,
-    CanDeviceCandidate, CanDeviceSelection, CanDiagnosticRoute, CanEvidenceRecord, CanFrame,
-    CanIdComparison, CanRequestTiming, CanScanConfig, CanScanMode, CanSignalDefinition,
-    CanTriggerCapture, CanTriggerCaptureResult, CanWorkbenchConfig, CanWorkbenchStatus,
-    OemCandidateTrySpec, OemCatalog, Sample, SampleQuality,
-    available_can_adapters as list_can_adapters, can_dbc_skeleton, can_evidence_path,
-    compare_can_census, decode_can_signal, oem_candidate_scan_config,
+    CanDeviceCandidate, CanDeviceSelection, CanDiagnosticRoute, CanEventCorrelation,
+    CanEventCorrelator, CanEvidenceRecord, CanFrame, CanIdComparison, CanManualEventMark,
+    CanRequestTiming, CanScanConfig, CanScanMode, CanSignalDefinition, CanTriggerCapture,
+    CanTriggerCaptureResult, CanWorkbenchConfig, CanWorkbenchStatus, OemCandidateTrySpec,
+    OemCatalog, Sample, SampleQuality, available_can_adapters as list_can_adapters,
+    can_dbc_skeleton, can_evidence_path, compare_can_census, decode_can_signal,
+    oem_candidate_scan_config,
 };
 use serde::Serialize;
 use std::{
@@ -133,6 +134,18 @@ pub async fn stop_can_capture(state: State<'_, AppState>) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub async fn mark_can_event(
+    state: State<'_, AppState>,
+    label: String,
+    pre_ms: u64,
+    post_ms: u64,
+) -> Result<CanManualEventMark, String> {
+    engine(&state)?
+        .mark_can_event(&label, pre_ms, post_ms)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn send_can_frame(
     state: State<'_, AppState>,
     frame: CanFrame,
@@ -240,6 +253,8 @@ pub struct CanCaptureReplayReport {
     pub trigger_completions: u64,
     pub trigger_early_ends: u64,
     pub trigger_window_exports: u64,
+    pub manual_event_marks: Vec<CanManualEventMark>,
+    pub event_correlations: Vec<CanEventCorrelation>,
     pub evidence_errors: Vec<String>,
 }
 
@@ -302,9 +317,13 @@ fn replay_can_capture_report_path_with_samples(
         trigger_completions: 0,
         trigger_early_ends: 0,
         trigger_window_exports: 0,
+        manual_event_marks: Vec::new(),
+        event_correlations: Vec::new(),
         evidence_errors: Vec::new(),
     };
     summarize_evidence_journal(path, &mut report);
+    let mut event_correlator =
+        CanEventCorrelator::new(&report.manual_event_marks).map_err(|error| error.to_string())?;
     let mut analysis_config = CanAnalysisConfig::default();
     analysis_config.diagnostic_routes = report.diagnostic_routes.clone();
     let mut analyzer = CanAnalyzer::new(analysis_config).map_err(|error| error.to_string())?;
@@ -342,6 +361,11 @@ fn replay_can_capture_report_path_with_samples(
                 report.analyzer_issues.push(error.to_string());
             }
         }
+        if let Err(error) = event_correlator.feed(&frame)
+            && report.analyzer_issues.len() < 100
+        {
+            report.analyzer_issues.push(error.to_string());
+        }
         if frame.direction == lognook_core::CanDirection::Rx {
             for field in fields {
                 match decode_can_signal(&frame, field, "can:capture") {
@@ -356,6 +380,7 @@ fn replay_can_capture_report_path_with_samples(
         }
     }
     report.census = analyzer.census();
+    report.event_correlations = event_correlator.finish();
     if let Some(last) = last_elapsed_ns {
         analyzer.advance_time(last.saturating_add(1_000_000_001));
     }
@@ -564,6 +589,7 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
     let mut route_modes = BTreeMap::<(u32, u32, bool), BTreeSet<String>>::new();
     let mut route_candidates = BTreeMap::<(u32, u32, bool), BTreeSet<String>>::new();
     let mut route_limit_reported = false;
+    let mut event_mark_limit_reported = false;
     let journal_path = can_evidence_path(path);
     let file = match File::open(&journal_path) {
         Ok(file) => file,
@@ -667,6 +693,20 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
                     CanEvidenceRecord::TxEchoConfirmed { .. } => report.tx_echo_confirmed += 1,
                     CanEvidenceRecord::TransportError { .. } => report.transport_errors += 1,
                     CanEvidenceRecord::TriggerMarked { .. } => report.trigger_marks += 1,
+                    CanEvidenceRecord::ManualEventMarked { capture_id, mark }
+                        if active_capture_id == Some(capture_id) =>
+                    {
+                        if report.manual_event_marks.len() < 256 {
+                            report.manual_event_marks.push(mark);
+                        } else if !event_mark_limit_reported {
+                            event_mark_limit_reported = true;
+                            push_bounded(
+                                &mut report.evidence_errors,
+                                "Event correlation analysis is capped at 256 marks; remaining marks stay in the JSONL sidecar".into(),
+                            );
+                        }
+                    }
+                    CanEvidenceRecord::ManualEventMarked { .. } => {}
                     CanEvidenceRecord::TriggerCompleted { complete: true, .. } => {
                         report.trigger_completions += 1
                     }
@@ -794,8 +834,9 @@ mod tests {
     use super::*;
     use lognook_core::{
         CanByteOrder, CanCaptureWriter, CanDiagnosticOutcome, CanDirection, CanEvidenceScanConfig,
-        CanEvidenceScanResult, CanFrame, CanScanMode, CanSignalDefinition, CanTriggerCapture,
-        CanTriggerCaptureResult, CanTriggerEndReason, SampleOrigin, SampleQuality,
+        CanEvidenceScanResult, CanFrame, CanManualEventMark, CanScanMode, CanSignalDefinition,
+        CanTriggerCapture, CanTriggerCaptureResult, CanTriggerEndReason, SampleOrigin,
+        SampleQuality,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -869,6 +910,94 @@ mod tests {
                 .any(|issue| issue.contains("ID limit"))
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn replay_ranks_messages_that_change_at_repeated_manual_event_marks() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-event-mark-{stamp}.candump.csv"));
+        let mut writer = CanCaptureWriter::create_new(&path).unwrap();
+        for (elapsed_ns, can_id, data) in [
+            (80, 0x123, vec![0]),
+            (85, 0x124, vec![7]),
+            (110, 0x123, vec![1]),
+            (115, 0x124, vec![7]),
+            (280, 0x123, vec![1]),
+            (285, 0x124, vec![7]),
+            (310, 0x123, vec![0]),
+            (315, 0x124, vec![7]),
+        ] {
+            writer
+                .write_frame(&CanFrame {
+                    elapsed_ns,
+                    wall_time_unix_ns: 1_000 + elapsed_ns,
+                    can_id,
+                    extended: false,
+                    direction: CanDirection::Rx,
+                    data,
+                    flags: 0,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let journal_path = can_evidence_path(&path);
+        let mut journal = File::create(&journal_path).unwrap();
+        for record in [
+            CanEvidenceRecord::SessionStarted {
+                format_version: 2,
+                capture_id: 9,
+                bitrate: 500_000,
+                listen_only: true,
+                source_id: "can:test".into(),
+            },
+            CanEvidenceRecord::ManualEventMarked {
+                capture_id: 9,
+                mark: CanManualEventMark {
+                    label: "Traction control toggle".into(),
+                    elapsed_ns: 100,
+                    pre_ns: 50,
+                    post_ns: 50,
+                },
+            },
+            CanEvidenceRecord::ManualEventMarked {
+                capture_id: 9,
+                mark: CanManualEventMark {
+                    label: "Traction control toggle".into(),
+                    elapsed_ns: 300,
+                    pre_ns: 50,
+                    post_ns: 50,
+                },
+            },
+            CanEvidenceRecord::SessionFinished { capture_id: 9 },
+        ] {
+            serde_json::to_writer(&mut journal, &record).unwrap();
+            use std::io::Write;
+            journal.write_all(b"\n").unwrap();
+        }
+        drop(journal);
+
+        let report = replay_can_capture_report_path(&path, &[]).unwrap();
+        assert_eq!(report.manual_event_marks.len(), 2);
+        assert_eq!(report.event_correlations.len(), 1);
+        assert_eq!(report.event_correlations[0].event_count, 2);
+        assert_eq!(report.event_correlations[0].candidates[0].can_id, 0x123);
+        assert_eq!(report.event_correlations[0].candidates[0].changed_events, 2);
+        assert_eq!(
+            report.event_correlations[0].candidates[0].changed_bytes[0].byte_index,
+            0
+        );
+        assert_eq!(
+            report.event_correlations[0].candidates[0].changed_bytes[0]
+                .transitions
+                .len(),
+            2
+        );
+
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(journal_path);
     }
 
     #[test]

@@ -122,6 +122,288 @@ pub struct CanCorrelationHypothesis {
     pub hypothesis: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanManualEventMark {
+    pub label: String,
+    pub elapsed_ns: i64,
+    pub pre_ns: i64,
+    pub post_ns: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanEventByteTransition {
+    pub before: Option<u8>,
+    pub after: Option<u8>,
+    pub occurrences: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanEventByteChange {
+    pub byte_index: u8,
+    pub changed_events: usize,
+    pub transitions: Vec<CanEventByteTransition>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanEventCandidate {
+    pub can_id: u32,
+    pub extended: bool,
+    pub observed_events: usize,
+    pub changed_events: usize,
+    pub count_change_events: usize,
+    pub before_frames: u64,
+    pub after_frames: u64,
+    pub changed_bytes: Vec<CanEventByteChange>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanEventCorrelation {
+    pub label: String,
+    pub event_count: usize,
+    pub candidates: Vec<CanEventCandidate>,
+}
+
+#[derive(Default)]
+struct EventIdCounts {
+    before_frames: u64,
+    after_frames: u64,
+    before_last: [Option<u8>; 8],
+    after_first: [Option<u8>; 8],
+}
+
+#[derive(Default)]
+struct EventCandidateAggregate {
+    observed_events: usize,
+    changed_events: usize,
+    count_change_events: usize,
+    before_frames: u64,
+    after_frames: u64,
+    transitions: BTreeMap<(usize, Option<u8>, Option<u8>), usize>,
+}
+
+/// Collect bounded before/after evidence for manually marked vehicle actions.
+pub struct CanEventCorrelator {
+    marks: Vec<CanManualEventMark>,
+    per_mark: Vec<BTreeMap<(u32, bool), EventIdCounts>>,
+    windows: Vec<(i64, i64, usize)>,
+    next_window: usize,
+    active_windows: Vec<usize>,
+    last_elapsed_ns: Option<i64>,
+}
+
+impl CanEventCorrelator {
+    pub fn new(marks: &[CanManualEventMark]) -> Result<Self, LogNookError> {
+        let marks: Vec<_> = marks.iter().take(256).cloned().collect();
+        if marks.iter().any(|mark| {
+            mark.label.trim().is_empty()
+                || mark.label.len() > 128
+                || mark.elapsed_ns < 0
+                || mark.pre_ns < 0
+                || mark.post_ns < 0
+                || mark.pre_ns > 60_000_000_000
+                || mark.post_ns > 60_000_000_000
+        }) {
+            return Err(LogNookError::new("Invalid manual CAN event mark"));
+        }
+        let mut windows: Vec<_> = marks
+            .iter()
+            .enumerate()
+            .map(|(index, mark)| {
+                (
+                    mark.elapsed_ns.saturating_sub(mark.pre_ns),
+                    mark.elapsed_ns.saturating_add(mark.post_ns),
+                    index,
+                )
+            })
+            .collect();
+        windows.sort_by_key(|(start, _, _)| *start);
+        Ok(Self {
+            per_mark: (0..marks.len()).map(|_| BTreeMap::new()).collect(),
+            marks,
+            windows,
+            next_window: 0,
+            active_windows: Vec::new(),
+            last_elapsed_ns: None,
+        })
+    }
+
+    pub fn feed(&mut self, frame: &CanFrame) -> Result<(), LogNookError> {
+        frame.validate()?;
+        if self
+            .last_elapsed_ns
+            .is_some_and(|elapsed| frame.elapsed_ns < elapsed)
+        {
+            return Err(LogNookError::new(
+                "CAN event analysis frames must be in timestamp order",
+            ));
+        }
+        self.last_elapsed_ns = Some(frame.elapsed_ns);
+        let key = (frame.can_id, frame.extended);
+        while self
+            .windows
+            .get(self.next_window)
+            .is_some_and(|(start, _, _)| *start <= frame.elapsed_ns)
+        {
+            self.active_windows.push(self.windows[self.next_window].2);
+            self.next_window += 1;
+        }
+        self.active_windows.retain(|index| {
+            self.marks[*index]
+                .elapsed_ns
+                .saturating_add(self.marks[*index].post_ns)
+                >= frame.elapsed_ns
+        });
+        for &index in &self.active_windows {
+            let mark = &self.marks[index];
+            let counts = self.per_mark[index].entry(key).or_default();
+            if frame.elapsed_ns < mark.elapsed_ns {
+                counts.before_frames += 1;
+                for (byte_index, &byte) in frame.data.iter().enumerate() {
+                    counts.before_last[byte_index] = Some(byte);
+                }
+            } else {
+                counts.after_frames += 1;
+                for (byte_index, &byte) in frame.data.iter().enumerate() {
+                    counts.after_first[byte_index].get_or_insert(byte);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn finish(self) -> Vec<CanEventCorrelation> {
+        let mut reports_by_label = BTreeMap::<String, CanEventCorrelation>::new();
+        for mark in &self.marks {
+            let report = reports_by_label
+                .entry(mark.label.clone())
+                .or_insert_with(|| CanEventCorrelation {
+                    label: mark.label.clone(),
+                    event_count: 0,
+                    candidates: Vec::new(),
+                });
+            report.event_count += 1;
+        }
+        let mut aggregates = BTreeMap::<(String, u32, bool), EventCandidateAggregate>::new();
+        for (mark, by_id) in self.marks.iter().zip(self.per_mark) {
+            for ((can_id, extended), counts) in by_id {
+                let mut changed = counts.before_frames == 0 || counts.after_frames == 0;
+                let count_changed = counts.before_frames.max(counts.after_frames) >= 4
+                    && mark.pre_ns > 0
+                    && mark.post_ns > 0
+                    && {
+                        let before_rate = counts.before_frames as f64 / mark.pre_ns as f64;
+                        let after_rate = counts.after_frames as f64 / mark.post_ns as f64;
+                        let faster = before_rate.max(after_rate);
+                        faster > 0.0 && (faster - before_rate.min(after_rate)) / faster >= 0.25
+                    };
+                changed |= count_changed;
+                for index in 0..8 {
+                    if counts.before_last[index] != counts.after_first[index] {
+                        changed = true;
+                    }
+                }
+                if !changed {
+                    continue;
+                }
+                let aggregate = aggregates
+                    .entry((mark.label.clone(), can_id, extended))
+                    .or_default();
+                aggregate.observed_events += 1;
+                aggregate.changed_events += 1;
+                aggregate.count_change_events += usize::from(count_changed);
+                aggregate.before_frames += counts.before_frames;
+                aggregate.after_frames += counts.after_frames;
+                for index in 0..8 {
+                    let before = counts.before_last[index];
+                    let after = counts.after_first[index];
+                    if before != after {
+                        *aggregate
+                            .transitions
+                            .entry((index, before, after))
+                            .or_default() += 1;
+                    }
+                }
+            }
+        }
+
+        for ((label, can_id, extended), aggregate) in aggregates {
+            let changed_bytes = aggregate
+                .transitions
+                .into_iter()
+                .fold(
+                    BTreeMap::<usize, Vec<CanEventByteTransition>>::new(),
+                    |mut bytes, ((index, before, after), occurrences)| {
+                        bytes
+                            .entry(index)
+                            .or_default()
+                            .push(CanEventByteTransition {
+                                before,
+                                after,
+                                occurrences,
+                            });
+                        bytes
+                    },
+                )
+                .into_iter()
+                .map(|(index, transitions)| CanEventByteChange {
+                    byte_index: index as u8,
+                    changed_events: transitions
+                        .iter()
+                        .map(|transition| transition.occurrences)
+                        .sum(),
+                    transitions,
+                })
+                .collect();
+            let candidate = CanEventCandidate {
+                can_id,
+                extended,
+                observed_events: aggregate.observed_events,
+                changed_events: aggregate.changed_events,
+                count_change_events: aggregate.count_change_events,
+                before_frames: aggregate.before_frames,
+                after_frames: aggregate.after_frames,
+                changed_bytes,
+            };
+            reports_by_label
+                .get_mut(&label)
+                .unwrap()
+                .candidates
+                .push(candidate);
+        }
+        let mut reports: Vec<_> = reports_by_label.into_values().collect();
+        for report in &mut reports {
+            report.candidates.sort_by(|left, right| {
+                right
+                    .changed_events
+                    .cmp(&left.changed_events)
+                    .then_with(|| right.changed_bytes.len().cmp(&left.changed_bytes.len()))
+                    .then_with(|| {
+                        right
+                            .before_frames
+                            .abs_diff(right.after_frames)
+                            .cmp(&left.before_frames.abs_diff(left.after_frames))
+                    })
+            });
+        }
+        reports
+    }
+}
+
+pub fn correlate_can_events<'a>(
+    marks: &[CanManualEventMark],
+    frames: impl IntoIterator<Item = &'a CanFrame>,
+) -> Vec<CanEventCorrelation> {
+    let Ok(mut correlator) = CanEventCorrelator::new(marks) else {
+        return Vec::new();
+    };
+    for frame in frames {
+        if correlator.feed(frame).is_err() {
+            return Vec::new();
+        }
+    }
+    correlator.finish()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanByteDistributionComparison {
     pub left: BTreeMap<u8, u64>,

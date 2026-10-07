@@ -1391,9 +1391,9 @@
         <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
         {#if !session}
           <div class="pid-picker-tabs three-tabs" role="group" aria-label="Signal source and workbench">
-          <button class:active={pidPickerView === "signals"} aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live PIDs</button>
-            <button class:active={pidPickerView === "oem"} aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"} disabled={researchRunView.running}>OEM Research</button>
-          <button class:active={pidPickerView === "can"} aria-pressed={pidPickerView === "can"} onclick={() => pidPickerView = "can"} disabled={researchRunView.running}>CAN Workbench</button>
+          <button class:active={pidPickerView === "signals"} aria-label="Live PIDs" aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live</button>
+          <button class:active={pidPickerView === "oem"} aria-label="OEM Research" aria-pressed={pidPickerView === "oem"} onclick={() => pidPickerView = "oem"} disabled={researchRunView.running}>OEM</button>
+          <button class:active={pidPickerView === "can"} aria-label="CAN Workbench" aria-pressed={pidPickerView === "can"} onclick={() => pidPickerView = "can"} disabled={researchRunView.running}>CAN</button>
         </div>
         {/if}
         {#if session || pidPickerView === "signals"}

@@ -185,6 +185,7 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
   await api.connect({ id: "usb:device", interface_number: 0, channel: 0 }, can.defaultCanWorkbenchConfig);
   await api.configureFields([field]);
   await api.startCapture("D:/captures/run.candump.csv");
+  await api.markEvent("Traction control toggle", 1000, 1000);
   await api.sendFrame({ elapsed_ns: 0, wall_time_unix_ns: 0, can_id: 0x7e0, extended: false, direction: "tx", data: [2, 0x21, 1], flags: 0 }, 100, 1);
   await api.startScan({ mode: { kind: "mode_01_support", request_id: 0x7e0, response_id: 0x7e8, extended: false }, pacing_ms: 100, response_timeout_ms: 1000 });
   await api.stopScan();
@@ -194,6 +195,7 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
     ["connect_candlelight", { selection: { id: "usb:device", interface_number: 0, channel: 0 }, config: { bitrate: 500_000, listen_only: true } }],
     ["configure_can_signals", { fields: [field] }],
     ["start_can_capture", { path: "D:/captures/run.candump.csv" }],
+    ["mark_can_event", { label: "Traction control toggle", preMs: 1000, postMs: 1000 }],
     ["send_can_frame", { frame: { elapsed_ns: 0, wall_time_unix_ns: 0, can_id: 0x7e0, extended: false, direction: "tx", data: [2, 0x21, 1], flags: 0 }, pacingMs: 100, repeat: 1 }],
     ["start_can_scan", { config: { mode: { kind: "mode_01_support", request_id: 0x7e0, response_id: 0x7e8, extended: false }, pacing_ms: 100, response_timeout_ms: 1000 } }],
     ["stop_can_scan", undefined],
@@ -212,6 +214,29 @@ test("configured CAN fields become ordinary signal-picker graph options", () => 
   assert.match(app, /CanWorkbenchStatus|canWorkbenchStatus/, "CAN connection status flows through App's event handler");
   assert.match(app, /connected = event\.payload\.connected/, "CAN status controls the existing app-wide Disconnect/Record state");
   assert.match(styles, /pid-picker-tabs\.three-tabs\s*\{\s*grid-template-columns:\s*repeat\(3/, "the three signal/workbench tabs stay on one row");
+});
+
+test("CAN workbench navigation and primary controls stay compact and visible", () => {
+  assert.match(app, />Live<\/button>[\s\S]*?>OEM<\/button>[\s\S]*?>CAN<\/button>/);
+  assert.match(panel, /class="can-adapter-row"/);
+  assert.match(panel, /class="can-connection-options"/);
+  assert.doesNotMatch(panel, /<header class="can-heading">/);
+  assert.match(panel, /<details class="can-trigger-settings" open>/);
+  assert.match(panel, /<details class="can-scan-settings" open>/);
+  assert.match(panel, /<details class="can-fields-settings" open>/);
+  assert.match(panel, /<details class="can-send-settings" open>/);
+  assert.match(panel, /\.can-workbench\s*\{[^}]*gap:\s*4px/);
+  assert.match(panel, /\.can-connection-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+});
+
+test("manual vehicle event marks repeat by label and replay ranks linked CAN changes", () => {
+  assert.match(panel, /placeholder="e\.g\. traction control toggle"/);
+  assert.match(panel, /commands\.markEvent\(eventLabel, eventPreMs, eventPostMs\)/);
+  assert.match(panel, /event_correlations\.length/);
+  assert.match(panel, /candidate\.changed_events/);
+  assert.match(commands, /CanEventCorrelator::new\(&report\.manual_event_marks\)/);
+  assert.match(commands, /CanEvidenceRecord::ManualEventMarked/);
+  assert.match(registration, /commands::mark_can_event/);
 });
 
 test("capture path dialogs are native and registered for paired CAN CSV evidence", () => {

@@ -143,13 +143,13 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .pid-list-toggle:hover { color: var(--accent); border-color: var(--border-strong); }
 .pid-list-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .panel { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.signal-panel { grid-column: 2; grid-row: 1; position: relative; z-index: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; padding: 10px; }
+.signal-panel { grid-column: 2; grid-row: 1; position: relative; z-index: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; padding: 8px; }
 .signal-panel[hidden] { display: none; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; }
-.signal-panel .panel-heading { margin-bottom: 11px; }
-.pid-picker-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: -3px 0 7px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: #121b23; }
+.signal-panel .panel-heading { margin-bottom: 6px; }
+.pid-picker-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: -3px 0 5px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: #121b23; }
 .pid-picker-tabs.three-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.pid-picker-tabs button { min-height: 26px; border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; font: inherit; font-size: 10px; cursor: pointer; }
+.pid-picker-tabs button { min-width: 0; min-height: 24px; overflow: hidden; padding: 0 2px; border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; font: inherit; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .pid-picker-tabs button.active { color: var(--text); background: #283945; }
 .pid-picker-tabs button:focus-visible { outline: 2px solid var(--accent); }
 .count-pill { padding: 4px 7px; border: 1px solid var(--border-strong); border-radius: 20px; color: var(--text-secondary); font-size: 10px; white-space: nowrap; }

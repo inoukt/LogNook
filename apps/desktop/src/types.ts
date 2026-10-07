@@ -366,8 +366,30 @@ export type CanCaptureReplayReport = {
   trigger_completions: number;
   trigger_early_ends: number;
   trigger_window_exports: number;
+  manual_event_marks: CanManualEventMark[];
+  event_correlations: CanEventCorrelation[];
   evidence_errors: string[];
 };
+
+export type CanManualEventMark = {
+  label: string;
+  elapsed_ns: number;
+  pre_ns: number;
+  post_ns: number;
+};
+export type CanEventByteTransition = { before: number | null; after: number | null; occurrences: number };
+export type CanEventByteChange = { byte_index: number; changed_events: number; transitions: CanEventByteTransition[] };
+export type CanEventCandidate = {
+  can_id: number;
+  extended: boolean;
+  observed_events: number;
+  changed_events: number;
+  count_change_events: number;
+  before_frames: number;
+  after_frames: number;
+  changed_bytes: CanEventByteChange[];
+};
+export type CanEventCorrelation = { label: string; event_count: number; candidates: CanEventCandidate[] };
 
 export type Sample = {
   elapsed_ns: number;

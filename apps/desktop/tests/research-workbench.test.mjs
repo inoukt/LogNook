@@ -13,8 +13,10 @@ const includes = (source, pattern, message) => assert.ok(pattern.test(source), m
 const excludes = (source, pattern, message) => assert.ok(!pattern.test(source), message);
 
 test("workbench_shows_only_supported_quick_tests", () => {
-  includes(app, />OEM Research<\/button>/, "the catalog tab is named OEM Research");
-  includes(app, />Live PIDs<\/button>/, "the Live PIDs tab remains available");
+  includes(app, />OEM<\/button>/, "the OEM tab uses a compact label");
+  includes(app, /aria-label="OEM Research"/, "the compact OEM tab retains its accessible name");
+  includes(app, />Live<\/button>/, "the Live tab uses a compact label");
+  includes(app, /aria-label="Live PIDs"/, "the compact Live tab retains its accessible name");
   includes(panel, /selectedAdapter === "a30"[\s\S]*?A30_READ_TESTS/, "captured quick tests are guarded by the A30 adapter check");
   excludes(panel, /selectedAdapter === "openport2"[\s\S]{0,250}Try once/, "OpenPort has no OEM one-shot controls");
   assert.equal(oemCandidateTryState({

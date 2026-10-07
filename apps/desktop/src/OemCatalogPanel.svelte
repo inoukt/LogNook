@@ -269,7 +269,7 @@
 
 <section class="oem-research" aria-label="OEM PID research catalog">
   <div class="oem-research-heading">
-    <div><h3>OEM research catalog</h3><p>Source-backed candidates for lookup; these are not added to live logging.</p></div>
+    <span class="oem-catalog-note">Source-backed candidates · research only</span>
     {#if page}<span class="oem-count">{page.total.toLocaleString()} results</span>{/if}
   </div>
 
@@ -350,7 +350,7 @@
         <article class="oem-candidate">
           <header>
             <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name}`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
-            <strong>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
+            <strong title={candidate.name}>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
             <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
             {#if canConnected}
               <button class="button secondary oem-try-button" onclick={() => onTryCanCandidate(candidate.candidate_id)} disabled={canCandidateDisabled} title="Read this source-backed service 21/22 candidate over the active Candlelight CAN route" aria-label={`Try ${candidate.name} over CAN`}>CAN read</button>
@@ -393,39 +393,39 @@
 </section>
 
 <style>
-  .oem-research { display: flex; flex: 1 1 auto; flex-direction: column; gap: 9px; min-height: 0; overflow: hidden; }
+  .oem-research { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden; }
   .oem-research > :not(.oem-catalog-list) { flex: 0 0 auto; }
-  .oem-research-heading, .scion-probe-card, .probe-result > header, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .oem-research-heading h3 { margin: 0; font-size: 13px; }
-  .oem-research-heading p, .scion-probe-card p, .probe-result p, .oem-candidate p { margin: 3px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+  .oem-research-heading, .scion-probe-card, .probe-result > header, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+  .oem-catalog-note { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .scion-probe-card p, .probe-result p, .oem-candidate p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.25; }
   .oem-count, .oem-pagination span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
-  .oem-filters { display: grid; gap: 5px; }
-  .oem-filter-row { display: grid; grid-template-columns: 1fr 1fr 95px; gap: 5px; }
-  .oem-filters .text-input { min-width: 0; min-height: 29px; padding: 5px 7px; font-size: 10px; }
-  .a30-mode-test { display: grid; gap: 4px; min-width: 0; }
+  .oem-filters { display: grid; gap: 3px; }
+  .oem-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 78px; gap: 3px; }
+  .oem-filters .text-input { min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .a30-mode-test { display: grid; gap: 3px; min-width: 0; }
   .a30-mode-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
-  .a30-mode-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 29px; padding: 4px 6px; font-size: 10px; }
-  .a30-mode-test-controls .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }
-  .research-queue-controls { display: flex; align-items: center; gap: 5px; }
+  .a30-mode-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .a30-mode-test-controls .button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
+  .research-queue-controls { display: flex; align-items: center; gap: 3px; }
   .selected-candidate-count { flex: 1 1 auto; color: var(--text-muted); font-size: 10px; }
   .selected-candidate-count strong { color: var(--text); font-variant-numeric: tabular-nums; }
-  .research-queue-controls .button { min-height: 29px; padding: 4px 8px; font-size: 10px; }
-  .research-queue-progress { min-height: 13px; margin: -5px 0 0 !important; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
+  .research-queue-controls .button { min-height: 24px; padding: 2px 6px; font-size: 9px; }
+  .research-queue-progress { min-height: 0; margin: -2px 0 0 !important; color: var(--text-muted); font-size: 8px; line-height: 1.2; }
   .candidate-select { flex: 0 0 auto; accent-color: var(--accent); }
-  .scion-probe-card, .probe-result { padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: #142029; }
-  .scion-probe-card strong, .probe-result strong { font-size: 11px; }
-  .scion-probe-card .button { flex: 0 0 auto; min-height: 29px; padding: 4px 7px; font-size: 10px; }
-  .oem-catalog-list { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 0; align-content: start; gap: 5px; max-height: none; min-width: 0; min-height: 80px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 12px; scrollbar-gutter: stable; }
-  .oem-candidate { min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: #19242e; }
-  .oem-candidate > header { min-width: 0; }
-  .oem-candidate > header strong { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
-  .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 30%; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-try-button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
-  .oem-disabled-reason { display: block; margin: 4px 0; color: var(--text-muted); font-size: 9px; line-height: 1.35; }
+  .scion-probe-card, .probe-result { padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
+  .scion-probe-card strong, .probe-result strong { font-size: 10px; }
+  .scion-probe-card .button { flex: 0 0 auto; min-height: 25px; padding: 3px 5px; font-size: 9px; }
+  .oem-catalog-list { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 0; align-content: start; gap: 3px; max-height: none; min-width: 0; min-height: 80px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-gutter: stable; }
+  .oem-candidate { min-width: 0; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #19242e; }
+  .oem-candidate > header { min-width: 0; gap: 4px; }
+  .oem-candidate > header strong { flex: 1 1 0; min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 20%; overflow: hidden; color: var(--text); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-try-button { flex: 0 0 auto; min-height: 22px; padding: 2px 5px; font-size: 8px; }
+  .oem-disabled-reason { display: block; margin: 2px 0; color: var(--text-muted); font-size: 8px; line-height: 1.2; }
   .oem-address { color: #b8c9d3 !important; }
-  .oem-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-  .oem-badges span { padding: 2px 5px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; }
-  .oem-candidate details, .probe-result details { margin-top: 5px; color: var(--text-muted); font-size: 10px; }
+  .oem-badges { display: flex; flex-wrap: nowrap; gap: 3px; margin-top: 3px; overflow: hidden; }
+  .oem-badges span { overflow: hidden; padding: 1px 4px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-candidate details, .probe-result details { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
   .oem-candidate summary, .probe-result summary { cursor: pointer; }
   .oem-candidate dl { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 3px 6px; margin: 6px 0; }
   .oem-candidate dt { color: var(--text-muted); }

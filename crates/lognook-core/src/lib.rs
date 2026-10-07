@@ -41,9 +41,10 @@ pub use bluetooth_spp::{
 pub use can::{CanByteOrder, CanDirection, CanFrame, CanSignalDefinition, decode_can_signal};
 pub use can_analysis::{
     CanAnalysisConfig, CanAnalyzer, CanByteDistributionComparison, CanByteSummary, CanCensusRow,
-    CanCorrelationHypothesis, CanDiagnosticOutcome, CanDiagnosticRoute, CanIdComparison,
-    CanRequestTiming, CanTriggerCapture, CanTriggerConfig, CanTriggerRecorder, can_dbc_skeleton,
-    compare_can_census,
+    CanCorrelationHypothesis, CanDiagnosticOutcome, CanDiagnosticRoute, CanEventByteChange,
+    CanEventByteTransition, CanEventCandidate, CanEventCorrelation, CanEventCorrelator,
+    CanIdComparison, CanManualEventMark, CanRequestTiming, CanTriggerCapture, CanTriggerConfig,
+    CanTriggerRecorder, can_dbc_skeleton, compare_can_census, correlate_can_events,
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
 pub use can_workbench::{

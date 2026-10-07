@@ -9,7 +9,7 @@
     type CanScanKind,
   } from "./canWorkbench";
   import type {
-    CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanFrame, CanScanConfig,
+    CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanEventCorrelation, CanFrame, CanManualEventMark, CanScanConfig,
     CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, Sample,
   } from "./types";
@@ -77,6 +77,11 @@
   let triggerMaxFrames = 10000;
   let triggerArmed = false;
   let triggerWaiting = false;
+  let eventLabel = "";
+  let eventPreMs = 1000;
+  let eventPostMs = 1000;
+  let eventMarks: CanManualEventMark[] = [];
+  let eventStatus = "";
 
   $: selectedAdapter = adapters.find(({ id }) => id === selectedAdapterId);
   $: connected = Boolean(status?.connected);
@@ -158,6 +163,8 @@
         capturePath = path;
         captureOpen = true;
         captureAction = "Capture open";
+        eventMarks = [];
+        eventStatus = "";
       } else {
         captureAction = "Capture canceled";
       }
@@ -274,6 +281,16 @@
     });
   }
 
+  async function markEvent() {
+    if (!captureOpen || !eventLabel.trim() || busy || workspaceBusy) return;
+    await runBusy(async () => {
+      const mark = await commands.markEvent(eventLabel, eventPreMs, eventPostMs);
+      eventMarks = [...eventMarks, mark].slice(-256);
+      const count = eventMarks.filter(({ label }) => label === mark.label).length;
+      eventStatus = `${mark.label} at ${(mark.elapsed_ns / 1e9).toFixed(2)}s · ${count} mark${count === 1 ? "" : "s"}`;
+    });
+  }
+
   async function saveTrigger() {
     if (!triggerCapture || busy || workspaceBusy) return;
     await runBusy(async () => {
@@ -297,6 +314,28 @@
       return `${name} · NRC 0x${Number(detail.nrc).toString(16).padStart(2, "0").toUpperCase()}`;
     }
     return name;
+  }
+
+  function eventCanId(id: number, extended: boolean): string {
+    return `0x${id.toString(16).toUpperCase().padStart(extended ? 8 : 3, "0")} · ${extended ? "29" : "11"}-bit`;
+  }
+
+  function eventByteValue(value: number | null): string {
+    return value === null ? "—" : `0x${value.toString(16).padStart(2, "0").toUpperCase()}`;
+  }
+
+  function eventCorrelationSummary(correlation: CanEventCorrelation): string {
+    const best = correlation.candidates[0];
+    return best
+      ? `${best.changed_events}/${correlation.event_count} marks · ${eventCanId(best.can_id, best.extended)}`
+      : `${correlation.event_count} marks · no changed frames found`;
+  }
+
+  function eventMarkTimes(label: string): string {
+    return replayReport?.manual_event_marks
+      .filter((mark) => mark.label === label)
+      .map((mark) => `${(mark.elapsed_ns / 1e9).toFixed(2)}s`)
+      .join(", ") ?? "";
   }
 
   function byteCounts(counts: Record<string, number>): string {
@@ -358,45 +397,46 @@
 </script>
 
 <section class="can-workbench" hidden={hidden} aria-label="CAN Workbench">
-  <header class="can-heading">
-    <div><p class="eyebrow">TEST WORKBENCH</p><h2>CAN Workbench</h2></div>
-    <span class:online={connected} class="can-state">{connected ? status?.listen_only ? "Listen-only" : "Active" : "Disconnected"}</span>
-  </header>
   {#if otherAdapterConnected}<p class="can-hint">Disconnect the currently connected adapter from the top bar before connecting Candlelight.</p>{/if}
 
   <div class="can-connection">
-    <label>GS_USB / Candlelight adapter
-      <select class="text-input" bind:value={selectedAdapterId} disabled={connected || busy || workspaceBusy}>
-        {#if !adapters.length}<option value="">No Candlelight adapter found</option>{/if}
-        {#each adapters as adapter (adapter.id)}
-          <option value={adapter.id}>{adapter.product || `${adapter.vendor_id.toString(16)}:${adapter.product_id.toString(16)}`} · {adapter.serial_number || adapter.bus_id}</option>
-        {/each}
-      </select>
-    </label>
-    <button class="button secondary" onclick={refreshAdapters} disabled={connected || refreshing || busy || workspaceBusy}>Refresh</button>
-    <label>USB interface<input class="text-input" type="number" min="0" max="255" bind:value={interfaceNumber} disabled={connected || busy || workspaceBusy} /></label>
-    <label>Channel<input class="text-input" type="number" min="0" max="255" bind:value={channel} disabled={connected || busy || workspaceBusy} /></label>
-    <label>Bitrate
-      <select class="text-input" bind:value={bitrate} disabled={connected || busy || workspaceBusy}>
-        <option value={1000000}>1 Mbit/s</option>
-        <option value={800000}>800 kbit/s</option>
-        <option value={500000}>500 kbit/s</option>
-        <option value={250000}>250 kbit/s</option>
-        <option value={125000}>125 kbit/s</option>
-        <option value={100000}>100 kbit/s</option>
-        <option value={50000}>50 kbit/s</option>
-      </select>
-    </label>
-    <label class="can-check"><input type="checkbox" bind:checked={listenOnly} disabled={connected || busy || workspaceBusy} /> Listen-only</label>
-    {#if !connected}
-      <button class="button primary" onclick={connect} disabled={!selectedAdapter || otherAdapterConnected || busy || workspaceBusy}>Connect</button>
-    {:else}
-      <span class="can-source">{status?.source_id} · {status?.bitrate.toLocaleString()} bit/s</span>
-    {/if}
+    <div class="can-adapter-row">
+      <label>GS_USB / Candlelight
+        <select class="text-input" bind:value={selectedAdapterId} disabled={connected || busy || workspaceBusy}>
+          {#if !adapters.length}<option value="">No Candlelight adapter found</option>{/if}
+          {#each adapters as adapter (adapter.id)}
+            <option value={adapter.id}>{adapter.product || `${adapter.vendor_id.toString(16)}:${adapter.product_id.toString(16)}`} · {adapter.serial_number || adapter.bus_id}</option>
+          {/each}
+        </select>
+      </label>
+      <button class="button secondary" aria-label="Refresh Candlelight adapters" title="Refresh adapters" onclick={refreshAdapters} disabled={connected || refreshing || busy || workspaceBusy}>↻</button>
+      <span class:online={connected} class="can-state" role="status">{connected ? status?.listen_only ? "Listen-only" : "Active" : "Disconnected"}</span>
+    </div>
+    <div class="can-connection-options">
+      <label>Interface<input class="text-input" type="number" min="0" max="255" bind:value={interfaceNumber} disabled={connected || busy || workspaceBusy} /></label>
+      <label>Channel<input class="text-input" type="number" min="0" max="255" bind:value={channel} disabled={connected || busy || workspaceBusy} /></label>
+      <label>Bitrate
+        <select class="text-input" bind:value={bitrate} disabled={connected || busy || workspaceBusy}>
+          <option value={1000000}>1 Mbit/s</option>
+          <option value={800000}>800 kbit/s</option>
+          <option value={500000}>500 kbit/s</option>
+          <option value={250000}>250 kbit/s</option>
+          <option value={125000}>125 kbit/s</option>
+          <option value={100000}>100 kbit/s</option>
+          <option value={50000}>50 kbit/s</option>
+        </select>
+      </label>
+      <label class="can-check"><input type="checkbox" bind:checked={listenOnly} disabled={connected || busy || workspaceBusy} /> Listen-only</label>
+      {#if !connected}
+        <button class="button primary" onclick={connect} disabled={!selectedAdapter || otherAdapterConnected || busy || workspaceBusy}>Connect</button>
+      {:else}
+        <span class="can-source">{status?.source_id} · {status?.bitrate.toLocaleString()} bit/s</span>
+      {/if}
+    </div>
   </div>
 
   <div class="can-capture-row">
-    <strong>Raw capture</strong>
+    <strong>Capture</strong>
     {#if captureOpen}
       <span class="can-capture-path" title={capturePath}>{capturePath}</span>
       <button class="button danger" onclick={stopCapture} disabled={busy || workspaceBusy}>Stop capture</button>
@@ -404,10 +444,19 @@
       <span class="can-muted">CSV + JSONL evidence</span>
       <button class="button secondary" onclick={startCapture} disabled={!connected || busy || workspaceBusy}>Start capture</button>
     {/if}
-    {#if captureAction}<span class="can-muted">{captureAction}</span>{/if}
+    {#if captureAction}<span class="can-capture-status" role="status">{captureAction}</span>{/if}
   </div>
 
-  <details class="can-trigger-settings">
+  <div class="can-event-mark">
+    <strong>Vehicle event</strong>
+    <label class="can-event-label">Label<input class="text-input" aria-label="Vehicle event label" bind:value={eventLabel} placeholder="e.g. traction control toggle" maxlength="128" disabled={busy || workspaceBusy} /></label>
+    <label>Before (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={eventPreMs} disabled={busy || workspaceBusy} /></label>
+    <label>After (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={eventPostMs} disabled={busy || workspaceBusy} /></label>
+    <button class="button primary" onclick={markEvent} disabled={!connected || !captureOpen || !eventLabel.trim() || busy || workspaceBusy}>Mark event</button>
+    {#if eventStatus}<span class="can-event-status" role="status">{eventStatus} · {eventMarks.length} total</span>{:else}<span class="can-event-status">Click once per physical action during capture; repeat the label to compare trials.</span>{/if}
+  </div>
+
+  <details class="can-trigger-settings" open>
     <summary>Manual trigger window</summary>
     <p class="can-muted">Capture a bounded frame window around a manual mark. Frames continue through the serialized Candlelight owner.</p>
     <div class="can-trigger-form">
@@ -430,7 +479,7 @@
     {/if}
   </details>
 
-  <details class="can-scan-settings">
+  <details class="can-scan-settings" open>
     <summary>Scan configuration</summary>
     <div class="can-scan-form">
       <label>Test
@@ -465,7 +514,7 @@
     {#if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
   </details>
 
-  <details class="can-fields-settings">
+  <details class="can-fields-settings" open>
     <summary>CAN fields · {fields.length}</summary>
     <form class="can-field-form" onsubmit={addField}>
       <label>Name<input class="text-input" bind:value={fieldName} /></label>
@@ -488,7 +537,7 @@
     {/each}
   </details>
 
-  <details class="can-send-settings">
+  <details class="can-send-settings" open>
     <summary>Manual CAN frame</summary>
     <div class="can-send-form">
       <label>CAN ID (hex)<input class="text-input" bind:value={txCanId} disabled={busy || workspaceBusy} /></label>
@@ -510,7 +559,7 @@
 
   <details class="can-live-data" open>
     <summary>Live traffic · {frames.length} recent frames</summary>
-    <p class="can-muted">Per-ID counts and RX rates cover only the most recent {frames.length} displayed frames (bounded to 400).</p>
+    <p class="can-muted">Per-ID counts and rates use the latest {frames.length} frames, up to 400.</p>
     <div class="can-rate-summary" aria-label="Recent CAN ID counts and rates">
       {#each recentRates as row (`${row.can_id}:${row.extended}`)}
         <span>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()} · {row.rx_count} RX / {row.tx_count} TX · {row.rate_hz === null ? "rate —" : `${row.rate_hz.toFixed(1)} Hz`}</span>
@@ -573,6 +622,33 @@
         <span>{replayReport.transport_errors.toLocaleString()} transport errors</span><span>{replayReport.trigger_marks.toLocaleString()} trigger marks</span><span>{replayReport.trigger_completions.toLocaleString()} complete windows</span><span>{replayReport.trigger_early_ends.toLocaleString()} early ends</span><span>{replayReport.trigger_window_exports.toLocaleString()} trigger exports</span>
       </div>
       {#if replayReport.evidence_journal}<small class="can-muted">Sidecar: {replayReport.evidence_journal}</small>{/if}
+      {#if replayReport.event_correlations.length}
+        <h3>Event-linked CAN messages · repeated marks ranked by matching changes</h3>
+        {#each replayReport.event_correlations as correlation (correlation.label)}
+          <details class="can-event-correlation">
+            <summary>{correlation.label} · {eventCorrelationSummary(correlation)}</summary>
+            <p class="can-muted">Marks at {eventMarkTimes(correlation.label)} · windows compare each event’s before/after traffic.</p>
+            <div class="can-table-wrap">
+              <table aria-label={`CAN messages correlated with ${correlation.label}`}>
+                <thead><tr><th>Candidate ID</th><th>Changed marks</th><th>Frames before / after</th><th>Byte transitions</th></tr></thead>
+                <tbody>
+                  {#each correlation.candidates.slice(0, 30) as candidate (`${candidate.can_id}:${candidate.extended}`)}
+                    <tr>
+                      <td>{eventCanId(candidate.can_id, candidate.extended)}</td>
+                      <td>{candidate.changed_events}/{correlation.event_count}</td>
+                      <td>{candidate.before_frames} / {candidate.after_frames}</td>
+                      <td>{candidate.changed_bytes.map((byte) => `B${byte.byte_index}: ${byte.transitions.map((transition) => `${eventByteValue(transition.before)}→${eventByteValue(transition.after)} ×${transition.occurrences}`).join(", ")}`).join("; ") || (candidate.before_frames === 0 ? "appears after" : candidate.after_frames === 0 ? "stops after" : `${candidate.count_change_events} activity shifts`)}</td>
+                    </tr>
+                  {:else}
+                    <tr><td colspan="4" class="can-muted">No CAN frames were found around these marks.</td></tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+            <p class="can-muted">Ranked correlations are candidates, not decoded signal meanings. Use the CAN ID and byte transitions to define and graph a field.</p>
+          </details>
+        {/each}
+      {/if}
       {#if replayReport.evidence_errors.length || replayReport.analyzer_issues.length || replayReport.malformed_rows.length}
         <ul class="can-event-list" aria-label="Replay issues">
           {#each [...replayReport.evidence_errors, ...replayReport.analyzer_issues, ...replayReport.malformed_rows].slice(0, 20) as issue, index (`${index}:${issue}`)}<li class="can-error">{issue}</li>{/each}
@@ -656,54 +732,71 @@
 </section>
 
 <style>
-  .can-workbench { display:grid; gap:.75rem; min-width:0; min-height:0; overflow:auto; padding:.85rem; color:var(--text-primary,#e7edf2); }
+  .can-workbench { display:grid; align-content:start; gap:4px; min-width:0; min-height:0; overflow-x:hidden; overflow-y:auto; padding:4px; color:var(--text-primary,#e7edf2); }
   .can-workbench[hidden] { display:none; }
-  .can-heading,.can-connection,.can-capture-row,.can-field-row { display:flex; align-items:center; gap:.6rem; min-width:0; }
-  .can-heading { justify-content:space-between; }
-  .can-heading h2 { margin:.1rem 0 0; font-size:1.05rem; }
-  .eyebrow { margin:0; color:var(--text-muted,#8ca0ae); font-size:.68rem; letter-spacing:.1em; }
-  .can-connection { flex-wrap:wrap; }
-  label { display:grid; gap:.25rem; color:var(--text-muted,#a8b6c1); font-size:.75rem; }
-  .can-connection label:first-child { flex:1 1 15rem; }
-  .can-connection label:not(:first-child) { flex:0 1 7rem; }
-  .can-check { display:flex; align-items:center; gap:.4rem; white-space:nowrap; }
-  .can-state,.can-capture-row,.can-scan-settings,.can-fields-settings,.can-field-row,.can-send-settings,.can-live-data,.can-replay-report { border:1px solid var(--border,#344652); border-radius:.55rem; background:var(--panel,#192630); }
-  .can-state { padding:.3rem .55rem; color:var(--text-muted,#9badb8); font-size:.75rem; }
+  .can-connection { display:grid; gap:4px; min-width:0; }
+  .can-adapter-row { display:grid; grid-template-columns:minmax(0, 1fr) 27px auto; align-items:end; gap:4px; min-width:0; }
+  .can-connection-options { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); align-items:end; gap:4px; min-width:0; }
+  label { display:grid; gap:2px; min-width:0; color:var(--text-muted,#a8b6c1); font-size:9px; }
+  .can-connection .text-input { width:100%; min-width:0; height:25px; padding:0 5px; font-size:9px; }
+  .can-connection .button { min-height:25px; padding:2px 5px; font-size:9px; }
+  .can-check { display:flex; align-items:center; gap:3px; white-space:nowrap; }
+  .can-connection-options .can-check { grid-column:span 2; }
+  .can-state { min-width:0; overflow:hidden; padding:3px 5px; color:var(--text-muted,#9badb8); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
   .can-state.online { color:var(--accent,#56c8bd); }
-  .can-capture-row { padding:.55rem; }
-  .can-capture-row strong { white-space:nowrap; }
-  .can-capture-path { overflow:hidden; flex:1; color:var(--text-muted,#9badb8); text-overflow:ellipsis; white-space:nowrap; }
-  .can-muted,.can-hint { color:var(--text-muted,#9badb8); font-size:.76rem; }
-  .can-source { flex:1 1 100%; color:var(--text-muted,#9badb8); font-size:.75rem; overflow-wrap:anywhere; }
-  details { min-width:0; padding:.55rem; }
-  summary { cursor:pointer; color:var(--accent,#56c8bd); font-weight:650; }
-  .can-scan-form,.can-field-form,.can-trigger-form,.can-report-actions { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; margin-top:.65rem; }
-  .can-trigger-form label { min-width:7rem; flex:1 1 8rem; }
-  .can-trigger-result { display:flex; flex-wrap:wrap; align-items:center; gap:.55rem; margin-top:.55rem; padding:.55rem; border:1px solid var(--border,#344652); border-radius:.45rem; color:var(--text-muted,#9badb8); font-size:.75rem; }
+  .can-state,.can-capture-row,.can-scan-settings,.can-fields-settings,.can-field-row,.can-send-settings,.can-live-data,.can-replay-report { border:1px solid var(--border,#344652); border-radius:.55rem; background:var(--panel,#192630); }
+  .can-capture-row { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; align-items:center; gap:4px; min-width:0; padding:3px 5px; }
+  .can-capture-row strong { font-size:10px; white-space:nowrap; }
+  .can-capture-row .can-muted { font-size:9px; }
+  .can-capture-path { overflow:hidden; min-width:0; color:var(--text-muted,#9badb8); text-overflow:ellipsis; white-space:nowrap; }
+  .can-capture-status { grid-column:1 / -1; overflow:hidden; color:var(--text-muted,#9badb8); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+  .can-event-mark { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); align-items:end; gap:4px; min-width:0; padding:4px 5px; border:1px solid var(--border,#344652); border-radius:.55rem; background:var(--panel,#192630); }
+  .can-event-mark > strong,.can-event-label,.can-event-status { grid-column:1 / -1; }
+  .can-event-mark > strong { font-size:10px; }
+  .can-event-mark .text-input { width:100%; min-width:0; height:25px; padding:0 5px; font-size:9px; }
+  .can-event-mark .button { min-height:25px; padding:2px 5px; font-size:9px; }
+  .can-event-status { min-width:0; overflow:hidden; color:var(--text-muted,#9badb8); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+  .can-event-correlation { margin:3px 0; padding:3px 5px; border:1px solid var(--border,#344652); border-radius:.4rem; }
+  .can-event-correlation summary { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .can-muted,.can-hint { color:var(--text-muted,#9badb8); font-size:9px; }
+  .can-source { grid-column:span 2; overflow:hidden; color:var(--text-muted,#9badb8); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+  details { min-width:0; padding:3px 5px; }
+  summary { cursor:pointer; color:var(--accent,#56c8bd); font-size:10px; font-weight:650; line-height:1.25; }
+  .can-scan-form,.can-field-form,.can-trigger-form,.can-report-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:end; gap:4px; margin-top:4px; min-width:0; }
+  .can-trigger-form { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+  .can-trigger-form label { min-width:0; }
+  .can-trigger-form .button { min-height:24px; padding:2px 4px; font-size:9px; }
+  .can-trigger-form .can-muted { grid-column:1 / -1; font-size:9px; }
+  .can-trigger-result { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:center; gap:3px; margin-top:4px; padding:4px; border:1px solid var(--border,#344652); border-radius:.45rem; color:var(--text-muted,#9badb8); font-size:9px; }
   .can-trigger-result strong { color:var(--text-primary,#e7edf2); }
-  .can-scan-form label,.can-field-form label { min-width:7rem; flex:1 1 8rem; }
-  .can-field-form label.can-check,.can-scan-form label.can-check { flex:0 0 auto; min-height:2.5rem; }
-  .can-error { color:var(--danger,#ff7f86); font-size:.78rem; }
-  .can-field-row { justify-content:space-between; margin-top:.35rem; padding:.4rem .55rem; font-size:.78rem; }
-  .can-send-form { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; margin-top:.65rem; }
-  .can-send-form label { min-width:6rem; flex:1 1 7rem; }
-  .can-send-form label.can-check { flex:0 0 auto; }
-  .can-table-wrap { max-height:16rem; overflow:auto; margin-top:.5rem; border:1px solid var(--border,#344652); border-radius:.45rem; }
-  table { width:100%; border-collapse:collapse; font-size:.72rem; font-variant-numeric:tabular-nums; }
-  th,td { padding:.35rem .45rem; border-bottom:1px solid var(--border,#344652); text-align:left; white-space:nowrap; }
+  .can-scan-form label,.can-field-form label { min-width:0; }
+  .can-field-form { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+  .can-field-form label.can-check,.can-scan-form label.can-check { display:flex; align-items:center; min-height:25px; }
+  .can-scan-form .text-input,.can-field-form .text-input,.can-trigger-form .text-input,.can-send-form .text-input { width:100%; min-width:0; height:25px; padding:0 5px; font-size:9px; }
+  .can-scan-form .button,.can-field-form .button,.can-send-form .button,.can-report-actions .button { min-height:25px; padding:2px 5px; font-size:9px; }
+  .can-trigger-result button { grid-column:1 / -1; }
+  .can-error { color:var(--danger,#ff7f86); font-size:9px; overflow-wrap:anywhere; }
+  .can-field-row { display:flex; align-items:center; justify-content:space-between; gap:4px; min-width:0; margin-top:3px; padding:3px 4px; font-size:9px; }
+  .can-field-row span { min-width:0; overflow-wrap:anywhere; }
+  .can-field-row .button { flex:0 0 auto; min-height:23px; padding:2px 4px; font-size:9px; }
+  .can-send-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:end; gap:4px; margin-top:4px; min-width:0; }
+  .can-send-form label { min-width:0; }
+  .can-send-form label.can-check { display:flex; align-items:center; min-height:25px; }
+  .can-table-wrap { max-height:10rem; overflow:auto; margin-top:4px; border:1px solid var(--border,#344652); border-radius:.45rem; }
+  table { width:100%; border-collapse:collapse; font-size:9px; font-variant-numeric:tabular-nums; }
+  th,td { padding:2px 3px; border-bottom:1px solid var(--border,#344652); text-align:left; white-space:nowrap; }
   th { position:sticky; top:0; background:var(--panel,#192630); color:var(--text-muted,#9badb8); }
   code { overflow-wrap:anywhere; white-space:normal; }
-  h3 { margin:.65rem 0 .3rem; font-size:.82rem; }
-  .can-event-list { display:grid; gap:.3rem; max-height:10rem; overflow:auto; margin:.4rem 0 0; padding-left:1rem; font-size:.73rem; }
-  .can-event-list details { padding:.25rem 0; border:0; background:none; }
-  .can-event-list details summary { font-size:.7rem; }
-  .can-event-list details code { display:block; margin:.2rem 0; }
-  .can-byte-list { max-height:11rem; overflow:auto; margin:.3rem 0; padding-left:1rem; font-size:.67rem; }
-  .can-report-counts { display:flex; flex-wrap:wrap; gap:.35rem; margin:.5rem 0; }
-  .can-report-counts span { padding:.25rem .4rem; border:1px solid var(--border,#344652); border-radius:.4rem; font-size:.72rem; }
-  .can-rate-summary { display:flex; flex-wrap:wrap; gap:.3rem; margin:.4rem 0; }
-  .can-rate-summary span { padding:.2rem .35rem; border:1px solid var(--border,#344652); border-radius:.35rem; color:var(--text-muted,#9badb8); font-size:.68rem; }
-  .can-report-status { color:var(--accent,#56c8bd); font-size:.76rem; }
-  .can-hint { margin:.65rem 0 .1rem; }
-  @media (max-width:650px) { .can-capture-row { flex-wrap:wrap; } .can-capture-path { flex:1 1 100%; } }
+  h3 { margin:4px 0 2px; font-size:10px; }
+  .can-event-list { display:grid; gap:2px; max-height:8rem; overflow:auto; margin:3px 0 0; padding-left:12px; font-size:9px; }
+  .can-event-list details { padding:2px 0; border:0; background:none; }
+  .can-event-list details summary { font-size:9px; }
+  .can-event-list details code { display:block; margin:2px 0; }
+  .can-byte-list { max-height:8rem; overflow:auto; margin:3px 0; padding-left:12px; font-size:9px; }
+  .can-report-counts { display:flex; flex-wrap:wrap; gap:3px; margin:4px 0; }
+  .can-report-counts span { padding:2px 4px; border:1px solid var(--border,#344652); border-radius:.4rem; font-size:9px; }
+  .can-rate-summary { display:flex; flex-wrap:wrap; gap:2px; margin:3px 0; }
+  .can-rate-summary span { padding:2px 3px; border:1px solid var(--border,#344652); border-radius:.35rem; color:var(--text-muted,#9badb8); font-size:9px; }
+  .can-report-status { color:var(--accent,#56c8bd); font-size:9px; }
+  .can-hint { margin:3px 0 0; }
 </style>

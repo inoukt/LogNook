@@ -244,6 +244,18 @@ impl LogNookEngine {
             .stop_capture()
     }
 
+    pub fn mark_can_event(
+        &self,
+        label: &str,
+        pre_ms: u64,
+        post_ms: u64,
+    ) -> Result<crate::CanManualEventMark, LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .mark_event(label, pre_ms, post_ms)
+    }
+
     pub fn arm_can_trigger(
         &self,
         pre_ms: u64,
