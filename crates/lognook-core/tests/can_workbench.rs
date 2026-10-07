@@ -266,12 +266,100 @@ fn trigger_events(
         .collect()
 }
 
+fn live_event_snapshots(
+    events: &Arc<Mutex<Vec<EngineEvent>>>,
+) -> Vec<lognook_core::CanLiveEventSnapshot> {
+    events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            EngineEvent::CanLiveEventAnalysis(snapshot) => Some(snapshot.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn journal_records(path: &std::path::Path) -> Vec<serde_json::Value> {
     std::fs::read_to_string(lognook_core::can_evidence_path(path))
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
+}
+
+#[test]
+fn live_event_results_use_worker_frames_and_clear_without_removing_capture_evidence() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, incoming, _, _) = transport();
+    engine
+        .connect_can_transport(config(true), transport)
+        .unwrap();
+    let path = temp_path("candump.csv");
+    engine.start_can_capture(&path).unwrap();
+
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(frame(
+            0x120,
+            CanDirection::Rx,
+            &[0],
+            -1,
+        ))))
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanFrames(frames) if frames.iter().any(|frame| frame.can_id == 0x120))
+        })
+    });
+    engine.mark_can_event("switch", 200, 50).unwrap();
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(frame(
+            0x120,
+            CanDirection::Rx,
+            &[1],
+            -1,
+        ))))
+        .unwrap();
+    wait_until(|| {
+        live_event_snapshots(&events).iter().any(|snapshot| {
+            snapshot
+                .groups
+                .iter()
+                .any(|group| group.completed_events == 1)
+        })
+    });
+
+    let result = live_event_snapshots(&events)
+        .into_iter()
+        .rev()
+        .find(|snapshot| {
+            snapshot
+                .groups
+                .iter()
+                .any(|group| group.completed_events == 1)
+        })
+        .unwrap();
+    let candidate = &result.groups[0].candidates[0];
+    assert_eq!(candidate.correlation.changed_events, 1);
+    assert_eq!(candidate.sample_frame.as_ref().unwrap().data, vec![1]);
+
+    engine.clear_can_event_results().unwrap();
+    wait_until(|| {
+        live_event_snapshots(&events)
+            .last()
+            .is_some_and(|snapshot| snapshot.groups.is_empty())
+    });
+    engine.stop_can_capture().unwrap();
+    assert!(!live_event_snapshots(&events).last().unwrap().active);
+    assert!(
+        journal_records(&path)
+            .iter()
+            .any(|record| record["record"] == "manual_event_marked")
+    );
+    drop(engine);
+    cleanup_capture(&path);
 }
 
 #[test]

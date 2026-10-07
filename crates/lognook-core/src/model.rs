@@ -228,6 +228,7 @@ pub enum EngineEvent {
     CanScanStarted(crate::CanScanConfig),
     CanScanStopped,
     CanWorkbenchStatus(crate::CanWorkbenchStatus),
+    CanLiveEventAnalysis(crate::CanLiveEventSnapshot),
     CanScanCompleted(crate::CanScanConfig),
     CanTxStatus {
         capture_id: u64,

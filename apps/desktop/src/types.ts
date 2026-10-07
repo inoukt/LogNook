@@ -388,9 +388,26 @@ export type CanEventCandidate = {
   count_change_events: number;
   before_frames: number;
   after_frames: number;
+  before_window_ns: number;
+  after_window_ns: number;
   changed_bytes: CanEventByteChange[];
 };
 export type CanEventCorrelation = { label: string; event_count: number; candidates: CanEventCandidate[] };
+export type CanLiveEventGroup = {
+  label: string;
+  completed_events: number;
+  pending_events: number;
+  incomplete_events: number;
+  omitted_candidates: number;
+  candidates: CanLiveEventCandidate[];
+};
+export type CanLiveEventCandidate = {
+  correlation: CanEventCandidate;
+  sample_frame: CanFrame | null;
+  counter_like_bytes: number[];
+  sum_checksum_like_bytes: number[];
+};
+export type CanLiveEventSnapshot = { capture_id: number; source_id: string; active: boolean; groups: CanLiveEventGroup[] };
 
 export type Sample = {
   elapsed_ns: number;
@@ -474,6 +491,7 @@ export type EngineEvent =
   | { type: "canScanStopped"; payload?: null }
   | { type: "canScanCompleted"; payload: CanScanConfig }
   | { type: "canWorkbenchStatus"; payload: CanWorkbenchStatus }
+  | { type: "canLiveEventAnalysis"; payload: CanLiveEventSnapshot }
   | { type: "canTxStatus"; payload: CanTxStatus }
   | { type: "canTransportError"; payload: CanTransportError }
   | { type: "canTriggerCapture"; payload: CanTriggerCaptureResult }

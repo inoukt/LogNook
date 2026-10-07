@@ -119,6 +119,14 @@ pub async fn configure_can_signals(
 }
 
 #[tauri::command]
+pub async fn preview_can_signal(
+    frame: CanFrame,
+    definition: CanSignalDefinition,
+) -> Result<Option<Sample>, String> {
+    decode_can_signal(&frame, &definition, "can:preview").map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn start_can_capture(state: State<'_, AppState>, path: String) -> Result<(), String> {
     engine(&state)?
         .start_can_capture(Path::new(&path))
@@ -141,6 +149,13 @@ pub async fn mark_can_event(
 ) -> Result<CanManualEventMark, String> {
     engine(&state)?
         .mark_can_event(&label, pre_ms, post_ms)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_can_event_results(state: State<'_, AppState>) -> Result<(), String> {
+    engine(&state)?
+        .clear_can_event_results()
         .map_err(|error| error.to_string())
 }
 

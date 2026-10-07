@@ -36,7 +36,7 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    A30GraphValue, BluetoothSppDevice, CanFrame, CanScanResult, CanSignalDefinition, CanTransportError,
+    A30GraphValue, BluetoothSppDevice, CanFrame, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
     CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, RecordingInfo, ResearchRunViewState,
@@ -119,6 +119,7 @@
   let canSignalDefinitions: CanSignalDefinition[] = [];
   let canFrames: CanFrame[] = [];
   let canTrafficSummary: CanTrafficSummary[] = [];
+  let canLiveEventAnalysis: CanLiveEventSnapshot | null = null;
   let canScanResults: CanScanResult[] = [];
   let canTxStatuses: CanTxStatus[] = [];
   let canTransportErrors: CanTransportError[] = [];
@@ -481,6 +482,7 @@
         const empty = emptyCanSessionEvents();
         canFrames = empty.frames;
         canTrafficSummary = empty.trafficSummary;
+        canLiveEventAnalysis = null;
         canScanResults = empty.scanResults;
         canTxStatuses = empty.txStatuses;
         canTransportErrors = empty.transportErrors;
@@ -516,6 +518,10 @@
           queuedCanFrames = [];
           canFrameFlushScheduled = false;
         });
+      }
+    } else if (event.type === "canLiveEventAnalysis") {
+      if (!canLiveEventAnalysis || event.payload.capture_id >= canLiveEventAnalysis.capture_id) {
+        canLiveEventAnalysis = event.payload;
       }
     } else if (event.type === "canScanStarted") {
       canScanRunning = true;
@@ -1112,6 +1118,24 @@
     graphSignalIds = graphSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id));
   }
 
+  async function saveCanSignalField(field: CanSignalDefinition) {
+    const next = [...canSignalDefinitions.filter(({ id }) => id !== field.id), field];
+    if (canWorkbenchStatus?.connected) await invoke("configure_can_signals", { fields: next });
+    updateCanSignalDefinitions(next);
+    graphSignalIds = setGraphSignal(graphSignalIds, field.id, true);
+    workbenchGraphSignalIds = rememberWorkbenchGraphSignalId(workbenchGraphSignalIds, field.id);
+  }
+
+  async function removeCanSignalField(signalId: string) {
+    const next = canSignalDefinitions.filter(({ id }) => id !== signalId);
+    if (canWorkbenchStatus?.connected) await invoke("configure_can_signals", { fields: next });
+    updateCanSignalDefinitions(next);
+  }
+
+  async function clearLiveCanEventAnalysis() {
+    await invoke("clear_can_event_results");
+  }
+
   function clearCanSignalSamples(signalIds = canSignalDefinitions.map(({ id }) => id)) {
     const cleared = withoutCanSamples(
       latest,
@@ -1542,7 +1566,15 @@
 
       <section class="measurements" class:can-split={!session && pidPickerView === "can"} style={`--can-monitor-height:${canMonitorHeight}px`} bind:this={measurementsElement} aria-label="Measurements">
         {#if !session && pidPickerView === "can"}
-          <CanTrafficPanel frames={canFrames} trafficSummary={canTrafficSummary} />
+          <CanTrafficPanel
+            frames={canFrames}
+            trafficSummary={canTrafficSummary}
+            liveEventAnalysis={canLiveEventAnalysis}
+            fields={canSignalDefinitions}
+            onSaveField={saveCanSignalField}
+            onRemoveField={removeCanSignalField}
+            onClearEvents={clearLiveCanEventAnalysis}
+          />
           <div class="can-monitor-splitter" role="slider" tabindex="0" aria-orientation="vertical" aria-valuemin="120" aria-valuemax={Math.max(120, (measurementsElement?.clientHeight ?? 288) - 168)} aria-valuenow={canMonitorHeight} aria-label="CAN monitor height"
             onpointerdown={startCanSplitResize} onpointermove={resizeCanSplit} onpointerup={finishCanSplitResize} onpointercancel={finishCanSplitResize} onkeydown={resizeCanSplitFromKeyboard}></div>
         {/if}

@@ -283,6 +283,7 @@ fn repeated_manual_event_marks_rank_the_message_that_changes_at_each_mark() {
     assert_eq!(report[0].label, "Traction control toggle");
     assert_eq!(report[0].event_count, 6);
     assert_eq!(report[0].candidates[0].can_id, 0x123);
+    assert_eq!(report[0].candidates[0].observed_events, 6);
     assert_eq!(report[0].candidates[0].changed_events, 6);
     assert_eq!(report[0].candidates[0].changed_bytes[0].byte_index, 0);
     assert_eq!(
@@ -297,6 +298,62 @@ fn repeated_manual_event_marks_rank_the_message_that_changes_at_each_mark() {
         report[0].candidates[0].changed_bytes[0].transitions[1].occurrences,
         3
     );
+}
+
+#[test]
+fn event_candidates_count_unchanged_observed_trials_in_their_denominator() {
+    let marks = [100, 300].map(|elapsed_ns| CanManualEventMark {
+        label: "switch".into(),
+        elapsed_ns,
+        pre_ns: 50,
+        post_ns: 50,
+    });
+    let frames = [
+        frame(90, 0x123, &[0]),
+        frame(110, 0x123, &[0]),
+        frame(290, 0x123, &[0]),
+        frame(310, 0x123, &[1]),
+    ];
+
+    let report = correlate_can_events(&marks, frames.iter());
+    let candidate = &report[0].candidates[0];
+    assert_eq!(candidate.observed_events, 2);
+    assert_eq!(candidate.changed_events, 1);
+}
+
+#[test]
+fn event_ranking_prefers_recurrence_over_a_higher_raw_change_count() {
+    let marks: Vec<_> = (0..6)
+        .map(|index| CanManualEventMark {
+            label: "switch".into(),
+            elapsed_ns: 1_000 + index * 200,
+            pre_ns: 50,
+            post_ns: 50,
+        })
+        .collect();
+    let mut frames = Vec::new();
+    for (index, mark) in marks.iter().enumerate() {
+        let before = mark.elapsed_ns - 10;
+        let after = mark.elapsed_ns + 10;
+        if index < 3 {
+            let value = (index % 2) as u8;
+            frames.push(frame(before, 0x123, &[value]));
+            frames.push(frame(after, 0x123, &[1 - value]));
+        }
+        let value = if index < 5 { (index % 2) as u8 } else { 0 };
+        frames.push(frame(before, 0x124, &[value]));
+        frames.push(frame(
+            after,
+            0x124,
+            &[if index < 5 { 1 - value } else { value }],
+        ));
+    }
+    frames.sort_by_key(|frame| frame.elapsed_ns);
+
+    let report = correlate_can_events(&marks, frames.iter());
+    assert_eq!(report[0].candidates[0].can_id, 0x123);
+    assert_eq!(report[0].candidates[0].changed_events, 3);
+    assert_eq!(report[0].candidates[1].changed_events, 5);
 }
 
 #[test]

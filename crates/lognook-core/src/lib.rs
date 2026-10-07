@@ -5,6 +5,7 @@ mod bluetooth_spp;
 mod can;
 mod can_analysis;
 mod can_capture;
+mod can_live_events;
 mod can_workbench;
 pub mod candlelight;
 mod csv_import;
@@ -47,6 +48,9 @@ pub use can_analysis::{
     CanTriggerRecorder, can_dbc_skeleton, compare_can_census, correlate_can_events,
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
+pub use can_live_events::{
+    CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventSnapshot, LiveCanEventAnalyzer,
+};
 pub use can_workbench::{
     CanDeviceCandidate, CanDeviceSelection, CanEvidenceRecord, CanEvidenceScanConfig,
     CanEvidenceScanResult, CanScanConfig, CanScanMode, CanScanResult, CanTransport,

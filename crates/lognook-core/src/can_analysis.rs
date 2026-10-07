@@ -153,6 +153,10 @@ pub struct CanEventCandidate {
     pub count_change_events: usize,
     pub before_frames: u64,
     pub after_frames: u64,
+    #[serde(default)]
+    pub before_window_ns: u64,
+    #[serde(default)]
+    pub after_window_ns: u64,
     pub changed_bytes: Vec<CanEventByteChange>,
 }
 
@@ -178,6 +182,8 @@ struct EventCandidateAggregate {
     count_change_events: usize,
     before_frames: u64,
     after_frames: u64,
+    before_window_ns: u64,
+    after_window_ns: u64,
     transitions: BTreeMap<(usize, Option<u8>, Option<u8>), usize>,
 }
 
@@ -272,6 +278,15 @@ impl CanEventCorrelator {
     }
 
     pub fn finish(self) -> Vec<CanEventCorrelation> {
+        self.finish_inner(false)
+    }
+
+    /// Includes IDs observed in a window even when their before/after values match.
+    pub(crate) fn finish_with_unchanged(self) -> Vec<CanEventCorrelation> {
+        self.finish_inner(true)
+    }
+
+    fn finish_inner(self, include_unchanged: bool) -> Vec<CanEventCorrelation> {
         let mut reports_by_label = BTreeMap::<String, CanEventCorrelation>::new();
         for mark in &self.marks {
             let report = reports_by_label
@@ -302,21 +317,22 @@ impl CanEventCorrelator {
                         changed = true;
                     }
                 }
-                if !changed {
-                    continue;
-                }
                 let aggregate = aggregates
                     .entry((mark.label.clone(), can_id, extended))
                     .or_default();
                 aggregate.observed_events += 1;
-                aggregate.changed_events += 1;
-                aggregate.count_change_events += usize::from(count_changed);
                 aggregate.before_frames += counts.before_frames;
                 aggregate.after_frames += counts.after_frames;
+                aggregate.before_window_ns += mark.pre_ns as u64;
+                aggregate.after_window_ns += mark.post_ns as u64;
+                if changed {
+                    aggregate.changed_events += 1;
+                    aggregate.count_change_events += usize::from(count_changed);
+                }
                 for index in 0..8 {
                     let before = counts.before_last[index];
                     let after = counts.after_first[index];
-                    if before != after {
+                    if changed && before != after {
                         *aggregate
                             .transitions
                             .entry((index, before, after))
@@ -327,6 +343,9 @@ impl CanEventCorrelator {
         }
 
         for ((label, can_id, extended), aggregate) in aggregates {
+            if aggregate.changed_events == 0 && !include_unchanged {
+                continue;
+            }
             let changed_bytes = aggregate
                 .transitions
                 .into_iter()
@@ -362,6 +381,8 @@ impl CanEventCorrelator {
                 count_change_events: aggregate.count_change_events,
                 before_frames: aggregate.before_frames,
                 after_frames: aggregate.after_frames,
+                before_window_ns: aggregate.before_window_ns,
+                after_window_ns: aggregate.after_window_ns,
                 changed_bytes,
             };
             reports_by_label
@@ -373,9 +394,9 @@ impl CanEventCorrelator {
         let mut reports: Vec<_> = reports_by_label.into_values().collect();
         for report in &mut reports {
             report.candidates.sort_by(|left, right| {
-                right
-                    .changed_events
-                    .cmp(&left.changed_events)
+                (right.changed_events as u128 * left.observed_events as u128)
+                    .cmp(&(left.changed_events as u128 * right.observed_events as u128))
+                    .then_with(|| right.changed_events.cmp(&left.changed_events))
                     .then_with(|| right.changed_bytes.len().cmp(&left.changed_bytes.len()))
                     .then_with(|| {
                         right

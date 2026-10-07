@@ -256,6 +256,13 @@ impl LogNookEngine {
             .mark_event(label, pre_ms, post_ms)
     }
 
+    pub fn clear_can_event_results(&self) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .clear_event_results()
+    }
+
     pub fn arm_can_trigger(
         &self,
         pre_ms: u64,

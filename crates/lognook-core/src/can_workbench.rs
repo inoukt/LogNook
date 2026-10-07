@@ -733,6 +733,10 @@ impl CanWorkbench {
         })
     }
 
+    pub fn clear_event_results(&self) -> Result<(), LogNookError> {
+        self.request(Command::ClearEventResults)
+    }
+
     pub fn disarm_trigger(&self) -> Result<(), LogNookError> {
         self.request(Command::DisarmTrigger)
     }

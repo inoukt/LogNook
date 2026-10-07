@@ -333,11 +333,21 @@
     return value === null ? "—" : `0x${value.toString(16).padStart(2, "0").toUpperCase()}`;
   }
 
+  function eventByteXor(before: number | null, after: number | null): string {
+    return before === null || after === null
+      ? ""
+      : ` XOR 0x${(before ^ after).toString(16).padStart(2, "0").toUpperCase()}`;
+  }
+
   function eventCorrelationSummary(correlation: CanEventCorrelation): string {
     const best = correlation.candidates[0];
     return best
-      ? `${best.changed_events}/${correlation.event_count} marks · ${eventCanId(best.can_id, best.extended)}`
+      ? `${best.changed_events}/${best.observed_events} observed · ${best.observed_events}/${correlation.event_count} marks · ${eventCanId(best.can_id, best.extended)}`
       : `${correlation.event_count} marks · no changed frames found`;
+  }
+
+  function eventFrameRate(count: number, windowNs: number): string {
+    return windowNs > 0 ? `${(count * 1e9 / windowNs).toFixed(1)} Hz` : "—";
   }
 
   function eventMarkTimes(label: string): string {
@@ -622,14 +632,14 @@
             <p class="can-muted">Marks at {eventMarkTimes(correlation.label)} · windows compare each event’s before/after traffic.</p>
             <div class="can-table-wrap">
               <table aria-label={`CAN messages correlated with ${correlation.label}`}>
-                <thead><tr><th>Candidate ID</th><th>Changed marks</th><th>Frames before / after</th><th>Byte transitions</th></tr></thead>
+                <thead><tr><th>Candidate ID</th><th>Changed / observed</th><th>RX frames · before / after rate</th><th>Byte transitions</th></tr></thead>
                 <tbody>
                   {#each correlation.candidates.slice(0, 30) as candidate (`${candidate.can_id}:${candidate.extended}`)}
                     <tr>
                       <td>{eventCanId(candidate.can_id, candidate.extended)}</td>
-                      <td>{candidate.changed_events}/{correlation.event_count}</td>
-                      <td>{candidate.before_frames} / {candidate.after_frames}</td>
-                      <td>{candidate.changed_bytes.map((byte) => `B${byte.byte_index}: ${byte.transitions.map((transition) => `${eventByteValue(transition.before)}→${eventByteValue(transition.after)} ×${transition.occurrences}`).join(", ")}`).join("; ") || (candidate.before_frames === 0 ? "appears after" : candidate.after_frames === 0 ? "stops after" : `${candidate.count_change_events} activity shifts`)}</td>
+                      <td>{candidate.changed_events}/{candidate.observed_events} observed · {candidate.observed_events}/{correlation.event_count} marks</td>
+                      <td>{candidate.before_frames} / {candidate.after_frames} · {eventFrameRate(candidate.before_frames, candidate.before_window_ns)} / {eventFrameRate(candidate.after_frames, candidate.after_window_ns)}</td>
+                      <td>{candidate.changed_bytes.map((byte) => `B${byte.byte_index}: ${byte.transitions.map((transition) => `${eventByteValue(transition.before)}→${eventByteValue(transition.after)}${eventByteXor(transition.before, transition.after)} ×${transition.occurrences}`).join(", ")}`).join("; ") || (candidate.before_frames === 0 ? "appears after" : candidate.after_frames === 0 ? "stops after" : `${candidate.count_change_events} activity shifts`)}</td>
                     </tr>
                   {:else}
                     <tr><td colspan="4" class="can-muted">No CAN frames were found around these marks.</td></tr>

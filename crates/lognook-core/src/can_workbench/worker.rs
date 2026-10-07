@@ -5,7 +5,8 @@ use super::{
     CanTriggerEndReason, CanTriggerRecorder, CanWorkbenchStatus, OemCandidateTrySpec,
 };
 use crate::{
-    CanCaptureWriter, CanDirection, CanFrame, EngineEvent, SamplePublisher, decode_can_signal,
+    CanCaptureWriter, CanDirection, CanFrame, EngineEvent, LiveCanEventAnalyzer, SamplePublisher,
+    decode_can_signal,
 };
 use std::{
     collections::HashMap,
@@ -42,6 +43,7 @@ pub(super) enum Command {
         post_ns: i64,
         reply: mpsc::Sender<Result<CanManualEventMark, String>>,
     },
+    ClearEventResults(mpsc::Sender<Result<(), String>>),
     DisarmTrigger(mpsc::Sender<Result<(), String>>),
     Shutdown,
 }
@@ -183,6 +185,7 @@ pub(super) fn run_worker(
     let mut next_tx_sequence = 1u64;
     let mut next_capture_id = 1u64;
     let mut trigger: Option<(CanTriggerRecorder, u64, CanTriggerConfig)> = None;
+    let mut live_events: Option<LiveCanEventAnalyzer> = None;
     let mut disconnected = false;
     loop {
         if disconnected {
@@ -202,6 +205,7 @@ pub(super) fn run_worker(
                 listen_only,
                 &mut next_capture_id,
                 &mut trigger,
+                &mut live_events,
                 &started,
             ),
             Err(mpsc::TryRecvError::Empty) => {}
@@ -313,6 +317,25 @@ pub(super) fn run_worker(
                         &event_sink,
                         &mut frames,
                     );
+                    let live_event_error = if capture.as_ref().is_some_and(|session| !session.failed()) {
+                        live_events.as_mut().and_then(|analyzer| analyzer.feed(&frame).err())
+                    } else {
+                        None
+                    };
+                    if let Some(error) = live_event_error {
+                        (event_sink)(EngineEvent::Error(format!(
+                            "Live CAN event analysis stopped: {error}"
+                        )));
+                        if let Some(mut analyzer) = live_events.take() {
+                            (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.finish()));
+                        }
+                    } else if capture
+                        .as_ref()
+                        .is_none_or(|session| session.failed())
+                        && let Some(mut analyzer) = live_events.take()
+                    {
+                        (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.finish()));
+                    }
                     feed_trigger(&mut trigger, &frame, &event_sink);
                     if let Some(task) = scan_task.as_mut() {
                         accept_scan_response(
@@ -402,6 +425,26 @@ pub(super) fn run_worker(
             &mut capture,
             &event_sink,
         );
+        let live_event_advance = live_events.as_mut()
+            .map(|analyzer| analyzer.advance(elapsed_ns(&started)));
+        if let Some(result) = live_event_advance {
+            match result {
+                Ok(true) => {
+                    if let Some(analyzer) = live_events.as_ref() {
+                        (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.snapshot()));
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    (event_sink)(EngineEvent::Error(format!(
+                        "Live CAN event analysis stopped: {error}"
+                    )));
+                    if let Some(mut analyzer) = live_events.take() {
+                        (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.finish()));
+                    }
+                }
+            }
+        }
     }
     if let Some((mut recorder, capture_id, _config)) = trigger.take()
         && let Some(window) = recorder.take_capture()
@@ -424,6 +467,9 @@ pub(super) fn run_worker(
             listen_only,
             &event_sink,
         );
+    }
+    if let Some(live_events) = live_events.as_mut() {
+        (event_sink)(EngineEvent::CanLiveEventAnalysis(live_events.finish()));
     }
     if let Some(writer) = capture.take() {
         if let Err(error) = writer.finish() {
@@ -455,6 +501,7 @@ fn handle_command(
     listen_only: bool,
     next_capture_id: &mut u64,
     trigger: &mut Option<(CanTriggerRecorder, u64, CanTriggerConfig)>,
+    live_events: &mut Option<LiveCanEventAnalyzer>,
     started: &Instant,
 ) {
     match command {
@@ -471,8 +518,14 @@ fn handle_command(
                     .map(|session| {
                         *capture = Some(session);
                         *next_capture_id = next_capture_id.saturating_add(1);
+                        *live_events = Some(LiveCanEventAnalyzer::new(capture_id, source_id));
                     })
             };
+            if result.is_ok()
+                && let Some(live_events) = live_events.as_ref()
+            {
+                (event_sink)(EngineEvent::CanLiveEventAnalysis(live_events.snapshot()));
+            }
             let _ = reply.send(result);
         }
         Command::StopCapture(reply) => {
@@ -515,6 +568,9 @@ fn handle_command(
             let finish_result = capture.take().map_or(Ok(()), |writer| {
                 writer.finish().map_err(|error| error.to_string())
             });
+            if let Some(mut live_events) = live_events.take() {
+                (event_sink)(EngineEvent::CanLiveEventAnalysis(live_events.finish()));
+            }
             let _ = reply.send(stop_result.and(trigger_result).and(finish_result));
         }
         Command::SendFrame(frame, pacing_ms, repeat, reply) => {
@@ -626,15 +682,50 @@ fn handle_command(
                 post_ns,
             };
             let result = if let Some(session) = capture.as_mut() {
-                session
-                    .record(&CanEvidenceRecord::ManualEventMarked {
-                        capture_id: session.capture_id(),
-                        mark: mark.clone(),
+                live_events
+                    .as_ref()
+                    .ok_or_else(|| "Live CAN event analyzer is unavailable".to_owned())
+                    .and_then(|analyzer| {
+                        analyzer
+                            .validate_mark(&mark)
+                            .map_err(|error| error.to_string())
+                    })
+                    .and_then(|()| {
+                        session
+                            .record(&CanEvidenceRecord::ManualEventMarked {
+                                capture_id: session.capture_id(),
+                                mark: mark.clone(),
+                            })
+                            .map_err(|error| error.to_owned())
+                    })
+                    .and_then(|()| {
+                        live_events
+                            .as_mut()
+                            .ok_or_else(|| "Live CAN event analyzer is unavailable".to_owned())?
+                            .mark(mark.clone())
+                            .map_err(|error| error.to_string())
                     })
                     .map(|()| mark)
             } else {
                 Err("Start a raw CAN capture before marking an event".to_owned())
             };
+            if result.is_ok()
+                && let Some(live_events) = live_events.as_ref()
+            {
+                (event_sink)(EngineEvent::CanLiveEventAnalysis(live_events.snapshot()));
+            }
+            let _ = reply.send(result);
+        }
+        Command::ClearEventResults(reply) => {
+            let result = live_events
+                .as_mut()
+                .ok_or_else(|| {
+                    "Start a raw CAN capture before clearing live event results".to_owned()
+                })
+                .map(|analyzer| {
+                    analyzer.clear_results();
+                    (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.snapshot()));
+                });
             let _ = reply.send(result);
         }
         Command::DisarmTrigger(reply) => {
@@ -1158,6 +1249,7 @@ mod tests {
         let mut send_task = None;
         let mut next_capture_id = 2;
         let mut trigger = None;
+        let mut live_events = None;
         let started = Instant::now();
         let event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync> = Arc::new(|_| {});
         let (reply, response) = mpsc::channel();
@@ -1173,6 +1265,7 @@ mod tests {
             false,
             &mut next_capture_id,
             &mut trigger,
+            &mut live_events,
             &started,
         );
         assert!(response.recv().unwrap().is_err());

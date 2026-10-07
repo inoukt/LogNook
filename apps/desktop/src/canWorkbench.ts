@@ -73,6 +73,43 @@ export function canSignalDefinitionError(field: CanSignalDefinition): string | n
   return null;
 }
 
+export function canSignalBitPositions(
+  startBit: number,
+  bitLength: number,
+  byteOrder: "intel" | "motorola",
+): number[] | null {
+  if (!Number.isInteger(startBit) || startBit < 0 || startBit > 63
+    || !Number.isInteger(bitLength) || bitLength < 1 || bitLength > 64) return null;
+  const positions: number[] = [];
+  let bit = startBit;
+  for (let index = 0; index < bitLength; index++) {
+    if (bit >= 64) return null;
+    positions.push(bit);
+    bit = byteOrder === "intel" ? bit + 1 : bit % 8 === 0 ? bit + 15 : bit - 1;
+  }
+  return positions;
+}
+
+export function extractCanSignalRaw(
+  data: number[],
+  startBit: number,
+  bitLength: number,
+  byteOrder: "intel" | "motorola",
+  signed: boolean,
+): bigint | null {
+  const positions = canSignalBitPositions(startBit, bitLength, byteOrder);
+  if (!positions || positions.some(bit => bit >= data.length * 8)) return null;
+  let raw = 0n;
+  for (const [index, bit] of positions.entries()) {
+    const value = BigInt((data[Math.floor(bit / 8)] >> (bit % 8)) & 1);
+    raw = byteOrder === "intel"
+      ? raw | (value << BigInt(index))
+      : (raw << 1n) | value;
+  }
+  const sign = 1n << BigInt(bitLength - 1);
+  return signed && (raw & sign) !== 0n ? raw - (1n << BigInt(bitLength)) : raw;
+}
+
 export function restoreCanSignalDefinitions(serialized: string | null): CanSignalDefinition[] {
   let parsed: unknown;
   try { parsed = JSON.parse(serialized ?? "null"); } catch { return []; }
