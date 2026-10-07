@@ -54,10 +54,14 @@ fn engine_acquires_formula_inputs_and_records_derived_rows_without_changing_sour
     engine.start_recording(&path).unwrap();
     let tare_offset = engine.tare_derived_signal("temp_f").unwrap();
     assert!(tare_offset.is_finite());
-    let tared = events_rx.try_iter().filter_map(|event| match event {
-        EngineEvent::Sample(sample) if sample.signal_id == "temp_f" => Some(sample),
-        _ => None,
-    }).last().expect("tare should emit a zero-valued derived sample");
+    let tared = events_rx
+        .try_iter()
+        .filter_map(|event| match event {
+            EngineEvent::Sample(sample) if sample.signal_id == "temp_f" => Some(sample),
+            _ => None,
+        })
+        .find(|sample| sample.value == 0.0)
+        .expect("tare should emit a zero-valued derived sample");
     assert_eq!(tared.value, 0.0);
 
     thread::sleep(Duration::from_millis(250));

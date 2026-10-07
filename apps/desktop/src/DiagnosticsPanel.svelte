@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { invoke, isTauri } from "@tauri-apps/api/core";
   import { filterDiagnostics, formatDiagnostic, mergeDiagnostics, selectedDiagnosticsRecording } from "./diagnostics";
+  import { appendCommunicationCheckRecords, summarizeCommunicationCheck, type CommunicationCheckSummary } from "./communicationChecks";
   import type { DiagnosticRecord } from "./types";
 
-  let { open = false, liveRecords = [], listenerError = "", onClose, onChooseRecording, onExport }: {
+  let { open = false, liveRecords = [], listenerError = "", connectedAdapterId = null, connectedAdapterLabel = "OBD adapter", onClose, onChooseRecording, onExport }: {
     open?: boolean;
     liveRecords?: DiagnosticRecord[];
     listenerError?: string;
+    connectedAdapterId?: string | null;
+    connectedAdapterLabel?: string;
     onClose: () => void;
     onChooseRecording: () => Promise<string | null>;
     onExport: (recordingPath: string | null) => Promise<string | null>;
@@ -21,12 +24,25 @@
   let loading = $state(false);
   let error = $state("");
   let exportPath = $state("");
+  let communicationCheckStartedAt = $state<number | null>(null);
+  let communicationCheckAdapterId = $state<string | null>(null);
+  let communicationCheckAdapterLabel = $state("");
+  let communicationCheckRecords = $state<DiagnosticRecord[]>([]);
+  let communicationCheckResult = $state<CommunicationCheckSummary | null>(null);
+  let communicationCheckTimer: number | undefined;
   let wasOpen = false;
   let dialog: HTMLDialogElement;
 
   $effect(() => {
     const incoming = liveRecords;
     records = untrack(() => mergeDiagnostics(records, incoming));
+    const startedAt = communicationCheckStartedAt;
+    const adapterId = communicationCheckAdapterId;
+    if (startedAt !== null && adapterId) {
+      communicationCheckRecords = appendCommunicationCheckRecords(
+        untrack(() => communicationCheckRecords), incoming, adapterId, startedAt,
+      );
+    }
   });
   $effect(() => {
     if (open && !dialog.open) dialog.showModal();
@@ -38,6 +54,34 @@
   const adapters = $derived([...new Set(records.flatMap(record => record.adapter_id ? [record.adapter_id] : []))].sort());
   const operations = $derived([...new Set(records.map(record => record.operation))].sort());
   const visible = $derived(filterDiagnostics(records, { adapter, operation, errorsOnly }).slice().reverse());
+
+  function startCommunicationCheck() {
+    if (!connectedAdapterId || communicationCheckStartedAt !== null) return;
+    communicationCheckAdapterId = connectedAdapterId;
+    communicationCheckAdapterLabel = connectedAdapterLabel;
+    const startedAt = Date.now();
+    communicationCheckStartedAt = startedAt;
+    communicationCheckRecords = appendCommunicationCheckRecords([], records, connectedAdapterId, startedAt);
+    communicationCheckResult = null;
+    communicationCheckTimer = window.setTimeout(finishCommunicationCheck, 10_000);
+  }
+
+  function finishCommunicationCheck() {
+    if (communicationCheckTimer !== undefined) window.clearTimeout(communicationCheckTimer);
+    communicationCheckTimer = undefined;
+    if (communicationCheckStartedAt === null || !communicationCheckAdapterId) return;
+    communicationCheckResult = summarizeCommunicationCheck(
+      communicationCheckRecords,
+      communicationCheckAdapterId,
+      communicationCheckStartedAt,
+      Date.now(),
+    );
+    communicationCheckStartedAt = null;
+  }
+
+  onDestroy(() => {
+    if (communicationCheckTimer !== undefined) window.clearTimeout(communicationCheckTimer);
+  });
 
   async function refresh() {
     if (loading) return;
@@ -74,6 +118,30 @@
     <button class="button secondary" type="button" onclick={onClose}>Close</button>
   </header>
   <p class="hint">Recent progress, PID attempts, attributable errors, first responses, and delivery rates. Attempts count requested polls; grouped failures remain in the operation log. Support bundles include diagnostics and existing OEM research evidence.</p>
+  {#if connectedAdapterId}
+    <section class="communication-check" aria-label="Live communication check">
+      <div>
+        <strong>Live communication check · {connectedAdapterLabel}</strong>
+        <p class="hint">Measures the current serialized OBD polling for 10 seconds. It sends no extra requests.</p>
+      </div>
+      {#if communicationCheckStartedAt !== null}
+        <span role="status">Checking {communicationCheckAdapterLabel}…</span>
+      {:else}
+        <button class="button secondary" type="button" onclick={startCommunicationCheck}>Start 10 s check</button>
+      {/if}
+    </section>
+  {/if}
+  {#if communicationCheckResult}
+    {@const check = communicationCheckResult}
+    <section class="communication-result" aria-label="Communication check result" role="status">
+      <strong>{check.status === "healthy" ? "Polling completed" : check.status === "issues" ? "Communication issues observed" : "No polling data observed"}</strong>
+      <span>{check.attempts} polls · {check.successes} succeeded · {check.failures} failed</span>
+      <span>Median {check.medianLatencyMs === null ? "—" : `${check.medianLatencyMs} ms`} · P95 {check.p95LatencyMs === null ? "—" : `${check.p95LatencyMs} ms`}</span>
+      {#each check.signals as signal (signal.signalId)}
+        <span>{signal.signalId}: {signal.successes} samples / {signal.attempts} attempts · {signal.errors} errors{signal.supported === false ? " · unsupported" : ""}</span>
+      {/each}
+    </section>
+  {/if}
   <div class="controls">
     <label>Adapter <select class="text-input" aria-label="Adapter filter" bind:value={adapter}><option value="">All adapters</option>{#each adapters as id}<option value={id}>{id}</option>{/each}</select></label>
     <label>Operation <select class="text-input" aria-label="Operation filter" bind:value={operation}><option value="">All operations</option>{#each operations as name}<option value={name}>{name.replaceAll("_", " ")}</option>{/each}</select></label>
@@ -118,6 +186,10 @@
   label { display: flex; align-items: center; gap: 6px; }
   input { accent-color: var(--accent); }
   .hint, small { color: var(--text-secondary); font-size: 12px; }
+  .communication-check, .communication-result { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-deep); }
+  .communication-check > div { flex: 1; min-width: 220px; }
+  .communication-check .hint { margin: 4px 0 0; }
+  .communication-result span { color: var(--text-secondary); font-size: 12px; }
   .records { max-height: 48vh; overflow: auto; margin-top: 14px; border: 1px solid var(--border); }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th { position: sticky; top: 0; background: var(--surface-deep); text-align: left; }

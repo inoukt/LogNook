@@ -190,6 +190,25 @@ export function buildCanScanConfig(input: CanScanInput): CanScanConfig | null {
   return canScanConfigError(config) ? null : config;
 }
 
+export function buildCanCommunicationCheck(
+  requestId: string,
+  responseId: string,
+  extended: boolean,
+  pacingMs: number,
+  responseTimeoutMs: number,
+): CanScanConfig | null {
+  return buildCanScanConfig({
+    kind: "mode_01_pids",
+    requestId,
+    responseId,
+    extended,
+    start: "00",
+    end: "00",
+    pacingMs,
+    responseTimeoutMs,
+  });
+}
+
 export function canTransmitEnabled(
   status: Pick<CanWorkbenchStatus, "connected" | "listen_only"> | null,
   captureOpen: boolean,

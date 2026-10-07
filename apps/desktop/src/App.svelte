@@ -1351,6 +1351,8 @@
     open={diagnosticsOpen}
     liveRecords={diagnosticRecords}
     listenerError={diagnosticsListenerError}
+    connectedAdapterId={connected && activeAdapterDescriptor ? activeAdapterDescriptor.stable_id : null}
+    connectedAdapterLabel={activeAdapterDescriptor?.hardware_family ?? "OBD adapter"}
     onClose={() => diagnosticsOpen = false}
     onChooseRecording={chooseDiagnosticsRecording}
     onExport={exportSupportBundle}

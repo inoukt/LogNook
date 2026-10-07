@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import {
-    buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
+    buildCanCommunicationCheck, buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
     canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
     createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload,
     canCorrelationHypothesisKey, formatCanCorrelationSource,
@@ -197,6 +197,15 @@
     await runBusy(async () => {
       await commands.startScan(config);
       scanStatus = "Scan started";
+    });
+  }
+
+  async function tryCanOnce() {
+    const config = buildCanCommunicationCheck(requestId, responseId, extended, pacingMs, responseTimeoutMs);
+    if (!config || !transmissionReady || scanRunning) return;
+    await runBusy(async () => {
+      await commands.startScan(config);
+      scanStatus = "One-shot Mode 01 PID 00 check started";
     });
   }
 
@@ -509,6 +518,7 @@
       {#if scanError}<span class="can-error">{scanError}</span>{/if}
       {#if scanRunning}<span class="can-muted" role="status">Scan running</span>{:else if scanStatus}<span class="can-muted" role="status">{scanStatus}</span>{/if}
       <button class="button primary" onclick={startScan} disabled={!transmissionReady || !scanConfig || scanRunning}>Start scan</button>
+      <button class="button secondary" onclick={tryCanOnce} disabled={!transmissionReady || scanRunning} title="Send one Mode 01 PID 00 request using this route; TX and RX remain in the paired capture">Try CAN once</button>
       <button class="button secondary" onclick={stopScan} disabled={!scanRunning || busy || workspaceBusy}>Stop scan</button>
     </div>
     {#if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}

@@ -213,6 +213,14 @@ fn multiple_ecu_responses_remain_separate() {
 }
 
 #[test]
+fn unknown_trailing_pid_does_not_discard_the_requested_response() {
+    let responses = parse_mode01_responses("7E8 06 41 0C 09 54 FE 01", 0x01, 0x0C).unwrap();
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].raw_bytes, [0x41, 0x0C, 0x09, 0x54]);
+    assert_eq!(responses[0].data, [0x09, 0x54]);
+}
+
+#[test]
 fn multiple_ecu_responses_on_one_line_remain_separate() {
     let text = "7E8 04 41 0C 1A F8 7E9 04 41 0C 10 00>";
     let responses = parse_mode01_responses(text, 0x01, 0x0C).unwrap();

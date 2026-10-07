@@ -34,17 +34,22 @@ impl WorkerClient {
                 worker_path.display()
             )));
         }
-        let child = Command::new(worker_path)
+        let mut command = Command::new(worker_path);
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                LogNookError::new(format!(
-                    "Could not start OpenPort worker at {}: {error}",
-                    worker_path.display()
-                ))
-            })?;
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000);
+        }
+        let child = command.spawn().map_err(|error| {
+            LogNookError::new(format!(
+                "Could not start OpenPort worker at {}: {error}",
+                worker_path.display()
+            ))
+        })?;
         Self::from_child(child)
     }
 

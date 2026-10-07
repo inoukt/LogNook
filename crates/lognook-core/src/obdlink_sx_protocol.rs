@@ -240,6 +240,7 @@ fn parse_mode01_payload_for_service(
                 raw_bytes,
                 data,
             });
+            return Ok(responses);
         }
         offset = data_end;
     }

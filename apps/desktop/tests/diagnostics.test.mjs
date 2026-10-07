@@ -16,12 +16,12 @@ function panelHarness(props, invoke = async () => []) {
   const compiled = ts.transpileModule(script.replace(/^\s*import .*?;\s*$/gm, ""), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;
-  return new Function("$props", "$state", "$effect", "$derived", "untrack", "invoke", "isTauri", "mergeDiagnostics", "filterDiagnostics", "selectedDiagnosticsRecording", "runLiveEffect", `${compiled}
+  return new Function("$props", "$state", "$effect", "$derived", "untrack", "invoke", "isTauri", "mergeDiagnostics", "filterDiagnostics", "selectedDiagnosticsRecording", "onDestroy", "runLiveEffect", `${compiled}
     return { refresh, chooseRecording, exportBundle, append: () => runLiveEffect(), state: () => ({records, adapter, operation, errorsOnly, recordingPath, exportPath, error, actionBusy}) };
   `)(
     () => props, value => value, callback => effects.push(callback), value => value,
     callback => callback(), invoke, () => true, diagnostics.mergeDiagnostics, diagnostics.filterDiagnostics,
-    diagnostics.selectedDiagnosticsRecording, () => effects[0](),
+    diagnostics.selectedDiagnosticsRecording, () => {}, () => effects[0](),
   );
 }
 test("diagnostics_panel_loads_snapshot_and_appends_live_events", async () => {
