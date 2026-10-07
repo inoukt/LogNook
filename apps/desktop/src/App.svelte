@@ -33,8 +33,9 @@
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, graphRefreshIntervalMs, orderMarkersForTimeline,
-    panTimeWindow, restoreWorkspacePreferences, sampleTimeRange, scrubTimeWindow, setGraphSignal,
-    setLogSignal, signalColor, swapPositions, zoomTimeWindow, type SignalOption, type TimeWindow,
+    panTimeWindow, rememberWorkbenchGraphSignalId, restoreResearchSignalOptions, restoreWorkbenchGraphSignalIds,
+    restoreWorkspacePreferences, sampleTimeRange, scrubTimeWindow, setGraphSignal,
+    setLogSignal, signalColor, swapPositions, upsertResearchSignalOption, zoomTimeWindow, type SignalOption, type TimeWindow,
     type WorkspacePreferences, type WorkspaceTheme,
   } from "./workspace";
 
@@ -49,6 +50,8 @@
     uiScale: 100,
   };
   const workspacePreferencesKey = "lognook.workspace-preferences";
+  const researchSignalOptionsKey = "lognook.research-signal-options";
+  const workbenchGraphSignalIdsKey = "lognook.workbench-graph-signal-ids";
   const automaticTriggerPreferencesKey = "lognook.automatic-trigger";
 
   let signalCatalog: SignalDefinition[] = [];
@@ -124,6 +127,7 @@
   let refreshingSxPorts = false;
   let sxDiscoveryError = "";
   let researchSignalOptions: SignalOption[] = [];
+  let workbenchGraphSignalIds: string[] = [];
   let researchRunView: ResearchRunViewState = {
     rows: [], running: false, currentItem: "", completedCount: 0, totalCount: 0, report: null,
   };
@@ -226,6 +230,8 @@
         highContrast,
         uiScale,
       }));
+      localStorage.setItem(researchSignalOptionsKey, JSON.stringify(researchSignalOptions));
+      localStorage.setItem(workbenchGraphSignalIdsKey, JSON.stringify(workbenchGraphSignalIds));
     } catch { /* Preferences are optional. */ }
   }
   $: if (workspacePreferencesReady && isTauri()) {
@@ -243,10 +249,14 @@
   onMount(() => {
     let disposed = false;
     let savedWorkspacePreferences: string | null = null;
+    let savedResearchSignalOptions: string | null = null;
+    let savedWorkbenchGraphSignalIds: string | null = null;
     let savedAutomaticTrigger: string | null = null;
     let savedDerivedSignals: string | null = null;
     try {
       savedWorkspacePreferences = localStorage.getItem(workspacePreferencesKey);
+      savedResearchSignalOptions = localStorage.getItem(researchSignalOptionsKey);
+      savedWorkbenchGraphSignalIds = localStorage.getItem(workbenchGraphSignalIdsKey);
       savedAutomaticTrigger = localStorage.getItem(automaticTriggerPreferencesKey);
       savedDerivedSignals = localStorage.getItem("lognook.derived-signals");
     } catch { /* Preferences are optional. */ }
@@ -281,11 +291,20 @@
         signalCatalog = signals;
         derivedSignalDefinitions = restoreDerivedSignalDefinitions(savedDerivedSignals, signals.map(({ id }) => id));
         derivedSignalPreferencesReady = true;
+        researchSignalOptions = restoreResearchSignalOptions(savedResearchSignalOptions);
+        const knownGraphSignalIds = new Set([
+          ...signals.map(({ id }) => id),
+          ...derivedSignalDefinitions.map(({ id }) => id),
+          ...researchSignalOptions.map(({ id }) => id),
+        ]);
+        workbenchGraphSignalIds = restoreWorkbenchGraphSignalIds(savedWorkbenchGraphSignalIds)
+          .filter((id) => knownGraphSignalIds.has(id));
         const preferences = restoreWorkspacePreferences(
           savedWorkspacePreferences,
           [...signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)],
           defaultWorkspacePreferences,
           Math.max(36, window.innerHeight * 0.3),
+          workbenchGraphSignalIds,
         );
         logSignalIds = preferences.logSignalIds;
         automaticTriggerConfig = restoreAutomaticTriggerConfig(
@@ -992,33 +1011,31 @@
 
   function graphResearchCandidate(candidate: import("./types").OemCandidate) {
     const id = `oem:${candidate.candidate_id}`;
-    researchSignalOptions = [
-      ...researchSignalOptions.filter((signal) => signal.id !== id),
-      {
-        id,
-        name: candidate.name,
-        unit: candidate.unit,
-        description: `Service ${candidate.service} · ${candidate.request_header} → ${candidate.response_header} · ${candidate.research_state} · ${candidate.vehicle_validation} · SHA ${candidate.source_blob_sha} · ${candidate.license ?? "license not listed"}`,
-        formula: candidate.formula,
-        pid: candidate.service === "21" ? Number.parseInt(candidate.identifier, 16) : undefined,
-        research: true,
-      },
-    ];
+    researchSignalOptions = upsertResearchSignalOption(researchSignalOptions, {
+      id,
+      name: candidate.name,
+      unit: candidate.unit,
+      description: `Service ${candidate.service} · ${candidate.request_header} → ${candidate.response_header} · ${candidate.research_state} · ${candidate.vehicle_validation} · SHA ${candidate.source_blob_sha} · ${candidate.license ?? "license not listed"}`,
+      formula: candidate.formula,
+      pid: candidate.service === "21" ? Number.parseInt(candidate.identifier, 16) : undefined,
+      research: true,
+    });
+    workbenchGraphSignalIds = rememberWorkbenchGraphSignalId(workbenchGraphSignalIds, id);
     graphSignalIds = [...new Set([...graphSignalIds, id])];
   }
 
   function graphA30ReadValue(value: A30GraphValue) {
-    if (!signalCatalog.some((signal) => signal.id === value.signal_id)
-      && !researchSignalOptions.some((signal) => signal.id === value.signal_id)) {
-      researchSignalOptions = [...researchSignalOptions, {
+    if (!signalCatalog.some((signal) => signal.id === value.signal_id)) {
+      researchSignalOptions = upsertResearchSignalOption(researchSignalOptions, {
         id: value.signal_id,
         name: value.name,
         unit: value.unit,
-        description: `Mode ${value.service.toString(16).toUpperCase().padStart(2, "0")} captured read result · raw ${value.raw_value}`,
+        description: `Mode ${value.service.toString(16).toUpperCase().padStart(2, "0")} captured read result`,
         pid: value.pid ?? undefined,
         research: true,
-      }];
+      });
     }
+    workbenchGraphSignalIds = rememberWorkbenchGraphSignalId(workbenchGraphSignalIds, value.signal_id);
     graphSignalIds = [...new Set([...graphSignalIds, value.signal_id])];
   }
 
@@ -1056,8 +1073,12 @@
     wheelScrubbing = false;
     automaticTriggerConfig = { ...defaultAutomaticTriggerConfig };
     derivedSignalDefinitions = [];
+    researchSignalOptions = [];
+    workbenchGraphSignalIds = [];
     try {
       localStorage.removeItem(workspacePreferencesKey);
+      localStorage.removeItem(researchSignalOptionsKey);
+      localStorage.removeItem(workbenchGraphSignalIdsKey);
       localStorage.removeItem("lognook.signal-colors");
       localStorage.removeItem("lognook.wheel-scrubbing");
       localStorage.removeItem("lognook.automatic-trigger");
@@ -1288,7 +1309,7 @@
                   <small title={signal.description}>{signal.research ? "RESEARCH" : signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
                 </span>
                 <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
-                <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id) && !researchSignalOptions.some((research) => research.id === signal.id))} />
+                <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id) && !researchSignalOptions.some((research) => research.id === signal.id) && !workbenchGraphSignalIds.includes(signal.id))} />
               </div>
             {:else}
               <p class="no-signals">{availableSignals.length ? "No matching signals" : "Loading signals…"}</p>
