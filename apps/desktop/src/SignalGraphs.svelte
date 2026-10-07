@@ -247,26 +247,26 @@
   </div>
 {/snippet}
 
-<div class="graph-reference-tools">
-  <button class="button secondary graph-export-button" onclick={saveReference} disabled={!traces.some((trace) => trace.samples.length)} title="Save the currently loaded samples as a persistent reference">Save reference</button>
-  {#if graphPreferences.reference}
-    <span role="status">Reference saved · {graphPreferences.reference.traces.length} signal{graphPreferences.reference.traces.length === 1 ? "" : "s"}</span>
-    <button class="button secondary graph-export-button" onclick={() => {
-      graphPreferences = normalizeGraphPreferences({ ...graphPreferences, reference: null });
-      saveGraphPreferences(graphPreferences);
-    }}>Clear reference</button>
-  {:else}
-    <span>Dashed overlay available in live and replay graphs</span>
-  {/if}
-</div>
-<details class="graph-settings">
-  <summary>Graph settings · ranges, styles, and views</summary>
-  <div class="graph-settings-list">
-    {#each traces as trace (trace.signalId)}
-      {@render signalOptions(trace)}
-    {/each}
+<div class="graph-control-row" class:has-reference={Boolean(graphPreferences.reference)}>
+  <details class="graph-settings">
+    <summary>Graph settings · ranges, styles, and views</summary>
+    <div class="graph-settings-list">
+      {#each traces as trace (trace.signalId)}
+        {@render signalOptions(trace)}
+      {/each}
+    </div>
+  </details>
+  <div class="graph-reference-tools">
+    <button class="button secondary graph-export-button graph-reference-bubble" onclick={saveReference} disabled={!traces.some((trace) => trace.samples.length)} title="Save the currently loaded samples as a persistent reference">Save reference</button>
+    {#if graphPreferences.reference}
+      <span role="status">Reference saved · {graphPreferences.reference.traces.length} signal{graphPreferences.reference.traces.length === 1 ? "" : "s"}</span>
+      <button class="button secondary graph-export-button" onclick={() => {
+        graphPreferences = normalizeGraphPreferences({ ...graphPreferences, reference: null });
+        saveGraphPreferences(graphPreferences);
+      }}>Clear reference</button>
+    {/if}
   </div>
-</details>
+</div>
 
 {#if graphMode === "overlay"}
   <div class="chart-layout overlay-layout">
@@ -314,9 +314,12 @@
 
 <style>
   .live-ended-banner { margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 5px; padding: 4px 8px; color: var(--text-muted); font-size: 10px; }
-  .graph-reference-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--text-muted); font-size: 10px; }
-  .graph-settings { margin-bottom: 8px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-deep); }
-  .graph-settings summary { padding: 7px 9px; color: var(--text-muted); font-size: 10px; cursor: pointer; }
+  .graph-control-row { position: relative; min-width: 0; margin-bottom: 8px; }
+  .graph-reference-tools { position: absolute; z-index: 1; top: 2px; right: 9px; display: flex; align-items: center; flex-wrap: nowrap; gap: 7px; min-width: 0; color: var(--text-muted); font-size: 10px; }
+  .graph-reference-tools .graph-reference-bubble { min-height: 26px; padding-inline: 11px; border-radius: 999px; }
+  .graph-settings { width: 100%; min-width: 0; margin: 0; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-deep); }
+  .graph-settings summary { overflow: hidden; padding: 7px 120px 7px 9px; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .graph-control-row.has-reference .graph-settings summary { padding-right: 340px; }
   .graph-settings-list { max-height: 180px; overflow: auto; border-top: 1px solid var(--border-soft); }
   .signal-graph-options { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; padding: 7px 9px; border-bottom: 1px solid var(--border-soft); }
   .signal-graph-options > strong { min-width: 105px; font-size: 10px; }

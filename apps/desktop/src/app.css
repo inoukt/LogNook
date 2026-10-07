@@ -224,6 +224,8 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .workspace-grid.pid-picker-hidden .measurements { grid-column: 2; }
 .measurements > .research-run-results { flex: 0 1 auto; margin-top: 8px; }
 .measurements.can-split { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(120px, var(--can-monitor-height)) 8px minmax(160px, 1fr); gap: 4px; overflow: hidden; }
+.graph-workspace { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+.measurements.can-split > .graph-workspace { grid-row: 3; min-height: 0; }
 .can-monitor-splitter { display: grid; place-items: center; width: 100%; min-width: 0; min-height: 8px; padding: 0; border: 0; border-radius: 4px; background: transparent; cursor: row-resize; touch-action: none; user-select: none; }
 .can-monitor-splitter::after { content: ""; width: 44px; height: 4px; border-radius: 99px; background: var(--border-strong); transition: background .12s ease; }
 .can-monitor-splitter:hover::after, .can-monitor-splitter:focus-visible::after { background: var(--accent); }

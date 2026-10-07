@@ -1547,20 +1547,22 @@
         {#if visibleSignals.length === 0}
           <div class="empty-state"><span class="empty-icon">⌁</span><h3>{session ? "No signals selected" : "Select signals to begin"}</h3><p>{session ? "Choose recorded signals to add them to the graph." : "Choose one or more PIDs, then connect an adapter."}</p></div>
         {:else}
-          <SignalGraphs
-            {traces}
-            {graphSignalIds}
-            {graphMode}
-            onReorder={swapGraphPositions}
-            onCreateDerivedSignal={openDerivedSignalEditor}
-            onToggleGraphSignal={toggleGraphSignal}
-            onSeek={session ? seek : undefined}
-            onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
-            live={!session && connected}
-            timeWindow={session ? timeWindow : undefined}
-            markers={session ? markers : []}
-            playheadNs={session ? playback.position_ns : undefined}
-          />
+          <div class="graph-workspace">
+            <SignalGraphs
+              {traces}
+              {graphSignalIds}
+              {graphMode}
+              onReorder={swapGraphPositions}
+              onCreateDerivedSignal={openDerivedSignalEditor}
+              onToggleGraphSignal={toggleGraphSignal}
+              onSeek={session ? seek : undefined}
+              onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
+              live={!session && connected}
+              timeWindow={session ? timeWindow : undefined}
+              markers={session ? markers : []}
+              playheadNs={session ? playback.position_ns : undefined}
+            />
+          </div>
         {/if}
         {#if !session && pidPickerView === "oem"}
           <ResearchRunResults

@@ -170,6 +170,14 @@ test("a successful new CAN capture clears the old trigger window", () => {
   assert.match(app, /onClearTriggerCapture=\{clearCanTriggerCapture\}/);
 });
 
+test("CAN configuration sections start collapsed", () => {
+  for (const section of ["can-trigger-settings", "can-scan-settings", "can-fields-settings", "can-send-settings"]) {
+    const tag = panel.match(new RegExp(`<details class="${section}"[^>]*>`))?.[0];
+    assert.ok(tag, `find ${section}`);
+    assert.doesNotMatch(tag, /\bopen\b/);
+  }
+});
+
 test("live CAN summary counts frames beyond the recent display buffer", () => {
   assert.ok(can, "CAN workbench helpers exist");
   const frames = Array.from({ length: 405 }, (_, index) => ({
@@ -199,6 +207,24 @@ test("CAN monitor and decoded graph share a vertically resizable right workspace
   assert.match(app, /<CanTrafficPanel[\s\S]*?class="can-monitor-splitter"[\s\S]*?SignalGraphs/);
   assert.match(trafficPanel, /aria-label="Live CAN ID counts"/);
   assert.doesNotMatch(panel, /aria-label="Live CAN ID counts"/, "traffic view is removed from the narrow controls panel");
+});
+
+test("graph reference controls and chart stay in one CAN split grid cell", () => {
+  assert.match(app, /<div class="graph-workspace">[\s\S]*?<SignalGraphs[\s\S]*?\/>[\s\S]*?<\/div>/);
+  assert.match(styles, /\.graph-workspace\s*\{[^}]*display:\s*flex[^}]*min-height:\s*0/);
+  assert.match(styles, /\.measurements\.can-split\s*>\s*\.graph-workspace\s*\{[^}]*grid-row:\s*3/);
+});
+
+test("reference controls and graph settings share a compact toolbar row", () => {
+  assert.match(graphs, /class="graph-control-row" class:has-reference=[^>]*>[\s\S]*?<details class="graph-settings">[\s\S]*?class="graph-reference-tools">[\s\S]*?class="button secondary graph-export-button graph-reference-bubble"/);
+  assert.match(graphs, /\.graph-control-row\s*\{[^}]*position:\s*relative/);
+  assert.match(graphs, /\.graph-settings\s*\{[^}]*width:\s*100%/);
+  assert.match(graphs, /\.graph-reference-tools\s*\{[^}]*position:\s*absolute/);
+  assert.match(graphs, /\.graph-settings summary\s*\{[^}]*padding-right:/);
+  assert.match(graphs, /class="graph-control-row" class:has-reference=/);
+  assert.match(graphs, /\.graph-control-row\.has-reference \.graph-settings summary\s*\{[^}]*padding-right:\s*340px/);
+  assert.match(graphs, /\.graph-reference-tools\s*\{[^}]*top:\s*2px;\s*right:\s*9px/);
+  assert.match(graphs, /\.graph-reference-bubble\s*\{[^}]*border-radius:\s*999px/);
 });
 
 test("disconnected live graphs label retained values as the last received samples", () => {
@@ -304,10 +330,6 @@ test("CAN workbench navigation and primary controls stay compact and visible", (
   assert.match(panel, /class="can-adapter-row"/);
   assert.match(panel, /class="can-connection-options"/);
   assert.doesNotMatch(panel, /<header class="can-heading">/);
-  assert.match(panel, /<details class="can-trigger-settings" open>/);
-  assert.match(panel, /<details class="can-scan-settings" open>/);
-  assert.match(panel, /<details class="can-fields-settings" open>/);
-  assert.match(panel, /<details class="can-send-settings" open>/);
   assert.match(panel, /\.can-workbench\s*\{[^}]*gap:\s*4px/);
   assert.match(panel, /\.can-connection-options\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
 });

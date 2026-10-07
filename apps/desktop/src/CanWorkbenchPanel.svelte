@@ -456,7 +456,7 @@
     {#if eventStatus}<span class="can-event-status" role="status">{eventStatus} · {eventMarks.length} total</span>{:else}<span class="can-event-status">Click once per physical action during capture; repeat the label to compare trials.</span>{/if}
   </div>
 
-  <details class="can-trigger-settings" open>
+  <details class="can-trigger-settings">
     <summary>Manual trigger window</summary>
     <p class="can-muted">Capture a bounded frame window around a manual mark. Frames continue through the serialized Candlelight owner.</p>
     <div class="can-trigger-form">
@@ -479,7 +479,7 @@
     {/if}
   </details>
 
-  <details class="can-scan-settings" open>
+  <details class="can-scan-settings">
     <summary>Scan configuration</summary>
     <div class="can-scan-form">
       <label>Test
@@ -514,7 +514,7 @@
     {#if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
   </details>
 
-  <details class="can-fields-settings" open>
+  <details class="can-fields-settings">
     <summary>CAN fields · {fields.length}</summary>
     <form class="can-field-form" onsubmit={addField}>
       <label>Name<input class="text-input" bind:value={fieldName} /></label>
@@ -537,7 +537,7 @@
     {/each}
   </details>
 
-  <details class="can-send-settings" open>
+  <details class="can-send-settings">
     <summary>Manual CAN frame</summary>
     <div class="can-send-form">
       <label>CAN ID (hex)<input class="text-input" bind:value={txCanId} disabled={busy || workspaceBusy} /></label>
