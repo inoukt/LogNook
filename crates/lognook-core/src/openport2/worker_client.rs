@@ -204,6 +204,7 @@ impl WorkerClient {
                         duration_ms: elapsed_ms,
                         signal_ids: Vec::new(),
                         detail,
+                        consecutive_failures: None,
                         transient: None,
                     });
                 }

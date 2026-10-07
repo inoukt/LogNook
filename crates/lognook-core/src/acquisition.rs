@@ -106,7 +106,7 @@ fn run(
         .iter()
         .map(|signal| signal.id.clone())
         .collect::<Vec<_>>();
-    let emit_poll = |phase, duration_ms, detail, transient| {
+    let emit_poll = |phase, duration_ms, detail, transient, consecutive_failures| {
         diagnostic_sink(DiagnosticProgress {
             adapter_id: adapter_id.clone(),
             operation: "acquisition".into(),
@@ -116,6 +116,7 @@ fn run(
             signal_ids: signal_ids.clone(),
             detail,
             transient,
+            consecutive_failures,
         });
     };
     let interval = adapter.sample_interval();
@@ -138,11 +139,17 @@ fn run(
         // slow polls cannot perpetually starve that read by making the next poll due.
         if Instant::now() >= next_poll {
             let cycle = Instant::now();
-            emit_poll(DiagnosticPhase::Started, None, None, None);
+            emit_poll(DiagnosticPhase::Started, None, None, None, None);
             let result = adapter.read_samples(&signals);
             let duration_ms = Some(cycle.elapsed().as_millis().min(u64::MAX as u128) as u64);
             match &result {
-                Ok(_) => emit_poll(DiagnosticPhase::Succeeded, duration_ms, None, Some(false)),
+                Ok(_) => emit_poll(
+                    DiagnosticPhase::Succeeded,
+                    duration_ms,
+                    None,
+                    Some(false),
+                    None,
+                ),
                 Err(error) => emit_poll(
                     DiagnosticPhase::Failed,
                     duration_ms,
@@ -150,6 +157,7 @@ fn run(
                         &error.to_string(),
                     )),
                     Some(error.is_transient()),
+                    Some(consecutive_transient_failures as u64 + 1),
                 ),
             }
             match result {
@@ -710,6 +718,7 @@ mod tests {
     fn three_consecutive_transient_read_timeouts_end_the_session() {
         let (calls, call_rx) = mpsc::channel();
         let (events, event_rx) = mpsc::channel();
+        let (diagnostic_tx, diagnostic_rx) = mpsc::channel();
         let pipeline = SamplePipeline::new(Arc::new(move |event| {
             let _ = events.send(event);
         }));
@@ -725,7 +734,9 @@ mod tests {
             Vec::new(),
             pipeline.sender(),
             running.clone(),
-            crate::diagnostics::noop_diagnostic_sink(),
+            Arc::new(move |event| {
+                let _ = diagnostic_tx.send(event);
+            }),
             None,
         );
 
@@ -733,6 +744,16 @@ mod tests {
             assert_eq!(
                 call_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
                 expected_call
+            );
+        }
+        for expected in 1..=3 {
+            let start = diagnostic_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(start.phase, crate::DiagnosticPhase::Started);
+            let failure = diagnostic_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(failure.phase, crate::DiagnosticPhase::Failed);
+            assert_eq!(
+                serde_json::to_value(failure).unwrap()["consecutive_failures"],
+                expected
             );
         }
         let error = event_rx.recv_timeout(Duration::from_secs(1)).unwrap();

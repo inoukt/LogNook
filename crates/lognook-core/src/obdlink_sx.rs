@@ -100,6 +100,7 @@ impl ObdLinkSxAdapter {
             duration_ms: None,
             signal_ids: signals,
             detail: None,
+            consecutive_failures: None,
             transient: None,
         };
         sink(event.clone());

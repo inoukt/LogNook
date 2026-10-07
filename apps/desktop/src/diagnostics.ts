@@ -18,12 +18,21 @@ export function formatDiagnostic(record: DiagnosticRecord) {
     operationId: record.operation_id,
     operation: record.operation.replaceAll("_", " "),
     stage: record.stage.replaceAll("_", " "),
-    status: record.phase + (record.transient ? " (temporary)" : ""),
+    status: record.phase + (record.transient ? " (temporary)" : "")
+      + (record.consecutive_failures == null ? "" : ` · ${record.consecutive_failures} consecutive failures`),
     duration: record.duration_ms === null ? "—" : `${record.duration_ms} ms`,
     signals: record.signal_ids.join(", "),
-    summaries: (record.signal_summaries ?? []).map(summary =>
-      `${summary.signal_id}: ${summary.success_count} successful · ${summary.rate_hz.toFixed(2)} Hz`
-      + (summary.latency_ms === null ? "" : ` · ${summary.latency_ms.toFixed(1)} ms`)),
+    summaries: (record.signal_summaries ?? []).map(summary => {
+      const state = [summary.requested === true ? "requested" : null,
+        summary.supported == null ? null : summary.supported ? "supported" : "not supported"].filter(Boolean);
+      return `${summary.signal_id}: ${state.length ? state.join(" \u00b7 ") + " \u00b7 " : ""}`
+        + (summary.attempt_count === undefined ? "" : `${summary.attempt_count} attempts \u00b7 `)
+        + `${summary.success_count} successful`
+        + (summary.error_count === undefined ? "" : ` \u00b7 ${summary.error_count} attributable error${summary.error_count === 1 ? "" : "s"}`)
+        + (summary.first_response_delay_ms == null ? (summary.success_count === 0 ? " \u00b7 No response yet" : "") : ` \u00b7 first response ${summary.first_response_delay_ms} ms`)
+        + ` \u00b7 ${summary.rate_hz.toFixed(2)} Hz`
+        + (summary.latency_ms === null ? "" : ` \u00b7 ${summary.latency_ms.toFixed(1)} ms`);
+    }),
     detail: record.detail,
     omitted: record.omitted_events,
   };

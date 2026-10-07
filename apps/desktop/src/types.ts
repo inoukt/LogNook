@@ -286,7 +286,12 @@ export type EngineEvent =
 
 export interface DiagnosticSignalSummary {
   signal_id: string;
+  requested?: boolean | null;
+  supported?: boolean | null;
+  attempt_count?: number;
   success_count: number;
+  error_count?: number;
+  first_response_delay_ms?: number | null;
   rate_hz: number;
   latency_ms: number | null;
 }
@@ -306,5 +311,6 @@ export interface DiagnosticRecord {
   /** Sanitized by the backend diagnostics boundary. */
   detail: string | null;
   transient: boolean | null;
+  consecutive_failures?: number | null;
   omitted_events: number;
 }

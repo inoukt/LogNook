@@ -84,12 +84,120 @@ fn available_from_session_with_diagnostics(
         WorkerResponse::Providers {
             providers,
             diagnostics,
-        } => Ok(J2534ProviderDiscovery {
-            providers,
-            diagnostics,
-        }),
+        } => {
+            let discovery = J2534ProviderDiscovery {
+                providers,
+                diagnostics,
+            };
+            emit_provider_inventory(&discovery, sink);
+            Ok(discovery)
+        }
         response => Err(unexpected_worker_response("provider listing", response)),
     }
+}
+
+const MAX_PROVIDER_OBSERVATIONS: usize = 64;
+
+fn safe_provider_label(value: &str) -> Option<String> {
+    (!value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|c| {
+            c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '(' | ')' | '{' | '}' | '&')
+        }))
+    .then(|| value.to_owned())
+}
+
+fn provider_explanation(message: &str) -> (Option<String>, String) {
+    for known in [
+        "No 32-bit J2534 04.04 registry entries were found.",
+        "No registered J2534 provider is eligible for OpenPort 2 connection.",
+    ] {
+        if message == known {
+            return (None, known.into());
+        }
+    }
+    if let Some(rest) = message.strip_prefix("Ignored registered J2534 provider '")
+        && let Some((name, rest)) = rest.split_once("' (")
+        && let Some(id) = rest.strip_suffix("): LogNook supports Tactrix/OpenPort/OPTA only.")
+    {
+        let name = safe_provider_label(name).unwrap_or_else(|| "[provider name redacted]".into());
+        return (
+            safe_provider_label(id),
+            format!("Ignored {name}: not an OpenPort/Tactrix/OPTA provider."),
+        );
+    }
+    if let Some(rest) = message.strip_prefix("Ignored registered provider '")
+        && let Some((name, reason)) = rest.rsplit_once("': ")
+    {
+        let reason = match reason {
+            "it has no FunctionLibrary path." => Some("no FunctionLibrary entry."),
+            "its FunctionLibrary path could not be resolved or the DLL is missing." => {
+                Some("FunctionLibrary could not be resolved or the DLL is missing.")
+            }
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            return (
+                None,
+                format!(
+                    "Ignored {}: {reason}",
+                    safe_provider_label(name).unwrap_or_else(|| "[provider name redacted]".into())
+                ),
+            );
+        }
+    }
+    (
+        None,
+        "An unrecognized provider discovery explanation was omitted.".into(),
+    )
+}
+
+fn emit_provider_inventory(discovery: &J2534ProviderDiscovery, sink: &DiagnosticSink) {
+    let emit = |adapter_id, stage: &str, detail| {
+        sink(crate::DiagnosticProgress {
+            adapter_id,
+            operation: "provider_discovery".into(),
+            stage: stage.into(),
+            phase: crate::DiagnosticPhase::Progress,
+            duration_ms: None,
+            signal_ids: vec![],
+            detail: Some(detail),
+            transient: None,
+            consecutive_failures: None,
+        })
+    };
+    let mut emitted = 0;
+    for provider in discovery.providers.iter().take(MAX_PROVIDER_OBSERVATIONS) {
+        emit(
+            safe_provider_label(&provider.id),
+            "provider_found",
+            format!(
+                "Discovered registered J2534 provider {}.",
+                safe_provider_label(&provider.name)
+                    .unwrap_or_else(|| "[provider name redacted]".into())
+            ),
+        );
+        emitted += 1;
+    }
+    for explanation in discovery
+        .diagnostics
+        .iter()
+        .take(MAX_PROVIDER_OBSERVATIONS - emitted)
+    {
+        let (adapter_id, detail) = provider_explanation(explanation);
+        emit(adapter_id, "provider_explanation", detail);
+        emitted += 1;
+    }
+    let omitted = discovery.providers.len() + discovery.diagnostics.len() - emitted;
+    emit(
+        None,
+        "provider_inventory",
+        format!(
+            "{} eligible providers; {} discovery explanations; {omitted} entries omitted from diagnostics.",
+            discovery.providers.len(),
+            discovery.diagnostics.len()
+        ),
+    );
 }
 
 #[cfg(test)]

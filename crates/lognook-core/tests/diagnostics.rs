@@ -17,6 +17,7 @@ fn progress(phase: DiagnosticPhase) -> DiagnosticProgress {
         duration_ms: Some(12),
         signal_ids: vec!["engine_rpm".into(), "coolant_temp".into()],
         detail: None,
+        consecutive_failures: None,
         transient: Some(false),
     }
 }

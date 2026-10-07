@@ -422,6 +422,7 @@ impl WorkerSession for ProgressSession {
             duration_ms: Some(1),
             signal_ids: vec![],
             detail: None,
+            consecutive_failures: None,
             transient: None,
         });
         self.request(request)
@@ -455,7 +456,7 @@ fn discovery_and_identify_helpers_use_progress_aware_session() {
             .iter()
             .map(|e| e.stage.clone())
             .collect::<Vec<_>>(),
-        ["provider_resolution", "version_read"]
+        ["provider_resolution", "provider_inventory", "version_read"]
     );
     assert_eq!(
         *state.requests.lock().unwrap(),
@@ -533,6 +534,7 @@ impl WorkerSession for CompletionTimingSession {
                 duration_ms: Some(777),
                 signal_ids: vec![],
                 detail: None,
+                consecutive_failures: None,
                 transient: None,
             });
             std::thread::sleep(Duration::from_millis(25));
@@ -616,4 +618,73 @@ fn selected_openport_reads_emit_real_completion_timing_without_extra_requests() 
             ]
         );
     }
+}
+
+#[test]
+fn discovery_result_observations_preserve_ids_and_safe_reasons_without_paths() {
+    let providers = vec![J2534Provider {
+        id: "opta".into(),
+        name: "Tactrix OpenPort 2.0".into(),
+    }];
+    let diagnostics = vec!["Ignored registered J2534 provider 'DENSO' (DST-010): LogNook supports Tactrix/OpenPort/OPTA only.".into(), "Ignored registered provider 'OPTA': its FunctionLibrary path could not be resolved or the DLL is missing.".into(), "Ignored registered provider 'OpenPort': it has no FunctionLibrary path.".into(), "No 32-bit J2534 04.04 registry entries were found.".into(), "Private provider detail C:\\Users\\private-user\\secret.dll raw 41 0C 1A F8".into()];
+    let (mut session, state) = FakeSession::new([Ok(WorkerResponse::Providers {
+        providers: providers.clone(),
+        diagnostics: diagnostics.clone(),
+    })]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let sink: crate::DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+    let result = super::available_from_session_with_diagnostics(&mut session, &sink).unwrap();
+    assert_eq!(result.providers, providers);
+    assert_eq!(result.diagnostics, diagnostics);
+    let events = events.lock().unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.adapter_id.as_deref() == Some("opta") && e.stage == "provider_found")
+    );
+    let detail = serde_json::to_string(&*events).unwrap();
+    assert!(detail.contains("DENSO"));
+    assert!(detail.contains("not an OpenPort"));
+    assert!(detail.contains("DLL is missing"));
+    assert!(detail.contains("no FunctionLibrary"));
+    assert!(detail.contains("No 32-bit J2534"));
+    assert!(!detail.contains("private-user"));
+    assert!(!detail.contains("secret.dll"));
+    assert!(!detail.contains("41 0C 1A F8"));
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        [WorkerRequest::ListProviders]
+    );
+}
+#[test]
+fn discovery_result_observations_are_bounded_without_changing_returned_inventory() {
+    let providers = (0..100)
+        .map(|i| J2534Provider {
+            id: format!("opta-{i}"),
+            name: "OPTA".into(),
+        })
+        .collect::<Vec<_>>();
+    let (mut session, _) = FakeSession::new([Ok(WorkerResponse::Providers {
+        providers,
+        diagnostics: vec![],
+    })]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let sink: crate::DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+    assert_eq!(
+        super::available_from_session_with_diagnostics(&mut session, &sink)
+            .unwrap()
+            .providers
+            .len(),
+        100
+    );
+    let events = events.lock().unwrap();
+    assert!(!events.is_empty());
+    assert!(events.len() <= 65);
+    assert!(events.iter().any(|e| {
+        e.detail
+            .as_ref()
+            .is_some_and(|s| s.contains("36 entries omitted"))
+    }));
 }

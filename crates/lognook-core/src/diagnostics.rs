@@ -21,6 +21,8 @@ pub struct DiagnosticProgress {
     pub signal_ids: Vec<String>,
     pub detail: Option<String>,
     pub transient: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consecutive_failures: Option<u64>,
 }
 
 /// Called on the adapter owner. Sinks must return promptly (for example, use `try_send`)
@@ -105,6 +107,7 @@ pub(crate) fn diagnostic_stage<T>(
         duration_ms: None,
         signal_ids,
         detail: None,
+        consecutive_failures: None,
         transient: None,
     };
     sink(event.clone());

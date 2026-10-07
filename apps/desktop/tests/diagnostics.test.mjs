@@ -95,3 +95,18 @@ test("support_export_passes_optional_recording_path", () => {
   assert.match(app, /invoke<string \| null>\("choose_diagnostics_recording"\)/);
   assert.match(panel, /recordingPath = \$state<string \| null>\(null\)/);
 });
+
+
+test("pid_reliability_shows_attempts_errors_first_response_and_no_response", () => {
+  const row = diagnostics.formatDiagnostic(record(1, {operation: "acquisition", stage: "signal_summary", signal_summaries: [
+    {signal_id: "rpm", requested: true, supported: true, attempt_count: 3, success_count: 1, error_count: 0, first_response_delay_ms: 25, rate_hz: 2, latency_ms: 12},
+    {signal_id: "speed", requested: true, supported: true, attempt_count: 3, success_count: 0, error_count: 1, first_response_delay_ms: null, rate_hz: 0, latency_ms: null},
+  ]}));
+  assert.match(row.summaries[0], /requested.*supported/); assert.match(row.summaries[0], /3 attempts/); assert.match(row.summaries[0], /0 attributable errors/); assert.match(row.summaries[0], /first response 25 ms/);
+  assert.match(row.summaries[1], /1 attributable error/); assert.match(row.summaries[1], /No response yet/); assert.match(row.summaries[1], /0.00 Hz/);
+  assert.match(diagnostics.formatDiagnostic(record(2, {phase: "failed", transient: true, consecutive_failures: 2})).status, /2 consecutive failures/);
+});
+test("provider_discovery_explanations_show_stable_id_and_payload_free_reason", () => {
+  const row = diagnostics.formatDiagnostic(record(1, {adapter_id: "opta", operation: "provider_discovery", stage: "provider_ignored", detail: "OPTA: DLL is missing", raw_response: "SECRET"}));
+  assert.equal(row.adapter, "opta"); assert.equal(row.detail, "OPTA: DLL is missing"); assert.doesNotMatch(JSON.stringify(row), /SECRET/);
+});

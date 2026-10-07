@@ -73,7 +73,7 @@
     <div><p class="eyebrow">ADAPTER OPERATIONS</p><h2 id="diagnostics-title">Diagnostics</h2></div>
     <button class="button secondary" type="button" onclick={onClose}>Close</button>
   </header>
-  <p class="hint">Recent progress, errors, and signal delivery rates. Support bundles include diagnostics and existing OEM research evidence.</p>
+  <p class="hint">Recent progress, PID attempts, attributable errors, first responses, and delivery rates. Attempts count requested polls; grouped failures remain in the operation log. Support bundles include diagnostics and existing OEM research evidence.</p>
   <div class="controls">
     <label>Adapter <select class="text-input" aria-label="Adapter filter" bind:value={adapter}><option value="">All adapters</option>{#each adapters as id}<option value={id}>{id}</option>{/each}</select></label>
     <label>Operation <select class="text-input" aria-label="Operation filter" bind:value={operation}><option value="">All operations</option>{#each operations as name}<option value={name}>{name.replaceAll("_", " ")}</option>{/each}</select></label>

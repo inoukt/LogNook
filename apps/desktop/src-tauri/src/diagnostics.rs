@@ -4,7 +4,7 @@ use lognook_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -18,12 +18,23 @@ use std::{
 
 const QUEUE_SIZE: usize = 1024;
 const HISTORY_SIZE: usize = 500;
+const MAX_SIGNAL_SUMMARIES: usize = 500;
 const ROTATION_BYTES: u64 = 5 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct SignalSummary {
     pub signal_id: String,
+    #[serde(default)]
+    pub requested: Option<bool>,
+    #[serde(default)]
+    pub supported: Option<bool>,
+    #[serde(default)]
+    pub attempt_count: u64,
     pub success_count: u64,
+    #[serde(default)]
+    pub error_count: u64,
+    #[serde(default)]
+    pub first_response_delay_ms: Option<u64>,
     pub rate_hz: f64,
     pub latency_ms: Option<f64>,
 }
@@ -42,6 +53,8 @@ pub(crate) struct DiagnosticRecord {
     pub signal_summaries: Option<Vec<SignalSummary>>,
     pub detail: Option<String>,
     pub transient: Option<bool>,
+    #[serde(default)]
+    pub consecutive_failures: Option<u64>,
     pub omitted_events: u64,
 }
 impl DiagnosticRecord {
@@ -58,6 +71,7 @@ impl DiagnosticRecord {
             signal_ids: progress.signal_ids,
             signal_summaries: None,
             detail: progress.detail.map(|s| diagnostic_error_detail(&s)),
+            consecutive_failures: progress.consecutive_failures,
             transient: progress.transient,
             omitted_events: 0,
         }
@@ -66,13 +80,13 @@ impl DiagnosticRecord {
 
 enum Observation {
     Record(DiagnosticRecord),
-    Progress(String, DiagnosticProgress),
+    Progress(String, DiagnosticProgress, Instant),
     Connected {
         id: String,
         adapter: String,
         supported: Vec<String>,
     },
-    Sample(String),
+    Sample(String, Instant),
     Error(String),
     Disconnected,
 }
@@ -199,9 +213,14 @@ impl DiagnosticsService {
             }),
             EngineEvent::Sample(sample)
                 if sample.origin == SampleOrigin::Live
-                    && sample.quality == SampleQuality::Valid =>
+                    && sample.quality == SampleQuality::Valid
+                    && !sample.source_id.starts_with("a30-research:")
+                    && !sample.source_id.starts_with("oem:") =>
             {
-                self.enqueue(Observation::Sample(sample.signal_id.clone()))
+                self.enqueue(Observation::Sample(
+                    sample.signal_id.clone(),
+                    Instant::now(),
+                ))
             }
             EngineEvent::Error(error) => {
                 self.enqueue(Observation::Error(diagnostic_error_detail(error)))
@@ -235,6 +254,7 @@ impl DiagnosticOperation {
                 },
                 signal_ids: self.signal_ids.clone(),
                 detail,
+                consecutive_failures: None,
                 transient: None,
             },
         )
@@ -247,11 +267,16 @@ impl DiagnosticOperation {
             if progress.operation == "acquisition"
                 && progress.phase != DiagnosticPhase::Failed
                 && !(progress.stage == "pid_read" && progress.phase == DiagnosticPhase::Succeeded)
+                && !(progress.stage == "poll"
+                    && matches!(
+                        progress.phase,
+                        DiagnosticPhase::Started | DiagnosticPhase::Succeeded
+                    ))
             {
                 return;
             }
             progress.detail = progress.detail.map(|s| diagnostic_error_detail(&s));
-            service.enqueue(Observation::Progress(id.clone(), progress));
+            service.enqueue(Observation::Progress(id.clone(), progress, Instant::now()));
         })
     }
     pub fn finish(&self, outcome: DiagnosticPhase, detail: Option<String>) {
@@ -302,6 +327,11 @@ impl DiagnosticOperation {
 
 #[derive(Default)]
 struct Counts {
+    requested: Option<bool>,
+    supported: Option<bool>,
+    attempts: u64,
+    errors: u64,
+    first_response_delay_ms: Option<u64>,
     success: u64,
     interval_success: u64,
     latency_total: u64,
@@ -314,6 +344,11 @@ struct Session {
     started: Instant,
     last_summary: Instant,
     counts: BTreeMap<String, Counts>,
+    supported: BTreeSet<String>,
+    first_poll: Option<Instant>,
+    consecutive_failures: u64,
+    dirty: bool,
+    statistics_limited: bool,
     failed: bool,
 }
 struct Worker {
@@ -378,6 +413,7 @@ impl Worker {
                 duration_ms: None,
                 signal_ids: vec![],
                 detail: Some(detail),
+                consecutive_failures: None,
                 transient: None,
             },
         )
@@ -444,7 +480,30 @@ impl Worker {
                     selected: self.selected.clone(),
                     started: Instant::now(),
                     last_summary: Instant::now(),
-                    counts: BTreeMap::new(),
+                    counts: self
+                        .selected
+                        .iter()
+                        .take(MAX_SIGNAL_SUMMARIES)
+                        .map(|id| {
+                            (
+                                id.clone(),
+                                Counts {
+                                    requested: Some(true),
+                                    supported: Some(supported.contains(id)),
+                                    ..Counts::default()
+                                },
+                            )
+                        })
+                        .collect(),
+                    supported: supported
+                        .iter()
+                        .take(MAX_SIGNAL_SUMMARIES)
+                        .cloned()
+                        .collect(),
+                    first_poll: None,
+                    consecutive_failures: 0,
+                    dirty: !self.selected.is_empty(),
+                    statistics_limited: self.selected.len() > MAX_SIGNAL_SUMMARIES,
                     failed: false,
                 });
                 let mut record = Self::system_record("session", String::new());
@@ -456,29 +515,90 @@ impl Worker {
                 record.signal_ids = supported;
                 self.persist(record);
             }
-            Observation::Sample(id) => {
-                if let Some(session) = self.session.as_mut() {
-                    let count = session.counts.entry(id).or_default();
-                    count.success += 1;
-                    count.interval_success += 1;
+            Observation::Sample(id, observed) => {
+                if let Some(session) = self.session.as_mut()
+                    && let Some(count) = session.counts.get_mut(&id)
+                {
+                    if count.success == 0 {
+                        count.first_response_delay_ms = session.first_poll.map(|started| {
+                            observed
+                                .saturating_duration_since(started)
+                                .as_millis()
+                                .min(u64::MAX as u128) as u64
+                        });
+                    }
+                    count.success = count.success.saturating_add(1);
+                    count.interval_success = count.interval_success.saturating_add(1);
+                    session.dirty = true;
                 }
             }
-            Observation::Progress(id, progress) => {
+            Observation::Progress(id, progress, observed) => {
                 if progress.operation == "acquisition" {
                     let Some(session) = self.session.as_mut() else {
                         return;
                     };
-                    if progress.phase != DiagnosticPhase::Failed {
-                        if progress.phase == DiagnosticPhase::Succeeded {
-                            for id in progress.signal_ids {
-                                let count = session.counts.entry(id).or_default();
-                                count.latency_total += progress.duration_ms.unwrap_or_default();
-                                count.latency_count += 1;
+                    if progress.stage == "poll" && progress.phase == DiagnosticPhase::Started {
+                        session.first_poll.get_or_insert(observed);
+                        for id in &progress.signal_ids {
+                            if session.counts.len() < MAX_SIGNAL_SUMMARIES
+                                && !session.counts.contains_key(id)
+                            {
+                                session.counts.insert(
+                                    id.clone(),
+                                    Counts {
+                                        requested: Some(true),
+                                        supported: Some(session.supported.contains(id)),
+                                        ..Counts::default()
+                                    },
+                                );
+                            }
+                            if !session.counts.contains_key(id) {
+                                session.statistics_limited = true;
+                                session.dirty = true;
+                            }
+                            if let Some(count) = session.counts.get_mut(id) {
+                                count.attempts = count.attempts.saturating_add(1);
+                                session.dirty = true;
                             }
                         }
                         return;
                     }
+                    if progress.stage == "poll" && progress.phase == DiagnosticPhase::Succeeded {
+                        session.consecutive_failures = 0;
+                        return;
+                    }
+                    if progress.phase != DiagnosticPhase::Failed {
+                        if progress.stage == "pid_read"
+                            && progress.phase == DiagnosticPhase::Succeeded
+                            && let Some(duration) = progress.duration_ms
+                        {
+                            for id in &progress.signal_ids {
+                                if let Some(count) = session.counts.get_mut(id) {
+                                    count.latency_total =
+                                        count.latency_total.saturating_add(duration);
+                                    count.latency_count = count.latency_count.saturating_add(1);
+                                    session.dirty = true;
+                                }
+                            }
+                        }
+                        return;
+                    }
+                    // Only the adapter's singleton read attribution identifies a PID error.
+                    // A failed grouped poll remains a batch outcome, never N inferred PID errors.
+                    if progress.stage == "pid_read"
+                        && progress.signal_ids.len() == 1
+                        && let Some(count) = session.counts.get_mut(&progress.signal_ids[0])
+                    {
+                        count.errors = count.errors.saturating_add(1);
+                        session.dirty = true;
+                    }
                     let mut record = DiagnosticRecord::progress(session.id.clone(), progress);
+                    if record.stage == "poll" {
+                        session.consecutive_failures = record
+                            .consecutive_failures
+                            .unwrap_or_else(|| session.consecutive_failures.saturating_add(1));
+                        record.consecutive_failures = Some(session.consecutive_failures);
+                    }
                     record.adapter_id = Some(session.adapter.clone());
                     if record.signal_ids.is_empty() {
                         record.signal_ids = session.selected.clone();
@@ -535,11 +655,7 @@ impl Worker {
         if !final_flush && session.last_summary.elapsed() < Duration::from_secs(1) {
             return;
         }
-        if !session
-            .counts
-            .values()
-            .any(|c| c.interval_success > 0 || c.latency_count > 0)
-        {
+        if !session.dirty {
             return;
         }
         let seconds = session.last_summary.elapsed().as_secs_f64().max(0.001);
@@ -549,7 +665,12 @@ impl Worker {
             .map(|(id, c)| {
                 let summary = SignalSummary {
                     signal_id: id.clone(),
+                    requested: c.requested,
+                    supported: c.supported,
+                    attempt_count: c.attempts,
                     success_count: c.success,
+                    error_count: c.errors,
+                    first_response_delay_ms: c.first_response_delay_ms,
                     rate_hz: c.interval_success as f64 / seconds,
                     latency_ms: if c.latency_count > 0 {
                         Some(c.latency_total as f64 / c.latency_count as f64)
@@ -564,13 +685,20 @@ impl Worker {
             })
             .collect();
         session.last_summary = Instant::now();
+        session.dirty = false;
         let mut record = Self::system_record("signal_summary", String::new());
         record.operation = "acquisition".into();
         record.operation_id = session.id.clone();
         record.adapter_id = Some(session.adapter.clone());
         record.signal_ids = session.counts.keys().cloned().collect();
         record.phase = DiagnosticPhase::Progress;
-        record.detail = None;
+        record.detail = if session.statistics_limited {
+            Some(format!(
+                "PID reliability summaries are limited to {MAX_SIGNAL_SUMMARIES} entries; additional requested signal IDs are not summarized."
+            ))
+        } else {
+            None
+        };
         record.signal_summaries = Some(summaries);
         self.persist(record);
     }
@@ -880,6 +1008,231 @@ mod tests {
         assert_ne!(stage.operation_id, connect.id);
         assert_eq!(stage.signal_ids, ["rpm"]);
     }
+    fn connected(service: &DiagnosticsService, selected: &[&str]) -> DiagnosticOperation {
+        let op = service.begin_operation(
+            Some("adapter".into()),
+            "connect",
+            selected.iter().map(|s| (*s).to_owned()).collect(),
+        );
+        service.observe_engine(&EngineEvent::Connected(
+            lognook_core::ConnectionCapabilities {
+                device: lognook_core::DeviceDescriptor {
+                    stable_id: "adapter".into(),
+                    hardware_family: "test".into(),
+                    firmware: None,
+                    path: None,
+                },
+                protocol: "test".into(),
+                read_only: true,
+                supported_signals: lognook_core::standard_obd_signals(),
+            },
+        ));
+        op.finish(DiagnosticPhase::Succeeded, None);
+        op
+    }
+    fn sample(id: &str) -> EngineEvent {
+        EngineEvent::Sample(lognook_core::Sample {
+            elapsed_ns: 0,
+            wall_time_unix_ns: 0,
+            source_id: "adapter".into(),
+            ecu_id: None,
+            signal_id: id.into(),
+            value: 123456.789,
+            unit: "rpm".into(),
+            quality: SampleQuality::Valid,
+            origin: SampleOrigin::Live,
+            raw_bytes: Some(vec![65, 12, 26, 248]),
+        })
+    }
+    fn poll(phase: DiagnosticPhase, consecutive: Option<u64>) -> DiagnosticProgress {
+        let mut event = progress("acquisition", "poll", phase);
+        event.signal_ids = vec!["engine_rpm".into(), "vehicle_speed".into()];
+        let mut json = serde_json::to_value(event).unwrap();
+        json["consecutive_failures"] = serde_json::json!(consecutive);
+        serde_json::from_value(json).unwrap()
+    }
+    fn until_disconnected(rx: &mpsc::Receiver<DiagnosticRecord>) -> Vec<DiagnosticRecord> {
+        let mut records = Vec::new();
+        loop {
+            let record = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let done = record.operation == "acquisition"
+                && record.stage == "session"
+                && record.phase != DiagnosticPhase::Started;
+            records.push(record);
+            if done {
+                return records;
+            }
+        }
+    }
+    #[test]
+    fn pid_reliability_counts_attempts_and_only_attributable_errors_without_values() {
+        let (service, rx) = service(&path());
+        let connect = connected(&service, &["engine_rpm", "vehicle_speed"]);
+        let sink = connect.sink();
+        std::thread::sleep(Duration::from_millis(200));
+        sink(poll(DiagnosticPhase::Started, None));
+        std::thread::sleep(Duration::from_millis(25));
+        let mut read = progress("acquisition", "pid_read", DiagnosticPhase::Succeeded);
+        read.signal_ids = vec!["engine_rpm".into()];
+        sink(read);
+        service.observe_engine(&sample("engine_rpm"));
+        sink(poll(DiagnosticPhase::Succeeded, None));
+        sink(poll(DiagnosticPhase::Started, None));
+        let mut specific = progress("acquisition", "pid_read", DiagnosticPhase::Failed);
+        specific.signal_ids = vec!["vehicle_speed".into()];
+        specific.detail = Some("adapter response timed out".into());
+        specific.transient = Some(true);
+        sink(specific);
+        sink(poll(DiagnosticPhase::Failed, Some(1)));
+        sink(poll(DiagnosticPhase::Started, None));
+        let mut grouped = poll(DiagnosticPhase::Failed, None);
+        grouped.stage = "pid_read".into();
+        sink(grouped);
+        sink(poll(DiagnosticPhase::Failed, Some(2)));
+        service.observe_engine(&EngineEvent::Disconnected);
+        let records = until_disconnected(&rx);
+        let summary = records
+            .iter()
+            .find(|r| r.stage == "signal_summary")
+            .expect("PID summaries include attempted signals");
+        let json = serde_json::to_value(summary).unwrap();
+        let rpm = &json["signal_summaries"][0];
+        let speed = &json["signal_summaries"][1];
+        assert_eq!(rpm["signal_id"], "engine_rpm");
+        assert_eq!(rpm["attempt_count"], 3);
+        assert_eq!(rpm["success_count"], 1);
+        assert_eq!(rpm["error_count"], 0);
+        assert_eq!(rpm["requested"], true);
+        assert_eq!(rpm["supported"], true);
+        assert_eq!(rpm["latency_ms"], 12.0);
+        let first_response = rpm["first_response_delay_ms"]
+            .as_u64()
+            .expect("first-response delay");
+        assert!((20..150).contains(&first_response));
+        assert_eq!(speed["signal_id"], "vehicle_speed");
+        assert_eq!(speed["attempt_count"], 3);
+        assert_eq!(speed["success_count"], 0);
+        assert_eq!(speed["error_count"], 1);
+        assert_eq!(speed["first_response_delay_ms"], serde_json::Value::Null);
+        assert_eq!(speed["rate_hz"], 0.0);
+        let failures = records
+            .iter()
+            .filter(|r| r.stage == "poll" && r.phase == DiagnosticPhase::Failed)
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 2);
+        for (record, count) in failures.iter().zip([1, 2]) {
+            assert_eq!(record.signal_ids, ["engine_rpm", "vehicle_speed"]);
+            assert_eq!(
+                serde_json::to_value(record).unwrap()["consecutive_failures"],
+                count
+            );
+        }
+        assert_eq!(
+            records
+                .iter()
+                .filter(|r| r.stage == "signal_summary")
+                .count(),
+            1
+        );
+        let json = serde_json::to_string(&records).unwrap();
+        assert!(!json.contains("123456.789"));
+        assert!(!json.contains("raw_bytes"));
+        assert!(!json.contains("65,12,26,248"));
+    }
+    #[test]
+    fn attempted_pids_without_any_samples_still_have_a_final_summary() {
+        let (service, rx) = service(&path());
+        let op = connected(&service, &["engine_rpm", "vehicle_speed"]);
+        op.sink()(poll(DiagnosticPhase::Started, None));
+        op.sink()(poll(DiagnosticPhase::Failed, Some(1)));
+        service.observe_engine(&EngineEvent::Disconnected);
+        let records = until_disconnected(&rx);
+        let summary = records
+            .iter()
+            .find(|r| r.stage == "signal_summary")
+            .expect("no-response PIDs must remain visible");
+        let json = serde_json::to_value(summary).unwrap();
+        assert_eq!(json["signal_summaries"].as_array().unwrap().len(), 2);
+        for signal in json["signal_summaries"].as_array().unwrap() {
+            assert_eq!(signal["attempt_count"], 1);
+            assert_eq!(signal["success_count"], 0);
+            assert_eq!(signal["error_count"], 0);
+        }
+    }
+    #[test]
+    fn unselected_research_samples_do_not_grow_pid_reliability_history() {
+        let (service, rx) = service(&path());
+        let op = connected(&service, &["engine_rpm", "vehicle_speed"]);
+        op.sink()(poll(DiagnosticPhase::Started, None));
+        for index in 0..600 {
+            service.observe_engine(&sample(&format!("research-{index}")));
+        }
+        service.observe_engine(&EngineEvent::Disconnected);
+        let records = until_disconnected(&rx);
+        let summary = records
+            .iter()
+            .find(|r| r.stage == "signal_summary")
+            .unwrap();
+        assert_eq!(summary.signal_ids.len(), 2);
+        assert_eq!(summary.signal_ids, ["engine_rpm", "vehicle_speed"]);
+    }
+    #[test]
+    fn research_sample_for_selected_signal_is_not_an_acquisition_response() {
+        let (service, rx) = service(&path());
+        let op = connected(&service, &["engine_rpm", "vehicle_speed"]);
+        op.sink()(poll(DiagnosticPhase::Started, None));
+        let EngineEvent::Sample(mut research) = sample("engine_rpm") else {
+            unreachable!()
+        };
+        research.source_id = "a30-research:adapter".into();
+        service.observe_engine(&EngineEvent::Sample(research));
+        service.observe_engine(&EngineEvent::Disconnected);
+        let records = until_disconnected(&rx);
+        let summary = records
+            .iter()
+            .find(|r| r.stage == "signal_summary")
+            .unwrap();
+        let json = serde_json::to_value(summary).unwrap();
+        assert_eq!(json["signal_summaries"][0]["success_count"], 0);
+        assert_eq!(
+            json["signal_summaries"][0]["first_response_delay_ms"],
+            serde_json::Value::Null
+        );
+    }
+    #[test]
+    fn selected_pids_are_summarized_even_when_disconnect_precedes_the_first_poll() {
+        let (service, rx) = service(&path());
+        connected(&service, &["engine_rpm", "vehicle_speed"]);
+        service.observe_engine(&EngineEvent::Disconnected);
+        let records = until_disconnected(&rx);
+        let summary = records
+            .iter()
+            .find(|r| r.stage == "signal_summary")
+            .expect("selected PIDs remain visible before their first attempt");
+        let json = serde_json::to_value(summary).unwrap();
+        assert_eq!(json["signal_summaries"][0]["attempt_count"], 0);
+        assert_eq!(json["signal_summaries"][0]["success_count"], 0);
+    }
+    #[test]
+    fn reliability_entries_are_limited_to_500_with_visible_limit_feedback() {
+        let (service, rx) = service(&path());
+        let selected = (0..600).map(|i| format!("pid-{i}")).collect::<Vec<_>>();
+        let refs = selected.iter().map(String::as_str).collect::<Vec<_>>();
+        connected(&service, &refs);
+        service.observe_engine(&EngineEvent::Disconnected);
+        let records = until_disconnected(&rx);
+        let summary = records
+            .iter()
+            .find(|r| r.stage == "signal_summary")
+            .expect("bounded PID summary");
+        assert_eq!(summary.signal_summaries.as_ref().unwrap().len(), 500);
+        assert!(
+            summary
+                .detail
+                .as_ref()
+                .is_some_and(|s| s.contains("limited to 500"))
+        );
+    }
     fn progress(operation: &str, stage: &str, phase: DiagnosticPhase) -> DiagnosticProgress {
         DiagnosticProgress {
             adapter_id: Some("adapter".into()),
@@ -889,6 +1242,7 @@ mod tests {
             duration_ms: Some(12),
             signal_ids: vec!["rpm".into(), "speed".into()],
             detail: None,
+            consecutive_failures: None,
             transient: None,
         }
     }
