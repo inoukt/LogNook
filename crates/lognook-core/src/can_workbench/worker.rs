@@ -2,7 +2,7 @@ use super::scan::{self, ScanTask, accept_scan_response, task_finished, tick_scan
 use super::{
     CanEvidenceRecord, CanManualEventMark, CanScanConfig, CanSignalDefinition, CanTransport,
     CanTransportError, CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig,
-    CanTriggerEndReason, CanTriggerRecorder, CanWorkbenchStatus,
+    CanTriggerEndReason, CanTriggerRecorder, CanWorkbenchStatus, OemCandidateTrySpec,
 };
 use crate::{
     CanCaptureWriter, CanDirection, CanFrame, EngineEvent, SamplePublisher, decode_can_signal,
@@ -28,7 +28,11 @@ pub(super) enum Command {
     StartCapture(std::path::PathBuf, mpsc::Sender<Result<(), String>>),
     StopCapture(mpsc::Sender<Result<(), String>>),
     SendFrame(CanFrame, u64, u32, mpsc::Sender<Result<(), String>>),
-    StartScan(CanScanConfig, mpsc::Sender<Result<(), String>>),
+    StartScan(
+        CanScanConfig,
+        Option<OemCandidateTrySpec>,
+        mpsc::Sender<Result<(), String>>,
+    ),
     StopScan(mpsc::Sender<Result<(), String>>),
     ArmTrigger(CanTriggerConfig, mpsc::Sender<Result<(), String>>),
     TriggerNow(mpsc::Sender<Result<(), String>>),
@@ -532,7 +536,7 @@ fn handle_command(
             };
             let _ = reply.send(result);
         }
-        Command::StartScan(config, reply) => {
+        Command::StartScan(config, candidate, reply) => {
             let result = if capture.as_ref().is_none_or(CanCaptureSession::failed) {
                 Err("Start a raw CAN capture before scanning; scans require a paired evidence journal".to_owned())
             } else if transport_mode_conflicts(send_task.is_some(), scan_task.is_some()) {
@@ -542,7 +546,7 @@ fn handle_command(
                     config: (&config).into(),
                 }) {
                     Ok(()) => {
-                        *scan_task = Some(ScanTask::new(config.clone()));
+                        *scan_task = Some(ScanTask::new(config.clone(), candidate));
                         (event_sink)(EngineEvent::CanScanStarted(config));
                         Ok(())
                     }
@@ -1135,18 +1139,21 @@ mod tests {
         let capture = CanCaptureSession::create_new(&path, 1, "can:test", 500_000, false).unwrap();
         let mut capture = Some(capture);
         capture.as_mut().unwrap().failed = true;
-        let mut scan_task = Some(ScanTask::new(CanScanConfig {
-            mode: CanScanMode::Mode21 {
-                request_id: 0x7E0,
-                response_id: 0x7E8,
-                extended: false,
-                start_pid: 1,
-                end_pid: 1,
+        let mut scan_task = Some(ScanTask::new(
+            CanScanConfig {
+                mode: CanScanMode::Mode21 {
+                    request_id: 0x7E0,
+                    response_id: 0x7E8,
+                    extended: false,
+                    start_pid: 1,
+                    end_pid: 1,
+                },
+                pacing_ms: 100,
+                response_timeout_ms: 1000,
+                source_candidate_id: None,
             },
-            pacing_ms: 100,
-            response_timeout_ms: 1000,
-            source_candidate_id: None,
-        }));
+            None,
+        ));
         let mut fields = Vec::new();
         let mut send_task = None;
         let mut next_capture_id = 2;

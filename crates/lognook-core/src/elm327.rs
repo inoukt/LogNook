@@ -1,7 +1,7 @@
 use crate::{
     BluetoothByteStream, ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError,
     OemCandidateTryResult, OemCandidateTrySpec, Sample, SampleOrigin, SampleQuality,
-    SignalDefinition,
+    SignalDefinition, adapter::collect_samples_independently,
     bluetooth_spp::connect_bluetooth_spp,
     build_oem_candidate_command, decode_oem_candidate_response,
     obdlink_sx_protocol::{
@@ -317,9 +317,7 @@ impl HardwareAdapter for Elm327Adapter {
             }
         }
 
-        signals
-            .iter()
-            .map(|signal| {
+        collect_samples_independently(signals, |signal| {
                 self.stage(
                     "acquisition",
                     "pid_read",
@@ -330,7 +328,7 @@ impl HardwareAdapter for Elm327Adapter {
                             parse_mode01_responses(&response_text, 0x01, signal.pid)
                                 .map_err(elm_response_error)?;
                         if responses.len() != 1 {
-                            return Err(LogNookError::new(
+                            return Err(LogNookError::signal(
                                 "Multiple ECU responders are not supported by this ELM adapter",
                             ));
                         }
@@ -342,10 +340,10 @@ impl HardwareAdapter for Elm327Adapter {
                             started,
                             adapter.ecu_id.as_deref(),
                         )
+                        .map(|sample| vec![sample])
                     },
                 )
             })
-            .collect()
     }
 
     fn disconnect(&mut self) {
@@ -489,10 +487,11 @@ fn elm_response_value(response: &str, command: &str) -> Result<String, LogNookEr
 }
 
 fn elm_response_error(error: Mode01ResponseError) -> LogNookError {
+    let message = error.to_string();
     if error.is_transient() {
-        LogNookError::transient(error.to_string())
+        LogNookError::transient_signal(message)
     } else {
-        LogNookError::new(error.to_string())
+        LogNookError::signal(message)
     }
 }
 
@@ -524,7 +523,7 @@ fn sample_from_response(
             .clone()
             .or_else(|| connected_ecu.map(str::to_owned)),
         signal_id: signal.id.clone(),
-        value: decode_signal(signal, response).map_err(LogNookError::new)?,
+        value: decode_signal(signal, response).map_err(LogNookError::signal)?,
         unit: signal.unit.clone(),
         quality: SampleQuality::Valid,
         origin: SampleOrigin::Live,
@@ -867,15 +866,38 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
         let captured = events.clone();
         adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
-        let error = adapter.read_samples(&[rpm]).unwrap_err();
+        let samples = adapter.read_samples(&[rpm]).unwrap();
+        assert!(samples.is_empty());
         let events = events.lock().unwrap();
         assert_eq!(events.last().unwrap().signal_ids, ["engine_rpm"]);
         assert_eq!(events.last().unwrap().phase, crate::DiagnosticPhase::Failed);
-        assert_eq!(
-            events.last().unwrap().detail.as_deref(),
-            Some(error.to_string().as_str())
-        );
+        assert!(events.last().unwrap().detail.as_deref().unwrap().contains("NRC 0x12"));
         assert!(events.last().unwrap().duration_ms.is_some());
+        assert!(adapter.started.is_some());
+    }
+
+    #[test]
+    fn one_negative_response_keeps_other_pid_samples_in_the_poll() {
+        let (mut adapter, _capabilities, _written) = connected_adapter(&[
+            "7E8 03 7F 01 12\r>",
+            "7E8 03 41 05 5A\r>",
+        ]);
+        let signals: Vec<_> = standard_obd_signals()
+            .into_iter()
+            .filter(|signal| [0x0C, 0x05].contains(&signal.pid))
+            .collect();
+        let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+
+        let samples = adapter.read_samples(&signals).unwrap();
+
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].signal_id, "coolant_temp");
+        assert_eq!(samples[0].value, 50.0);
+        assert!(events.lock().unwrap().iter().any(|event| {
+            event.phase == crate::DiagnosticPhase::Failed && event.signal_ids == ["engine_rpm"]
+        }));
     }
 
     #[test]
@@ -886,7 +908,7 @@ mod tests {
             .find(|signal| signal.pid == 0x0C)
             .unwrap();
 
-        assert!(adapter.read_samples(&[rpm]).is_err());
+        assert!(adapter.read_samples(&[rpm]).unwrap().is_empty());
     }
 
     #[test]

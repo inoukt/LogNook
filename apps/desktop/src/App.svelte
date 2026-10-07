@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { invoke, isTauri } from "@tauri-apps/api/core";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import { liveCsvSamples } from "./liveCsv";
+  import { LiveCsvBuffer, liveCsvSamples } from "./liveCsv";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import DerivedSignalsPanel from "./DerivedSignalsPanel.svelte";
   import PlaybackPanel from "./PlaybackPanel.svelte";
@@ -16,9 +16,11 @@
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import ResearchRunResults from "./ResearchRunResults.svelte";
+  import CanTrafficPanel from "./CanTrafficPanel.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
   import {
     appendCanFrames, appendCanTrafficSummary, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
+    adjustCanMonitorHeight, restoreCanSignalDefinitions,
     clearCanSessionSamples as withoutCanSamples, emptyCanSessionEvents,
   } from "./canWorkbench";
   import type { CanTrafficSummary } from "./canWorkbench";
@@ -37,7 +39,8 @@
     A30GraphValue, BluetoothSppDevice, CanFrame, CanScanResult, CanSignalDefinition, CanTransportError,
     CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
-    J2534Provider, J2534ProviderDiscovery, RecordingInfo, ResearchRunViewState, Sample, SignalDefinition,
+    J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, RecordingInfo, ResearchRunViewState,
+    Sample, SignalDefinition,
   } from "./types";
   import {
     averageInWindow, clampSeekPosition, filterSignals, followPlayhead, graphRefreshIntervalMs, orderMarkersForTimeline,
@@ -60,7 +63,9 @@
   const workspacePreferencesKey = "lognook.workspace-preferences";
   const researchSignalOptionsKey = "lognook.research-signal-options";
   const workbenchGraphSignalIdsKey = "lognook.workbench-graph-signal-ids";
+  const canSignalDefinitionsKey = "lognook.can-signal-definitions";
   const automaticTriggerPreferencesKey = "lognook.automatic-trigger";
+  const liveCsvBuffer = new LiveCsvBuffer();
 
   let signalCatalog: SignalDefinition[] = [];
   let derivedSignalDefinitions: DerivedSignalDefinition[] = [];
@@ -82,6 +87,7 @@
   let graphSignalIds = [...logSignalIds];
   let latest: Record<string, Sample> = {};
   let series: Record<string, Sample[]> = {};
+  let liveCsvBufferVersion = 0;
   let sessionSeries: Record<string, Sample[]> = {};
   let sessionAverages: Record<string, number> = {};
   let signalColors: Record<string, string> = {};
@@ -121,6 +127,7 @@
   let canCaptureOpen = false;
   let canCapturePath = "";
   let queuedCanFrames: CanFrame[] = [];
+  let queuedCanTrafficSummary: CanTrafficSummary[] | null = null;
   let canFrameFlushScheduled = false;
   let theme: WorkspaceTheme = defaultWorkspacePreferences.theme;
   let highContrast = defaultWorkspacePreferences.highContrast;
@@ -130,6 +137,9 @@
   let workspacePreferencesReady = false;
   let statusHeight = 42;
   let statusResize: { y: number; height: number } | null = null;
+  let measurementsElement: HTMLElement | undefined;
+  let canMonitorHeight = 240;
+  let canSplitResize: { y: number; height: number; availableHeight: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
   let diagnosticsUnlisten: UnlistenFn | undefined;
@@ -166,6 +176,7 @@
   let scrubPending: number | null = null;
   let scrubInFlight: number | null = null;
   let availableSignals: SignalOption[] = [];
+  let visibleLiveSignalIds: string[] = [];
   $: connectionControls = connectionControlState(selectedAdapter, {
     busy: busy || researchRunView.running,
     recording,
@@ -201,12 +212,15 @@
     const signal = availableSignals.find((candidate) => candidate.id === id);
     return signal ? [signal] : [];
   });
+  $: visibleLiveSignalIds = visibleSignals
+    .filter((signal) => (series[signal.id]?.length ?? 0) > 0)
+    .map(({ id }) => id);
   $: graphWindowSignalIds = [...new Set([
     ...graphSignalIds,
     ...visibleSignals.flatMap((signal) => formulaSignalIds(signal.formula, signalCatalog)),
   ])];
   $: filteredSignals = filterSignals(availableSignals, signalSearch);
-  $: hasLiveCsvSamples = logSignalIds.some((id) => (series[id]?.length ?? 0) > 0);
+  $: hasLiveCsvSamples = liveCsvBufferVersion >= 0 && liveCsvBuffer.hasSignals(visibleLiveSignalIds);
   $: automaticTriggerSignals = session ? [] : availableSignals.filter((signal) => logSignalIds.includes(signal.id));
   $: currentDerivedValues = Object.fromEntries(derivedSignalDefinitions.map((definition) => [
     definition.id,
@@ -258,6 +272,7 @@
       }));
       localStorage.setItem(researchSignalOptionsKey, JSON.stringify(researchSignalOptions));
       localStorage.setItem(workbenchGraphSignalIdsKey, JSON.stringify(workbenchGraphSignalIds));
+      localStorage.setItem(canSignalDefinitionsKey, JSON.stringify(canSignalDefinitions));
     } catch { /* Preferences are optional. */ }
   }
   $: if (workspacePreferencesReady && isTauri()) {
@@ -277,15 +292,18 @@
     let savedWorkspacePreferences: string | null = null;
     let savedResearchSignalOptions: string | null = null;
     let savedWorkbenchGraphSignalIds: string | null = null;
+    let savedCanSignalDefinitions: string | null = null;
     let savedAutomaticTrigger: string | null = null;
     let savedDerivedSignals: string | null = null;
     try {
       savedWorkspacePreferences = localStorage.getItem(workspacePreferencesKey);
       savedResearchSignalOptions = localStorage.getItem(researchSignalOptionsKey);
       savedWorkbenchGraphSignalIds = localStorage.getItem(workbenchGraphSignalIdsKey);
+      savedCanSignalDefinitions = localStorage.getItem(canSignalDefinitionsKey);
       savedAutomaticTrigger = localStorage.getItem(automaticTriggerPreferencesKey);
       savedDerivedSignals = localStorage.getItem("lognook.derived-signals");
     } catch { /* Preferences are optional. */ }
+    canSignalDefinitions = restoreCanSignalDefinitions(savedCanSignalDefinitions);
     try {
       const colors = JSON.parse(localStorage.getItem("lognook.signal-colors") ?? "{}");
       if (colors && typeof colors === "object" && !Array.isArray(colors)) signalColors = colors;
@@ -322,15 +340,20 @@
           ...signals.map(({ id }) => id),
           ...derivedSignalDefinitions.map(({ id }) => id),
           ...researchSignalOptions.map(({ id }) => id),
+          ...canSignalDefinitions.map(({ id }) => id),
         ]);
         workbenchGraphSignalIds = restoreWorkbenchGraphSignalIds(savedWorkbenchGraphSignalIds)
           .filter((id) => knownGraphSignalIds.has(id));
         const preferences = restoreWorkspacePreferences(
           savedWorkspacePreferences,
-          [...signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)],
+          [
+            ...signals.map(({ id }) => id),
+            ...derivedSignalDefinitions.map(({ id }) => id),
+            ...canSignalDefinitions.map(({ id }) => id),
+          ],
           defaultWorkspacePreferences,
           Math.max(36, window.innerHeight * 0.3),
-          workbenchGraphSignalIds,
+          [...workbenchGraphSignalIds, ...canSignalDefinitions.map(({ id }) => id)],
         );
         logSignalIds = preferences.logSignalIds;
         automaticTriggerConfig = restoreAutomaticTriggerConfig(
@@ -453,6 +476,8 @@
       latest = { ...latest, [sample.signal_id]: sample };
     } else if (event.type === "canWorkbenchStatus") {
       if (event.payload.connected && !canWorkbenchStatus?.connected) {
+        if (session) void clearSession();
+        resetLiveHistory();
         const empty = emptyCanSessionEvents();
         canFrames = empty.frames;
         canTrafficSummary = empty.trafficSummary;
@@ -462,6 +487,7 @@
         canTriggerCapture = empty.triggerCapture;
         canScanRunning = empty.scanRunning;
         queuedCanFrames = [];
+        queuedCanTrafficSummary = empty.trafficSummary;
         canCaptureOpen = false;
         canCapturePath = "";
         clearCanSignalSamples();
@@ -478,13 +504,15 @@
         status = "Disconnected";
       }
     } else if (event.type === "canFrames") {
-      queuedCanFrames = [...queuedCanFrames, ...event.payload];
+      queuedCanFrames = appendCanFrames(queuedCanFrames, event.payload, 400);
+      queuedCanTrafficSummary = appendCanTrafficSummary(queuedCanTrafficSummary ?? canTrafficSummary, event.payload);
       if (!canFrameFlushScheduled) {
         canFrameFlushScheduled = true;
         requestAnimationFrame(() => {
           const incoming = queuedCanFrames;
           canFrames = appendCanFrames(canFrames, incoming);
-          canTrafficSummary = appendCanTrafficSummary(canTrafficSummary, incoming);
+          canTrafficSummary = queuedCanTrafficSummary ?? canTrafficSummary;
+          queuedCanTrafficSummary = canTrafficSummary;
           queuedCanFrames = [];
           canFrameFlushScheduled = false;
         });
@@ -505,6 +533,8 @@
       const sample = event.payload;
       if (sample.origin === "live") {
         if (!session) {
+          liveCsvBuffer.append(sample);
+          liveCsvBufferVersion++;
           latest = { ...latest, [sample.signal_id]: sample };
           series = { ...series, [sample.signal_id]: [...(series[sample.signal_id] ?? []), sample].slice(-180) };
         }
@@ -532,6 +562,8 @@
         recording = false;
       }
     } else if (event.type === "connected") {
+      if (session) void clearSession();
+      resetLiveHistory();
       connected = true;
       activeAdapterDescriptor = event.payload.device;
       status = event.payload.device.hardware_family === "simulator"
@@ -604,6 +636,13 @@
     if (!connected) status = "Disconnected";
   }
 
+  function resetLiveHistory() {
+    latest = {};
+    series = {};
+    liveCsvBuffer.clear();
+    liveCsvBufferVersion++;
+  }
+
   async function activateSession(info: RecordingInfo) {
     readoutRequest++;
     graphRequest++;
@@ -613,8 +652,7 @@
     playback = { session_id: 0, position_ns: 0, duration_ns: info.duration_ns, speed: 1, playing: false };
     graphSignalIds = info.signals.map((signal) => signal.id);
     timeWindow = { startNs: 0, endNs: info.duration_ns };
-    latest = {};
-    series = {};
+    resetLiveHistory();
     sessionSeries = {};
     sessionAverages = {};
     playback = await invoke<PlaybackState>("playback_state");
@@ -668,7 +706,7 @@
 
   function connect() {
     return run(async () => {
-      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
+      const requested = requestedAdapterSignals();
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       await invoke("configure_derived_signals", {
         definitions: derivedSignalDefinitions,
@@ -676,9 +714,6 @@
       });
       const capabilities = await invoke<ConnectionCapabilities>("connect_simulator", { signalIds: requested });
       activeAdapterDescriptor = capabilities.device;
-      await clearSession();
-      series = {};
-      latest = {};
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -687,7 +722,7 @@
 
   function connectSx() {
     return run(async () => {
-      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
+      const requested = requestedAdapterSignals();
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       await invoke("configure_derived_signals", {
         definitions: derivedSignalDefinitions,
@@ -698,9 +733,6 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
-      await clearSession();
-      series = {};
-      latest = {};
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -709,7 +741,7 @@
 
   function connectOpenPort() {
     return run(async () => {
-      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
+      const requested = requestedAdapterSignals();
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       await invoke("configure_derived_signals", {
         definitions: derivedSignalDefinitions,
@@ -720,9 +752,6 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
-      await clearSession();
-      series = {};
-      latest = {};
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -731,7 +760,7 @@
 
   function connectBluetooth() {
     return run(async () => {
-      const requested = logSignalIds.filter((id) => availableSignals.some((signal) => signal.id === id));
+      const requested = requestedAdapterSignals();
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       await invoke("configure_derived_signals", {
         definitions: derivedSignalDefinitions,
@@ -743,9 +772,6 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
-      await clearSession();
-      series = {};
-      latest = {};
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -847,11 +873,11 @@
 
   function exportLiveCsv() {
     return run(async () => {
-      const samples = liveCsvSamples(series, logSignalIds);
+      const samples = liveCsvSamples(liveCsvBuffer.snapshot(), visibleLiveSignalIds);
       const path = await invoke<string | null>("export_live_csv", { samples });
       if (path) {
         exportPath = path;
-        status = `Saved ${samples.length.toLocaleString()} buffered samples`;
+        status = `Saved ${samples.length.toLocaleString()} live samples${liveCsvBuffer.droppedSamples ? ` · oldest samples omitted at the buffer limit` : ""}`;
       }
     });
   }
@@ -1055,8 +1081,18 @@
     ({ logSignalIds, graphSignalIds } = setLogSignal(logSignalIds, graphSignalIds, signalId, enabled));
   }
 
+  function requestedAdapterSignals() {
+    const supportedIds = new Set(availableSignals
+      .filter(({ id }) => !id.startsWith("can:"))
+      .map(({ id }) => id));
+    return logSignalIds.filter((id) => supportedIds.has(id));
+  }
+
   function toggleGraphSignal(signalId: string, enabled: boolean) {
     graphSignalIds = setGraphSignal(graphSignalIds, signalId, enabled);
+    if (enabled && canSignalDefinitions.some(({ id }) => id === signalId)) {
+      workbenchGraphSignalIds = rememberWorkbenchGraphSignalId(workbenchGraphSignalIds, signalId);
+    }
     if (session && !playback.playing) {
       refreshPlaybackReadouts(playback.position_ns, session.signals.map((signal) => signal.id)).catch(showError);
     }
@@ -1068,6 +1104,7 @@
     const oldIds = new Set(canSignalDefinitions.map(({ id }) => id));
     const nextIds = new Set(fields.map(({ id }) => id));
     canSignalDefinitions = fields;
+    workbenchGraphSignalIds = workbenchGraphSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id));
     logSignalIds = [...new Set([
       ...logSignalIds.filter((id) => !oldIds.has(id) || nextIds.has(id)),
       ...fields.map(({ id }) => id),
@@ -1085,9 +1122,14 @@
     series = cleared.series;
   }
 
+  function clearCanTriggerCapture() {
+    canTriggerCapture = null;
+  }
+
   function startCanOemCandidate(candidateId: string) {
     return run(async () => {
-      await invoke("start_can_oem_candidate", { candidateId });
+      const spec = await invoke<OemCandidateTrySpec>("start_can_oem_candidate", { candidateId });
+      graphResearchCandidate(spec.candidate);
       status = `Started source-backed CAN read · ${candidateId}`;
     });
   }
@@ -1185,12 +1227,14 @@
     wheelScrubbing = false;
     automaticTriggerConfig = { ...defaultAutomaticTriggerConfig };
     derivedSignalDefinitions = [];
+    canSignalDefinitions = [];
     researchSignalOptions = [];
     workbenchGraphSignalIds = [];
     try {
       localStorage.removeItem(workspacePreferencesKey);
       localStorage.removeItem(researchSignalOptionsKey);
       localStorage.removeItem(workbenchGraphSignalIdsKey);
+      localStorage.removeItem(canSignalDefinitionsKey);
       localStorage.removeItem("lognook.signal-colors");
       localStorage.removeItem("lognook.wheel-scrubbing");
       localStorage.removeItem("lognook.automatic-trigger");
@@ -1211,6 +1255,36 @@
 
   function finishStatusResize() {
     statusResize = null;
+  }
+
+  function startCanSplitResize(event: PointerEvent) {
+    const splitter = event.currentTarget as HTMLDivElement | null;
+    if (!measurementsElement || !splitter) return;
+    canSplitResize = { y: event.clientY, height: canMonitorHeight, availableHeight: measurementsElement.clientHeight };
+    splitter.setPointerCapture(event.pointerId);
+  }
+
+  function resizeCanSplit(event: PointerEvent) {
+    if (!canSplitResize) return;
+    canMonitorHeight = adjustCanMonitorHeight(
+      canSplitResize.height,
+      event.clientY - canSplitResize.y,
+      canSplitResize.availableHeight,
+    );
+  }
+
+  function finishCanSplitResize() {
+    canSplitResize = null;
+  }
+
+  function resizeCanSplitFromKeyboard(event: KeyboardEvent) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    canMonitorHeight = adjustCanMonitorHeight(
+      canMonitorHeight,
+      event.key === "ArrowUp" ? 16 : -16,
+      measurementsElement?.clientHeight ?? window.innerHeight,
+    );
   }
 
   function resizeStatusFromKeyboard(event: KeyboardEvent) {
@@ -1451,8 +1525,6 @@
           otherAdapterConnected={connected && !canWorkbenchStatus?.connected}
           status={canWorkbenchStatus}
           fields={canSignalDefinitions}
-          frames={canFrames}
-          trafficSummary={canTrafficSummary}
           scanResults={canScanResults}
           txStatuses={canTxStatuses}
           transportErrors={canTransportErrors}
@@ -1462,10 +1534,16 @@
           bind:captureOpen={canCaptureOpen}
           bind:capturePath={canCapturePath}
           onFieldsChanged={updateCanSignalDefinitions}
+          onClearTriggerCapture={clearCanTriggerCapture}
         />
       </aside>
 
-      <section class="measurements" aria-label="Measurements">
+      <section class="measurements" class:can-split={!session && pidPickerView === "can"} style={`--can-monitor-height:${canMonitorHeight}px`} bind:this={measurementsElement} aria-label="Measurements">
+        {#if !session && pidPickerView === "can"}
+          <CanTrafficPanel frames={canFrames} trafficSummary={canTrafficSummary} />
+          <div class="can-monitor-splitter" role="slider" tabindex="0" aria-orientation="vertical" aria-valuemin="120" aria-valuemax={Math.max(120, (measurementsElement?.clientHeight ?? 288) - 168)} aria-valuenow={canMonitorHeight} aria-label="CAN monitor height"
+            onpointerdown={startCanSplitResize} onpointermove={resizeCanSplit} onpointerup={finishCanSplitResize} onpointercancel={finishCanSplitResize} onkeydown={resizeCanSplitFromKeyboard}></div>
+        {/if}
         {#if visibleSignals.length === 0}
           <div class="empty-state"><span class="empty-icon">⌁</span><h3>{session ? "No signals selected" : "Select signals to begin"}</h3><p>{session ? "Choose recorded signals to add them to the graph." : "Choose one or more PIDs, then connect an adapter."}</p></div>
         {:else}

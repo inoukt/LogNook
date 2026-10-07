@@ -2,6 +2,7 @@ mod worker_client;
 
 use crate::{
     DiagnosticSink, HardwareAdapter,
+    adapter::collect_samples_independently,
     diagnostics::{diagnostic_stage, noop_diagnostic_sink},
     model::{
         ConnectionCapabilities, DeviceDescriptor, LogNookError, Sample, SampleOrigin,
@@ -338,11 +339,15 @@ impl OpenPort2Adapter {
             .ok_or_else(|| LogNookError::new("OpenPort adapter is not connected"))?;
         let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "acquisition");
         match session.request_with_progress(WorkerRequest::ReadMode01 { pid }, &sink)? {
-            WorkerResponse::Mode01Responses { responses } if responses.len() == 1 => Ok(responses
-                .into_iter()
-                .next()
-                .expect("one response was checked")),
-            WorkerResponse::Mode01Responses { .. } => Err(LogNookError::new(
+            WorkerResponse::Mode01Responses { mut responses } if responses.len() == 1 => {
+                Ok(responses.pop().expect("one response was checked"))
+            }
+            WorkerResponse::Mode01Responses { responses } if responses.is_empty() => {
+                Err(LogNookError::transient_signal(format!(
+                    "OpenPort returned no response for Mode 01 PID {pid:02X}"
+                )))
+            }
+            WorkerResponse::Mode01Responses { .. } => Err(LogNookError::signal(
                 "Multiple ECU responders are not supported by the OpenPort adapter",
             )),
             response => Err(unexpected_worker_response("Mode 01 PID read", response)),
@@ -390,17 +395,17 @@ impl HardwareAdapter for OpenPort2Adapter {
             }
         }
 
-        let mut samples = Vec::with_capacity(signals.len());
         let mut seen_pids = HashSet::new();
-        for pid in signals
+        let pids = signals
             .iter()
             .map(|signal| signal.pid)
             .filter(|pid| seen_pids.insert(*pid))
-        {
-            let sink = self.diagnostic_sink.clone();
+            .collect::<Vec<_>>();
+        let sink = self.diagnostic_sink.clone();
+        collect_samples_independently(&pids, |pid| {
             let signal_ids = signals
                 .iter()
-                .filter(|signal| signal.pid == pid)
+                .filter(|signal| signal.pid == *pid)
                 .map(|signal| signal.id.clone())
                 .collect();
             diagnostic_stage(
@@ -410,23 +415,24 @@ impl HardwareAdapter for OpenPort2Adapter {
                 "pid_read",
                 signal_ids,
                 || {
-                    let payload = self.read_pid(pid)?;
+                    let payload = self.read_pid(*pid)?;
                     if !payload.ecu_id.eq_ignore_ascii_case(&ecu_id) {
                         return Err(LogNookError::new(
                             "ECU identity changed during the OpenPort session",
                         ));
                     }
-                    let response = parse_mode01_payload(ecu_id.clone(), &payload.bytes, pid)
-                        .map_err(LogNookError::new)?;
-                    for signal in signals.iter().filter(|signal| signal.pid == pid) {
+                    let response = parse_mode01_payload(ecu_id.clone(), &payload.bytes, *pid)
+                        .map_err(|error| LogNookError::signal(error.to_string()))?;
+                    let mut pid_samples = Vec::new();
+                    for signal in signals.iter().filter(|signal| signal.pid == *pid) {
                         let canonical = catalog
                             .iter()
                             .find(|known| known.id == signal.id)
                             .expect("signal was validated against catalog");
                         let value =
-                            decode_signal(canonical, &response).map_err(LogNookError::new)?;
+                            decode_signal(canonical, &response).map_err(LogNookError::signal)?;
                         let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-                        samples.push(Sample {
+                        pid_samples.push(Sample {
                             elapsed_ns,
                             wall_time_unix_ns: now_unix_ns(),
                             source_id: format!("openport2:{}", self.provider_id),
@@ -439,11 +445,10 @@ impl HardwareAdapter for OpenPort2Adapter {
                             raw_bytes: Some(response.raw_bytes.clone()),
                         });
                     }
-                    Ok(())
+                    Ok(pid_samples)
                 },
-            )?;
-        }
-        Ok(samples)
+            )
+        })
     }
 
     fn sample_interval(&self) -> std::time::Duration {

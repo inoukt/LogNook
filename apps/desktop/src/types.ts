@@ -51,6 +51,7 @@ export type OemCandidate = {
 };
 
 export type OemCatalogPage = { total: number; offset: number; limit: number; candidates: OemCandidate[] };
+export type OemCandidateTrySpec = { candidate: OemCandidate; value_format: string };
 
 export type ScionMode21ProbeResult = {
   vehicle_profile_id: string;

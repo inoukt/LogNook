@@ -4,7 +4,10 @@ import test from "node:test";
 
 const can = await import("../src/canWorkbench.ts").catch(() => null);
 const app = await readFile(new URL("../src/App.svelte", import.meta.url), "utf8");
+const graphs = await readFile(new URL("../src/SignalGraphs.svelte", import.meta.url), "utf8");
+const chart = await readFile(new URL("../src/LiveChart.svelte", import.meta.url), "utf8");
 const panel = await readFile(new URL("../src/CanWorkbenchPanel.svelte", import.meta.url), "utf8").catch(() => "");
+const trafficPanel = await readFile(new URL("../src/CanTrafficPanel.svelte", import.meta.url), "utf8").catch(() => "");
 const oemPanel = await readFile(new URL("../src/OemCatalogPanel.svelte", import.meta.url), "utf8");
 const styles = await readFile(new URL("../src/app.css", import.meta.url), "utf8");
 const commands = await readFile(new URL("../src-tauri/src/commands/can.rs", import.meta.url), "utf8");
@@ -137,6 +140,36 @@ test("live CAN summary accumulates per-ID counts, period, latest data, and ASCII
   ]);
 });
 
+test("saved CAN field definitions restore only unique, valid typed fields", () => {
+  assert.equal(typeof can?.restoreCanSignalDefinitions, "function");
+  if (!can?.restoreCanSignalDefinitions) return;
+  const newer = { ...field, name: "Latest name" };
+  assert.deepEqual(can.restoreCanSignalDefinitions(JSON.stringify([
+    field,
+    { ...field, id: "invalid id" },
+    { ...field, bit_length: 65 },
+    newer,
+  ])), [newer]);
+  assert.deepEqual(can.restoreCanSignalDefinitions("not json"), []);
+});
+
+test("CAN field graph selections and definitions survive restart", () => {
+  assert.match(app, /canSignalDefinitions = restoreCanSignalDefinitions\(savedCanSignalDefinitions\)/);
+  assert.match(app, /localStorage\.setItem\(canSignalDefinitionsKey, JSON\.stringify\(canSignalDefinitions\)\)/);
+  assert.match(app, /canSignalDefinitions\.map\(\(\{ id \}\) => id\)/);
+  assert.match(app, /enabled && canSignalDefinitions\.some[\s\S]*?rememberWorkbenchGraphSignalId/);
+});
+
+test("connecting a standard OBD adapter filters out saved CAN fields", () => {
+  assert.match(app, /function requestedAdapterSignals\(\)[\s\S]*?!id\.startsWith\("can:"\)/);
+  assert.match(app, /const requested = requestedAdapterSignals\(\)/);
+});
+
+test("a successful new CAN capture clears the old trigger window", () => {
+  assert.match(panel, /await commands\.startCapture\(path\);[\s\S]*?onClearTriggerCapture\(\)/);
+  assert.match(app, /onClearTriggerCapture=\{clearCanTriggerCapture\}/);
+});
+
 test("live CAN summary counts frames beyond the recent display buffer", () => {
   assert.ok(can, "CAN workbench helpers exist");
   const frames = Array.from({ length: 405 }, (_, index) => ({
@@ -149,6 +182,31 @@ test("live CAN summary counts frames beyond the recent display buffer", () => {
   }
   assert.equal(summary[0].rx_count, 405);
   assert.deepEqual(summary[0].last_data, [404 & 0xff]);
+});
+
+test("CAN monitor and decoded graph share a vertically resizable right workspace", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  assert.equal(can.clampCanMonitorHeight(40, 600), 120);
+  assert.equal(can.clampCanMonitorHeight(250, 600), 250);
+  assert.equal(can.clampCanMonitorHeight(900, 600), 432);
+  assert.equal(can.clampCanMonitorHeight(40, 200), 120);
+  assert.equal(can.adjustCanMonitorHeight(240, 16, 600), 256);
+  assert.equal(can.adjustCanMonitorHeight(420, 16, 600), 432);
+  assert.equal(can.adjustCanMonitorHeight(136, -16, 600), 120);
+  assert.match(app, /class:can-split={!session && pidPickerView === "can"}/);
+  assert.match(app, /<CanTrafficPanel[\s\S]*?trafficSummary=\{canTrafficSummary\}/);
+  assert.match(app, /role="slider" tabindex="0" aria-orientation="vertical"[\s\S]*?aria-label="CAN monitor height"[\s\S]*?onpointerdown[\s\S]*?onpointermove[\s\S]*?onkeydown/);
+  assert.match(app, /<CanTrafficPanel[\s\S]*?class="can-monitor-splitter"[\s\S]*?SignalGraphs/);
+  assert.match(trafficPanel, /aria-label="Live CAN ID counts"/);
+  assert.doesNotMatch(panel, /aria-label="Live CAN ID counts"/, "traffic view is removed from the narrow controls panel");
+});
+
+test("disconnected live graphs label retained values as the last received samples", () => {
+  assert.match(graphs, /showDisconnectedSamples = \$derived\(!live && !timeWindow && traces\.some\(\(trace\) => trace\.samples\.length > 0\)\)/);
+  assert.match(graphs, /Disconnected · showing last received samples/);
+  assert.match(chart, /isLiveTraceStale\(trace\.samples, liveDisplayTimeNs/);
+  assert.match(chart, /preference\.view !== "line" \|\| stale/);
+  assert.match(chart, /class="chart-cursor-readout" role="status" aria-live="polite">[\s\S]*?class="trace-stale"/);
 });
 
 test("a new CAN session resets its event history and only its own signal samples", () => {
@@ -279,17 +337,17 @@ test("Workbench renders bounded frames, scan results, echo status, transport evi
   for (const marker of ["frames={canFrames}", "scanResults={canScanResults}", "txStatuses={canTxStatuses}", "transportErrors={canTransportErrors}", "scanRunning={canScanRunning}"]) {
     assert.ok(app.includes(marker), `App passes ${marker}`);
   }
-  for (const marker of ["aria-label=\"Recent CAN frames\"", "aria-label=\"Live CAN ID counts\"", "Echo confirmed", "raw_usb", "replaySidecarStatus", "rate_hz", "evidence_records", "chooseCaptureOpenPath", "sendFrame"]) {
-    assert.ok(panel.includes(marker), `CAN panel presents ${marker}`);
+  for (const marker of ["Echo confirmed", "raw_usb", "replaySidecarStatus", "evidence_records", "chooseCaptureOpenPath", "sendFrame"]) {
+    assert.ok(panel.includes(marker), `CAN controls panel presents ${marker}`);
   }
-  assert.match(app, /trafficSummary=\{canTrafficSummary\}/);
-  assert.match(app, /queuedCanFrames = \[\.\.\.queuedCanFrames, \.\.\.event\.payload\]/, "all frames stay queued until the next paint so counts do not lose bursts");
-  assert.match(app, /requestAnimationFrame\([\s\S]*?const incoming = queuedCanFrames;[\s\S]*?appendCanFrames\(canFrames, incoming\)[\s\S]*?appendCanTrafficSummary\(canTrafficSummary, incoming\)/, "frame list and cumulative counts coalesce to one update per animation frame");
+  for (const marker of ["aria-label=\"Recent CAN frames\"", "aria-label=\"Live CAN ID counts\"", "rate_hz", "Counts since connection", "Frames"]) {
+    assert.ok(trafficPanel.includes(marker), `main traffic panel presents ${marker}`);
+  }
+  assert.match(app, /queuedCanFrames = appendCanFrames\(queuedCanFrames, event\.payload, 400\)/, "raw frame updates stay bounded while paint is throttled");
+  assert.match(app, /queuedCanTrafficSummary = appendCanTrafficSummary\(queuedCanTrafficSummary \?\? canTrafficSummary, event\.payload\)/, "every incoming frame updates the pending cumulative counts");
+  assert.match(app, /requestAnimationFrame\([\s\S]*?const incoming = queuedCanFrames;[\s\S]*?appendCanFrames\(canFrames, incoming\)[\s\S]*?canTrafficSummary = queuedCanTrafficSummary \?\? canTrafficSummary/, "recent frame rows and cumulative counts coalesce to one UI update per animation frame");
   assert.match(panel, /CAN ID range/);
   assert.match(panel, /Mode 01 PIDs/);
-  assert.match(app, /canTrafficSummary = appendCanTrafficSummary\(canTrafficSummary, incoming\)/);
-  assert.match(panel, /Counts since connection/);
-  assert.match(panel, /Frames/);
   assert.match(panel, /0\/0\s*default|interfaceNumber = 0[\s\S]*?channel = 0/);
 });
 
@@ -300,6 +358,8 @@ test("OEM catalog can launch a source-backed CAN candidate through the serialize
   assert.match(app, /start_can_oem_candidate/);
   assert.match(app, /canCandidateDisabled=/);
   assert.match(app, /canCandidateDisabled=\{!canTransmitEnabled\(canWorkbenchStatus, canCaptureOpen\)/, "the CAN action requires an active connection and open paired capture");
+  assert.match(app, /const spec = await invoke<OemCandidateTrySpec>\("start_can_oem_candidate", \{ candidateId \}\);[\s\S]*?graphResearchCandidate\(spec\.candidate\)/, "CAN reads add the catalog-decoded signal to the live graph");
+  assert.match(commands, /start_can_oem_candidate\(spec\.clone\(\)\)/, "the backend passes the exact catalog spec to the serialized CAN worker");
   assert.match(oemPanel, /disabled=\{canCandidateDisabled\}/, "the OEM candidate action obeys the CAN transmit gate");
 });
 

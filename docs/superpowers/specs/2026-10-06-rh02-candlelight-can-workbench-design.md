@@ -1,6 +1,6 @@
 # RH-02 Candlelight CAN Workbench
 
-**Status:** Revised after user direction; implementation has not started.
+**Status:** Implemented in the Rust/Tauri/Svelte application; software verification is complete for the documented capture, scan, evidence, and graph pipeline. Physical RH-02/Candlelight USB and vehicle acceptance remains pending.
 
 ## Purpose
 
@@ -16,7 +16,7 @@ Implement the Candlelight profile from the upstream GS_USB layout: vendor/interf
 
 One Rust-owned Candlelight session serializes USB access. The passive receiver, active diagnostic requests, and close path must not open competing handles or read the endpoint concurrently. Adapter removal, WinUSB errors, bus-off, and receive timeout are reported as distinct capture/connection errors.
 
-Add a typed `CanFrame` model carrying host elapsed/UTC time, arbitration ID and width, DLC, bytes, direction (`rx`/`tx`), and available error/overflow flags. The owning session publishes frames to the CAN Workbench event stream and the capture writer. During active OBD reads, the same owner publishes the request/reply frames and the decoder separately emits numeric `Sample` events through the existing measurement pipeline.
+Add a typed `CanFrame` model carrying host elapsed/UTC time, arbitration ID and width, DLC, bytes, direction (`rx`/`tx`), and available error/overflow flags. The owning session publishes frames to the CAN Workbench event stream and the capture writer. During active OBD reads, the same owner publishes the request/reply frames and the decoder separately emits numeric `Sample` events through the existing measurement pipeline. Source-backed Mode 21/22 CAN candidate reads use the shared OEM decoder, preserve raw scan evidence, and publish finite numeric results with the ECU and receive timestamps so the existing graph/recording/replay path can render them.
 
 ## Workbench modes
 

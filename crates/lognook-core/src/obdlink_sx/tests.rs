@@ -566,17 +566,43 @@ fn grouped_read_failure_reports_all_requested_signals() {
     let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
     let captured = events.clone();
     adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
-    let error = adapter.read_samples(&signals).unwrap_err();
+    assert!(adapter.read_samples(&signals).unwrap().is_empty());
     let events = events.lock().unwrap();
-    let event = events.last().unwrap();
-    assert_eq!(event.phase, crate::DiagnosticPhase::Failed);
-    let mut actual = event.signal_ids.clone();
+    let mut actual = events
+        .iter()
+        .filter(|event| event.phase == crate::DiagnosticPhase::Failed)
+        .flat_map(|event| event.signal_ids.clone())
+        .collect::<Vec<_>>();
     actual.sort();
     let mut expected: Vec<_> = signals.iter().map(|s| s.id.clone()).collect();
     expected.sort();
     assert_eq!(actual, expected);
-    assert_eq!(event.detail.as_deref(), Some(error.to_string().as_str()));
-    assert!(event.duration_ms.is_some());
+    assert!(adapter.started.is_some());
+}
+
+#[test]
+fn grouped_read_keeps_valid_samples_when_one_pid_is_rejected() {
+    let (mut adapter, _) = adapter_for("7E8 04 41 0C 1A F8\r>".into());
+    let signals: Vec<_> = standard_obd_signals()
+        .into_iter()
+        .filter(|signal| [0x0C, 0x05].contains(&signal.pid))
+        .collect();
+    adapter.serial_number = Some("113011166292".into());
+    adapter.supported_pids = signals.iter().map(|signal| signal.pid).collect();
+    adapter.fast_tx_header = Some("7E0".into());
+    adapter.started = Some(Instant::now());
+    let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
+    let captured = events.clone();
+    adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+
+    let samples = adapter.read_samples(&signals).unwrap();
+
+    assert_eq!(samples.len(), 1);
+    assert_eq!(samples[0].signal_id, "engine_rpm");
+    assert_eq!(samples[0].value, 1726.0);
+    assert!(events.lock().unwrap().iter().any(|event| {
+        event.phase == crate::DiagnosticPhase::Failed && event.signal_ids == ["coolant_temp"]
+    }));
 }
 
 #[test]

@@ -176,6 +176,24 @@ export function liveGraphTimeWindow(nowNs: number, spanNs = LIVE_GRAPH_WINDOW_NS
   return { startNs: nowNs - span, endNs: nowNs };
 }
 
+export function isLiveTraceStale(
+  samples: readonly { elapsed_ns: number }[],
+  nowNs: number,
+): boolean {
+  const timestamps = samples.map(({ elapsed_ns }) => elapsed_ns).filter(Number.isFinite);
+  const last = timestamps.at(-1);
+  if (last === undefined || !Number.isFinite(nowNs)) return false;
+  const recent = timestamps.slice(-9);
+  const intervals = recent.slice(1)
+    .map((timestamp, index) => timestamp - recent[index])
+    .filter((interval) => interval > 0)
+    .sort((left, right) => left - right);
+  const median = intervals.length
+    ? intervals[Math.floor(intervals.length / 2)]
+    : 0;
+  return nowNs - last > Math.max(5_000_000_000, median * 3);
+}
+
 export function holdLastPointAtRightEdge<T extends { x: number }>(points: T[]): T[] {
   const last = points.at(-1);
   return last && last.x < 720 ? [...points, { ...last, x: 720 }] : points;

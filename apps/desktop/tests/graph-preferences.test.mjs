@@ -72,6 +72,27 @@ test("live graph time moves by display time and holds only the last plotted poin
   assert.equal(measured.length, 1, "visual hold must not alter measured samples");
 });
 
+test("live traces become stale using recent sample cadence instead of looking current forever", () => {
+  assert.equal(typeof graphPreferences.isLiveTraceStale, "function");
+  if (typeof graphPreferences.isLiveTraceStale !== "function") return;
+
+  const samples = Array.from({ length: 5 }, (_, index) => ({ elapsed_ns: 10_000_000_000 + index * 500_000_000 }));
+  assert.equal(graphPreferences.isLiveTraceStale(samples, 16_999_000_000), false);
+  assert.equal(graphPreferences.isLiveTraceStale(samples, 17_001_000_000), true);
+
+  const slowSamples = [
+    { elapsed_ns: 10_000_000_000 },
+    { elapsed_ns: 11_500_000_000 },
+  ];
+  assert.equal(graphPreferences.isLiveTraceStale(slowSamples, 16_499_000_000), false);
+  assert.equal(graphPreferences.isLiveTraceStale(slowSamples, 16_501_000_000), true);
+  const slowerSamples = [10_000_000_000, 12_000_000_000, 14_000_000_000]
+    .map((elapsed_ns) => ({ elapsed_ns }));
+  assert.equal(graphPreferences.isLiveTraceStale(slowerSamples, 19_999_000_000), false);
+  assert.equal(graphPreferences.isLiveTraceStale(slowerSamples, 20_001_000_000), true);
+  assert.equal(graphPreferences.isLiveTraceStale([], 20_000_000_000), false);
+});
+
 test("graph preferences load safely and round-trip through local storage", () => {
   assert.equal(typeof graphPreferences.loadGraphPreferences, "function");
   assert.equal(typeof graphPreferences.saveGraphPreferences, "function");

@@ -8,7 +8,6 @@ use lognook_core::{
     CanTriggerCaptureResult, CanWorkbenchConfig, CanWorkbenchStatus, OemCandidateTrySpec,
     OemCatalog, Sample, SampleQuality, available_can_adapters as list_can_adapters,
     can_dbc_skeleton, can_evidence_path, compare_can_census, decode_can_signal,
-    oem_candidate_scan_config,
 };
 use serde::Serialize;
 use std::{
@@ -218,9 +217,8 @@ pub async fn start_can_oem_candidate(
     let spec = OemCatalog::new(&state.pid_catalog_path)
         .candidate_for_try(&candidate_id)
         .map_err(|error| error.to_string())?;
-    let config = oem_candidate_scan_config(&spec).map_err(|error| error.to_string())?;
     engine(&state)?
-        .start_can_scan(config)
+        .start_can_oem_candidate(spec.clone())
         .map_err(|error| error.to_string())?;
     Ok(spec)
 }

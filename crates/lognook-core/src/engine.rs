@@ -301,6 +301,16 @@ impl LogNookEngine {
             .start_scan(config)
     }
 
+    pub fn start_can_oem_candidate(
+        &self,
+        spec: crate::OemCandidateTrySpec,
+    ) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before starting a CAN scan"))?
+            .start_oem_candidate(spec)
+    }
+
     pub fn stop_can_scan(&self) -> Result<(), LogNookError> {
         self.can_workbench
             .as_ref()

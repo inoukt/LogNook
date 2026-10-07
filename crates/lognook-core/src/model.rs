@@ -255,6 +255,7 @@ pub enum EngineEvent {
 pub struct LogNookError {
     message: String,
     transient: bool,
+    signal: bool,
 }
 
 impl LogNookError {
@@ -262,6 +263,7 @@ impl LogNookError {
         Self {
             message: message.into(),
             transient: false,
+            signal: false,
         }
     }
 
@@ -269,11 +271,32 @@ impl LogNookError {
         Self {
             message: message.into(),
             transient: true,
+            signal: false,
+        }
+    }
+
+    pub(crate) fn signal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            transient: false,
+            signal: true,
+        }
+    }
+
+    pub(crate) fn transient_signal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            transient: true,
+            signal: true,
         }
     }
 
     pub(crate) fn is_transient(&self) -> bool {
         self.transient
+    }
+
+    pub(crate) fn is_signal(&self) -> bool {
+        self.signal
     }
 }
 

@@ -49,6 +49,7 @@
     const sample = trace.samples.at(-1);
     return sample && (latest === undefined || sample.elapsed_ns > latest) ? sample.elapsed_ns : latest;
   }, undefined));
+  let showDisconnectedSamples = $derived(!live && !timeWindow && traces.some((trace) => trace.samples.length > 0));
   let liveWindowSpanNs = $derived.by(() => {
     const times = traces.flatMap((trace) => trace.samples.map((sample) => sample.elapsed_ns));
     if (times.length < 2) return 1_000_000_000;
@@ -211,6 +212,10 @@
   }
 </script>
 
+{#if showDisconnectedSamples}
+  <div class="live-ended-banner" role="status">Disconnected · showing last received samples</div>
+{/if}
+
 {#snippet signalOptions(trace: ChartTrace)}
   {@const isDerived = trace.formula !== undefined}
   {@const preference = signalPreference(trace.signalId, isDerived)}
@@ -308,6 +313,7 @@
 {/if}
 
 <style>
+  .live-ended-banner { margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 5px; padding: 4px 8px; color: var(--text-muted); font-size: 10px; }
   .graph-reference-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--text-muted); font-size: 10px; }
   .graph-settings { margin-bottom: 8px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-deep); }
   .graph-settings summary { padding: 7px 9px; color: var(--text-muted); font-size: 10px; cursor: pointer; }

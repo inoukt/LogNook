@@ -9,6 +9,7 @@
     graphRangeSamples,
     graphValueRange,
     holdLastPointAtRightEdge,
+    isLiveTraceStale,
     liveGraphTimeWindow,
     MAX_GRAPH_SAMPLES,
     MAX_SESSION_GRAPH_SAMPLES,
@@ -76,6 +77,8 @@
     const preference = signalPreferences[trace.signalId] ?? defaultPreference;
     const reference = referenceTraces.find((candidate) => candidate.signalId === trace.signalId);
     const samples = boundedGraphSamples(trace.samples, sampleLimit);
+    const stale = liveDisplayTimeNs !== undefined
+      && isLiveTraceStale(trace.samples, liveDisplayTimeNs);
     const firstVisibleIndex = liveDisplayTimeNs === undefined
       ? 0
       : samples.findIndex((sample) => sample.elapsed_ns >= timeBounds[0]);
@@ -86,7 +89,7 @@
     const rangeSamples = graphRangeSamples(samples, trace.scaleSamples ?? [], Boolean(trace.scaleSamples?.length));
     const range = graphValueRange(rangeSamples, referenceSamples, preference);
     const measuredPoints = graphCoordinates(plotSamples, timeBounds[0], timeBounds[1], range, sampleLimit);
-    const points = liveDisplayTimeNs === undefined || preference.view !== "line"
+    const points = liveDisplayTimeNs === undefined || preference.view !== "line" || stale
       ? measuredPoints
       : holdLastPointAtRightEdge(measuredPoints);
     const referencePoints = graphCoordinates(referenceSamples, timeBounds[0], timeBounds[1], range, MAX_GRAPH_SAMPLES);
@@ -99,7 +102,7 @@
       y: Math.min(point.y, baseline),
       height: Math.max(1, Math.abs(baseline - point.y)),
     }));
-    return { trace, preference, reference, samples, sampleLimit, points, referencePoints, color, range, bars };
+    return { trace, preference, reference, samples, sampleLimit, points, referencePoints, color, range, bars, stale };
   }));
   let hasPlotData = $derived(plottedTraces.some((item) => item.points.length || item.referencePoints.length));
   let cursorTimeNs = $state<number | null>(null);
@@ -243,6 +246,9 @@
 </div>
 
 <div class="chart-cursor-readout" role="status" aria-live="polite">
+  {#each plottedTraces.filter((item) => item.stale) as item (item.trace.signalId)}
+    <span class="trace-stale">{item.trace.name} · stale</span>
+  {/each}
   {#if cursorTimeNs !== null}
     <strong>{formatDurationNs(cursorTimeNs)}</strong>
     {#each cursorReadouts as item (item.signalId)}
@@ -269,6 +275,7 @@
 <style>
   .chart-cursor-readout { height: 24px; min-width: 0; flex: 0 0 24px; display: flex; align-items: center; flex-wrap: nowrap; gap: 4px 12px; overflow-x: auto; overflow-y: hidden; padding: 2px; color: var(--text-muted); font-size: 10px; white-space: nowrap; }
   .chart-cursor-readout strong { color: var(--text); }
+  .trace-stale { color: var(--danger, #ff7f86); font-size: 10px; font-weight: 700; }
   .clear-cursor { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--surface-raised); color: var(--text-muted); cursor: pointer; }
   .reference-legend { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; }
   .reference-legend span { width: 18px; border-top: 2px dashed var(--text); }

@@ -1,11 +1,11 @@
 use super::worker::{CanCaptureSession, PendingTx, stamp_tx, submit_frame};
 use super::{
     CanEvidenceRecord, CanEvidenceScanResult, CanScanConfig, CanScanMode, CanScanResult,
-    CanTransport, CanTransportError,
+    CanTransport, CanTransportError, OemCandidateTrySpec,
 };
 use crate::{
     CanDiagnosticOutcome, CanDirection, CanFrame, CanSignalDefinition, EngineEvent,
-    SamplePublisher,
+    OemCandidateOutcome, SamplePublisher, decode_oem_candidate_response,
     obdlink_sx_protocol::{
         decode_signal, mode01_pid_data_width, parse_mode01_payload, parse_supported_pid_payload,
     },
@@ -19,6 +19,7 @@ use std::{
 const MAX_SCAN_RESPONSE_FRAMES: usize = 600;
 pub(super) struct ScanTask {
     config: CanScanConfig,
+    candidate: Option<OemCandidateTrySpec>,
     next_value: u32,
     pages: Vec<u8>,
     page_index: usize,
@@ -40,7 +41,7 @@ struct PendingResponse {
 }
 
 impl ScanTask {
-    pub(super) fn new(config: CanScanConfig) -> Self {
+    pub(super) fn new(config: CanScanConfig, candidate: Option<OemCandidateTrySpec>) -> Self {
         let pages = match &config.mode {
             CanScanMode::Mode01Support { .. } => {
                 (0..=0xE0).step_by(0x20).map(|value| value as u8).collect()
@@ -57,6 +58,7 @@ impl ScanTask {
         let repeating = matches!(config.mode, CanScanMode::Mode01Pids { repeat: true, .. });
         Self {
             config,
+            candidate,
             next_value,
             pages,
             page_index: 0,
@@ -487,6 +489,18 @@ pub(super) fn accept_scan_response(
                 }
             }
         }
+        if outcome == CanDiagnosticOutcome::Positive
+            && let Some(candidate) = task.candidate.as_ref()
+        {
+            decode_and_publish_candidate(
+                candidate,
+                &completed.frames,
+                frame,
+                source_id,
+                publisher,
+                event_sink,
+            );
+        }
         emit_result(
             CanScanResult {
                 config: task.config.clone(),
@@ -501,6 +515,78 @@ pub(super) fn accept_scan_response(
         );
         task.due = Instant::now() + Duration::from_millis(task.config.pacing_ms);
         advance_scan(task);
+    }
+}
+
+fn decode_and_publish_candidate(
+    candidate: &OemCandidateTrySpec,
+    frames: &[CanFrame],
+    timestamp: &CanFrame,
+    source_id: &str,
+    publisher: &SamplePublisher,
+    event_sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
+) {
+    let transcript = frames
+        .iter()
+        .map(|frame| {
+            format!(
+                "{:03X} {}",
+                frame.can_id,
+                frame
+                    .data
+                    .iter()
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let decoded = decode_oem_candidate_response(candidate, &transcript);
+    if decoded.outcome != OemCandidateOutcome::Positive {
+        (event_sink)(EngineEvent::Error(format!(
+            "CAN OEM candidate {} response could not be decoded: {:?}{}",
+            candidate.candidate.candidate_id,
+            decoded.outcome,
+            decoded
+                .error
+                .as_deref()
+                .or(decoded.decode_error.as_deref())
+                .map(|error| format!(" · {error}"))
+                .unwrap_or_default()
+        )));
+        return;
+    }
+    if let Some(error) = decoded.decode_error.as_deref() {
+        (event_sink)(EngineEvent::Error(format!(
+            "CAN OEM candidate {} decode failed: {error}",
+            candidate.candidate.candidate_id
+        )));
+    }
+    let Some(decoded_value) = decoded.decoded_value else {
+        return;
+    };
+    let Some(value) = decoded_value.value.filter(|value| value.is_finite()) else {
+        return;
+    };
+    let sample = crate::Sample {
+        elapsed_ns: timestamp.elapsed_ns,
+        wall_time_unix_ns: timestamp.wall_time_unix_ns,
+        source_id: format!("{source_id}:oem"),
+        ecu_id: decoded.responder_header,
+        signal_id: format!("oem:{}", candidate.candidate.candidate_id),
+        value,
+        unit: decoded_value.unit,
+        quality: if decoded_value.within_catalog_range == Some(false) {
+            crate::SampleQuality::Suspect
+        } else {
+            crate::SampleQuality::Valid
+        },
+        origin: crate::SampleOrigin::Live,
+        raw_bytes: Some(decoded.payload),
+    };
+    if let Err(error) = publisher.publish_timestamped_sample(sample) {
+        (event_sink)(EngineEvent::Error(error.to_string()));
     }
 }
 

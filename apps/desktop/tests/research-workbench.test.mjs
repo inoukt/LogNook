@@ -154,7 +154,7 @@ test("workbench graph definitions and selections persist without measurement sam
   includes(app, /savedResearchSignalOptions\s*=\s*localStorage\.getItem\(researchSignalOptionsKey\)/, "research metadata is restored from local storage");
   includes(app, /savedWorkbenchGraphSignalIds\s*=\s*localStorage\.getItem\(workbenchGraphSignalIdsKey\)/, "graph-only Workbench selections are restored");
   includes(app, /researchSignalOptions\s*=\s*restoreResearchSignalOptions\(savedResearchSignalOptions\)/, "saved research definitions are validated before use");
-  includes(app, /restoreWorkspacePreferences\([\s\S]*?workbenchGraphSignalIds\s*,\s*\)/, "saved graph-only IDs are allowed without entering the log selection");
+  includes(app, /restoreWorkspacePreferences\([\s\S]*?defaultWorkspacePreferences,[\s\S]*?\[\.\.\.workbenchGraphSignalIds,\s*\.\.\.canSignalDefinitions\.map/, "saved Workbench and CAN graph-only IDs are allowed without entering the log selection");
   includes(app, /localStorage\.setItem\(researchSignalOptionsKey,\s*JSON\.stringify\(researchSignalOptions\)\)/, "only signal definitions are persisted");
   includes(app, /localStorage\.setItem\(workbenchGraphSignalIdsKey,\s*JSON\.stringify\(workbenchGraphSignalIds\)\)/, "Workbench graphable IDs are persisted");
   includes(app, /rememberWorkbenchGraphSignalId\(workbenchGraphSignalIds,\s*value\.signal_id\)/, "successful A30 Workbench values are remembered as graphable");

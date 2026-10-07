@@ -73,6 +73,40 @@ export function canSignalDefinitionError(field: CanSignalDefinition): string | n
   return null;
 }
 
+export function restoreCanSignalDefinitions(serialized: string | null): CanSignalDefinition[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(serialized ?? "null"); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const fields = new Map<string, CanSignalDefinition>();
+  for (const value of parsed) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const item = value as Record<string, unknown>;
+    if (typeof item.id !== "string" || typeof item.name !== "string"
+      || typeof item.can_id !== "number" || typeof item.extended !== "boolean"
+      || typeof item.start_bit !== "number" || typeof item.bit_length !== "number"
+      || (item.byte_order !== "intel" && item.byte_order !== "motorola")
+      || typeof item.signed !== "boolean" || typeof item.factor !== "number"
+      || typeof item.offset !== "number" || typeof item.unit !== "string") continue;
+    const field: CanSignalDefinition = {
+      id: item.id,
+      name: item.name,
+      can_id: item.can_id,
+      extended: item.extended,
+      start_bit: item.start_bit,
+      bit_length: item.bit_length,
+      byte_order: item.byte_order,
+      signed: item.signed,
+      factor: item.factor,
+      offset: item.offset,
+      unit: item.unit,
+    };
+    if (canSignalDefinitionError(field)) continue;
+    fields.delete(field.id);
+    fields.set(field.id, field);
+  }
+  return [...fields.values()].slice(-500);
+}
+
 function validRoute(mode: { request_id: number; response_id: number; extended: boolean }): boolean {
   const max = mode.extended ? 0x1fff_ffff : 0x7ff;
   return integerInRange(mode.request_id, 0, max)
@@ -299,6 +333,16 @@ export function appendCanTrafficSummary(
   }
   return [...rows.values()].sort((left, right) =>
     Number(left.extended) - Number(right.extended) || left.can_id - right.can_id);
+}
+
+export function clampCanMonitorHeight(heightPx: number, availableHeightPx: number): number {
+  const minimum = 120;
+  const maximum = Math.max(minimum, availableHeightPx - 168);
+  return Math.max(minimum, Math.min(maximum, heightPx));
+}
+
+export function adjustCanMonitorHeight(heightPx: number, deltaPx: number, availableHeightPx: number): number {
+  return clampCanMonitorHeight(heightPx + deltaPx, availableHeightPx);
 }
 
 export type CanSessionEvents = {

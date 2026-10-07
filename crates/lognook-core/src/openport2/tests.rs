@@ -100,6 +100,13 @@ fn rpm() -> SignalDefinition {
         .unwrap()
 }
 
+fn coolant() -> SignalDefinition {
+    standard_obd_signals()
+        .into_iter()
+        .find(|signal| signal.id == "coolant_temp")
+        .unwrap()
+}
+
 #[test]
 fn provider_listing_uses_only_typed_worker_provider_response() {
     let (mut session, state) = FakeSession::new([Ok(WorkerResponse::Providers {
@@ -297,9 +304,33 @@ fn read_rejects_multiple_ecu_responses_and_malformed_payloads() {
             Ok(WorkerResponse::Disconnected),
         ]);
         adapter.connect().unwrap();
-        assert!(adapter.read_samples(&[rpm()]).is_err());
-        adapter.disconnect();
+        assert!(adapter.read_samples(&[rpm()]).unwrap().is_empty());
+        assert!(adapter.connected, "a signal-level failure keeps the J2534 session open");
     }
+}
+
+#[test]
+fn one_bad_pid_keeps_good_openport_samples_in_the_same_poll() {
+    let (mut adapter, _) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x7F, 0x01, 0x12])],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+
+    let samples = adapter.read_samples(&[rpm(), coolant()]).unwrap();
+
+    assert_eq!(samples.len(), 1);
+    assert_eq!(samples[0].signal_id, "engine_rpm");
+    assert_eq!(samples[0].value, 1726.0);
+    assert!(adapter.connected);
+    adapter.disconnect();
 }
 
 #[test]

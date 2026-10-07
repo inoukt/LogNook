@@ -15,7 +15,7 @@ mod tests;
 
 use crate::{
     ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError, Sample, SampleOrigin,
-    SampleQuality, SignalDefinition,
+    SampleQuality, SignalDefinition, adapter::collect_samples_independently,
     obdlink_sx_protocol::{
         Mode01ResponseError, decode_signal, mode01_pid_data_width, parse_mode01_responses,
         parse_supported_pids,
@@ -41,9 +41,9 @@ pub struct ObdLinkSxAdapter {
 fn mode01_read_error(error: Mode01ResponseError) -> LogNookError {
     let message = error.to_string();
     if error.is_transient() {
-        LogNookError::transient(message)
+        LogNookError::transient_signal(message)
     } else {
-        LogNookError::new(message)
+        LogNookError::signal(message)
     }
 }
 
@@ -329,6 +329,7 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                     .iter()
                     .map(|signal| signal.id.clone())
                     .collect();
+                let mut failures = Vec::new();
                 self.stage("acquisition", "pid_read", signal_ids, |adapter| {
                     let data = format!(
                         "01{}",
@@ -352,36 +353,50 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                         .command(&format!("STPX H:{header}, D:{data}, R:{frames}, T:250"))?;
                     for index in group {
                         let signal = &signals[index];
-                        let mut responses =
-                            parse_mode01_responses(&response_text, signal.service, signal.pid)
-                                .map_err(mode01_read_error)?;
+                        let mut responses = match parse_mode01_responses(
+                            &response_text,
+                            signal.service,
+                            signal.pid,
+                        ) {
+                            Ok(responses) => responses,
+                            Err(error) => {
+                                failures.push((signal.id.clone(), mode01_read_error(error)));
+                                continue;
+                            }
+                        };
                         if responses.len() != 1 {
-                            return Err(LogNookError::new(
+                            failures.push((signal.id.clone(), LogNookError::signal(
                                 "Multiple ECU responders are not supported by this SX adapter",
-                            ));
+                            )));
+                            continue;
                         }
                         let response = responses.pop().expect("one response was checked");
-                        samples[index] = Some(sample_from_response(
+                        match sample_from_response(
                             signal,
                             &response,
                             &serial_number,
                             started,
                             adapter.ecu_id.as_deref(),
-                        )?);
+                        ) {
+                            Ok(sample) => samples[index] = Some(sample),
+                            Err(error) if error.is_signal() => {
+                                failures.push((signal.id.clone(), error));
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
                     Ok(())
                 })?;
+                for (signal_id, error) in failures {
+                    let _ = self.stage("acquisition", "pid_read", vec![signal_id], |_| {
+                        Err::<(), _>(error)
+                    });
+                }
             }
-            return samples
-                .into_iter()
-                .map(|sample| {
-                    sample.ok_or_else(|| LogNookError::new("SX omitted a selected PID sample"))
-                })
-                .collect();
+            return Ok(samples.into_iter().flatten().collect());
         }
 
-        let mut samples = Vec::with_capacity(signals.len());
-        for signal in signals {
+        collect_samples_independently(signals, |signal| {
             self.stage(
                 "acquisition",
                 "pid_read",
@@ -392,23 +407,22 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                     let responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
                         .map_err(mode01_read_error)?;
                     if responses.len() != 1 {
-                        return Err(LogNookError::new(
+                        return Err(LogNookError::signal(
                             "Multiple ECU responders are not supported by this SX adapter",
                         ));
                     }
                     let response = &responses[0];
-                    samples.push(sample_from_response(
+                    sample_from_response(
                         signal,
                         response,
                         &serial_number,
                         started,
                         adapter.ecu_id.as_deref(),
-                    )?);
-                    Ok(())
+                    )
+                    .map(|sample| vec![sample])
                 },
-            )?;
-        }
-        Ok(samples)
+            )
+        })
     }
 
     fn disconnect(&mut self) {
@@ -499,7 +513,7 @@ fn sample_from_response(
             .clone()
             .or_else(|| connected_ecu.map(str::to_owned)),
         signal_id: signal.id.clone(),
-        value: decode_signal(signal, response).map_err(LogNookError::new)?,
+        value: decode_signal(signal, response).map_err(LogNookError::signal)?,
         unit: signal.unit.clone(),
         quality: SampleQuality::Valid,
         origin: SampleOrigin::Live,

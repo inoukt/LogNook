@@ -1,7 +1,7 @@
 use lognook_core::{
     CanByteOrder, CanDirection, CanFrame, CanScanConfig, CanScanMode, CanSignalDefinition,
     CanTransport, CanTransportError, CanTransportEvent, CanWorkbenchConfig, EngineEvent,
-    LogNookEngine, SampleQuality, read_recording,
+    LogNookEngine, OemCandidate, OemCandidateTrySpec, SampleQuality, read_recording,
 };
 use std::{
     path::PathBuf,
@@ -157,6 +157,49 @@ fn config(listen_only: bool) -> CanWorkbenchConfig {
     CanWorkbenchConfig {
         bitrate: 500_000,
         listen_only,
+    }
+}
+
+fn can_oem_candidate(service: &str, identifier: &str) -> OemCandidateTrySpec {
+    OemCandidateTrySpec {
+        candidate: OemCandidate {
+            candidate_id: format!("candidate-{service}-{identifier}"),
+            source_id: "SCION_SOURCE".into(),
+            family: "Toyota".into(),
+            brand: "Scion".into(),
+            model_scope: "xB 2014".into(),
+            service: service.into(),
+            identifier: identifier.into(),
+            request_header: "7E0".into(),
+            response_header: "7E8".into(),
+            frequency_hz: None,
+            module_type: "Engine".into(),
+            category: "Engine".into(),
+            name: format!("Candidate {service} {identifier}"),
+            signal_source_id: "SCION_SOURCE_01".into(),
+            bit_offset: Some(0),
+            bit_length: Some(8),
+            formula: "raw * 2 + 1".into(),
+            decoder_json: r#"{"bix":0,"len":8,"mul":2,"div":1,"add":1,"unit":"rpm"}"#.into(),
+            unit: "rpm".into(),
+            year_filter_json: "{}".into(),
+            ecu_filter: String::new(),
+            source_blob_sha: "reviewed-sha".into(),
+            research_state: "community_reference".into(),
+            vehicle_validation: "not_tested".into(),
+            auto_request: false,
+            confidence: "research".into(),
+            notes: String::new(),
+            suggested_metric: String::new(),
+            source_scope: "vehicle".into(),
+            applicability_specificity: 60,
+            min_value: Some(0.0),
+            max_value: Some(200.0),
+            source_url: Some("https://source.test/vehicle".into()),
+            license: Some("CC BY-SA 4.0".into()),
+            license_url: Some("https://source.test/license".into()),
+        },
+        value_format: "uint".into(),
     }
 }
 
@@ -1230,6 +1273,101 @@ fn selected_mode01_pid_sample_uses_the_response_timestamp_and_recording_pipeline
     engine.disconnect().unwrap();
     let _ = std::fs::remove_file(capture_path);
     let _ = std::fs::remove_file(recording_path);
+}
+
+#[test]
+fn catalog_backed_can_mode21_and_mode22_reads_decode_and_record_samples() {
+    for (service, identifier, request, response_frames, response_pdu) in [
+        (
+            "21",
+            "01",
+            vec![2, 0x21, 0x01],
+            vec![vec![3, 0x61, 0x01, 0x64]],
+            vec![0x61, 0x01, 0x64],
+        ),
+        (
+            "22",
+            "1234",
+            vec![3, 0x22, 0x12, 0x34],
+            vec![
+                vec![0x10, 0x08, 0x62, 0x12, 0x34, 0x64, 0xAA, 0xBB],
+                vec![0x21, 0xCC, 0xDD, 0, 0, 0, 0, 0],
+            ],
+            vec![0x62, 0x12, 0x34, 0x64, 0xAA, 0xBB, 0xCC, 0xDD],
+        ),
+    ] {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_sink = events.clone();
+        let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+        let (transport, incoming, transmitted, _owners) = transport();
+        engine
+            .connect_can_transport(config(false), transport)
+            .unwrap();
+        let capture_path = temp_path("candump.csv");
+        let recording_path = temp_path("lognook");
+        engine.start_can_capture(&capture_path).unwrap();
+        engine.start_recording(&recording_path).unwrap();
+        let candidate = can_oem_candidate(service, identifier);
+        let candidate_id = candidate.candidate.candidate_id.clone();
+        engine.start_can_oem_candidate(candidate).unwrap();
+
+        let tx = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(&tx.data[..request.len()], request);
+        let mut last_rx = frame(
+            0x7E8,
+            CanDirection::Rx,
+            &response_frames[0],
+            tx.elapsed_ns + 2_000_000,
+        );
+        incoming
+            .send(FakeInput::Event(CanTransportEvent::Rx(last_rx.clone())))
+            .unwrap();
+        for (index, response_frame) in response_frames.iter().enumerate().skip(1) {
+            let flow_control = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(flow_control.can_id, 0x7E0);
+            assert_eq!(flow_control.data[0], 0x30);
+            last_rx = frame(
+                0x7E8,
+                CanDirection::Rx,
+                response_frame,
+                tx.elapsed_ns + 2_000_000 + index as i64 * 1_000_000,
+            );
+            incoming
+                .send(FakeInput::Event(CanTransportEvent::Rx(last_rx.clone())))
+                .unwrap();
+        }
+        let signal_id = format!("oem:{candidate_id}");
+        wait_until(|| {
+            events.lock().unwrap().iter().any(|event| {
+                matches!(event, EngineEvent::Sample(sample) if sample.signal_id == signal_id)
+            })
+        });
+
+        engine.stop_recording().unwrap();
+        let recording = read_recording(&recording_path).unwrap();
+        let sample = recording
+            .samples
+            .iter()
+            .find(|sample| sample.signal_id == signal_id)
+            .unwrap();
+        assert_eq!(sample.value, 201.0);
+        assert_eq!(sample.unit, "rpm");
+        assert_eq!(sample.elapsed_ns, last_rx.elapsed_ns);
+        assert_eq!(sample.wall_time_unix_ns, last_rx.wall_time_unix_ns);
+        assert_eq!(sample.ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(sample.quality, SampleQuality::Suspect);
+        assert_eq!(sample.raw_bytes.as_deref(), Some(response_pdu.as_slice()));
+        assert!(events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanScanResult(result)
+                if result.config.source_candidate_id.as_deref() == Some(candidate_id.as_str())
+                    && result.response_frames.iter().map(|frame| frame.data.clone()).collect::<Vec<_>>() == response_frames)
+        }));
+
+        engine.stop_can_capture().unwrap();
+        engine.disconnect().unwrap();
+        cleanup_capture(&capture_path);
+        let _ = std::fs::remove_file(recording_path);
+    }
 }
 
 #[test]

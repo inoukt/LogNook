@@ -2,7 +2,8 @@ use crate::LogNookError;
 use crate::{
     BluetoothByteStream, ConnectionCapabilities, DeviceDescriptor, HardwareAdapter,
     OemCandidateOutcome, OemCandidateTryResult, OemCandidateTrySpec, Sample, SampleOrigin,
-    SampleQuality, SignalDefinition, build_oem_candidate_command, connect_bluetooth_spp,
+    SampleQuality, SignalDefinition, adapter::collect_samples_independently,
+    build_oem_candidate_command, connect_bluetooth_spp,
     decode_oem_candidate_response,
     obdlink_sx_protocol::{decode_signal, parse_supported_pid_payload},
     standard_obd_signals,
@@ -371,17 +372,17 @@ impl A30Session {
                 || (reply.payload.as_slice().starts_with(&[0x7F, 0x01]))
         });
         let response = matching.next().ok_or_else(|| {
-            LogNookError::transient(format!(
+            LogNookError::transient_signal(format!(
                 "A30 returned no response for Mode 01 PID {pid:02X}"
             ))
         })?;
         if response.truncated {
-            return Err(LogNookError::new(format!(
+            return Err(LogNookError::signal(format!(
                 "A30 Mode 01 PID {pid:02X} response was truncated"
             )));
         }
         if matching.next().is_some() {
-            return Err(LogNookError::new(
+            return Err(LogNookError::signal(
                 "A30 received multiple ECU responses for one Mode 01 request",
             ));
         }
@@ -390,7 +391,7 @@ impl A30Session {
             &response.payload,
             pid,
         )
-        .map_err(LogNookError::new)
+        .map_err(|error| LogNookError::signal(error.to_string()))
     }
 
     fn send(&mut self, command: u16, data: &[u8]) -> Result<u16, LogNookError> {
@@ -713,9 +714,7 @@ impl HardwareAdapter for A30Adapter {
         let id = a30_device(&self.address)
             .ok()
             .map(|device| device.stable_id);
-        signals
-            .iter()
-            .map(|signal| {
+        collect_samples_independently(signals, |signal| {
                 diagnostic_stage(
                     &sink,
                     id.clone(),
@@ -734,7 +733,7 @@ impl HardwareAdapter for A30Adapter {
                             ));
                         }
                         let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-                        Ok(Sample {
+                        Ok(vec![Sample {
                             elapsed_ns,
                             wall_time_unix_ns: now_unix_ns(),
                             source_id: format!(
@@ -743,16 +742,16 @@ impl HardwareAdapter for A30Adapter {
                             ),
                             ecu_id: response.ecu_id.clone().or_else(|| self.ecu_id.clone()),
                             signal_id: signal.id.clone(),
-                            value: decode_signal(signal, &response).map_err(LogNookError::new)?,
+                            value: decode_signal(signal, &response)
+                                .map_err(LogNookError::signal)?,
                             unit: signal.unit.clone(),
                             quality: SampleQuality::Valid,
                             origin: SampleOrigin::Live,
                             raw_bytes: Some(response.raw_bytes),
-                        })
+                        }])
                     },
                 )
             })
-            .collect()
     }
 
     fn disconnect(&mut self) {
@@ -1857,7 +1856,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_a30_pid_failure_keeps_signal_identity_and_original_error() {
+    fn one_a30_pid_failure_keeps_other_samples_and_signal_diagnostics() {
         let (dongle, _) = ScriptedDongle::new();
         let timing = A30Timing {
             handshake_wait: Duration::ZERO,
@@ -1870,11 +1869,11 @@ mod tests {
         let mut adapter =
             A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
         let caps = adapter.connect().unwrap();
-        let coolant = caps
+        let signals: Vec<_> = caps
             .supported_signals
-            .iter()
-            .find(|signal| signal.pid == 0x05)
-            .unwrap();
+            .into_iter()
+            .filter(|signal| [0x0C, 0x05].contains(&signal.pid))
+            .collect();
         let events = std::sync::Arc::new(std::sync::Mutex::new(
             Vec::<crate::DiagnosticProgress>::new(),
         ));
@@ -1882,15 +1881,17 @@ mod tests {
         adapter.set_diagnostic_sink(std::sync::Arc::new(move |event| {
             captured.lock().unwrap().push(event)
         }));
-        let error = adapter
-            .read_samples(std::slice::from_ref(coolant))
-            .unwrap_err();
+        let samples = adapter.read_samples(&signals).unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].signal_id, "engine_rpm");
+        assert_eq!(samples[0].value, 1726.0);
         let events = events.lock().unwrap();
         let event = events.last().unwrap();
         assert_eq!(event.signal_ids, ["coolant_temp"]);
         assert_eq!(event.phase, crate::DiagnosticPhase::Failed);
-        assert_eq!(event.detail.as_deref(), Some(error.to_string().as_str()));
+        assert!(event.detail.as_deref().unwrap().contains("NRC 0x12"));
         assert!(event.duration_ms.is_some());
+        assert!(adapter.started.is_some());
     }
 
     #[test]

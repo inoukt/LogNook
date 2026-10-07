@@ -3,7 +3,7 @@ use crate::candlelight::{CandlelightError, CandlelightTransport};
 use crate::{
     CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanDiagnosticOutcome, CanDirection, CanFrame,
     CanManualEventMark, CanSignalDefinition, CanTriggerCapture, CanTriggerConfig,
-    CanTriggerRecorder, EngineEvent, LogNookError, SamplePublisher,
+    CanTriggerRecorder, EngineEvent, LogNookError, OemCandidateTrySpec, SamplePublisher,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -764,7 +764,17 @@ impl CanWorkbench {
             ));
         }
         config.validate()?;
-        self.request(|reply| Command::StartScan(config, reply))
+        self.request(|reply| Command::StartScan(config, None, reply))
+    }
+
+    pub fn start_oem_candidate(&self, spec: OemCandidateTrySpec) -> Result<(), LogNookError> {
+        if self.listen_only {
+            return Err(LogNookError::new(
+                "Switch Candlelight to active mode before starting a CAN scan",
+            ));
+        }
+        let config = oem_candidate_scan_config(&spec)?;
+        self.request(|reply| Command::StartScan(config, Some(spec), reply))
     }
 
     pub fn stop_scan(&self) -> Result<(), LogNookError> {
