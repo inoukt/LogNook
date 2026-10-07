@@ -8,6 +8,7 @@ mod can_capture;
 mod can_live_events;
 mod can_workbench;
 pub mod candlelight;
+pub mod communication_trace;
 mod csv_import;
 mod csv_io;
 mod derived;
@@ -31,8 +32,8 @@ mod simulator;
 
 pub use a30::{
     A30Adapter, A30CanReply, A30Decoder, A30Frame, A30GraphValue, A30ReadOutcome, A30ReadTest,
-    A30ReadTestResult, A30Session, identify_a30, identify_a30_with_diagnostics, run_a30_read_test,
-    try_a30_oem_candidate,
+    A30ReadTestResult, A30Session, identify_a30, identify_a30_with_diagnostics,
+    identify_a30_with_sinks, run_a30_read_test, try_a30_oem_candidate,
 };
 pub use adapter::HardwareAdapter;
 pub use bluetooth_spp::{
@@ -65,7 +66,8 @@ pub use diagnostics::{
     DiagnosticPhase, DiagnosticProgress, DiagnosticSink, diagnostic_error_detail,
 };
 pub use elm327::{
-    Elm327Adapter, identify_elm327, identify_elm327_with_diagnostics, try_elm_oem_candidate,
+    Elm327Adapter, identify_elm327, identify_elm327_with_diagnostics, identify_elm327_with_sinks,
+    try_elm_oem_candidate,
 };
 pub use engine::LogNookEngine;
 pub use graph_window::{
@@ -82,8 +84,8 @@ pub use obdlink_sx::{
     ObdLinkSxAdapter, OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse,
     OemCandidateTryResult, ScionMode21DecodedSignal, ScionMode21ProbeResult,
     available_obdlink_sx_ports, build_oem_candidate_command, decode_oem_candidate_response,
-    identify_obdlink_sx, identify_obdlink_sx_with_diagnostics, probe_scion_xb_mode21,
-    try_oem_candidate,
+    identify_obdlink_sx, identify_obdlink_sx_with_diagnostics, identify_obdlink_sx_with_sinks,
+    probe_scion_xb_mode21, try_oem_candidate,
 };
 pub use obdlink_sx_protocol::{
     Mode01Response, SupportedPidRange, decode_signal, parse_mode01_payload,
@@ -95,8 +97,8 @@ pub use oem_catalog::{
 };
 pub use openport2::{
     OpenPort2Adapter, available_openport2_providers,
-    available_openport2_providers_with_diagnostics, identify_openport2,
-    identify_openport2_with_diagnostics,
+    available_openport2_providers_with_diagnostics, available_openport2_providers_with_sinks,
+    identify_openport2, identify_openport2_with_diagnostics, identify_openport2_with_sinks,
 };
 pub use pipeline::SamplePublisher;
 pub use recording::{RecordingWriter, read_recording};

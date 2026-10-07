@@ -540,8 +540,22 @@ pub struct CandlelightTransport {
     identity: CandlelightIdentity,
     commands: mpsc::Sender<Command>,
     worker: Option<JoinHandle<()>>,
+    communication_sink: Option<crate::communication_trace::CommunicationSink>,
 }
 impl CandlelightTransport {
+    pub(crate) fn set_communication_sink(
+        &mut self,
+        sink: crate::communication_trace::CommunicationSink,
+    ) {
+        self.communication_sink = Some(sink);
+    }
+
+    pub(crate) fn communication_sink(
+        &self,
+    ) -> Option<&crate::communication_trace::CommunicationSink> {
+        self.communication_sink.as_ref()
+    }
+
     /// Claim and identify only. `start` explicitly configures bitrate and CAN mode.
     pub fn open(
         device: CandlelightDevice,
@@ -603,6 +617,7 @@ impl CandlelightTransport {
                 identity,
                 commands,
                 worker: Some(worker),
+                communication_sink: None,
             }),
             other => {
                 let _ = worker.join();

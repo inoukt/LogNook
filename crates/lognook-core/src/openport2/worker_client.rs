@@ -1,6 +1,10 @@
 use super::WorkerSession;
 use crate::{
-    DiagnosticPhase, DiagnosticProgress, DiagnosticSink, diagnostics::noop_diagnostic_sink,
+    DiagnosticPhase, DiagnosticProgress, DiagnosticSink,
+    communication_trace::{
+        CommunicationDirection, CommunicationSink, CommunicationTraceEvent, bytes_to_hex,
+    },
+    diagnostics::noop_diagnostic_sink,
     model::LogNookError,
 };
 use lognook_j2534_protocol::{
@@ -24,6 +28,7 @@ pub(super) struct WorkerClient {
     input: Option<BufWriter<ChildStdin>>,
     responses: Receiver<Result<Vec<u8>, String>>,
     closed: bool,
+    communication_sink: Option<CommunicationSink>,
 }
 
 impl WorkerClient {
@@ -77,6 +82,7 @@ impl WorkerClient {
             input: Some(BufWriter::new(input)),
             responses,
             closed: false,
+            communication_sink: None,
         })
     }
 
@@ -121,6 +127,9 @@ impl WorkerSession for WorkerClient {
         };
         self.request_with_timeout_and_progress(request, timeout, sink)
     }
+    fn set_communication_sink(&mut self, sink: CommunicationSink) {
+        self.communication_sink = Some(sink);
+    }
     fn shutdown(&mut self) {
         self.terminate();
     }
@@ -148,6 +157,18 @@ impl WorkerClient {
         let line = encode_request_line(&request).map_err(|error| {
             LogNookError::new(format!("Could not encode OpenPort worker request: {error}"))
         })?;
+        let started = Instant::now();
+        let adapter_id = worker_adapter_id(&request);
+        let route = worker_route(&request);
+        self.record_trace(
+            CommunicationDirection::Tx,
+            Some(&line),
+            &adapter_id,
+            &route,
+            started,
+            "sent",
+            None,
+        );
         let write_result = self
             .input
             .as_mut()
@@ -155,6 +176,16 @@ impl WorkerClient {
             .write_all(&line)
             .and_then(|()| self.input.as_mut().expect("worker input exists").flush());
         if let Err(error) = write_result {
+            let detail = format!("worker request write failed: {error}");
+            self.record_trace(
+                CommunicationDirection::Rx,
+                None,
+                &adapter_id,
+                &route,
+                started,
+                "error",
+                Some(&detail),
+            );
             self.terminate();
             return Err(LogNookError::new(format!(
                 "Could not write to OpenPort worker: {error}"
@@ -164,27 +195,80 @@ impl WorkerClient {
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
+                let detail = worker_timeout_message(&request, timeout);
+                self.record_trace(
+                    CommunicationDirection::Rx,
+                    None,
+                    &adapter_id,
+                    &route,
+                    started,
+                    "timeout",
+                    Some(&detail),
+                );
                 self.terminate();
-                return Err(LogNookError::new(worker_timeout_message(&request, timeout)));
+                return Err(LogNookError::new(detail));
             }
             let response_line = match self.responses.recv_timeout(remaining) {
                 Ok(Ok(line)) => line,
                 Ok(Err(error)) => {
+                    let detail = format!("worker response read failed: {error}");
+                    self.record_trace(
+                        CommunicationDirection::Rx,
+                        None,
+                        &adapter_id,
+                        &route,
+                        started,
+                        "error",
+                        Some(&detail),
+                    );
                     self.terminate();
                     return Err(LogNookError::new(format!("OpenPort worker {error}")));
                 }
                 Err(RecvTimeoutError::Timeout) => {
+                    let detail = worker_timeout_message(&request, timeout);
+                    self.record_trace(
+                        CommunicationDirection::Rx,
+                        None,
+                        &adapter_id,
+                        &route,
+                        started,
+                        "timeout",
+                        Some(&detail),
+                    );
                     self.terminate();
-                    return Err(LogNookError::new(worker_timeout_message(&request, timeout)));
+                    return Err(LogNookError::new(detail));
                 }
                 Err(RecvTimeoutError::Disconnected) => {
+                    let detail = "OpenPort worker output closed unexpectedly";
+                    self.record_trace(
+                        CommunicationDirection::Rx,
+                        None,
+                        &adapter_id,
+                        &route,
+                        started,
+                        "disconnected",
+                        Some(detail),
+                    );
                     self.terminate();
-                    return Err(LogNookError::new(
-                        "OpenPort worker output closed unexpectedly",
-                    ));
+                    return Err(LogNookError::new(detail));
                 }
             };
-            match decode_response_line(&response_line) {
+            let decoded = decode_response_line(&response_line);
+            let outcome = match &decoded {
+                Ok(WorkerResponse::Error { kind, .. }) => format!("worker_error:{kind:?}"),
+                Ok(_) => "response".into(),
+                Err(_) => "malformed_response".into(),
+            };
+            self.record_trace(
+                CommunicationDirection::Rx,
+                Some(&response_line),
+                &adapter_id,
+                &route,
+                started,
+                &outcome,
+                None,
+            );
+            match decoded {
                 Ok(WorkerResponse::Progress {
                     stage,
                     detail,
@@ -222,6 +306,53 @@ impl WorkerClient {
                 }
             }
         }
+    }
+
+    fn record_trace(
+        &self,
+        direction: CommunicationDirection,
+        bytes: Option<&[u8]>,
+        adapter_id: &str,
+        route: &str,
+        started: Instant,
+        outcome: &str,
+        unavailable: Option<&str>,
+    ) {
+        let Some(sink) = &self.communication_sink else {
+            return;
+        };
+        let mut event =
+            CommunicationTraceEvent::new(adapter_id, "j2534_worker_exchange", direction);
+        event.elapsed_ns = Some(started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+        event.route = Some(route.to_owned());
+        event.bytes_hex = bytes.map(bytes_to_hex);
+        event.outcome = outcome.to_owned();
+        event.raw_bytes_unavailable = unavailable.map(str::to_owned);
+        let _ = sink.try_record(event);
+    }
+}
+
+fn worker_adapter_id(request: &WorkerRequest) -> String {
+    match request {
+        WorkerRequest::Identify { provider_id } | WorkerRequest::Connect { provider_id } => {
+            provider_id.clone()
+        }
+        WorkerRequest::ListProviders => "openport2:provider-discovery".into(),
+        WorkerRequest::DiscoverMode01
+        | WorkerRequest::ReadMode01 { .. }
+        | WorkerRequest::Disconnect => "openport2".into(),
+    }
+}
+
+fn worker_route(request: &WorkerRequest) -> String {
+    match request {
+        WorkerRequest::ReadMode01 { pid } => format!("Mode 01 PID {pid:02X}"),
+        WorkerRequest::Identify { provider_id } | WorkerRequest::Connect { provider_id } => {
+            provider_id.clone()
+        }
+        WorkerRequest::ListProviders => "provider_discovery".into(),
+        WorkerRequest::DiscoverMode01 => "Mode 01 supported-PID discovery".into(),
+        WorkerRequest::Disconnect => "disconnect".into(),
     }
 }
 
@@ -370,6 +501,56 @@ mod tests {
             .spawn()
             .unwrap();
         WorkerClient::from_child(child).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn openport_trace_records_worker_and_frame_outcomes() {
+        use crate::{communication_trace::CommunicationTraceStore, openport2::WorkerSession};
+        use lognook_j2534_protocol::{Mode01Payload, WorkerResponse, encode_response_line};
+
+        let response = WorkerResponse::Mode01Responses {
+            responses: vec![Mode01Payload {
+                ecu_id: "7E8".into(),
+                bytes: vec![0x41, 0x0C, 0x1A, 0xF8],
+                latency_us: 700,
+            }],
+        };
+        let response_line = String::from_utf8(encode_response_line(&response).unwrap()).unwrap();
+        let script = format!(
+            r#"$null = [Console]::ReadLine(); [Console]::WriteLine('{}')"#,
+            response_line.trim()
+        );
+        // PowerShell writes CRLF; the trace intentionally preserves those worker bytes.
+        let mut response_wire = response_line.trim().as_bytes().to_vec();
+        response_wire.extend_from_slice(b"\r\n");
+        let mut worker = scripted_worker(&script);
+        let store = CommunicationTraceStore::with_limits(8, 8);
+        worker.set_communication_sink(store.sink());
+        let request = WorkerRequest::ReadMode01 { pid: 0x0C };
+        assert_eq!(
+            worker
+                .request_with_timeout_and_progress(
+                    request.clone(),
+                    Duration::from_secs(3),
+                    &crate::diagnostics::noop_diagnostic_sink(),
+                )
+                .unwrap(),
+            response
+        );
+        let page = store.get_trace(0, 8).unwrap();
+        let request_line = lognook_j2534_protocol::encode_request_line(&request).unwrap();
+        let request_hex = crate::communication_trace::bytes_to_hex(&request_line);
+        let response_hex = crate::communication_trace::bytes_to_hex(&response_wire);
+        assert_eq!(
+            page.events[0].bytes_hex.as_deref(),
+            Some(request_hex.as_str())
+        );
+        assert_eq!(
+            page.events[1].bytes_hex.as_deref(),
+            Some(response_hex.as_str())
+        );
+        assert_eq!(page.events[0].route.as_deref(), Some("Mode 01 PID 0C"));
     }
 
     #[cfg(windows)]

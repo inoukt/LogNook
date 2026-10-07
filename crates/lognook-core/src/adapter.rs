@@ -1,11 +1,15 @@
 use crate::model::{ConnectionCapabilities, LogNookError, Sample, SignalDefinition};
-use crate::{DiagnosticSink, ResearchTestRequest, ResearchTestResult};
+use crate::{
+    DiagnosticSink, ResearchTestRequest, ResearchTestResult, communication_trace::CommunicationSink,
+};
 use std::time::Duration;
 
 /// One serialized command owner for a physical or simulated diagnostic interface.
 pub trait HardwareAdapter: Send + 'static {
     /// Install an observational route before connecting. Adapters without diagnostics ignore it.
     fn set_diagnostic_sink(&mut self, _sink: DiagnosticSink) {}
+    /// Install a nonblocking observer for exchanges exposed by this adapter.
+    fn set_communication_sink(&mut self, _sink: CommunicationSink) {}
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError>;
     fn read_samples(&mut self, signals: &[SignalDefinition]) -> Result<Vec<Sample>, LogNookError>;
     fn execute_research_test(
@@ -66,7 +70,13 @@ mod tests {
         })
         .unwrap();
 
-        assert_eq!(samples.iter().map(|sample| sample.value).collect::<Vec<_>>(), [1.0, 3.0]);
+        assert_eq!(
+            samples
+                .iter()
+                .map(|sample| sample.value)
+                .collect::<Vec<_>>(),
+            [1.0, 3.0]
+        );
     }
 
     #[test]

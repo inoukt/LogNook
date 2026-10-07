@@ -508,6 +508,7 @@ pub fn can_evidence_path(path: impl AsRef<Path>) -> std::path::PathBuf {
 
 /// The transport is moved to the engine-owned worker; every method is called on that thread.
 pub trait CanTransport: Send + 'static {
+    fn set_communication_sink(&mut self, _sink: crate::communication_trace::CommunicationSink) {}
     fn source_id(&self) -> String {
         "can:unknown".into()
     }
@@ -526,6 +527,10 @@ pub trait CanTransport: Send + 'static {
 }
 
 impl CanTransport for CandlelightTransport {
+    fn set_communication_sink(&mut self, sink: crate::communication_trace::CommunicationSink) {
+        CandlelightTransport::set_communication_sink(self, sink);
+    }
+
     fn source_id(&self) -> String {
         let identity = self.identity();
         format!(
@@ -552,25 +557,109 @@ impl CanTransport for CandlelightTransport {
     ) -> Result<Option<CanTransportEvent>, CanTransportError> {
         match CandlelightTransport::receive(self, timeout) {
             Ok(frame) if frame.frame.direction == CanDirection::Rx => {
+                self.trace_frame(&frame.frame, &frame.frame.data, "rx", None);
                 Ok(Some(CanTransportEvent::Rx(frame.frame)))
             }
-            Ok(frame) => Ok(Some(CanTransportEvent::TxEcho {
-                echo_id: frame.echo_id,
-                frame: frame.frame,
-                raw_usb: frame.raw_usb,
-            })),
+            Ok(frame) => {
+                self.trace_frame(&frame.frame, &frame.frame.data, "tx_echo", None);
+                Ok(Some(CanTransportEvent::TxEcho {
+                    echo_id: frame.echo_id,
+                    frame: frame.frame,
+                    raw_usb: frame.raw_usb,
+                }))
+            }
             Err(error) if matches!(error.diagnostic(), CandlelightError::Timeout) => Ok(None),
-            Err(error) => Err(CanTransportError::from_candlelight(error)),
+            Err(error) => {
+                self.trace_error(&error);
+                Err(CanTransportError::from_candlelight(error))
+            }
         }
     }
 
     fn transmit(&mut self, frame: &CanFrame) -> Result<u32, CanTransportError> {
-        CandlelightTransport::transmit(self, frame.clone(), TRANSMIT_TIMEOUT)
-            .map_err(CanTransportError::from_candlelight)
+        let started = std::time::Instant::now();
+        let result = CandlelightTransport::transmit(self, frame.clone(), TRANSMIT_TIMEOUT);
+        self.trace_frame(
+            frame,
+            &frame.data,
+            if result.is_ok() {
+                "tx_submitted"
+            } else {
+                "tx_error"
+            },
+            Some(started),
+        );
+        result.map_err(CanTransportError::from_candlelight)
     }
 
     fn stop(&mut self) -> Result<(), CanTransportError> {
         CandlelightTransport::stop(self).map_err(CanTransportError::from_candlelight)
+    }
+}
+
+impl CandlelightTransport {
+    fn trace_frame(
+        &self,
+        frame: &CanFrame,
+        bytes: &[u8],
+        outcome: &str,
+        started: Option<std::time::Instant>,
+    ) {
+        let Some(sink) = self.communication_sink() else {
+            return;
+        };
+        let identity = self.identity();
+        let adapter_id = format!(
+            "can:gs_usb:{:04X}:{:04X}:{}",
+            identity.vendor_id,
+            identity.product_id,
+            identity.serial_number.as_deref().unwrap_or("unknown")
+        );
+        let mut event = crate::communication_trace::CommunicationTraceEvent::new(
+            adapter_id,
+            "candlelight_can_frame",
+            if frame.direction == CanDirection::Tx {
+                crate::communication_trace::CommunicationDirection::Tx
+            } else {
+                crate::communication_trace::CommunicationDirection::Rx
+            },
+        );
+        event.elapsed_ns =
+            started.map(|started| started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+        event.route = Some(format!(
+            "CAN ID 0x{:X}{}",
+            frame.can_id,
+            if frame.extended { " extended" } else { "" }
+        ));
+        event.bytes_hex = Some(crate::communication_trace::bytes_to_hex(bytes));
+        event.outcome = outcome.into();
+        let _ = sink.try_record(event);
+    }
+
+    fn trace_error(&self, error: &CandlelightError) {
+        let Some(sink) = self.communication_sink() else {
+            return;
+        };
+        let identity = self.identity();
+        let adapter_id = format!(
+            "can:gs_usb:{:04X}:{:04X}:{}",
+            identity.vendor_id,
+            identity.product_id,
+            identity.serial_number.as_deref().unwrap_or("unknown")
+        );
+        let mut event = crate::communication_trace::CommunicationTraceEvent::new(
+            adapter_id,
+            "candlelight_can_receive",
+            crate::communication_trace::CommunicationDirection::Rx,
+        );
+        event.outcome = format!("error:{:?}", error.diagnostic());
+        event.bytes_hex = error
+            .raw_usb()
+            .map(crate::communication_trace::bytes_to_hex);
+        if event.bytes_hex.is_none() {
+            event.raw_bytes_unavailable = Some(error.to_string());
+        }
+        let _ = sink.try_record(event);
     }
 }
 

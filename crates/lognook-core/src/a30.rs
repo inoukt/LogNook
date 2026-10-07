@@ -1,10 +1,13 @@
 use crate::LogNookError;
+use crate::communication_trace::{
+    CommunicationDirection, CommunicationSink, CommunicationTraceEvent, bytes_to_hex,
+};
 use crate::{
     BluetoothByteStream, ConnectionCapabilities, DeviceDescriptor, HardwareAdapter,
     OemCandidateOutcome, OemCandidateTryResult, OemCandidateTrySpec, Sample, SampleOrigin,
-    SampleQuality, SignalDefinition, adapter::collect_samples_independently,
-    build_oem_candidate_command, connect_bluetooth_spp,
-    decode_oem_candidate_response,
+    SampleQuality, SignalDefinition,
+    adapter::collect_samples_independently,
+    build_oem_candidate_command, connect_bluetooth_spp, decode_oem_candidate_response,
     obdlink_sx_protocol::{decode_signal, parse_supported_pid_payload},
     standard_obd_signals,
 };
@@ -228,6 +231,9 @@ pub struct A30Session {
     timing: A30Timing,
     ready: bool,
     announced: bool,
+    communication_sink: Option<CommunicationSink>,
+    trace_adapter_id: Option<String>,
+    last_exchange_started: Option<Instant>,
 }
 
 impl A30Session {
@@ -246,6 +252,7 @@ impl A30Session {
             None,
             "identify",
             false,
+            None,
         )
     }
 
@@ -256,6 +263,7 @@ impl A30Session {
         adapter_id: Option<String>,
         operation: &str,
         require_announcement: bool,
+        communication_sink: Option<CommunicationSink>,
     ) -> Result<Self, LogNookError> {
         let mut session = Self {
             stream,
@@ -264,6 +272,9 @@ impl A30Session {
             timing,
             ready: false,
             announced: false,
+            communication_sink,
+            trace_adapter_id: adapter_id.clone(),
+            last_exchange_started: None,
         };
 
         diagnostic_stage(
@@ -402,10 +413,22 @@ impl A30Session {
             command,
             data: data.to_vec(),
         };
-        self.stream
-            .write_all(&encode_host_frame(&frame)?)
+        let encoded = encode_host_frame(&frame)?;
+        let started = Instant::now();
+        self.last_exchange_started = Some(started);
+        let result = self
+            .stream
+            .write_all(&encoded)
             .and_then(|()| self.stream.flush())
-            .map_err(|error| LogNookError::new(format!("Could not send A30 frame: {error}")))?;
+            .map_err(|error| LogNookError::new(format!("Could not send A30 frame: {error}")));
+        self.trace(
+            CommunicationDirection::Tx,
+            Some(&encoded),
+            Some(format!("{command:04X}")),
+            started,
+            if result.is_ok() { "sent" } else { "error" },
+        );
+        result?;
         Ok(sequence)
     }
 
@@ -454,6 +477,7 @@ impl A30Session {
 
     fn pump(&mut self, duration: Duration) -> Result<Vec<A30Frame>, LogNookError> {
         let deadline = Instant::now() + duration;
+        let exchange_started = self.last_exchange_started.unwrap_or_else(Instant::now);
         let mut first_read = true;
         let mut bytes = [0_u8; 256];
         let mut received = Vec::new();
@@ -464,11 +488,25 @@ impl A30Session {
             first_read = false;
             match self.stream.read(&mut bytes) {
                 Ok(0) => {
+                    self.trace(
+                        CommunicationDirection::Rx,
+                        None,
+                        None,
+                        exchange_started,
+                        "disconnected",
+                    );
                     return Err(LogNookError::transient(
                         "A30 Bluetooth link closed while receiving dongle frames",
                     ));
                 }
                 Ok(count) => {
+                    self.trace(
+                        CommunicationDirection::Rx,
+                        Some(&bytes[..count]),
+                        None,
+                        exchange_started,
+                        "frame_bytes",
+                    );
                     for frame in self.decoder.feed(&bytes[..count])? {
                         self.ready = true;
                         if !is_bare_ack(&frame) {
@@ -486,13 +524,55 @@ impl A30Session {
                 }
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
                 Err(error) => {
+                    self.trace(
+                        CommunicationDirection::Rx,
+                        None,
+                        None,
+                        exchange_started,
+                        "error",
+                    );
                     return Err(LogNookError::new(format!(
                         "A30 Bluetooth read failed: {error}"
                     )));
                 }
             }
         }
+        if received.is_empty() {
+            self.trace(
+                CommunicationDirection::Rx,
+                None,
+                None,
+                exchange_started,
+                "timeout",
+            );
+        }
         Ok(received)
+    }
+
+    fn trace(
+        &self,
+        direction: CommunicationDirection,
+        bytes: Option<&[u8]>,
+        route: Option<String>,
+        started: Instant,
+        outcome: &str,
+    ) {
+        let Some(sink) = &self.communication_sink else {
+            return;
+        };
+        let Some(adapter_id) = &self.trace_adapter_id else {
+            return;
+        };
+        let mut event = CommunicationTraceEvent::new(adapter_id, "a30_frame_exchange", direction);
+        event.elapsed_ns = Some(started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+        event.route = route;
+        event.bytes_hex = bytes.map(bytes_to_hex);
+        event.outcome = outcome.into();
+        if bytes.is_none() {
+            event.raw_bytes_unavailable =
+                Some("The Bluetooth driver returned no bytes for this outcome".into());
+        }
+        let _ = sink.try_record(event);
     }
 }
 
@@ -503,6 +583,7 @@ pub struct A30Adapter {
     ecu_id: Option<String>,
     started: Option<Instant>,
     diagnostic_sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
     #[cfg(test)]
     test_stream: Option<Box<dyn BluetoothByteStream>>,
     #[cfg(test)]
@@ -518,6 +599,7 @@ impl A30Adapter {
             ecu_id: None,
             started: None,
             diagnostic_sink: noop_diagnostic_sink(),
+            communication_sink: None,
             #[cfg(test)]
             test_stream: None,
             #[cfg(test)]
@@ -566,7 +648,15 @@ impl A30Adapter {
                 connect_bluetooth_spp(&self.address)
             },
         )?;
-        A30Session::open_with_diagnostics(stream, timing, &sink, id, operation, true)
+        A30Session::open_with_diagnostics(
+            stream,
+            timing,
+            &sink,
+            id,
+            operation,
+            true,
+            self.communication_sink.clone(),
+        )
     }
 
     fn identify_inner(&mut self) -> Result<DeviceDescriptor, LogNookError> {
@@ -658,6 +748,10 @@ impl HardwareAdapter for A30Adapter {
         self.diagnostic_sink = sink;
     }
 
+    fn set_communication_sink(&mut self, sink: CommunicationSink) {
+        self.communication_sink = Some(sink);
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -715,43 +809,42 @@ impl HardwareAdapter for A30Adapter {
             .ok()
             .map(|device| device.stable_id);
         collect_samples_independently(signals, |signal| {
-                diagnostic_stage(
-                    &sink,
-                    id.clone(),
-                    "acquisition",
-                    "pid_read",
-                    vec![signal.id.clone()],
-                    || {
-                        let response = session.read_mode01_pid(signal.pid)?;
-                        if response.ecu_id.as_deref().is_some_and(|id| {
-                            self.ecu_id
-                                .as_deref()
-                                .is_some_and(|connected| connected != id)
-                        }) {
-                            return Err(LogNookError::new(
-                                "ECU identity changed during the A30 session",
-                            ));
-                        }
-                        let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-                        Ok(vec![Sample {
-                            elapsed_ns,
-                            wall_time_unix_ns: now_unix_ns(),
-                            source_id: format!(
-                                "xtool-a30:{}",
-                                canonical_bluetooth_address(&self.address)?
-                            ),
-                            ecu_id: response.ecu_id.clone().or_else(|| self.ecu_id.clone()),
-                            signal_id: signal.id.clone(),
-                            value: decode_signal(signal, &response)
-                                .map_err(LogNookError::signal)?,
-                            unit: signal.unit.clone(),
-                            quality: SampleQuality::Valid,
-                            origin: SampleOrigin::Live,
-                            raw_bytes: Some(response.raw_bytes),
-                        }])
-                    },
-                )
-            })
+            diagnostic_stage(
+                &sink,
+                id.clone(),
+                "acquisition",
+                "pid_read",
+                vec![signal.id.clone()],
+                || {
+                    let response = session.read_mode01_pid(signal.pid)?;
+                    if response.ecu_id.as_deref().is_some_and(|id| {
+                        self.ecu_id
+                            .as_deref()
+                            .is_some_and(|connected| connected != id)
+                    }) {
+                        return Err(LogNookError::new(
+                            "ECU identity changed during the A30 session",
+                        ));
+                    }
+                    let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
+                    Ok(vec![Sample {
+                        elapsed_ns,
+                        wall_time_unix_ns: now_unix_ns(),
+                        source_id: format!(
+                            "xtool-a30:{}",
+                            canonical_bluetooth_address(&self.address)?
+                        ),
+                        ecu_id: response.ecu_id.clone().or_else(|| self.ecu_id.clone()),
+                        signal_id: signal.id.clone(),
+                        value: decode_signal(signal, &response).map_err(LogNookError::signal)?,
+                        unit: signal.unit.clone(),
+                        quality: SampleQuality::Valid,
+                        origin: SampleOrigin::Live,
+                        raw_bytes: Some(response.raw_bytes),
+                    }])
+                },
+            )
+        })
     }
 
     fn disconnect(&mut self) {
@@ -1290,8 +1383,19 @@ pub fn identify_a30_with_diagnostics(
     address: impl Into<String>,
     sink: DiagnosticSink,
 ) -> Result<DeviceDescriptor, LogNookError> {
+    identify_a30_with_sinks(address, sink, None)
+}
+
+pub fn identify_a30_with_sinks(
+    address: impl Into<String>,
+    sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut adapter = A30Adapter::new(address);
     adapter.set_diagnostic_sink(sink);
+    if let Some(communication_sink) = communication_sink {
+        adapter.set_communication_sink(communication_sink);
+    }
     adapter.identify_inner()
 }
 
@@ -1853,6 +1957,41 @@ mod tests {
             Some(error.to_string().as_str())
         );
         assert!(events.last().unwrap().duration_ms.is_some());
+    }
+
+    #[test]
+    fn a30_trace_contains_exact_frame_exchange() {
+        let store = crate::communication_trace::CommunicationTraceStore::with_limits(2048, 4096);
+        let (dongle, _) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        adapter.set_communication_sink(store.sink());
+        adapter.connect().unwrap();
+        let page = store.get_trace(0, 500).unwrap();
+        let tx = page
+            .events
+            .iter()
+            .find(|event| event.direction == crate::communication_trace::CommunicationDirection::Tx)
+            .unwrap();
+        let expected = encode_host_frame(&A30Frame {
+            sequence: 1,
+            command: 0xFFF8,
+            data: vec![1, 0, 4, 0x67, 2, 1, 0],
+        })
+        .unwrap();
+        let expected_hex = crate::communication_trace::bytes_to_hex(&expected);
+        assert_eq!(tx.bytes_hex.as_deref(), Some(expected_hex.as_str()));
+        assert!(page.events.iter().any(|event| event.direction
+            == crate::communication_trace::CommunicationDirection::Rx
+            && event.bytes_hex.is_some()));
     }
 
     #[test]

@@ -1,7 +1,11 @@
 use lognook_core::{
-    CanByteOrder, CanDirection, CanFrame, CanScanConfig, CanScanMode, CanSignalDefinition,
-    CanTransport, CanTransportError, CanTransportEvent, CanWorkbenchConfig, EngineEvent,
-    LogNookEngine, OemCandidate, OemCandidateTrySpec, SampleQuality, read_recording,
+    CanByteOrder, CanCaptureReader, CanDirection, CanFrame, CanScanConfig, CanScanMode,
+    CanSignalDefinition, CanTransport, CanTransportError, CanTransportEvent, CanWorkbenchConfig,
+    EngineEvent, LogNookEngine, OemCandidate, OemCandidateTrySpec, SampleQuality,
+    communication_trace::{
+        CommunicationDirection, CommunicationTraceEvent, CommunicationTraceStore,
+    },
+    read_recording,
 };
 use std::{
     path::PathBuf,
@@ -18,6 +22,7 @@ struct FakeTransport {
     session_origin: Option<Instant>,
     next_echo: u32,
     transmit_error: Option<CanTransportError>,
+    communication_sink: Option<lognook_core::communication_trace::CommunicationSink>,
 }
 
 enum FakeInput {
@@ -29,9 +34,31 @@ impl FakeTransport {
     fn note_owner(&self) {
         self.owners.lock().unwrap().push(thread::current().id());
     }
+
+    fn trace_rx(&self, frame: &CanFrame) {
+        let Some(sink) = &self.communication_sink else {
+            return;
+        };
+        let mut event = CommunicationTraceEvent::new(
+            self.source_id(),
+            "fake_can_frame",
+            CommunicationDirection::Rx,
+        );
+        event.route = Some(format!("CAN ID 0x{:X}", frame.can_id));
+        event.bytes_hex = Some(lognook_core::communication_trace::bytes_to_hex(&frame.data));
+        event.outcome = "received".into();
+        let _ = sink.try_record(event);
+    }
 }
 
 impl CanTransport for FakeTransport {
+    fn set_communication_sink(
+        &mut self,
+        sink: lognook_core::communication_trace::CommunicationSink,
+    ) {
+        self.communication_sink = Some(sink);
+    }
+
     fn source_id(&self) -> String {
         "can:test-adapter".into()
     }
@@ -64,6 +91,7 @@ impl CanTransport for FakeTransport {
                         .as_nanos()
                         .min(i64::MAX as u128) as i64;
                 }
+                self.trace_rx(&frame);
                 Ok(Some(CanTransportEvent::Rx(frame)))
             }
             Ok(FakeInput::Event(event)) => Ok(Some(event)),
@@ -146,6 +174,7 @@ fn transport_with_options(
             session_origin: None,
             next_echo: 0,
             transmit_error,
+            communication_sink: None,
         }),
         incoming_tx,
         transmitted_rx,
@@ -1985,4 +2014,47 @@ fn a_frame_burst_is_written_in_order_without_dropping_capture_rows() {
     assert_eq!(frames.last().unwrap().data, [127]);
     engine.disconnect().unwrap();
     let _ = std::fs::remove_file(capture_path);
+}
+
+#[test]
+fn communication_trace_and_can_capture_share_the_workbench_owner_frames() {
+    let store = CommunicationTraceStore::new();
+    let mut engine = LogNookEngine::new(|_| {});
+    engine.set_communication_sink(store.sink());
+    let (transport, incoming, _transmitted, _owners) = transport();
+    engine
+        .connect_can_transport(config(true), transport)
+        .unwrap();
+    let capture_path = temp_path("agent-can-trace.candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    incoming
+        .send(FakeInput::Event(CanTransportEvent::Rx(frame(
+            0x321,
+            CanDirection::Rx,
+            &[0x12, 0x34],
+            1_000_000,
+        ))))
+        .unwrap();
+
+    wait_until(|| {
+        store
+            .get_trace(0, 10)
+            .is_ok_and(|page| !page.events.is_empty())
+    });
+    engine.stop_can_capture().unwrap();
+    let page = store.get_trace(0, 10).unwrap();
+    assert_eq!(page.events.len(), 1);
+    assert_eq!(page.events[0].route.as_deref(), Some("CAN ID 0x321"));
+    assert_eq!(page.events[0].bytes_hex.as_deref(), Some("1234"));
+
+    let mut reader = CanCaptureReader::open(&capture_path).unwrap();
+    let captured = std::iter::from_fn(|| reader.next())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0].can_id, 0x321);
+    assert_eq!(captured[0].data, [0x12, 0x34]);
+    engine.disconnect().unwrap();
+    let _ = std::fs::remove_file(&capture_path);
+    let _ = std::fs::remove_file(lognook_core::can_evidence_path(&capture_path));
 }

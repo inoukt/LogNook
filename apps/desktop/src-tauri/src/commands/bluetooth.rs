@@ -2,8 +2,8 @@ use super::{connect_with_diagnostics, diagnose};
 use crate::AppState;
 use lognook_core::{
     A30Adapter, BluetoothSppDevice, ConnectionCapabilities, DeviceDescriptor, Elm327Adapter,
-    identify_a30_with_diagnostics as identify_a30_device,
-    identify_elm327_with_diagnostics as identify_elm327_device, paired_spp_devices,
+    identify_a30_with_sinks as identify_a30_device,
+    identify_elm327_with_sinks as identify_elm327_device, paired_spp_devices,
 };
 use tauri::State;
 
@@ -26,7 +26,10 @@ pub async fn identify_elm327(
         Some(format!("elm327:{address}")),
         "identify",
         vec![],
-        |op| identify_elm327_device(address, op.sink()).map_err(|error| error.to_string()),
+        |op| {
+            identify_elm327_device(address, op.sink(), Some(state.trace_store.sink()))
+                .map_err(|error| error.to_string())
+        },
     )
 }
 
@@ -40,7 +43,10 @@ pub async fn identify_a30(
         Some(format!("a30:{address}")),
         "identify",
         vec![],
-        |op| identify_a30_device(address, op.sink()).map_err(|error| error.to_string()),
+        |op| {
+            identify_a30_device(address, op.sink(), Some(state.trace_store.sink()))
+                .map_err(|error| error.to_string())
+        },
     )
 }
 

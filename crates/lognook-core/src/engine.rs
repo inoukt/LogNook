@@ -32,6 +32,8 @@ pub struct LogNookEngine {
     derived_signal_definitions: Vec<DerivedSignalDefinition>,
     active_derived_signal_ids: HashSet<String>,
     can_workbench: Option<CanWorkbench>,
+    connection_capabilities: Option<ConnectionCapabilities>,
+    communication_sink: Option<crate::communication_trace::CommunicationSink>,
 }
 
 impl LogNookEngine {
@@ -56,12 +58,18 @@ impl LogNookEngine {
             derived_signal_definitions: Vec::new(),
             active_derived_signal_ids: HashSet::new(),
             can_workbench: None,
+            connection_capabilities: None,
+            communication_sink: None,
         }
     }
 
     /// Configure diagnostics for subsequent connections, before the adapter connects.
     pub fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
         self.diagnostic_sink = sink;
+    }
+
+    pub fn set_communication_sink(&mut self, sink: crate::communication_trace::CommunicationSink) {
+        self.communication_sink = Some(sink);
     }
 
     pub fn connect_simulated(
@@ -96,6 +104,9 @@ impl LogNookEngine {
             &crate::standard_obd_signals(),
         )?;
         adapter.set_diagnostic_sink(self.diagnostic_sink.clone());
+        if let Some(sink) = &self.communication_sink {
+            adapter.set_communication_sink(sink.clone());
+        }
         let capabilities = match adapter.connect() {
             Ok(capabilities) => capabilities,
             Err(error) => {
@@ -179,6 +190,7 @@ impl LogNookEngine {
             self.diagnostic_sink.clone(),
             Some(capabilities.device.stable_id.clone()),
         ));
+        self.connection_capabilities = Some(capabilities.clone());
         Ok(capabilities)
     }
 
@@ -188,7 +200,7 @@ impl LogNookEngine {
     pub fn connect_can_transport(
         &mut self,
         config: CanWorkbenchConfig,
-        transport: Box<dyn CanTransport>,
+        mut transport: Box<dyn CanTransport>,
     ) -> Result<CanWorkbenchStatus, LogNookError> {
         if self.pipeline.is_recording() {
             return Err(LogNookError::new(
@@ -199,6 +211,9 @@ impl LogNookEngine {
             return Err(LogNookError::new("An adapter is already connected"));
         }
         self.stop_playback();
+        if let Some(sink) = &self.communication_sink {
+            transport.set_communication_sink(sink.clone());
+        }
         let workbench = CanWorkbench::start(
             transport,
             config,
@@ -207,6 +222,7 @@ impl LogNookEngine {
         )?;
         let status = workbench.status();
         self.can_workbench = Some(workbench);
+        self.connection_capabilities = None;
         (self.event_sink)(EngineEvent::CanWorkbenchStatus(status.clone()));
         Ok(status)
     }
@@ -335,6 +351,20 @@ impl LogNookEngine {
                 .is_some_and(CanWorkbench::is_running)
     }
 
+    pub fn connection_capabilities(&self) -> Option<&ConnectionCapabilities> {
+        self.connection_capabilities.as_ref()
+    }
+
+    pub fn can_workbench_status(&self) -> Option<CanWorkbenchStatus> {
+        self.can_workbench.as_ref().map(CanWorkbench::status)
+    }
+
+    pub fn selected_signal_ids(&self) -> Vec<String> {
+        let mut signal_ids = self.selected_signal_ids.iter().cloned().collect::<Vec<_>>();
+        signal_ids.sort();
+        signal_ids
+    }
+
     pub fn is_recording(&self) -> bool {
         self.pipeline.is_recording()
     }
@@ -441,6 +471,7 @@ impl LogNookEngine {
             acquisition.stop()?;
         }
         self.selected_signal_ids.clear();
+        self.connection_capabilities = None;
         self.stop_playback();
         if self.pipeline.is_recording() {
             self.stop_recording()?;

@@ -1,4 +1,5 @@
-mod commands;
+mod agent;
+pub(crate) mod commands;
 mod diagnostics;
 
 use lognook_core::LogNookEngine;
@@ -14,12 +15,20 @@ pub(crate) struct AppState {
     pub oem_validation_log: PathBuf,
     pub oem_candidate_try_log: PathBuf,
     pub a30_read_test_log: PathBuf,
+    pub agent_access: Mutex<agent::access::AgentAccessManager>,
+    pub agent_ipc: agent::ipc::AgentIpcService,
+    pub agent_ipc_endpoint: String,
+    pub agent_selection: Mutex<agent::protocol::AgentSignalSelection>,
+    pub agent_workbench: Mutex<agent::tools::AgentWorkbenchState>,
+    pub trace_store: lognook_core::communication_trace::CommunicationTraceStore,
 }
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&app_data_dir)?;
             let recordings_dir = app.path().app_data_dir()?.join("recordings");
             std::fs::create_dir_all(&recordings_dir)?;
             let oem_validation_dir = app.path().app_data_dir()?.join("oem-validation");
@@ -43,6 +52,13 @@ pub fn run() {
                 .app_data_dir()?
                 .join("diagnostics")
                 .join("operations.jsonl");
+            let agent_access = agent::access::AgentAccessManager::open(
+                app_data_dir.join("agent-access").join("pin.hash"),
+            )
+            .map_err(std::io::Error::other)?;
+            let agent_ipc = agent::ipc::AgentIpcService::new(&app_data_dir);
+            let agent_ipc_endpoint = agent_ipc.endpoint().to_owned();
+            let trace_store = lognook_core::communication_trace::CommunicationTraceStore::new();
             let diagnostics_handle = app.handle().clone();
             let diagnostics =
                 diagnostics::DiagnosticsService::start(diagnostics_path.clone(), move |record| {
@@ -50,10 +66,11 @@ pub fn run() {
                 })?;
             let engine_diagnostics = diagnostics.clone();
             let app_handle = app.handle().clone();
-            let engine = LogNookEngine::new(move |event| {
+            let mut engine = LogNookEngine::new(move |event| {
                 engine_diagnostics.observe_engine(&event);
                 let _ = app_handle.emit("lognook-event", event);
             });
+            engine.set_communication_sink(trace_store.sink());
             app.manage(AppState {
                 engine: Mutex::new(engine),
                 diagnostics,
@@ -63,11 +80,34 @@ pub fn run() {
                 oem_validation_log: oem_validation_dir.join("scion-xb-mode21.jsonl"),
                 oem_candidate_try_log: oem_validation_dir.join("oem-candidate-tries.jsonl"),
                 a30_read_test_log: oem_validation_dir.join("a30-read-tests.jsonl"),
+                agent_access: Mutex::new(agent_access),
+                agent_ipc,
+                agent_ipc_endpoint,
+                agent_selection: Mutex::new(agent::protocol::AgentSignalSelection {
+                    log_signal_ids: vec![
+                        "engine_rpm".into(),
+                        "coolant_temp".into(),
+                        "intake_temp".into(),
+                    ],
+                    graph_signal_ids: vec![
+                        "engine_rpm".into(),
+                        "coolant_temp".into(),
+                        "intake_temp".into(),
+                    ],
+                }),
+                agent_workbench: Mutex::new(agent::tools::AgentWorkbenchState::default()),
+                trace_store,
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::diagnostic_snapshot,
+            commands::agent_access_status,
+            commands::configure_agent_pin,
+            commands::unlock_agent_access,
+            commands::lock_agent_access,
+            commands::agent_setup_json,
+            commands::agent_sync_signal_selection,
             commands::choose_diagnostics_recording,
             commands::export_support_bundle,
             commands::available_signals,
@@ -147,4 +187,8 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run LogNook desktop app");
+}
+
+pub fn run_agent_mcp() -> Result<(), String> {
+    tauri::async_runtime::block_on(agent::mcp::run_agent_mcp())
 }

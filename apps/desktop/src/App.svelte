@@ -36,7 +36,7 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    A30GraphValue, BluetoothSppDevice, CanFrame, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
+    A30GraphValue, AgentAccessStatus, AgentSignalSelection, BluetoothSppDevice, CanFrame, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
     CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, RecordingInfo, ResearchRunViewState,
@@ -143,10 +143,13 @@
   let canSplitResize: { y: number; height: number; availableHeight: number } | null = null;
   let graphMode: "overlay" | "separate" = "overlay";
   let unlisten: UnlistenFn | undefined;
+  let agentSelectionUnlisten: UnlistenFn | undefined;
   let diagnosticsUnlisten: UnlistenFn | undefined;
   let diagnosticsOpen = false;
   let diagnosticRecords: DiagnosticRecord[] = [];
   let diagnosticsListenerError = "";
+  let agentAccessStatus: AgentAccessStatus = { configured: false, unlocked: false, host_connected: false, expires_at_unix_ms: null, active_operation: null, trace_gaps: 0 };
+  let agentSetupJson = "";
 
   function chooseDiagnosticsRecording() {
     return invoke<string | null>("choose_diagnostics_recording");
@@ -154,6 +157,18 @@
 
   function exportSupportBundle(recordingPath: string | null) {
     return invoke<string | null>("export_support_bundle", supportBundleArgs(recordingPath));
+  }
+
+  async function configureAgentPin(pin: string) {
+    agentAccessStatus = await invoke<AgentAccessStatus>("configure_agent_pin", { pin });
+  }
+
+  async function unlockAgentAccess(pin: string) {
+    agentAccessStatus = await invoke<AgentAccessStatus>("unlock_agent_access", { pin });
+  }
+
+  async function lockAgentAccess() {
+    agentAccessStatus = await invoke<AgentAccessStatus>("lock_agent_access");
   }
   let sxPortRefreshTimer: number | undefined;
   let refreshingSxPorts = false;
@@ -277,6 +292,9 @@
     } catch { /* Preferences are optional. */ }
   }
   $: if (workspacePreferencesReady && isTauri()) {
+    invoke("agent_sync_signal_selection", { logSignalIds, graphSignalIds }).catch(() => {});
+  }
+  $: if (workspacePreferencesReady && isTauri()) {
     getCurrentWebview().setZoom(uiScale / 100).catch(showError);
   }
   $: if (automaticTriggerPreferencesReady) {
@@ -290,6 +308,10 @@
 
   onMount(() => {
     let disposed = false;
+    let agentStatusTimer: number | undefined;
+    const refreshAgentAccess = () => {
+      if (isTauri()) void invoke<AgentAccessStatus>("agent_access_status").then((value) => agentAccessStatus = value).catch(() => {});
+    };
     let savedWorkspacePreferences: string | null = null;
     let savedResearchSignalOptions: string | null = null;
     let savedWorkbenchGraphSignalIds: string | null = null;
@@ -313,6 +335,15 @@
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
     if (isTauri()) {
+      listen<AgentSignalSelection>("agent-signal-selection", ({ payload }) => {
+        logSignalIds = payload.log_signal_ids;
+        graphSignalIds = payload.graph_signal_ids;
+      })
+        .then((stop) => disposed ? stop() : agentSelectionUnlisten = stop)
+        .catch(() => {});
+      refreshAgentAccess();
+      void invoke<string>("agent_setup_json").then((value) => agentSetupJson = value).catch(showError);
+      agentStatusTimer = window.setInterval(refreshAgentAccess, 2000);
       listen<DiagnosticRecord>("diagnostics-event", ({ payload }) => {
         diagnosticRecords = mergeDiagnostics(diagnosticRecords, [payload]);
       })
@@ -380,9 +411,11 @@
     return () => {
       disposed = true;
       if (sxPortRefreshTimer !== undefined) window.clearInterval(sxPortRefreshTimer);
+      if (agentStatusTimer !== undefined) window.clearInterval(agentStatusTimer);
       window.removeEventListener("focus", refreshSelectedSx);
       document.removeEventListener("visibilitychange", refreshSelectedSx);
       unlisten?.();
+      agentSelectionUnlisten?.();
       diagnosticsUnlisten?.();
     };
   });
@@ -498,6 +531,7 @@
       connected = event.payload.connected;
       activeAdapterDescriptor = null;
       if (event.payload.connected) {
+        pidPickerView = "can";
         status = `Candlelight CAN · ${event.payload.bitrate.toLocaleString()} bit/s · ${event.payload.listen_only ? "listen-only" : "active"}`;
       } else {
         canCaptureOpen = false;
@@ -572,6 +606,22 @@
       resetLiveHistory();
       connected = true;
       activeAdapterDescriptor = event.payload.device;
+      const family = event.payload.device.hardware_family.toLowerCase();
+      if (family.includes("simulator")) selectedAdapter = "simulator";
+      else if (family.includes("obdlink sx")) {
+        selectedAdapter = "obdlink_sx";
+        selectedSxPort = event.payload.device.path ?? selectedSxPort;
+      } else if (family.includes("openport")) {
+        selectedAdapter = "openport2";
+        selectedOpenPortProvider = event.payload.device.stable_id;
+      } else if (family.includes("a30")) {
+        selectedAdapter = "a30";
+        selectedBluetoothAddress = event.payload.device.path ?? selectedBluetoothAddress;
+      } else if (family.includes("elm")) {
+        selectedAdapter = "elm327";
+        selectedBluetoothAddress = event.payload.device.path ?? selectedBluetoothAddress;
+      }
+      pidPickerView = "signals";
       status = event.payload.device.hardware_family === "simulator"
         ? "Simulated OBD · read only"
         : `${event.payload.device.hardware_family} · read only`;
@@ -1358,6 +1408,11 @@
       onReset={resetPreferences}
       diagnosticsOpen={diagnosticsOpen}
       onDiagnostics={() => diagnosticsOpen = !diagnosticsOpen}
+      agentAccessStatus={agentAccessStatus}
+      onAgentConfigurePin={configureAgentPin}
+      onAgentUnlock={unlockAgentAccess}
+      onAgentLock={lockAgentAccess}
+      agentSetupJson={agentSetupJson}
     />
     <div class="session-tools">
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>

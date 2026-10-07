@@ -1,9 +1,14 @@
 use crate::{
     BluetoothByteStream, ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError,
     OemCandidateTryResult, OemCandidateTrySpec, Sample, SampleOrigin, SampleQuality,
-    SignalDefinition, adapter::collect_samples_independently,
+    SignalDefinition,
+    adapter::collect_samples_independently,
     bluetooth_spp::connect_bluetooth_spp,
-    build_oem_candidate_command, decode_oem_candidate_response,
+    build_oem_candidate_command,
+    communication_trace::{
+        CommunicationDirection, CommunicationSink, CommunicationTraceEvent, bytes_to_hex,
+    },
+    decode_oem_candidate_response,
     obdlink_sx_protocol::{
         Mode01Response, Mode01ResponseError, decode_signal, parse_mode01_responses,
         parse_supported_pids,
@@ -30,6 +35,7 @@ pub struct Elm327Adapter {
     ecu_id: Option<String>,
     started: Option<Instant>,
     diagnostic_sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
 }
 
 impl Elm327Adapter {
@@ -42,6 +48,7 @@ impl Elm327Adapter {
             ecu_id: None,
             started: None,
             diagnostic_sink: noop_diagnostic_sink(),
+            communication_sink: None,
         }
     }
 
@@ -69,15 +76,38 @@ impl Elm327Adapter {
     }
 
     fn exchange(&mut self, command: &str) -> Result<String, LogNookError> {
+        let started = Instant::now();
+        let communication_sink = self.communication_sink.clone();
+        let trace_adapter_id = format!("elm327:{}", self.address);
         let stream = self
             .stream
             .as_mut()
             .ok_or_else(|| LogNookError::new("ELM327 Bluetooth connection is closed"))?;
-        stream
+        let mut request = command.as_bytes().to_vec();
+        request.push(b'\r');
+        let write_result = stream
             .write_all(command.as_bytes())
             .and_then(|()| stream.write_all(b"\r"))
             .and_then(|()| stream.flush())
-            .map_err(|error| LogNookError::new(format!("Could not send ELM command: {error}")))?;
+            .map_err(|error| LogNookError::new(format!("Could not send ELM command: {error}")));
+        record_elm_trace(
+            communication_sink.as_ref(),
+            &trace_adapter_id,
+            CommunicationDirection::Tx,
+            Some(&request),
+            started,
+            if write_result.is_ok() {
+                "sent"
+            } else {
+                "write_error"
+            },
+            write_result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .as_deref(),
+        );
+        write_result?;
 
         let deadline = Instant::now() + ELM_RESPONSE_TIMEOUT;
         let mut response = Vec::new();
@@ -86,6 +116,15 @@ impl Elm327Adapter {
             let read = stream.read(&mut chunk);
             match read {
                 Ok(0) => {
+                    record_elm_trace(
+                        communication_sink.as_ref(),
+                        &trace_adapter_id,
+                        CommunicationDirection::Rx,
+                        None,
+                        started,
+                        "disconnected",
+                        Some("Bluetooth stream closed before the ELM prompt"),
+                    );
                     return Err(LogNookError::new(
                         "ELM327 Bluetooth link closed before the > prompt",
                     ));
@@ -94,12 +133,30 @@ impl Elm327Adapter {
                     let end = chunk[..count].iter().position(|byte| *byte == b'>');
                     let accepted = end.map_or(count, |end| end + 1);
                     if response.len() + accepted > MAX_ELM_RESPONSE_BYTES {
+                        record_elm_trace(
+                            communication_sink.as_ref(),
+                            &trace_adapter_id,
+                            CommunicationDirection::Rx,
+                            Some(&response),
+                            started,
+                            "oversized_response",
+                            Some("Response exceeded the 4096-byte trace limit"),
+                        );
                         return Err(LogNookError::new(
                             "ELM327 response exceeded the 4096-byte limit",
                         ));
                     }
                     response.extend_from_slice(&chunk[..accepted]);
                     if end.is_some() {
+                        record_elm_trace(
+                            communication_sink.as_ref(),
+                            &trace_adapter_id,
+                            CommunicationDirection::Rx,
+                            Some(&response),
+                            started,
+                            "response",
+                            None,
+                        );
                         return Ok(String::from_utf8_lossy(&response).replace('\0', ""));
                     }
                 }
@@ -107,13 +164,34 @@ impl Elm327Adapter {
                     if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) =>
                 {
                     if Instant::now() >= deadline {
-                        return Err(LogNookError::transient(format!(
+                        let error = LogNookError::transient(format!(
                             "Timed out waiting for the ELM327 > prompt after {command}"
-                        )));
+                        ));
+                        let unavailable = format!("Bluetooth response bytes unavailable: {error}");
+                        record_elm_trace(
+                            communication_sink.as_ref(),
+                            &trace_adapter_id,
+                            CommunicationDirection::Rx,
+                            None,
+                            started,
+                            "timeout",
+                            Some(&unavailable),
+                        );
+                        return Err(error);
                     }
                 }
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
                 Err(error) => {
+                    let detail = format!("Bluetooth response read failed: {error}");
+                    record_elm_trace(
+                        communication_sink.as_ref(),
+                        &trace_adapter_id,
+                        CommunicationDirection::Rx,
+                        Some(&response),
+                        started,
+                        "read_error",
+                        Some(&detail),
+                    );
                     return Err(LogNookError::new(format!(
                         "ELM327 Bluetooth read failed: {error}"
                     )));
@@ -271,6 +349,10 @@ impl HardwareAdapter for Elm327Adapter {
         self.diagnostic_sink = sink;
     }
 
+    fn set_communication_sink(&mut self, sink: CommunicationSink) {
+        self.communication_sink = Some(sink);
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -318,32 +400,31 @@ impl HardwareAdapter for Elm327Adapter {
         }
 
         collect_samples_independently(signals, |signal| {
-                self.stage(
-                    "acquisition",
-                    "pid_read",
-                    vec![signal.id.clone()],
-                    |adapter| {
-                        let response_text = adapter.command(&format!("01{:02X}", signal.pid))?;
-                        let mut responses =
-                            parse_mode01_responses(&response_text, 0x01, signal.pid)
-                                .map_err(elm_response_error)?;
-                        if responses.len() != 1 {
-                            return Err(LogNookError::signal(
-                                "Multiple ECU responders are not supported by this ELM adapter",
-                            ));
-                        }
-                        let response = responses.pop().expect("one response was checked");
-                        sample_from_response(
-                            signal,
-                            &response,
-                            &adapter.address,
-                            started,
-                            adapter.ecu_id.as_deref(),
-                        )
-                        .map(|sample| vec![sample])
-                    },
-                )
-            })
+            self.stage(
+                "acquisition",
+                "pid_read",
+                vec![signal.id.clone()],
+                |adapter| {
+                    let response_text = adapter.command(&format!("01{:02X}", signal.pid))?;
+                    let mut responses = parse_mode01_responses(&response_text, 0x01, signal.pid)
+                        .map_err(elm_response_error)?;
+                    if responses.len() != 1 {
+                        return Err(LogNookError::signal(
+                            "Multiple ECU responders are not supported by this ELM adapter",
+                        ));
+                    }
+                    let response = responses.pop().expect("one response was checked");
+                    sample_from_response(
+                        signal,
+                        &response,
+                        &adapter.address,
+                        started,
+                        adapter.ecu_id.as_deref(),
+                    )
+                    .map(|sample| vec![sample])
+                },
+            )
+        })
     }
 
     fn disconnect(&mut self) {
@@ -363,8 +444,19 @@ pub fn identify_elm327_with_diagnostics(
     address: impl Into<String>,
     sink: DiagnosticSink,
 ) -> Result<DeviceDescriptor, LogNookError> {
+    identify_elm327_with_sinks(address, sink, None)
+}
+
+pub fn identify_elm327_with_sinks(
+    address: impl Into<String>,
+    sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut adapter = Elm327Adapter::new(address);
     adapter.set_diagnostic_sink(sink);
+    if let Some(communication_sink) = communication_sink {
+        adapter.set_communication_sink(communication_sink);
+    }
     let result = adapter.identify_inner();
     adapter.disconnect();
     result
@@ -470,6 +562,24 @@ fn is_allowed_command(command: &str) -> bool {
         || standard_obd_signals()
             .iter()
             .any(|signal| signal.pid == pid)
+}
+
+fn record_elm_trace(
+    sink: Option<&CommunicationSink>,
+    adapter_id: &str,
+    direction: CommunicationDirection,
+    bytes: Option<&[u8]>,
+    started: Instant,
+    outcome: &str,
+    unavailable: Option<&str>,
+) {
+    let Some(sink) = sink else { return };
+    let mut event = CommunicationTraceEvent::new(adapter_id, "bluetooth_exchange", direction);
+    event.elapsed_ns = Some(started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+    event.bytes_hex = bytes.map(bytes_to_hex);
+    event.outcome = outcome.into();
+    event.raw_bytes_unavailable = unavailable.map(str::to_owned);
+    let _ = sink.try_record(event);
 }
 
 fn elm_response_value(response: &str, command: &str) -> Result<String, LogNookError> {
@@ -706,6 +816,21 @@ mod tests {
     }
 
     #[test]
+    fn elm_trace_contains_prompt_exchange() {
+        let store = crate::communication_trace::CommunicationTraceStore::with_limits(8, 8);
+        let (stream, _) = ScriptedStream::new([b"7E8 03 41 0C 1A F8\r>".to_vec()]);
+        let mut adapter = Elm327Adapter::with_stream("AA:BB:CC:DD:EE:FF", Box::new(stream));
+        adapter.set_communication_sink(store.sink());
+        adapter.exchange("010C").unwrap();
+        let page = store.get_trace(0, 8).unwrap();
+        assert_eq!(page.events[0].bytes_hex.as_deref(), Some("303130430D"));
+        assert_eq!(
+            page.events[1].bytes_hex.as_deref(),
+            Some("3745382030332034312030432031412046380D3E")
+        );
+    }
+
+    #[test]
     fn diagnostics_follow_connect_and_selected_read_stages() {
         let events = Arc::new(Mutex::new(Vec::<crate::DiagnosticProgress>::new()));
         let captured = events.clone();
@@ -871,17 +996,23 @@ mod tests {
         let events = events.lock().unwrap();
         assert_eq!(events.last().unwrap().signal_ids, ["engine_rpm"]);
         assert_eq!(events.last().unwrap().phase, crate::DiagnosticPhase::Failed);
-        assert!(events.last().unwrap().detail.as_deref().unwrap().contains("NRC 0x12"));
+        assert!(
+            events
+                .last()
+                .unwrap()
+                .detail
+                .as_deref()
+                .unwrap()
+                .contains("NRC 0x12")
+        );
         assert!(events.last().unwrap().duration_ms.is_some());
         assert!(adapter.started.is_some());
     }
 
     #[test]
     fn one_negative_response_keeps_other_pid_samples_in_the_poll() {
-        let (mut adapter, _capabilities, _written) = connected_adapter(&[
-            "7E8 03 7F 01 12\r>",
-            "7E8 03 41 05 5A\r>",
-        ]);
+        let (mut adapter, _capabilities, _written) =
+            connected_adapter(&["7E8 03 7F 01 12\r>", "7E8 03 41 05 5A\r>"]);
         let signals: Vec<_> = standard_obd_signals()
             .into_iter()
             .filter(|signal| [0x0C, 0x05].contains(&signal.pid))

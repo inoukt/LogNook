@@ -213,6 +213,8 @@ export type CanDeviceCandidate = {
 export type CanDeviceSelection = { id: string; interface_number: number; channel: number };
 export type CanWorkbenchConfig = { bitrate: number; listen_only: boolean };
 export type CanWorkbenchStatus = CanWorkbenchConfig & { connected: boolean; source_id: string };
+export type AgentAccessStatus = { configured: boolean; unlocked: boolean; host_connected: boolean; expires_at_unix_ms: number | null; active_operation: string | null; trace_gaps: number };
+export type AgentSignalSelection = { log_signal_ids: string[]; graph_signal_ids: string[] };
 export type CanFrame = {
   elapsed_ns: number;
   wall_time_unix_ns: number;

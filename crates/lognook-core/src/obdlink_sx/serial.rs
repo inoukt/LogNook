@@ -1,4 +1,9 @@
-use crate::LogNookError;
+use crate::{
+    LogNookError,
+    communication_trace::{
+        CommunicationDirection, CommunicationSink, CommunicationTraceEvent, bytes_to_hex,
+    },
+};
 use serialport::{DataBits, FlowControl, Parity, SerialPortType, StopBits};
 use std::{
     collections::VecDeque,
@@ -36,6 +41,7 @@ pub(super) struct SerialTransport {
     port_name: String,
     port: Option<Box<dyn PortIo>>,
     pending: VecDeque<u8>,
+    communication_sink: Option<CommunicationSink>,
 }
 
 impl SerialTransport {
@@ -44,6 +50,7 @@ impl SerialTransport {
             port_name,
             port: None,
             pending: VecDeque::new(),
+            communication_sink: None,
         }
     }
 
@@ -53,7 +60,12 @@ impl SerialTransport {
             port_name,
             port: Some(port),
             pending: VecDeque::new(),
+            communication_sink: None,
         }
+    }
+
+    pub(super) fn set_communication_sink(&mut self, sink: CommunicationSink) {
+        self.communication_sink = Some(sink);
     }
 
     pub(super) fn port_name(&self) -> &str {
@@ -94,24 +106,76 @@ impl SerialTransport {
     }
 
     pub(super) fn command(&mut self, command: &str) -> Result<String, LogNookError> {
+        let started = Instant::now();
         let port = self
             .port
             .as_mut()
             .ok_or_else(|| LogNookError::new("OBDLink SX port is closed"))?;
-        port.write_all(command.as_bytes()).map_err(|error| {
-            LogNookError::new(format!(
-                "Could not write to the OBDLink SX serial port: {error}"
-            ))
-        })?;
-        port.write_all(b"\r").map_err(|error| {
-            LogNookError::new(format!(
-                "Could not terminate the OBDLink SX command: {error}"
-            ))
-        })?;
-        port.flush().map_err(|error| {
-            LogNookError::new(format!("Could not flush the OBDLink SX command: {error}"))
-        })?;
-        self.read_prompt_for_command(Some(command))
+        let mut request = command.as_bytes().to_vec();
+        request.push(b'\r');
+        let write_result = port
+            .write_all(command.as_bytes())
+            .map_err(|error| {
+                LogNookError::new(format!(
+                    "Could not write to the OBDLink SX serial port: {error}"
+                ))
+            })
+            .and_then(|()| {
+                port.write_all(b"\r").map_err(|error| {
+                    LogNookError::new(format!(
+                        "Could not terminate the OBDLink SX command: {error}"
+                    ))
+                })
+            })
+            .and_then(|()| {
+                port.flush().map_err(|error| {
+                    LogNookError::new(format!("Could not flush the OBDLink SX command: {error}"))
+                })
+            });
+        self.trace(
+            CommunicationDirection::Tx,
+            Some(&request),
+            started,
+            if write_result.is_ok() {
+                "sent"
+            } else {
+                "write_error"
+            },
+            write_result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .as_deref(),
+        );
+        write_result?;
+        match self.read_prompt_for_command(Some(command)) {
+            Ok(response) => {
+                self.trace(
+                    CommunicationDirection::Rx,
+                    Some(&response),
+                    started,
+                    "response",
+                    None,
+                );
+                Ok(String::from_utf8_lossy(&response).into_owned())
+            }
+            Err(error) => {
+                let outcome = if error.to_string().contains("Timed out") {
+                    "timeout"
+                } else {
+                    "error"
+                };
+                let unavailable = format!("serial response bytes unavailable: {error}");
+                self.trace(
+                    CommunicationDirection::Rx,
+                    None,
+                    started,
+                    outcome,
+                    Some(&unavailable),
+                );
+                Err(error)
+            }
+        }
     }
 
     pub(super) fn close(&mut self) {
@@ -120,10 +184,33 @@ impl SerialTransport {
     }
 
     pub(super) fn read_prompt(&mut self) -> Result<String, LogNookError> {
-        self.read_prompt_for_command(None)
+        let started = Instant::now();
+        match self.read_prompt_for_command(None) {
+            Ok(response) => {
+                self.trace(
+                    CommunicationDirection::Rx,
+                    Some(&response),
+                    started,
+                    "prompt",
+                    None,
+                );
+                Ok(String::from_utf8_lossy(&response).into_owned())
+            }
+            Err(error) => {
+                let unavailable = format!("serial prompt bytes unavailable: {error}");
+                self.trace(
+                    CommunicationDirection::Rx,
+                    None,
+                    started,
+                    "error",
+                    Some(&unavailable),
+                );
+                Err(error)
+            }
+        }
     }
 
-    fn read_prompt_for_command(&mut self, command: Option<&str>) -> Result<String, LogNookError> {
+    fn read_prompt_for_command(&mut self, command: Option<&str>) -> Result<Vec<u8>, LogNookError> {
         let deadline = Instant::now() + RESPONSE_TIMEOUT;
         let mut response = Vec::new();
         let mut chunk = [0_u8; 128];
@@ -137,7 +224,7 @@ impl SerialTransport {
                     ));
                 }
                 if byte == b'>' {
-                    return Ok(String::from_utf8_lossy(&response).into_owned());
+                    return Ok(response);
                 }
             }
 
@@ -164,7 +251,7 @@ impl SerialTransport {
                     if let Some(end) = end {
                         response.extend_from_slice(&chunk[..=end]);
                         self.pending.extend(&chunk[end + 1..count]);
-                        return Ok(String::from_utf8_lossy(&response).into_owned());
+                        return Ok(response);
                     }
                     response.extend_from_slice(&chunk[..count]);
                 }
@@ -195,6 +282,29 @@ impl SerialTransport {
             }
         }
     }
+
+    fn trace(
+        &self,
+        direction: CommunicationDirection,
+        bytes: Option<&[u8]>,
+        started: Instant,
+        outcome: &str,
+        unavailable: Option<&str>,
+    ) {
+        let Some(sink) = &self.communication_sink else {
+            return;
+        };
+        let mut event = CommunicationTraceEvent::new(
+            format!("obdlink-sx:{}", self.port_name),
+            "serial_command",
+            direction,
+        );
+        event.elapsed_ns = Some(started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+        event.bytes_hex = bytes.map(bytes_to_hex);
+        event.outcome = outcome.into();
+        event.raw_bytes_unavailable = unavailable.map(str::to_owned);
+        let _ = sink.try_record(event);
+    }
 }
 
 fn is_only_command_echo(response: &[u8], command: &str) -> bool {
@@ -215,6 +325,68 @@ mod tests {
         assert!(is_only_command_echo(b"AT SH 7DF\r", "AT SH 7DF"));
         assert!(!is_only_command_echo(b"010C\r7E8 03 7F 01 12", "010C"));
         assert!(!is_only_command_echo(b"010D\r", "010C"));
+    }
+}
+
+#[cfg(test)]
+mod communication_trace_tests {
+    use super::{PortIo, SerialTransport};
+    use crate::communication_trace::{CommunicationDirection, CommunicationTraceStore};
+    use std::{
+        collections::VecDeque,
+        io::{self, Read, Write},
+        sync::{Arc, Mutex},
+    };
+
+    struct ScriptedPort {
+        incoming: VecDeque<u8>,
+        written: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Read for ScriptedPort {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.incoming.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "no reply"));
+            }
+            let count = buffer.len().min(self.incoming.len());
+            for byte in &mut buffer[..count] {
+                *byte = self.incoming.pop_front().unwrap();
+            }
+            Ok(count)
+        }
+    }
+
+    impl Write for ScriptedPort {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.written.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn sx_trace_contains_exact_serial_exchange() {
+        let store = CommunicationTraceStore::with_limits(8, 8);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let port = ScriptedPort {
+            incoming: b"010C\r41 0C 1A F8\r>".iter().copied().collect(),
+            written: written.clone(),
+        };
+        let mut transport =
+            SerialTransport::with_port("COM9".into(), Box::new(port) as Box<dyn PortIo>);
+        transport.set_communication_sink(store.sink());
+        assert!(transport.command("010C").unwrap().ends_with('>'));
+        assert_eq!(&*written.lock().unwrap(), b"010C\r");
+        let page = store.get_trace(0, 8).unwrap();
+        assert_eq!(page.events[0].direction, CommunicationDirection::Tx);
+        assert_eq!(page.events[0].bytes_hex.as_deref(), Some("303130430D"));
+        assert_eq!(page.events[1].direction, CommunicationDirection::Rx);
+        assert_eq!(
+            page.events[1].bytes_hex.as_deref(),
+            Some("303130430D34312030432031412046380D3E")
+        );
     }
 }
 

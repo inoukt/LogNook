@@ -133,7 +133,7 @@ fn validate_run_item(run_id: &str, queue_index: usize, queue_size: usize) -> Res
     Ok(())
 }
 
-fn execute_candidate_try(
+pub(crate) fn execute_candidate_try(
     state: &AppState,
     candidate_id: &str,
     run_id: &str,
@@ -181,7 +181,7 @@ fn execute_candidate_try(
     )
 }
 
-fn execute_a30_read_test(
+pub(crate) fn execute_a30_read_test(
     state: &AppState,
     test: A30ReadTest,
     run_id: &str,
@@ -502,6 +502,27 @@ mod tests {
             oem_validation_log: directory.join("probe.jsonl"),
             oem_candidate_try_log: directory.join("tries.jsonl"),
             a30_read_test_log: directory.join("reads.jsonl"),
+            agent_access: std::sync::Mutex::new(
+                crate::agent::access::AgentAccessManager::open(directory.join("pin.hash")).unwrap(),
+            ),
+            agent_ipc: crate::agent::ipc::AgentIpcService::new(directory),
+            agent_ipc_endpoint: crate::agent::ipc::endpoint_name(directory),
+            agent_selection: std::sync::Mutex::new(crate::agent::protocol::AgentSignalSelection {
+                log_signal_ids: vec![
+                    "engine_rpm".into(),
+                    "coolant_temp".into(),
+                    "intake_temp".into(),
+                ],
+                graph_signal_ids: vec![
+                    "engine_rpm".into(),
+                    "coolant_temp".into(),
+                    "intake_temp".into(),
+                ],
+            }),
+            agent_workbench: std::sync::Mutex::new(
+                crate::agent::tools::AgentWorkbenchState::default(),
+            ),
+            trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
         }
     }
 

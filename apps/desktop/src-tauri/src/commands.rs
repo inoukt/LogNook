@@ -1,5 +1,7 @@
+mod agent_access;
 mod diagnostics;
 mod player;
+pub use agent_access::*;
 pub use diagnostics::*;
 pub use player::*;
 mod bluetooth;
@@ -10,8 +12,10 @@ mod sessions;
 pub use sessions::*;
 mod oem_catalog;
 pub use oem_catalog::*;
+pub(crate) use oem_catalog::{execute_a30_read_test, execute_candidate_try};
 mod openport2;
 pub use openport2::*;
+pub(crate) use openport2::{discover_providers, worker_path};
 mod can;
 pub use can::*;
 
@@ -20,7 +24,7 @@ use lognook_core::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
     DerivedSignalDefinition, DeviceDescriptor, ObdLinkSxAdapter, RecordingSummary,
     SignalDefinition, available_obdlink_sx_ports as list_obdlink_sx_ports, export_recording_csv,
-    identify_obdlink_sx_with_diagnostics as identify_sx_device, standard_obd_signals,
+    identify_obdlink_sx_with_sinks as identify_sx_device, standard_obd_signals,
 };
 use std::{
     path::PathBuf,
@@ -51,7 +55,10 @@ pub async fn identify_obdlink_sx(
         Some(format!("obdlink-sx:{port_name}")),
         "identify",
         vec![],
-        |op| identify_sx_device(port_name, op.sink()).map_err(|error| error.to_string()),
+        |op| {
+            identify_sx_device(port_name, op.sink(), Some(state.trace_store.sink()))
+                .map_err(|error| error.to_string())
+        },
     )
 }
 
@@ -238,7 +245,7 @@ fn diagnose<T>(
     op.finish_result(&result);
     result
 }
-fn connect_with_diagnostics(
+pub(crate) fn connect_with_diagnostics(
     state: &AppState,
     adapter_id: String,
     signal_ids: Vec<String>,
@@ -312,6 +319,29 @@ mod diagnostics_tests {
                 oem_validation_log: path.join("probe.jsonl"),
                 oem_candidate_try_log: path.join("tries.jsonl"),
                 a30_read_test_log: path.join("reads.jsonl"),
+                agent_access: std::sync::Mutex::new(
+                    crate::agent::access::AgentAccessManager::open(path.join("pin.hash")).unwrap(),
+                ),
+                agent_ipc: crate::agent::ipc::AgentIpcService::new(&path),
+                agent_ipc_endpoint: crate::agent::ipc::endpoint_name(&path),
+                agent_selection: std::sync::Mutex::new(
+                    crate::agent::protocol::AgentSignalSelection {
+                        log_signal_ids: vec![
+                            "engine_rpm".into(),
+                            "coolant_temp".into(),
+                            "intake_temp".into(),
+                        ],
+                        graph_signal_ids: vec![
+                            "engine_rpm".into(),
+                            "coolant_temp".into(),
+                            "intake_temp".into(),
+                        ],
+                    },
+                ),
+                agent_workbench: std::sync::Mutex::new(
+                    crate::agent::tools::AgentWorkbenchState::default(),
+                ),
+                trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
             },
             rx,
         )

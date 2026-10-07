@@ -15,7 +15,8 @@ mod tests;
 
 use crate::{
     ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError, Sample, SampleOrigin,
-    SampleQuality, SignalDefinition, adapter::collect_samples_independently,
+    SampleQuality, SignalDefinition,
+    adapter::collect_samples_independently,
     obdlink_sx_protocol::{
         Mode01ResponseError, decode_signal, mode01_pid_data_width, parse_mode01_responses,
         parse_supported_pids,
@@ -262,8 +263,19 @@ pub fn identify_obdlink_sx_with_diagnostics(
     port_name: impl Into<String>,
     sink: DiagnosticSink,
 ) -> Result<DeviceDescriptor, LogNookError> {
+    identify_obdlink_sx_with_sinks(port_name, sink, None)
+}
+
+pub fn identify_obdlink_sx_with_sinks(
+    port_name: impl Into<String>,
+    sink: DiagnosticSink,
+    communication_sink: Option<crate::communication_trace::CommunicationSink>,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut adapter = ObdLinkSxAdapter::new(port_name);
     adapter.set_diagnostic_sink(sink);
+    if let Some(communication_sink) = communication_sink {
+        adapter.set_communication_sink(communication_sink);
+    }
     let result = adapter.identify_inner();
     adapter.disconnect();
     result
@@ -272,6 +284,10 @@ pub fn identify_obdlink_sx_with_diagnostics(
 impl HardwareAdapter for ObdLinkSxAdapter {
     fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
         self.diagnostic_sink = sink;
+    }
+
+    fn set_communication_sink(&mut self, sink: crate::communication_trace::CommunicationSink) {
+        self.transport.set_communication_sink(sink);
     }
 
     fn execute_research_test(
@@ -365,9 +381,12 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                             }
                         };
                         if responses.len() != 1 {
-                            failures.push((signal.id.clone(), LogNookError::signal(
-                                "Multiple ECU responders are not supported by this SX adapter",
-                            )));
+                            failures.push((
+                                signal.id.clone(),
+                                LogNookError::signal(
+                                    "Multiple ECU responders are not supported by this SX adapter",
+                                ),
+                            ));
                             continue;
                         }
                         let response = responses.pop().expect("one response was checked");

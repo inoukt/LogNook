@@ -5,6 +5,7 @@
     shortcutFromEvent, type ShortcutAction, type ShortcutBindings,
   } from "./shortcuts";
   import type { WorkspaceTheme } from "./workspace";
+  import type { AgentAccessStatus } from "./types";
 
   let {
     wheelScrubbing = $bindable(false),
@@ -16,6 +17,11 @@
     onReset,
     diagnosticsOpen = false,
     onDiagnostics,
+    agentAccessStatus = { configured: false, unlocked: false, host_connected: false, expires_at_unix_ms: null, active_operation: null, trace_gaps: 0 },
+    onAgentConfigurePin,
+    onAgentUnlock,
+    onAgentLock,
+    agentSetupJson = "",
   }: {
     wheelScrubbing?: boolean;
     theme?: WorkspaceTheme;
@@ -26,6 +32,11 @@
     onReset: () => void;
     diagnosticsOpen?: boolean;
     onDiagnostics: () => void;
+    agentAccessStatus?: AgentAccessStatus;
+    onAgentConfigurePin: (pin: string) => Promise<void>;
+    onAgentUnlock: (pin: string) => Promise<void>;
+    onAgentLock: () => Promise<void>;
+    agentSetupJson?: string;
   } = $props();
 
   const shortcutsKey = "lognook.shortcuts";
@@ -33,6 +44,10 @@
   let capturingShortcut = $state<ShortcutAction | null>(null);
   let shortcutCaptureError = $state("");
   let scalePreview = $state(uiScale);
+  let agentPin = $state("");
+  let agentError = $state("");
+  let agentBusy = $state(false);
+  let agentSetupCopied = $state(false);
 
   $effect(() => { scalePreview = uiScale; });
 
@@ -115,6 +130,31 @@
     uiScale = scalePreview;
   }
 
+  async function submitAgentPin() {
+    agentBusy = true;
+    agentError = "";
+    try {
+      if (agentAccessStatus.configured) await onAgentUnlock(agentPin);
+      else await onAgentConfigurePin(agentPin);
+      agentPin = "";
+    } catch (error) {
+      agentError = String(error);
+    } finally {
+      agentBusy = false;
+    }
+  }
+
+  async function copyAgentSetup() {
+    agentSetupCopied = false;
+    try {
+      await navigator.clipboard.writeText(agentSetupJson);
+      agentSetupCopied = true;
+      agentError = "";
+    } catch {
+      agentError = "Clipboard access failed. Copy the setup text from the details below.";
+    }
+  }
+
   function reset() {
     shortcutBindings = { ...defaultShortcuts };
     capturingShortcut = null;
@@ -129,6 +169,24 @@
   <div class="settings-popover">
     <strong>Settings</strong>
     <button class="button secondary" type="button" aria-pressed={diagnosticsOpen} onclick={onDiagnostics}>{diagnosticsOpen ? "Close Diagnostics" : "Diagnostics"}</button>
+    <section class="agent-access-settings" aria-label="Agent Access">
+      <span class="settings-subtitle">AGENT ACCESS · {agentAccessStatus.unlocked ? agentAccessStatus.host_connected ? "CONNECTED" : "UNLOCKED" : "LOCKED"}</span>
+      {#if agentAccessStatus.unlocked}
+        <label><span>Change PIN</span><input class="text-input" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" bind:value={agentPin} /></label>
+        <button class="button secondary" type="button" disabled={agentBusy || !/^\d{6}$/.test(agentPin)} onclick={async () => { agentBusy = true; agentError = ""; try { await onAgentConfigurePin(agentPin); agentPin = ""; } catch (error) { agentError = String(error); } finally { agentBusy = false; } }}>Change PIN</button>
+        <button class="button secondary" type="button" disabled={agentBusy} onclick={async () => { agentBusy = true; agentError = ""; try { await onAgentLock(); } catch (error) { agentError = String(error); } finally { agentBusy = false; } }}>Lock agent</button>
+      {:else}
+        <label><span>{agentAccessStatus.configured ? "PIN" : "Create six-digit PIN"}</span><input class="text-input" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" bind:value={agentPin} /></label>
+        <button class="button secondary" type="button" disabled={agentBusy || !/^\d{6}$/.test(agentPin)} onclick={submitAgentPin}>{agentAccessStatus.configured ? "Unlock agent" : "Set PIN"}</button>
+      {/if}
+      {#if agentAccessStatus.configured}<button class="button secondary" type="button" disabled={!agentSetupJson} onclick={copyAgentSetup}>{agentSetupCopied ? "Setup copied" : "Copy agent setup"}</button>{/if}
+      {#if agentSetupJson}<details><summary>Setup text</summary><pre>{agentSetupJson}</pre></details>{/if}
+      <small>Open LogNook and unlock Agent Access before the host starts this server. The PIN stays in this app.</small>
+      {#if agentError}<small role="alert">{agentError}</small>{/if}
+      {#if agentAccessStatus.unlocked && agentAccessStatus.expires_at_unix_ms}<small>Access expires after 15 minutes without agent activity.</small>{/if}
+      {#if agentAccessStatus.active_operation}<small>Active operation: {agentAccessStatus.active_operation}</small>{/if}
+      {#if agentAccessStatus.trace_gaps > 0}<small role="status">Communication trace gaps: {agentAccessStatus.trace_gaps}</small>{/if}
+    </section>
     <label class="settings-theme">
       <span>Color theme</span>
       <select class="text-input settings-theme-select" aria-label="Color theme" value={theme} onchange={(event) => theme = event.currentTarget.value as WorkspaceTheme}>

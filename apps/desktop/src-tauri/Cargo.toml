@@ -17,8 +17,14 @@ tauri-plugin-dialog = "2"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+argon2 = "0.6.0"
+rmcp = { version = "=3.0.1", default-features = false, features = ["server", "macros", "schemars", "transport-io"] }
+interprocess = { version = "=2.4.4", features = ["tokio"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time"] }
+schemars = { version = "=1.2.2", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
+widestring = "1.2.1"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Registry"] }
 
 [dev-dependencies]

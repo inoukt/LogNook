@@ -2,8 +2,8 @@ use super::{connect_with_diagnostics, diagnose};
 use crate::AppState;
 use lognook_core::{
     ConnectionCapabilities, DeviceDescriptor, J2534ProviderDiscovery, OpenPort2Adapter,
-    available_openport2_providers_with_diagnostics as list_openport2_providers,
-    identify_openport2_with_diagnostics as identify_openport2_device,
+    available_openport2_providers_with_sinks as list_openport2_providers,
+    identify_openport2_with_sinks as identify_openport2_device,
 };
 use std::path::PathBuf;
 use tauri::State;
@@ -14,12 +14,17 @@ pub async fn available_openport2_providers(
 ) -> Result<J2534ProviderDiscovery, String> {
     discover_providers(&state, worker_path)
 }
-pub(super) fn discover_providers(
+pub(crate) fn discover_providers(
     state: &AppState,
     resolve_worker: impl FnOnce() -> Result<PathBuf, String>,
 ) -> Result<J2534ProviderDiscovery, String> {
     diagnose(state, None, "provider_discovery", vec![], |op| {
-        list_openport2_providers(&resolve_worker()?, op.sink()).map_err(|error| error.to_string())
+        list_openport2_providers(
+            &resolve_worker()?,
+            op.sink(),
+            Some(state.trace_store.sink()),
+        )
+        .map_err(|error| error.to_string())
     })
 }
 
@@ -34,8 +39,13 @@ pub async fn identify_openport2(
         "identify",
         vec![],
         |op| {
-            identify_openport2_device(&worker_path()?, &provider_id, op.sink())
-                .map_err(|error| error.to_string())
+            identify_openport2_device(
+                &worker_path()?,
+                &provider_id,
+                op.sink(),
+                Some(state.trace_store.sink()),
+            )
+            .map_err(|error| error.to_string())
         },
     )
 }
@@ -56,7 +66,7 @@ pub async fn connect_openport2(
     })
 }
 
-fn worker_path() -> Result<PathBuf, String> {
+pub(crate) fn worker_path() -> Result<PathBuf, String> {
     let profile = if cfg!(debug_assertions) {
         "debug"
     } else {

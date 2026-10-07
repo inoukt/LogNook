@@ -3,6 +3,7 @@ mod worker_client;
 use crate::{
     DiagnosticSink, HardwareAdapter,
     adapter::collect_samples_independently,
+    communication_trace::CommunicationSink,
     diagnostics::{diagnostic_stage, noop_diagnostic_sink},
     model::{
         ConnectionCapabilities, DeviceDescriptor, LogNookError, Sample, SampleOrigin,
@@ -26,6 +27,7 @@ use worker_client::WorkerClient;
 
 trait WorkerSession: Send {
     fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, LogNookError>;
+    fn set_communication_sink(&mut self, _sink: CommunicationSink) {}
     fn request_with_progress(
         &mut self,
         request: WorkerRequest,
@@ -46,7 +48,18 @@ pub fn available_openport2_providers_with_diagnostics(
     worker_path: &Path,
     sink: DiagnosticSink,
 ) -> Result<J2534ProviderDiscovery, LogNookError> {
+    available_openport2_providers_with_sinks(worker_path, sink, None)
+}
+
+pub fn available_openport2_providers_with_sinks(
+    worker_path: &Path,
+    sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
+) -> Result<J2534ProviderDiscovery, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
+    if let Some(communication_sink) = communication_sink {
+        session.set_communication_sink(communication_sink);
+    }
     let result = available_from_session_with_diagnostics(&mut session, &sink);
     session.shutdown();
     result
@@ -64,7 +77,19 @@ pub fn identify_openport2_with_diagnostics(
     provider_id: &str,
     sink: DiagnosticSink,
 ) -> Result<DeviceDescriptor, LogNookError> {
+    identify_openport2_with_sinks(worker_path, provider_id, sink, None)
+}
+
+pub fn identify_openport2_with_sinks(
+    worker_path: &Path,
+    provider_id: &str,
+    sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
+    if let Some(communication_sink) = communication_sink {
+        session.set_communication_sink(communication_sink);
+    }
     let result = identify_from_session_with_diagnostics(&mut session, provider_id, &sink);
     session.shutdown();
     result
@@ -262,6 +287,7 @@ pub struct OpenPort2Adapter {
     ecu_id: Option<String>,
     supported_pids: HashSet<u8>,
     diagnostic_sink: DiagnosticSink,
+    communication_sink: Option<CommunicationSink>,
 }
 
 impl OpenPort2Adapter {
@@ -275,6 +301,7 @@ impl OpenPort2Adapter {
             ecu_id: None,
             supported_pids: HashSet::new(),
             diagnostic_sink: noop_diagnostic_sink(),
+            communication_sink: None,
         }
     }
 
@@ -286,7 +313,11 @@ impl OpenPort2Adapter {
 
     fn connect_inner(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.session.is_none() {
-            self.session = Some(Box::new(WorkerClient::spawn(&self.worker_path)?));
+            let mut client = WorkerClient::spawn(&self.worker_path)?;
+            if let Some(sink) = &self.communication_sink {
+                client.set_communication_sink(sink.clone());
+            }
+            self.session = Some(Box::new(client));
         }
         let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "connect");
         let session = self.session.as_deref_mut().expect("session was created");
@@ -358,6 +389,10 @@ impl OpenPort2Adapter {
 impl HardwareAdapter for OpenPort2Adapter {
     fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
         self.diagnostic_sink = sink;
+    }
+
+    fn set_communication_sink(&mut self, sink: CommunicationSink) {
+        self.communication_sink = Some(sink);
     }
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.connected {
