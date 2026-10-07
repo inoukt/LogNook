@@ -507,6 +507,7 @@ mod tests {
             ),
             agent_ipc: crate::agent::ipc::AgentIpcService::new(directory),
             agent_ipc_endpoint: crate::agent::ipc::endpoint_name(directory),
+            agent_scan_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             agent_selection: std::sync::Mutex::new(crate::agent::protocol::AgentSignalSelection {
                 log_signal_ids: vec![
                     "engine_rpm".into(),

@@ -103,11 +103,13 @@ impl AgentIpcService {
     }
 
     fn running_start_result(&self) -> Result<(), String> {
-        if self
+        let shutdown = self
             .shutdown
             .lock()
-            .map_err(|_| "Agent Access state is unavailable".to_owned())?
-            .is_some()
+            .map_err(|_| "Agent Access state is unavailable".to_owned())?;
+        if shutdown
+            .as_ref()
+            .is_some_and(|shutdown| !*shutdown.borrow())
         {
             Ok(())
         } else {
@@ -170,11 +172,11 @@ async fn serve(
             _ = shutdown.changed() => return Ok(()),
             _ = access_check.tick() => {
                 if !agent_access_unlocked(&app) {
+                    let _ = stop_sender.send(true);
                     let _ = super::tools::stop_active_operations(
                         &app,
                         lognook_core::CanScanStopReason::AgentAccessRevoked,
                     );
-                    let _ = stop_sender.send(true);
                     return Ok(());
                 }
             }
@@ -323,10 +325,12 @@ mod tests {
     #[test]
     fn ipc_does_not_report_success_while_listener_is_stopping() {
         let service = AgentIpcService::new(&std::env::temp_dir());
-        let (shutdown, _) = watch::channel(false);
-        *service.shutdown.lock().unwrap() = Some(shutdown);
+        let (shutdown, _receiver) = watch::channel(false);
+        *service.shutdown.lock().unwrap() = Some(shutdown.clone());
         service.running.store(true, Ordering::Release);
         assert!(service.running_start_result().is_ok());
+        shutdown.send(true).unwrap();
+        assert!(service.running_start_result().is_err());
         service.stop();
         assert!(service.running_start_result().is_err());
     }

@@ -160,23 +160,27 @@ impl WorkerClient {
         let started = Instant::now();
         let adapter_id = worker_adapter_id(&request);
         let route = worker_route(&request);
-        self.record_trace(
-            CommunicationDirection::Tx,
-            Some(&line),
-            &adapter_id,
-            &route,
-            started,
-            "sent",
-            None,
-        );
-        let write_result = self
-            .input
-            .as_mut()
-            .ok_or_else(|| LogNookError::new("OpenPort worker input is unavailable"))?
-            .write_all(&line)
-            .and_then(|()| self.input.as_mut().expect("worker input exists").flush());
+        let write_result = match self.input.as_mut() {
+            Some(input) => input.write_all(&line).and_then(|()| input.flush()),
+            None => Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "OpenPort worker input is unavailable",
+            )),
+        };
         if let Err(error) = write_result {
             let detail = format!("worker request write failed: {error}");
+            let unavailable = format!(
+                "Exact transmitted bytes unavailable; worker pipe may have accepted a prefix before failure: {error}"
+            );
+            self.record_trace(
+                CommunicationDirection::Tx,
+                None,
+                &adapter_id,
+                &route,
+                started,
+                "write_error",
+                Some(&unavailable),
+            );
             self.record_trace(
                 CommunicationDirection::Rx,
                 None,
@@ -191,6 +195,15 @@ impl WorkerClient {
                 "Could not write to OpenPort worker: {error}"
             )));
         }
+        self.record_trace(
+            CommunicationDirection::Tx,
+            Some(&line),
+            &adapter_id,
+            &route,
+            started,
+            "sent",
+            None,
+        );
         let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -551,6 +564,42 @@ mod tests {
             Some(response_hex.as_str())
         );
         assert_eq!(page.events[0].route.as_deref(), Some("Mode 01 PID 0C"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn openport_trace_does_not_claim_request_sent_after_pipe_write_failure() {
+        use crate::{communication_trace::CommunicationTraceStore, openport2::WorkerSession};
+        use lognook_j2534_protocol::WorkerRequest;
+
+        let mut worker = scripted_worker("exit 0");
+        worker.child.as_mut().unwrap().wait().unwrap();
+        let store = CommunicationTraceStore::with_limits(8, 8);
+        worker.set_communication_sink(store.sink());
+        assert!(
+            worker
+                .request_with_timeout_and_progress(
+                    WorkerRequest::ListProviders,
+                    Duration::from_secs(1),
+                    &crate::diagnostics::noop_diagnostic_sink(),
+                )
+                .is_err()
+        );
+
+        let page = store.get_trace(0, 8).unwrap();
+        let tx = page
+            .events
+            .iter()
+            .find(|event| event.direction == crate::communication_trace::CommunicationDirection::Tx)
+            .unwrap();
+        assert_eq!(tx.outcome, "write_error");
+        assert_eq!(tx.bytes_hex, None);
+        assert!(
+            tx.raw_bytes_unavailable
+                .as_deref()
+                .unwrap()
+                .contains("Exact transmitted bytes unavailable")
+        );
     }
 
     #[cfg(windows)]

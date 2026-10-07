@@ -106,6 +106,14 @@ pub struct TraceCaptureStatus {
     pub capturing: bool,
     pub path: Option<String>,
     pub error: Option<String>,
+    #[serde(skip)]
+    finalization_failed: bool,
+}
+
+impl TraceCaptureStatus {
+    pub fn failed_during_capture(&self) -> bool {
+        self.finalization_failed
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -245,6 +253,7 @@ impl CommunicationTraceStore {
                 capturing: false,
                 path: None,
                 error: Some("Communication trace state is unavailable".into()),
+                ..TraceCaptureStatus::default()
             })
     }
 
@@ -298,6 +307,15 @@ fn run_writer(
                         ));
                         continue;
                     }
+                    if state
+                        .lock()
+                        .is_ok_and(|state| state.capture.finalization_failed)
+                    {
+                        let _ = reply.send(Err(
+                            "Previous communication trace capture failed; stop it before starting another".into(),
+                        ));
+                        continue;
+                    }
                     let result = start_file(&path);
                     match result {
                         Ok(opened) => {
@@ -309,6 +327,7 @@ fn run_writer(
                                     capturing: true,
                                     path: Some(path.to_string_lossy().into_owned()),
                                     error: None,
+                                    finalization_failed: false,
                                 };
                             }
                             let _ = reply.send(Ok(()));
@@ -327,6 +346,7 @@ fn run_writer(
                         if let Err(error) = file.flush() {
                             if let Ok(mut state) = state.lock() {
                                 state.capture.error = Some(error.to_string());
+                                state.capture.finalization_failed = true;
                             }
                         }
                     }
@@ -335,7 +355,11 @@ fn run_writer(
                     }
                     let status = state
                         .lock()
-                        .map(|state| state.capture.clone())
+                        .map(|mut state| {
+                            let status = state.capture.clone();
+                            state.capture.finalization_failed = false;
+                            status
+                        })
                         .unwrap_or_default();
                     let _ = reply.send(status);
                     capture_start_sequence = u64::MAX;
@@ -410,6 +434,7 @@ fn write_event(
         if let Ok(mut state) = state.lock() {
             state.capture.capturing = false;
             state.capture.error = Some(error.to_string());
+            state.capture.finalization_failed = true;
         }
     }
 }
@@ -514,6 +539,33 @@ mod tests {
         let path = parent.join("capture.jsonl");
         assert!(store.start_capture(&path).is_err());
         assert!(store.capture_status().error.is_some());
+        let stopped = store.stop_capture().unwrap();
+        assert!(!stopped.failed_during_capture());
         let _ = fs::remove_file(parent);
+    }
+
+    #[test]
+    fn trace_write_error_is_marked_as_capture_finalization_failure() {
+        let path = temp_path("read-only");
+        fs::write(&path, b"opened read-only").unwrap();
+        let mut file = Some(File::open(&path).unwrap());
+        let state = Arc::new(Mutex::new(TraceState {
+            events: VecDeque::new(),
+            ring_capacity: 8,
+            evicted_events: 0,
+            capture: TraceCaptureStatus {
+                capturing: true,
+                path: Some(path.to_string_lossy().into_owned()),
+                ..TraceCaptureStatus::default()
+            },
+        }));
+
+        write_event(event(), &mut file, 0, &state);
+
+        let capture = state.lock().unwrap().capture.clone();
+        assert!(!capture.capturing);
+        assert!(capture.failed_during_capture());
+        assert!(capture.error.is_some());
+        let _ = fs::remove_file(path);
     }
 }

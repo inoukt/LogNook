@@ -9,6 +9,7 @@ use lognook_core::{
 use std::collections::HashSet;
 use std::{
     path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, async_runtime};
@@ -16,13 +17,12 @@ use tauri::{AppHandle, Emitter, Manager, async_runtime};
 #[derive(Default)]
 pub(crate) struct AgentWorkbenchState {
     capture_path: Option<PathBuf>,
-    scan_active: bool,
     send_until: Option<Instant>,
 }
 
 impl AgentWorkbenchState {
-    pub(crate) fn active_operation(&mut self) -> Option<String> {
-        if self.scan_active {
+    pub(crate) fn active_operation(&mut self, scan_active: bool) -> Option<String> {
+        if scan_active {
             Some("CAN scan".into())
         } else if self
             .send_until
@@ -38,24 +38,41 @@ impl AgentWorkbenchState {
     }
 }
 
+pub(crate) fn update_agent_scan_state(scan_active: &AtomicBool, event: &lognook_core::EngineEvent) {
+    if matches!(
+        event,
+        lognook_core::EngineEvent::CanScanCompleted(_) | lognook_core::EngineEvent::CanScanStopped
+    ) {
+        scan_active.store(false, Ordering::Release);
+    }
+}
+
+fn start_agent_scan(
+    scan_active: &AtomicBool,
+    start: impl FnOnce() -> Result<(), lognook_core::LogNookError>,
+) -> Result<(), lognook_core::LogNookError> {
+    scan_active.store(true, Ordering::Release);
+    start().inspect_err(|_| scan_active.store(false, Ordering::Release))
+}
+
 /// Lock and expiry both stop the agent's incomplete CAN operation and close its evidence files.
 pub(crate) fn stop_active_operations(
     app: &AppHandle,
     reason: CanScanStopReason,
 ) -> Result<Option<PathBuf>, String> {
     let state = app.state::<AppState>();
-    let (capture_path, scan_active, send_active) = match state.agent_workbench.lock() {
+    let (capture_path, send_active) = match state.agent_workbench.lock() {
         Ok(mut operation) => {
             let active = operation
                 .send_until
                 .is_some_and(|until| Instant::now() < until);
-            let values = (operation.capture_path.take(), operation.scan_active, active);
-            operation.scan_active = false;
+            let values = (operation.capture_path.take(), active);
             operation.send_until = None;
             values
         }
         Err(_) => return Err("Agent Workbench state is unavailable".into()),
     };
+    let scan_active = state.agent_scan_active.swap(false, Ordering::AcqRel);
     let mut errors = Vec::new();
     if capture_path.is_some() || scan_active || send_active {
         match state.engine.lock() {
@@ -74,7 +91,10 @@ pub(crate) fn stop_active_operations(
     }
     match state.trace_store.stop_capture() {
         Ok(status) => {
-            if let Some(error) = status.error {
+            if status.failed_during_capture() {
+                let error = status
+                    .error
+                    .unwrap_or_else(|| "capture ended with an unknown write error".into());
                 errors.push(format!("Communication trace finalization failed: {error}"));
             }
         }
@@ -312,7 +332,7 @@ fn workbench(
                 .stop_can_capture_with_reason(CanScanStopReason::AgentRequested)
                 .map_err(|error| error.to_string())?;
             active.capture_path = None;
-            active.scan_active = false;
+            state.agent_scan_active.store(false, Ordering::Release);
             active.send_until = None;
             Ok(workbench_result("capture_stopped", path))
         }
@@ -338,10 +358,8 @@ fn workbench(
             config.validate().map_err(|error| error.to_string())?;
             ensure_can_transmit(&engine)?;
             ensure_agent_capture(&state, &mut active, &engine)?;
-            engine
-                .start_can_scan(config)
+            start_agent_scan(&state.agent_scan_active, || engine.start_can_scan(config))
                 .map_err(|error| error.to_string())?;
-            active.scan_active = true;
             Ok(workbench_result(
                 "scan_started",
                 active.capture_path.clone(),
@@ -351,7 +369,7 @@ fn workbench(
             engine
                 .stop_can_scan_with_reason(CanScanStopReason::AgentRequested)
                 .map_err(|error| error.to_string())?;
-            active.scan_active = false;
+            state.agent_scan_active.store(false, Ordering::Release);
             active.send_until = None;
             Ok(workbench_result(
                 "scan_stopped",
@@ -775,7 +793,9 @@ fn authorize_action(app: &AppHandle) -> Result<(), AgentError> {
 fn get_status(app: &AppHandle) -> AgentResponse {
     let state = app.state::<AppState>();
     let active_operation = match state.agent_workbench.lock() {
-        Ok(mut operation) => operation.active_operation(),
+        Ok(mut operation) => {
+            operation.active_operation(state.agent_scan_active.load(Ordering::Acquire))
+        }
         Err(_) => {
             return AgentResponse::error(
                 AgentErrorCode::Internal,
@@ -1195,15 +1215,16 @@ fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
 mod tests {
     use super::{
         AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
-        ensure_mode06_supported, search_oem_candidates, summarize_oem_try, supported_mode06_tests,
-        validate_signal_selection,
+        ensure_mode06_supported, search_oem_candidates, start_agent_scan, summarize_oem_try,
+        supported_mode06_tests, update_agent_scan_state, validate_signal_selection,
     };
     use crate::agent::protocol::{
         AgentAccessSnapshot, AgentAdapterChoice, AgentCanScanConfig, AgentCanScanMode,
         AgentSignalSelection,
     };
     use lognook_core::{
-        DeviceDescriptor, LogNookEngine, OemCandidateOutcome, OemCandidateTryResult, OemCatalog,
+        CanScanConfig, CanScanMode, DeviceDescriptor, LogNookEngine, OemCandidateOutcome,
+        OemCandidateTryResult, OemCatalog,
     };
 
     fn engine() -> LogNookEngine {
@@ -1355,12 +1376,65 @@ mod tests {
 
     #[test]
     fn agent_status_tracks_owned_workbench_operation() {
-        let mut state = AgentWorkbenchState {
-            scan_active: true,
-            ..AgentWorkbenchState::default()
-        };
-        assert_eq!(state.active_operation().as_deref(), Some("CAN scan"));
-        state.scan_active = false;
-        assert_eq!(state.active_operation(), None);
+        let mut state = AgentWorkbenchState::default();
+        assert_eq!(state.active_operation(true).as_deref(), Some("CAN scan"));
+        assert_eq!(state.active_operation(false), None);
+    }
+
+    #[test]
+    fn scan_events_clear_agent_scan_state_without_workbench_lock() {
+        let scan_active = std::sync::atomic::AtomicBool::new(true);
+        update_agent_scan_state(
+            &scan_active,
+            &lognook_core::EngineEvent::CanScanCompleted(CanScanConfig {
+                mode: CanScanMode::CanIdRange {
+                    start_id: 0x7e0,
+                    end_id: 0x7e0,
+                    extended: false,
+                    payload: Vec::new(),
+                },
+                pacing_ms: 1,
+                response_timeout_ms: 10,
+                source_candidate_id: None,
+            }),
+        );
+        assert!(!scan_active.load(std::sync::atomic::Ordering::Acquire));
+        scan_active.store(true, std::sync::atomic::Ordering::Release);
+        update_agent_scan_state(&scan_active, &lognook_core::EngineEvent::CanScanStopped);
+        assert!(!scan_active.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn scan_that_finishes_during_startup_stays_inactive() {
+        let scan_active = std::sync::atomic::AtomicBool::new(false);
+        let result = start_agent_scan(&scan_active, || {
+            update_agent_scan_state(
+                &scan_active,
+                &lognook_core::EngineEvent::CanScanCompleted(CanScanConfig {
+                    mode: CanScanMode::CanIdRange {
+                        start_id: 0x7e0,
+                        end_id: 0x7e0,
+                        extended: false,
+                        payload: Vec::new(),
+                    },
+                    pacing_ms: 1,
+                    response_timeout_ms: 10,
+                    source_candidate_id: None,
+                }),
+            );
+            Ok(())
+        });
+        assert!(result.is_ok());
+        assert!(!scan_active.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn failed_scan_start_clears_agent_scan_state() {
+        let scan_active = std::sync::atomic::AtomicBool::new(false);
+        let result = start_agent_scan(&scan_active, || {
+            Err(lognook_core::LogNookError::new("scan could not start"))
+        });
+        assert!(result.is_err());
+        assert!(!scan_active.load(std::sync::atomic::Ordering::Acquire));
     }
 }

@@ -16,7 +16,11 @@ pub fn agent_access_status(state: State<'_, AppState>) -> Result<AgentAccessStat
         .agent_workbench
         .lock()
         .map_err(|_| "Agent Workbench state is unavailable".to_owned())?
-        .active_operation();
+        .active_operation(
+            state
+                .agent_scan_active
+                .load(std::sync::atomic::Ordering::Acquire),
+        );
     status.trace_gaps = state.trace_store.gap_count();
     Ok(status)
 }

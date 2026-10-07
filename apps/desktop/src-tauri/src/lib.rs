@@ -3,7 +3,10 @@ pub(crate) mod commands;
 mod diagnostics;
 
 use lognook_core::LogNookEngine;
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex, atomic::AtomicBool},
+};
 use tauri::{Emitter, Manager};
 
 pub(crate) struct AppState {
@@ -19,6 +22,7 @@ pub(crate) struct AppState {
     pub agent_ipc: agent::ipc::AgentIpcService,
     pub agent_ipc_endpoint: String,
     pub agent_selection: Mutex<agent::protocol::AgentSignalSelection>,
+    pub agent_scan_active: Arc<AtomicBool>,
     pub agent_workbench: Mutex<agent::tools::AgentWorkbenchState>,
     pub trace_store: lognook_core::communication_trace::CommunicationTraceStore,
 }
@@ -66,7 +70,10 @@ pub fn run() {
                 })?;
             let engine_diagnostics = diagnostics.clone();
             let app_handle = app.handle().clone();
+            let agent_scan_active = Arc::new(AtomicBool::new(false));
+            let engine_agent_scan_active = Arc::clone(&agent_scan_active);
             let mut engine = LogNookEngine::new(move |event| {
+                agent::tools::update_agent_scan_state(&engine_agent_scan_active, &event);
                 engine_diagnostics.observe_engine(&event);
                 let _ = app_handle.emit("lognook-event", event);
             });
@@ -83,6 +90,7 @@ pub fn run() {
                 agent_access: Mutex::new(agent_access),
                 agent_ipc,
                 agent_ipc_endpoint,
+                agent_scan_active,
                 agent_selection: Mutex::new(agent::protocol::AgentSignalSelection {
                     log_signal_ids: vec![
                         "engine_rpm".into(),

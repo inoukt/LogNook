@@ -42,6 +42,7 @@ pub(super) struct SerialTransport {
     port: Option<Box<dyn PortIo>>,
     pending: VecDeque<u8>,
     incomplete_response: Option<Vec<u8>>,
+    incomplete_response_truncated: bool,
     communication_sink: Option<CommunicationSink>,
 }
 
@@ -52,6 +53,7 @@ impl SerialTransport {
             port: None,
             pending: VecDeque::new(),
             incomplete_response: None,
+            incomplete_response_truncated: false,
             communication_sink: None,
         }
     }
@@ -63,6 +65,7 @@ impl SerialTransport {
             port: Some(port),
             pending: VecDeque::new(),
             incomplete_response: None,
+            incomplete_response_truncated: false,
             communication_sink: None,
         }
     }
@@ -163,11 +166,23 @@ impl SerialTransport {
                 Ok(String::from_utf8_lossy(&response).into_owned())
             }
             Err(error) => {
-                let outcome = serial_error_outcome(&error);
+                let truncated = std::mem::take(&mut self.incomplete_response_truncated);
                 let partial = self.incomplete_response.take();
-                let unavailable = partial
-                    .is_none()
-                    .then(|| format!("serial response bytes unavailable: {error}"));
+                let outcome = if truncated {
+                    "response_truncated"
+                } else {
+                    serial_error_outcome(&error)
+                };
+                let unavailable = if truncated {
+                    Some(
+                        "Response exceeded the 4096-byte trace limit; only a prefix was retained"
+                            .to_owned(),
+                    )
+                } else {
+                    partial
+                        .is_none()
+                        .then(|| format!("serial response bytes unavailable: {error}"))
+                };
                 self.trace(
                     CommunicationDirection::Rx,
                     partial.as_deref(),
@@ -199,15 +214,28 @@ impl SerialTransport {
                 Ok(String::from_utf8_lossy(&response).into_owned())
             }
             Err(error) => {
+                let truncated = std::mem::take(&mut self.incomplete_response_truncated);
                 let partial = self.incomplete_response.take();
-                let unavailable = partial
-                    .is_none()
-                    .then(|| format!("serial prompt bytes unavailable: {error}"));
+                let outcome = if truncated {
+                    "response_truncated"
+                } else {
+                    serial_error_outcome(&error)
+                };
+                let unavailable = if truncated {
+                    Some(
+                        "Response exceeded the 4096-byte trace limit; only a prefix was retained"
+                            .to_owned(),
+                    )
+                } else {
+                    partial
+                        .is_none()
+                        .then(|| format!("serial prompt bytes unavailable: {error}"))
+                };
                 self.trace(
                     CommunicationDirection::Rx,
                     partial.as_deref(),
                     started,
-                    serial_error_outcome(&error),
+                    outcome,
                     unavailable.as_deref(),
                 );
                 Err(error)
@@ -217,6 +245,7 @@ impl SerialTransport {
 
     fn read_prompt_for_command(&mut self, command: Option<&str>) -> Result<Vec<u8>, LogNookError> {
         self.incomplete_response = None;
+        self.incomplete_response_truncated = false;
         let deadline = Instant::now() + RESPONSE_TIMEOUT;
         let mut response = Vec::new();
         let mut chunk = [0_u8; 128];
@@ -225,7 +254,9 @@ impl SerialTransport {
             while let Some(byte) = self.pending.pop_front() {
                 response.push(byte);
                 if response.len() > MAX_RESPONSE_BYTES {
-                    self.incomplete_response = Some(response.clone());
+                    response.truncate(MAX_RESPONSE_BYTES);
+                    self.incomplete_response = Some(response);
+                    self.incomplete_response_truncated = true;
                     return Err(LogNookError::new(
                         "OBDLink response exceeded the 4096-byte limit",
                     ));
@@ -238,6 +269,7 @@ impl SerialTransport {
 
             if response.len() >= MAX_RESPONSE_BYTES {
                 self.incomplete_response = Some(response.clone());
+                self.incomplete_response_truncated = true;
                 return Err(LogNookError::new(
                     "OBDLink response exceeded the 4096-byte limit",
                 ));
@@ -260,6 +292,7 @@ impl SerialTransport {
                             &chunk[..count.min(MAX_RESPONSE_BYTES.saturating_sub(response.len()))],
                         );
                         self.incomplete_response = Some(response);
+                        self.incomplete_response_truncated = true;
                         return Err(LogNookError::new(
                             "OBDLink response exceeded the 4096-byte limit",
                         ));
@@ -443,6 +476,36 @@ mod communication_trace_tests {
             Some("303130430D374538203033203431203043")
         );
         assert_eq!(response.raw_bytes_unavailable, None);
+    }
+
+    #[test]
+    fn sx_oversized_response_trace_marks_prefix_as_truncated() {
+        let store = CommunicationTraceStore::with_limits(8, 8);
+        let mut incoming = b"010C\r".to_vec();
+        incoming.extend(std::iter::repeat(b'A').take(super::MAX_RESPONSE_BYTES));
+        let port = ScriptedPort {
+            incoming: incoming.into(),
+            written: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut transport =
+            SerialTransport::with_port("COM9".into(), Box::new(port) as Box<dyn PortIo>);
+        transport.set_communication_sink(store.sink());
+        assert!(transport.command("010C").is_err());
+        let page = store.get_trace(0, 8).unwrap();
+        let response = page
+            .events
+            .iter()
+            .find(|event| event.direction == CommunicationDirection::Rx)
+            .unwrap();
+        assert_eq!(response.outcome, "response_truncated");
+        assert_eq!(
+            response.bytes_hex.as_ref().unwrap().len(),
+            super::MAX_RESPONSE_BYTES * 2
+        );
+        assert_eq!(
+            response.raw_bytes_unavailable.as_deref(),
+            Some("Response exceeded the 4096-byte trace limit; only a prefix was retained")
+        );
     }
 }
 
