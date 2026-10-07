@@ -18,9 +18,10 @@
   import ResearchRunResults from "./ResearchRunResults.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
   import {
-    appendCanFrames, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
+    appendCanFrames, appendCanTrafficSummary, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
     clearCanSessionSamples as withoutCanSamples, emptyCanSessionEvents,
   } from "./canWorkbench";
+  import type { CanTrafficSummary } from "./canWorkbench";
   import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
   import { reconcileSxPorts } from "./adapterDiscovery";
   import {
@@ -111,6 +112,7 @@
   let canWorkbenchStatus: CanWorkbenchStatus | null = null;
   let canSignalDefinitions: CanSignalDefinition[] = [];
   let canFrames: CanFrame[] = [];
+  let canTrafficSummary: CanTrafficSummary[] = [];
   let canScanResults: CanScanResult[] = [];
   let canTxStatuses: CanTxStatus[] = [];
   let canTransportErrors: CanTransportError[] = [];
@@ -453,6 +455,7 @@
       if (event.payload.connected && !canWorkbenchStatus?.connected) {
         const empty = emptyCanSessionEvents();
         canFrames = empty.frames;
+        canTrafficSummary = empty.trafficSummary;
         canScanResults = empty.scanResults;
         canTxStatuses = empty.txStatuses;
         canTransportErrors = empty.transportErrors;
@@ -475,11 +478,13 @@
         status = "Disconnected";
       }
     } else if (event.type === "canFrames") {
-      queuedCanFrames = appendCanFrames(queuedCanFrames, event.payload);
+      queuedCanFrames = [...queuedCanFrames, ...event.payload];
       if (!canFrameFlushScheduled) {
         canFrameFlushScheduled = true;
         requestAnimationFrame(() => {
-          canFrames = appendCanFrames(canFrames, queuedCanFrames);
+          const incoming = queuedCanFrames;
+          canFrames = appendCanFrames(canFrames, incoming);
+          canTrafficSummary = appendCanTrafficSummary(canTrafficSummary, incoming);
           queuedCanFrames = [];
           canFrameFlushScheduled = false;
         });
@@ -1447,6 +1452,7 @@
           status={canWorkbenchStatus}
           fields={canSignalDefinitions}
           frames={canFrames}
+          trafficSummary={canTrafficSummary}
           scanResults={canScanResults}
           txStatuses={canTxStatuses}
           transportErrors={canTransportErrors}

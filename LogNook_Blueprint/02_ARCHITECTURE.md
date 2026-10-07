@@ -10,6 +10,7 @@
 ## Pipeline
 `HardwareAdapter -> RawTransportEvent -> ProtocolSession -> DecodedSample -> EventBus -> Recorder / SchedulerFeedback / TriggerEngine / UIThrottler / AlertEngine`.
 Raw CAN monitoring takes a parallel path to the raw-frame recorder/DBC decoder. Derived signals subscribe to decoded sample events; formulas do not alter source measurements. Recorders never rely on the chart's selected signals if acquisition is configured to retain more.
+The live CAN monitor batches UI updates per animation frame and maintains cumulative RX/TX counts by 11-bit or 29-bit ID for the current connection. Each summary row shows the latest DLC/payload/ASCII and average RX inter-arrival period/rate; reconnect resets the counters. The raw frame view keeps only the latest 400 frames for display, while the paired capture writer retains the full traffic stream.
 
 ## Shared contracts
 `DeviceDescriptor {stable_id, hardware_family, firmware, path}`

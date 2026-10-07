@@ -5,8 +5,8 @@
     canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
     createCanWorkbenchCommands, defaultCanWorkbenchConfig, parseCanId, parseCanPayload,
     canCorrelationHypothesisKey, formatCanCorrelationSource,
-    formatCanDiagnosticRoute, recentCanRates, replaySidecarStatus,
-    type CanScanKind,
+    formatCanDiagnosticRoute, replaySidecarStatus,
+    type CanScanKind, type CanTrafficSummary,
   } from "./canWorkbench";
   import type {
     CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanEventCorrelation, CanFrame, CanManualEventMark, CanScanConfig,
@@ -20,6 +20,7 @@
   export let status: CanWorkbenchStatus | null = null;
   export let fields: CanSignalDefinition[] = [];
   export let frames: CanFrame[] = [];
+  export let trafficSummary: CanTrafficSummary[] = [];
   export let scanResults: CanScanResult[] = [];
   export let txStatuses: CanTxStatus[] = [];
   export let transportErrors: CanTransportError[] = [];
@@ -82,12 +83,13 @@
   let eventPostMs = 1000;
   let eventMarks: CanManualEventMark[] = [];
   let eventStatus = "";
+  let trafficView: "summary" | "frames" = "summary";
 
   $: selectedAdapter = adapters.find(({ id }) => id === selectedAdapterId);
   $: connected = Boolean(status?.connected);
   $: transmissionReady = canTransmitEnabled(status, captureOpen) && !busy && !workspaceBusy;
   $: scanConfig = currentScanConfig();
-  $: recentRates = recentCanRates(frames);
+  $: trafficFrameCount = trafficSummary.reduce((total, row) => total + row.rx_count + row.tx_count, 0);
   $: scanError = scanConfig ? "" : scanKind === "can_id_range"
     ? "Enter a valid CAN ID range and up to eight payload bytes."
     : scanKind === "mode_01_support"
@@ -558,27 +560,50 @@
   </details>
 
   <details class="can-live-data" open>
-    <summary>Live traffic · {frames.length} recent frames</summary>
-    <p class="can-muted">Per-ID counts and rates use the latest {frames.length} frames, up to 400.</p>
-    <div class="can-rate-summary" aria-label="Recent CAN ID counts and rates">
-      {#each recentRates as row (`${row.can_id}:${row.extended}`)}
-        <span>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()} · {row.rx_count} RX / {row.tx_count} TX · {row.rate_hz === null ? "rate —" : `${row.rate_hz.toFixed(1)} Hz`}</span>
-      {:else}
-        <span class="can-muted">No recent IDs</span>
-      {/each}
+    <summary>Live traffic · {trafficFrameCount.toLocaleString()} frames · {trafficSummary.length} IDs</summary>
+    <div class="can-live-toolbar">
+      <div class="can-view-switch" role="group" aria-label="CAN traffic view">
+        <button class="can-view-option" aria-pressed={trafficView === "summary"} onclick={() => trafficView = "summary"}>Counts</button>
+        <button class="can-view-option" aria-pressed={trafficView === "frames"} onclick={() => trafficView = "frames"}>Frames</button>
+      </div>
+      <span class="can-muted">Counts since connection</span>
     </div>
-    <div class="can-table-wrap">
-      <table aria-label="Recent CAN frames">
-        <thead><tr><th>Time</th><th>Dir</th><th>ID</th><th>DLC</th><th>Data</th></tr></thead>
-        <tbody>
-          {#each frames.slice(-80).reverse() as frame, index (`${frame.wall_time_unix_ns}:${frame.can_id}:${index}`)}
-            <tr><td>{(frame.elapsed_ns / 1e9).toFixed(3)}s</td><td>{frame.direction.toUpperCase()}</td><td>{frame.extended ? "29" : "11"}-bit 0x{frame.can_id.toString(16).toUpperCase()}</td><td>{frame.data.length}</td><td><code>{bytesHex(frame.data)}</code></td></tr>
-          {:else}
-            <tr><td colspan="5" class="can-muted">Waiting for Candlelight frames</td></tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+    {#if trafficView === "summary"}
+      <div class="can-table-wrap">
+        <table aria-label="Live CAN ID counts">
+          <thead><tr><th>ID</th><th>DLC</th><th>Data</th><th>Period</th><th>Count</th><th>Rate</th><th>ASCII</th></tr></thead>
+          <tbody>
+            {#each trafficSummary as row (`${row.can_id}:${row.extended}`)}
+              <tr>
+                <td>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()}</td>
+                <td>{row.last_data.length}</td>
+                <td><code>{bytesHex(row.last_data)}</code> · {row.last_direction.toUpperCase()}</td>
+                <td>{row.period_ms === null ? "—" : `${row.period_ms.toFixed(row.period_ms < 10 ? 2 : 1)} ms`}</td>
+                <td>{row.rx_count.toLocaleString()} RX / {row.tx_count.toLocaleString()} TX</td>
+                <td>{row.rate_hz === null ? "—" : `${row.rate_hz.toFixed(1)} Hz`}</td>
+                <td><code>{row.ascii || "—"}</code></td>
+              </tr>
+            {:else}
+              <tr><td colspan="7" class="can-muted">Waiting for Candlelight frames</td></tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {:else}
+      <p class="can-muted">Latest {frames.length} frames retained for inspection (up to 400).</p>
+      <div class="can-table-wrap">
+        <table aria-label="Recent CAN frames">
+          <thead><tr><th>Time</th><th>Dir</th><th>ID</th><th>DLC</th><th>Data</th></tr></thead>
+          <tbody>
+            {#each frames.slice(-80).reverse() as frame, index (`${frame.wall_time_unix_ns}:${frame.can_id}:${index}`)}
+              <tr><td>{(frame.elapsed_ns / 1e9).toFixed(3)}s</td><td>{frame.direction.toUpperCase()}</td><td>{frame.extended ? "29" : "11"}-bit 0x{frame.can_id.toString(16).toUpperCase()}</td><td>{frame.data.length}</td><td><code>{bytesHex(frame.data)}</code></td></tr>
+            {:else}
+              <tr><td colspan="5" class="can-muted">Waiting for Candlelight frames</td></tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
     {#if scanResults.length}
       <h3>Scan results · {scanResults.length.toLocaleString()}</h3>
       <ul class="can-event-list" aria-label="CAN scan results">
@@ -795,8 +820,10 @@
   .can-byte-list { max-height:8rem; overflow:auto; margin:3px 0; padding-left:12px; font-size:9px; }
   .can-report-counts { display:flex; flex-wrap:wrap; gap:3px; margin:4px 0; }
   .can-report-counts span { padding:2px 4px; border:1px solid var(--border,#344652); border-radius:.4rem; font-size:9px; }
-  .can-rate-summary { display:flex; flex-wrap:wrap; gap:2px; margin:3px 0; }
-  .can-rate-summary span { padding:2px 3px; border:1px solid var(--border,#344652); border-radius:.35rem; color:var(--text-muted,#9badb8); font-size:9px; }
+  .can-live-toolbar { display:flex; align-items:center; justify-content:space-between; gap:4px; margin-top:3px; }
+  .can-view-switch { display:inline-flex; gap:2px; }
+  .can-view-option { min-height:21px; padding:1px 6px; border:1px solid var(--border,#344652); border-radius:.35rem; background:transparent; color:var(--text-muted,#9badb8); font-size:9px; }
+  .can-view-option[aria-pressed="true"] { background:var(--accent,#56c8bd); color:var(--text-on-accent,#102027); }
   .can-report-status { color:var(--accent,#56c8bd); font-size:9px; }
   .can-hint { margin:3px 0 0; }
 </style>

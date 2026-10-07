@@ -112,24 +112,49 @@ test("manual CAN payloads parse strict byte tokens and produce classic TX frames
   assert.deepEqual(can.appendCanFrames(frames.slice(0, 2), frames.slice(2), 3), frames.slice(-3));
 });
 
-test("recent per-ID counts and RX rates use only the bounded timestamped frame buffer", () => {
+test("live CAN summary accumulates per-ID counts, period, latest data, and ASCII across batches", () => {
   assert.ok(can, "CAN workbench helpers exist");
-  const frames = [
-    { elapsed_ns: 100_000_000, can_id: 0x123, extended: false, direction: "rx" },
-    { elapsed_ns: 200_000_000, can_id: 0x123, extended: false, direction: "rx" },
-    { elapsed_ns: 300_000_000, can_id: 0x123, extended: false, direction: "tx" },
-    { elapsed_ns: 300_000_000, can_id: 0x1abcdef, extended: true, direction: "rx" },
-  ];
-  assert.deepEqual(can.recentCanRates(frames), [
-    { can_id: 0x123, extended: false, rx_count: 2, tx_count: 1, rate_hz: 10 },
-    { can_id: 0x1abcdef, extended: true, rx_count: 1, tx_count: 0, rate_hz: null },
+  const frame = (elapsed_ns, direction, data, extended = false) => ({
+    elapsed_ns, wall_time_unix_ns: elapsed_ns, can_id: 0x123, extended, direction, data, flags: 0,
+  });
+  let summary = can.appendCanTrafficSummary([], [frame(1_000_000_000, "rx", [0x41, 0x42])]);
+  summary = can.appendCanTrafficSummary(summary, [
+    frame(1_002_000_000, "rx", [0x43, 0x0a]),
+    frame(1_003_000_000, "tx", [0x44]),
+    frame(1_004_000_000, "rx", [0x45], true),
   ]);
+  assert.deepEqual(summary, [
+    {
+      can_id: 0x123, extended: false, rx_count: 2, tx_count: 1,
+      last_data: [0x44], last_direction: "tx", first_rx_elapsed_ns: 1_000_000_000,
+      last_rx_elapsed_ns: 1_002_000_000, period_ms: 2, rate_hz: 500, ascii: "D",
+    },
+    {
+      can_id: 0x123, extended: true, rx_count: 1, tx_count: 0,
+      last_data: [0x45], last_direction: "rx", first_rx_elapsed_ns: 1_004_000_000,
+      last_rx_elapsed_ns: 1_004_000_000, period_ms: null, rate_hz: null, ascii: "E",
+    },
+  ]);
+});
+
+test("live CAN summary counts frames beyond the recent display buffer", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  const frames = Array.from({ length: 405 }, (_, index) => ({
+    elapsed_ns: index * 1_000_000, wall_time_unix_ns: index * 1_000_000,
+    can_id: 0x321, extended: false, direction: "rx", data: [index & 0xff], flags: 0,
+  }));
+  let summary = [];
+  for (let index = 0; index < frames.length; index += 80) {
+    summary = can.appendCanTrafficSummary(summary, frames.slice(index, index + 80));
+  }
+  assert.equal(summary[0].rx_count, 405);
+  assert.deepEqual(summary[0].last_data, [404 & 0xff]);
 });
 
 test("a new CAN session resets its event history and only its own signal samples", () => {
   assert.ok(can, "CAN workbench helpers exist");
   assert.deepEqual(can.emptyCanSessionEvents(), {
-    frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false, triggerCapture: null,
+    frames: [], trafficSummary: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false, triggerCapture: null,
   });
   const latest = {
     engine_rpm: { signal_id: "engine_rpm", value: 900 },
@@ -144,7 +169,7 @@ test("a new CAN session resets its event history and only its own signal samples
     series: { engine_rpm: [latest.engine_rpm] },
   });
   assert.match(app, /if \(event\.payload\.connected && !canWorkbenchStatus\?\.connected\) \{[\s\S]*?const empty = emptyCanSessionEvents\(\)/, "new connected status starts with fresh CAN session event state");
-  for (const assignment of ["canFrames = empty.frames", "canScanResults = empty.scanResults", "canTxStatuses = empty.txStatuses", "canTransportErrors = empty.transportErrors"]) {
+  for (const assignment of ["canFrames = empty.frames", "canTrafficSummary = empty.trafficSummary", "canScanResults = empty.scanResults", "canTxStatuses = empty.txStatuses", "canTransportErrors = empty.transportErrors"]) {
     assert.ok(app.includes(assignment), `new CAN session resets ${assignment}`);
   }
   assert.match(app, /emptyCanSessionEvents\(\)/, "a new CAN connection clears the old frame/scan/TX/error view");
@@ -254,14 +279,17 @@ test("Workbench renders bounded frames, scan results, echo status, transport evi
   for (const marker of ["frames={canFrames}", "scanResults={canScanResults}", "txStatuses={canTxStatuses}", "transportErrors={canTransportErrors}", "scanRunning={canScanRunning}"]) {
     assert.ok(app.includes(marker), `App passes ${marker}`);
   }
-  for (const marker of ["aria-label=\"Recent CAN frames\"", "Echo confirmed", "raw_usb", "replaySidecarStatus", "rate_hz", "evidence_records", "chooseCaptureOpenPath", "sendFrame"]) {
+  for (const marker of ["aria-label=\"Recent CAN frames\"", "aria-label=\"Live CAN ID counts\"", "Echo confirmed", "raw_usb", "replaySidecarStatus", "rate_hz", "evidence_records", "chooseCaptureOpenPath", "sendFrame"]) {
     assert.ok(panel.includes(marker), `CAN panel presents ${marker}`);
   }
-  assert.match(app, /queuedCanFrames = appendCanFrames\(queuedCanFrames, event\.payload\)/, "pending raw frame display state stays bounded between paints");
-  assert.match(app, /requestAnimationFrame\([\s\S]*?appendCanFrames\(canFrames, queuedCanFrames\)/, "raw frame events coalesce to one display update per animation frame");
+  assert.match(app, /trafficSummary=\{canTrafficSummary\}/);
+  assert.match(app, /queuedCanFrames = \[\.\.\.queuedCanFrames, \.\.\.event\.payload\]/, "all frames stay queued until the next paint so counts do not lose bursts");
+  assert.match(app, /requestAnimationFrame\([\s\S]*?const incoming = queuedCanFrames;[\s\S]*?appendCanFrames\(canFrames, incoming\)[\s\S]*?appendCanTrafficSummary\(canTrafficSummary, incoming\)/, "frame list and cumulative counts coalesce to one update per animation frame");
   assert.match(panel, /CAN ID range/);
   assert.match(panel, /Mode 01 PIDs/);
-  assert.match(panel, /recentCanRates\(frames\)/);
+  assert.match(app, /canTrafficSummary = appendCanTrafficSummary\(canTrafficSummary, incoming\)/);
+  assert.match(panel, /Counts since connection/);
+  assert.match(panel, /Frames/);
   assert.match(panel, /0\/0\s*default|interfaceNumber = 0[\s\S]*?channel = 0/);
 });
 

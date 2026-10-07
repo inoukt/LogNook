@@ -246,43 +246,64 @@ export function createCanTxFrame(canId: number, extended: boolean, data: number[
   return { elapsed_ns: 0, wall_time_unix_ns: 0, can_id: canId, extended, direction: "tx", data, flags: 0 };
 }
 
-export type CanRecentIdRate = {
+export type CanTrafficSummary = {
   can_id: number;
   extended: boolean;
   rx_count: number;
   tx_count: number;
+  last_data: number[];
+  last_direction: CanFrame["direction"];
+  first_rx_elapsed_ns: number | null;
+  last_rx_elapsed_ns: number | null;
+  period_ms: number | null;
   rate_hz: number | null;
+  ascii: string;
 };
 
-export function recentCanRates(
-  frames: Array<Pick<CanFrame, "elapsed_ns" | "can_id" | "extended" | "direction">>,
-): CanRecentIdRate[] {
-  const rows = new Map<string, CanRecentIdRate & { firstRxNs: number; lastRxNs: number }>();
-  for (const frame of frames) {
+export function appendCanTrafficSummary(
+  current: CanTrafficSummary[], incoming: CanFrame[],
+): CanTrafficSummary[] {
+  const rows = new Map(current.map((row) => [
+    `${row.extended ? 1 : 0}:${row.can_id}`,
+    { ...row, last_data: [...row.last_data] },
+  ]));
+  for (const frame of incoming) {
     const key = `${frame.extended ? 1 : 0}:${frame.can_id}`;
-    let row = rows.get(key);
-    if (!row) {
-      row = { can_id: frame.can_id, extended: frame.extended, rx_count: 0, tx_count: 0, rate_hz: null, firstRxNs: 0, lastRxNs: 0 };
-      rows.set(key, row);
-    }
+    const row = rows.get(key) ?? {
+      can_id: frame.can_id,
+      extended: frame.extended,
+      rx_count: 0,
+      tx_count: 0,
+      last_data: [],
+      last_direction: frame.direction,
+      first_rx_elapsed_ns: null,
+      last_rx_elapsed_ns: null,
+      period_ms: null,
+      rate_hz: null,
+      ascii: "",
+    };
+    row.last_data = [...frame.data];
+    row.last_direction = frame.direction;
+    row.ascii = frame.data.map((byte) => byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : ".").join("");
     if (frame.direction === "rx") {
-      if (row.rx_count === 0) row.firstRxNs = frame.elapsed_ns;
+      if (row.rx_count === 0) row.first_rx_elapsed_ns = frame.elapsed_ns;
       row.rx_count++;
-      row.lastRxNs = frame.elapsed_ns;
+      row.last_rx_elapsed_ns = frame.elapsed_ns;
+      const spanNs = frame.elapsed_ns - (row.first_rx_elapsed_ns ?? frame.elapsed_ns);
+      row.period_ms = row.rx_count > 1 && spanNs > 0 ? spanNs / (row.rx_count - 1) / 1e6 : null;
+      row.rate_hz = row.period_ms === null ? null : 1000 / row.period_ms;
     } else {
       row.tx_count++;
     }
+    rows.set(key, row);
   }
-  return [...rows.values()].map(({ firstRxNs, lastRxNs, ...row }) => ({
-    ...row,
-    rate_hz: row.rx_count > 1 && lastRxNs > firstRxNs
-      ? (row.rx_count - 1) * 1_000_000_000 / (lastRxNs - firstRxNs)
-      : null,
-  }));
+  return [...rows.values()].sort((left, right) =>
+    Number(left.extended) - Number(right.extended) || left.can_id - right.can_id);
 }
 
 export type CanSessionEvents = {
   frames: CanFrame[];
+  trafficSummary: CanTrafficSummary[];
   scanResults: CanScanResult[];
   txStatuses: CanTxStatus[];
   transportErrors: CanTransportError[];
@@ -291,7 +312,7 @@ export type CanSessionEvents = {
 };
 
 export function emptyCanSessionEvents(): CanSessionEvents {
-  return { frames: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false, triggerCapture: null };
+  return { frames: [], trafficSummary: [], scanResults: [], txStatuses: [], transportErrors: [], scanRunning: false, triggerCapture: null };
 }
 
 export function clearCanSessionSamples(
