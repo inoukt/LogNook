@@ -1,7 +1,7 @@
 use crate::{
-    CanDeviceSelection, CanScanConfig, CanSignalDefinition, CanTransport, CanWorkbench,
-    CanWorkbenchConfig, CanWorkbenchStatus, DiagnosticSink, HardwareAdapter, ResearchTestRequest,
-    ResearchTestResult, SimulatedObdAdapter,
+    CanDeviceSelection, CanScanConfig, CanScanStopReason, CanSignalDefinition, CanTransport,
+    CanWorkbench, CanWorkbenchConfig, CanWorkbenchStatus, DiagnosticSink, HardwareAdapter,
+    ResearchTestRequest, ResearchTestResult, SimulatedObdAdapter,
     acquisition::AcquisitionHandle,
     csv_io::export_recording_csv,
     derived::{CompiledDerivedSignal, compile_derived_signals},
@@ -254,10 +254,17 @@ impl LogNookEngine {
     }
 
     pub fn stop_can_capture(&self) -> Result<(), LogNookError> {
+        self.stop_can_capture_with_reason(CanScanStopReason::CaptureStopped)
+    }
+
+    pub fn stop_can_capture_with_reason(
+        &self,
+        reason: CanScanStopReason,
+    ) -> Result<(), LogNookError> {
         self.can_workbench
             .as_ref()
             .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
-            .stop_capture()
+            .stop_capture_with_reason(reason)
     }
 
     pub fn mark_can_event(
@@ -335,10 +342,14 @@ impl LogNookEngine {
     }
 
     pub fn stop_can_scan(&self) -> Result<(), LogNookError> {
+        self.stop_can_scan_with_reason(CanScanStopReason::UserRequested)
+    }
+
+    pub fn stop_can_scan_with_reason(&self, reason: CanScanStopReason) -> Result<(), LogNookError> {
         self.can_workbench
             .as_ref()
             .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
-            .stop_scan()
+            .stop_scan_with_reason(reason)
     }
 
     pub fn is_connected(&self) -> bool {

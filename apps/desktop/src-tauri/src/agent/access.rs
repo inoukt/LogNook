@@ -8,6 +8,8 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+#[cfg(unix)]
+use std::{fs::OpenOptions, io::Write, os::unix::fs::PermissionsExt, path::Path};
 
 const PIN_LENGTH: usize = 6;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -35,8 +37,12 @@ pub(crate) struct AgentAccessManager {
 impl AgentAccessManager {
     pub(crate) fn open(path: impl Into<PathBuf>) -> Result<Self, String> {
         let pin_path = path.into();
+        #[cfg(unix)]
+        protect_pin_directory(&pin_path)?;
         let pin_verifier = match fs::read_to_string(&pin_path) {
             Ok(verifier) => {
+                #[cfg(unix)]
+                protect_pin_file(&pin_path)?;
                 let verifier = verifier.trim().to_owned();
                 PasswordHash::new(&verifier)
                     .map_err(|_| "Stored Agent Access PIN verifier is invalid".to_owned())?;
@@ -65,11 +71,33 @@ impl AgentAccessManager {
             .hash_password(pin.as_bytes())
             .map_err(|error| format!("Could not hash Agent Access PIN: {error}"))?
             .to_string();
-        if let Some(parent) = self.pin_path.parent() {
+        if let Some(parent) = self
+            .pin_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(|error| {
                 format!("Could not create Agent Access data directory: {error}")
             })?;
+            #[cfg(unix)]
+            protect_pin_directory(&self.pin_path)?;
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&self.pin_path)
+                .map_err(|error| format!("Could not save Agent Access PIN verifier: {error}"))?;
+            file.write_all(verifier.as_bytes())
+                .and_then(|()| file.sync_all())
+                .map_err(|error| format!("Could not save Agent Access PIN verifier: {error}"))?;
+            protect_pin_file(&self.pin_path)?;
+        }
+        #[cfg(not(unix))]
         fs::write(&self.pin_path, verifier.as_bytes())
             .map_err(|error| format!("Could not save Agent Access PIN verifier: {error}"))?;
         self.pin_verifier = Some(verifier);
@@ -164,6 +192,25 @@ impl AgentAccessManager {
     }
 }
 
+#[cfg(unix)]
+fn protect_pin_directory(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        && parent.exists()
+    {
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("Could not protect Agent Access data directory: {error}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn protect_pin_file(path: &Path) -> Result<(), String> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("Could not protect Agent Access PIN verifier: {error}"))
+}
+
 fn valid_pin(pin: &str) -> bool {
     pin.len() == PIN_LENGTH && pin.bytes().all(|byte| byte.is_ascii_digit())
 }
@@ -225,6 +272,29 @@ mod tests {
         let verifier = fs::read_to_string(test.directory.join("pin.hash")).unwrap();
         assert!(!verifier.contains("135790"));
         assert!(verifier.starts_with("$argon2id$"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pin_verifier_and_parent_directory_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut test = TestManager::new();
+        test.manager.configure_pin("135790").unwrap();
+        fs::set_permissions(&test.directory, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(
+            test.directory.join("pin.hash"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        let _ = AgentAccessManager::open(test.directory.join("pin.hash")).unwrap();
+        let dir_mode = fs::metadata(&test.directory).unwrap().permissions().mode() & 0o777;
+        let file_mode = fs::metadata(test.directory.join("pin.hash"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dir_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
     }
 
     #[test]

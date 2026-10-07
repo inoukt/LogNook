@@ -1,7 +1,7 @@
 use super::scan::{self, ScanTask, accept_scan_response, task_finished, tick_scan};
 use super::{
-    CanEvidenceRecord, CanManualEventMark, CanScanConfig, CanSignalDefinition, CanTransport,
-    CanTransportError, CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig,
+    CanEvidenceRecord, CanManualEventMark, CanScanConfig, CanScanStopReason, CanSignalDefinition,
+    CanTransport, CanTransportError, CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig,
     CanTriggerEndReason, CanTriggerRecorder, CanWorkbenchStatus, OemCandidateTrySpec,
 };
 use crate::{
@@ -27,14 +27,14 @@ const RECEIVE_SLICE: Duration = Duration::from_millis(5);
 pub(super) enum Command {
     SetFields(Vec<CanSignalDefinition>, mpsc::Sender<Result<(), String>>),
     StartCapture(std::path::PathBuf, mpsc::Sender<Result<(), String>>),
-    StopCapture(mpsc::Sender<Result<(), String>>),
+    StopCapture(CanScanStopReason, mpsc::Sender<Result<(), String>>),
     SendFrame(CanFrame, u64, u32, mpsc::Sender<Result<(), String>>),
     StartScan(
         CanScanConfig,
         Option<OemCandidateTrySpec>,
         mpsc::Sender<Result<(), String>>,
     ),
-    StopScan(mpsc::Sender<Result<(), String>>),
+    StopScan(CanScanStopReason, mpsc::Sender<Result<(), String>>),
     ArmTrigger(CanTriggerConfig, mpsc::Sender<Result<(), String>>),
     TriggerNow(mpsc::Sender<Result<(), String>>),
     MarkEvent {
@@ -528,7 +528,7 @@ fn handle_command(
             }
             let _ = reply.send(result);
         }
-        Command::StopCapture(reply) => {
+        Command::StopCapture(reason, reply) => {
             let stop_result = if let Some(task) = scan_task.take() {
                 let result = capture
                     .as_mut()
@@ -536,6 +536,7 @@ fn handle_command(
                     .and_then(|capture| {
                         capture.record(&CanEvidenceRecord::ScanStopped {
                             config: task.config().into(),
+                            reason: reason.clone(),
                         })
                     });
                 (event_sink)(EngineEvent::CanScanStopped);
@@ -615,7 +616,7 @@ fn handle_command(
             };
             let _ = reply.send(result);
         }
-        Command::StopScan(reply) => {
+        Command::StopScan(reason, reply) => {
             let result = if let Some(task) = scan_task.take() {
                 let result = capture
                     .as_mut()
@@ -623,6 +624,7 @@ fn handle_command(
                     .and_then(|capture| {
                         capture.record(&CanEvidenceRecord::ScanStopped {
                             config: task.config().into(),
+                            reason,
                         })
                     });
                 (event_sink)(EngineEvent::CanScanStopped);
@@ -1254,7 +1256,7 @@ mod tests {
         let event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync> = Arc::new(|_| {});
         let (reply, response) = mpsc::channel();
         handle_command(
-            Command::StopScan(reply),
+            Command::StopScan(CanScanStopReason::UserRequested, reply),
             &mut fields,
             &mut capture,
             &mut send_task,

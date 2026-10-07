@@ -116,14 +116,15 @@ impl Elm327Adapter {
             let read = stream.read(&mut chunk);
             match read {
                 Ok(0) => {
+                    let detail = "Bluetooth stream closed before the ELM prompt";
                     record_elm_trace(
                         communication_sink.as_ref(),
                         &trace_adapter_id,
                         CommunicationDirection::Rx,
-                        None,
+                        (!response.is_empty()).then_some(response.as_slice()),
                         started,
                         "disconnected",
-                        Some("Bluetooth stream closed before the ELM prompt"),
+                        response.is_empty().then_some(detail),
                     );
                     return Err(LogNookError::new(
                         "ELM327 Bluetooth link closed before the > prompt",
@@ -172,10 +173,10 @@ impl Elm327Adapter {
                             communication_sink.as_ref(),
                             &trace_adapter_id,
                             CommunicationDirection::Rx,
-                            None,
+                            (!response.is_empty()).then_some(response.as_slice()),
                             started,
                             "timeout",
-                            Some(&unavailable),
+                            response.is_empty().then_some(unavailable.as_str()),
                         );
                         return Err(error);
                     }
@@ -198,6 +199,15 @@ impl Elm327Adapter {
                 }
             }
             if response.len() >= MAX_ELM_RESPONSE_BYTES {
+                record_elm_trace(
+                    communication_sink.as_ref(),
+                    &trace_adapter_id,
+                    CommunicationDirection::Rx,
+                    Some(&response),
+                    started,
+                    "oversized_response",
+                    Some("Response exceeded the 4096-byte trace limit"),
+                );
                 return Err(LogNookError::new(
                     "ELM327 response exceeded the 4096-byte limit",
                 ));
@@ -644,6 +654,7 @@ fn sample_from_response(
 #[cfg(test)]
 mod tests {
     use super::{Elm327Adapter, run_elm_oem_candidate_with_stream};
+    use crate::communication_trace::CommunicationDirection;
     use crate::{
         HardwareAdapter, OemCandidate, OemCandidateOutcome, OemCandidateTrySpec, SampleQuality,
         standard_obd_signals,
@@ -828,6 +839,27 @@ mod tests {
             page.events[1].bytes_hex.as_deref(),
             Some("3745382030332034312030432031412046380D3E")
         );
+    }
+
+    #[test]
+    fn elm_timeout_trace_keeps_partial_response_bytes() {
+        let store = crate::communication_trace::CommunicationTraceStore::with_limits(8, 8);
+        let (stream, _) = ScriptedStream::new([b"7E8 03 41 0C".to_vec()]);
+        let mut adapter = Elm327Adapter::with_stream("AA:BB:CC:DD:EE:FF", Box::new(stream));
+        adapter.set_communication_sink(store.sink());
+        assert!(adapter.exchange("010C").is_err());
+        let page = store.get_trace(0, 8).unwrap();
+        let response = page
+            .events
+            .iter()
+            .find(|event| event.direction == CommunicationDirection::Rx)
+            .unwrap();
+        assert_eq!(response.outcome, "timeout");
+        assert_eq!(
+            response.bytes_hex.as_deref(),
+            Some("374538203033203431203043")
+        );
+        assert_eq!(response.raw_bytes_unavailable, None);
     }
 
     #[test]

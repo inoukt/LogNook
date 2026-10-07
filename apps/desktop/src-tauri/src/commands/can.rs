@@ -645,7 +645,7 @@ fn summarize_evidence_journal(path: &Path, report: &mut CanCaptureReplayReport) 
             Ok(record) => {
                 let scan_config = match &record {
                     CanEvidenceRecord::ScanStarted { config }
-                    | CanEvidenceRecord::ScanStopped { config }
+                    | CanEvidenceRecord::ScanStopped { config, .. }
                     | CanEvidenceRecord::ScanCompleted { config } => Some(config),
                     CanEvidenceRecord::ScanResult { result } => Some(&result.config),
                     _ => None,

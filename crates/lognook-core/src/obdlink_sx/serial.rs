@@ -41,6 +41,7 @@ pub(super) struct SerialTransport {
     port_name: String,
     port: Option<Box<dyn PortIo>>,
     pending: VecDeque<u8>,
+    incomplete_response: Option<Vec<u8>>,
     communication_sink: Option<CommunicationSink>,
 }
 
@@ -50,6 +51,7 @@ impl SerialTransport {
             port_name,
             port: None,
             pending: VecDeque::new(),
+            incomplete_response: None,
             communication_sink: None,
         }
     }
@@ -60,6 +62,7 @@ impl SerialTransport {
             port_name,
             port: Some(port),
             pending: VecDeque::new(),
+            incomplete_response: None,
             communication_sink: None,
         }
     }
@@ -160,18 +163,17 @@ impl SerialTransport {
                 Ok(String::from_utf8_lossy(&response).into_owned())
             }
             Err(error) => {
-                let outcome = if error.to_string().contains("Timed out") {
-                    "timeout"
-                } else {
-                    "error"
-                };
-                let unavailable = format!("serial response bytes unavailable: {error}");
+                let outcome = serial_error_outcome(&error);
+                let partial = self.incomplete_response.take();
+                let unavailable = partial
+                    .is_none()
+                    .then(|| format!("serial response bytes unavailable: {error}"));
                 self.trace(
                     CommunicationDirection::Rx,
-                    None,
+                    partial.as_deref(),
                     started,
                     outcome,
-                    Some(&unavailable),
+                    unavailable.as_deref(),
                 );
                 Err(error)
             }
@@ -197,13 +199,16 @@ impl SerialTransport {
                 Ok(String::from_utf8_lossy(&response).into_owned())
             }
             Err(error) => {
-                let unavailable = format!("serial prompt bytes unavailable: {error}");
+                let partial = self.incomplete_response.take();
+                let unavailable = partial
+                    .is_none()
+                    .then(|| format!("serial prompt bytes unavailable: {error}"));
                 self.trace(
                     CommunicationDirection::Rx,
-                    None,
+                    partial.as_deref(),
                     started,
-                    "error",
-                    Some(&unavailable),
+                    serial_error_outcome(&error),
+                    unavailable.as_deref(),
                 );
                 Err(error)
             }
@@ -211,6 +216,7 @@ impl SerialTransport {
     }
 
     fn read_prompt_for_command(&mut self, command: Option<&str>) -> Result<Vec<u8>, LogNookError> {
+        self.incomplete_response = None;
         let deadline = Instant::now() + RESPONSE_TIMEOUT;
         let mut response = Vec::new();
         let mut chunk = [0_u8; 128];
@@ -219,16 +225,19 @@ impl SerialTransport {
             while let Some(byte) = self.pending.pop_front() {
                 response.push(byte);
                 if response.len() > MAX_RESPONSE_BYTES {
+                    self.incomplete_response = Some(response.clone());
                     return Err(LogNookError::new(
                         "OBDLink response exceeded the 4096-byte limit",
                     ));
                 }
                 if byte == b'>' {
+                    self.incomplete_response = None;
                     return Ok(response);
                 }
             }
 
             if response.len() >= MAX_RESPONSE_BYTES {
+                self.incomplete_response = Some(response.clone());
                 return Err(LogNookError::new(
                     "OBDLink response exceeded the 4096-byte limit",
                 ));
@@ -239,11 +248,18 @@ impl SerialTransport {
                 .ok_or_else(|| LogNookError::new("OBDLink SX port is closed"))?
                 .read(&mut chunk);
             match read {
-                Ok(0) => return Err(LogNookError::new("OBDLink SX did not provide a > prompt")),
+                Ok(0) => {
+                    self.incomplete_response = Some(response.clone());
+                    return Err(LogNookError::new("OBDLink SX did not provide a > prompt"));
+                }
                 Ok(count) => {
                     let end = chunk[..count].iter().position(|byte| *byte == b'>');
                     let accepted = end.map_or(count, |end| end + 1);
                     if response.len() + accepted > MAX_RESPONSE_BYTES {
+                        response.extend_from_slice(
+                            &chunk[..count.min(MAX_RESPONSE_BYTES.saturating_sub(response.len()))],
+                        );
+                        self.incomplete_response = Some(response);
                         return Err(LogNookError::new(
                             "OBDLink response exceeded the 4096-byte limit",
                         ));
@@ -251,6 +267,7 @@ impl SerialTransport {
                     if let Some(end) = end {
                         response.extend_from_slice(&chunk[..=end]);
                         self.pending.extend(&chunk[end + 1..count]);
+                        self.incomplete_response = None;
                         return Ok(response);
                     }
                     response.extend_from_slice(&chunk[..count]);
@@ -263,10 +280,12 @@ impl SerialTransport {
                             || command
                                 .is_some_and(|command| is_only_command_echo(&response, command))
                         {
+                            self.incomplete_response = Some(response);
                             Err(LogNookError::transient(
                                 "Timed out waiting for the OBDLink SX > prompt",
                             ))
                         } else {
+                            self.incomplete_response = Some(response);
                             Err(LogNookError::new(
                                 "OBDLink SX response ended before the > prompt",
                             ))
@@ -275,6 +294,7 @@ impl SerialTransport {
                 }
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
                 Err(error) => {
+                    self.incomplete_response = Some(response);
                     return Err(LogNookError::new(format!(
                         "OBDLink SX serial read failed: {error}"
                     )));
@@ -304,6 +324,16 @@ impl SerialTransport {
         event.outcome = outcome.into();
         event.raw_bytes_unavailable = unavailable.map(str::to_owned);
         let _ = sink.try_record(event);
+    }
+}
+
+fn serial_error_outcome(error: &LogNookError) -> &'static str {
+    if error.to_string().contains("Timed out")
+        || error.to_string().contains("ended before the > prompt")
+    {
+        "timeout"
+    } else {
+        "error"
     }
 }
 
@@ -387,6 +417,32 @@ mod communication_trace_tests {
             page.events[1].bytes_hex.as_deref(),
             Some("303130430D34312030432031412046380D3E")
         );
+    }
+
+    #[test]
+    fn sx_timeout_trace_keeps_partial_response_bytes() {
+        let store = CommunicationTraceStore::with_limits(8, 8);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let port = ScriptedPort {
+            incoming: b"010C\r7E8 03 41 0C".iter().copied().collect(),
+            written,
+        };
+        let mut transport =
+            SerialTransport::with_port("COM9".into(), Box::new(port) as Box<dyn PortIo>);
+        transport.set_communication_sink(store.sink());
+        assert!(transport.command("010C").is_err());
+        let page = store.get_trace(0, 8).unwrap();
+        let response = page
+            .events
+            .iter()
+            .find(|event| event.direction == CommunicationDirection::Rx)
+            .unwrap();
+        assert_eq!(response.outcome, "timeout");
+        assert_eq!(
+            response.bytes_hex.as_deref(),
+            Some("303130430D374538203033203431203043")
+        );
+        assert_eq!(response.raw_bytes_unavailable, None);
     }
 }
 

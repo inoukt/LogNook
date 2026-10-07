@@ -2,8 +2,8 @@ use super::protocol::*;
 use crate::AppState;
 use lognook_core::{
     A30Adapter, A30ReadOutcome, A30ReadTest, A30ReadTestResult, CanDeviceSelection, CanDirection,
-    CanFrame, CanScanConfig, CanScanMode, CanWorkbenchConfig, Elm327Adapter, ObdLinkSxAdapter,
-    OemCandidateOutcome, OemCandidateTryResult, OemCatalog, OpenPort2Adapter,
+    CanFrame, CanScanConfig, CanScanMode, CanScanStopReason, CanWorkbenchConfig, Elm327Adapter,
+    ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTryResult, OemCatalog, OpenPort2Adapter,
     available_can_adapters, available_obdlink_sx_ports, paired_spp_devices, standard_obd_signals,
 };
 use std::collections::HashSet;
@@ -39,7 +39,10 @@ impl AgentWorkbenchState {
 }
 
 /// Lock and expiry both stop the agent's incomplete CAN operation and close its evidence files.
-pub(crate) fn stop_active_operations(app: &AppHandle) -> Option<PathBuf> {
+pub(crate) fn stop_active_operations(
+    app: &AppHandle,
+    reason: CanScanStopReason,
+) -> Result<Option<PathBuf>, String> {
     let state = app.state::<AppState>();
     let (capture_path, scan_active, send_active) = match state.agent_workbench.lock() {
         Ok(mut operation) => {
@@ -51,17 +54,46 @@ pub(crate) fn stop_active_operations(app: &AppHandle) -> Option<PathBuf> {
             operation.send_until = None;
             values
         }
-        Err(_) => return None,
+        Err(_) => return Err("Agent Workbench state is unavailable".into()),
     };
-    if let Ok(engine) = state.engine.lock() {
-        if capture_path.is_some() {
-            let _ = engine.stop_can_capture();
-        } else if scan_active || send_active {
-            let _ = engine.stop_can_scan();
+    let mut errors = Vec::new();
+    if capture_path.is_some() || scan_active || send_active {
+        match state.engine.lock() {
+            Ok(engine) if capture_path.is_some() => {
+                if let Err(error) = engine.stop_can_capture_with_reason(reason.clone()) {
+                    errors.push(format!("CAN evidence finalization failed: {error}"));
+                }
+            }
+            Ok(engine) => {
+                if let Err(error) = engine.stop_can_scan_with_reason(reason) {
+                    errors.push(format!("CAN operation stop failed: {error}"));
+                }
+            }
+            Err(_) => errors.push("Acquisition engine is unavailable".into()),
         }
     }
-    let _ = state.trace_store.stop_capture();
-    capture_path
+    match state.trace_store.stop_capture() {
+        Ok(status) => {
+            if let Some(error) = status.error {
+                errors.push(format!("Communication trace finalization failed: {error}"));
+            }
+        }
+        Err(error) => errors.push(format!("Communication trace finalization failed: {error}")),
+    }
+    if !errors.is_empty() {
+        let message = errors.join("; ");
+        let _ = app.emit(
+            "lognook-event",
+            lognook_core::EngineEvent::Error(format!(
+                "Agent operation stop was incomplete: {message}"
+            )),
+        );
+        return Err(match capture_path {
+            Some(path) => format!("{message}; partial evidence: {}", path.display()),
+            None => message,
+        });
+    }
+    Ok(capture_path)
 }
 
 pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentResponse {
@@ -208,11 +240,14 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
         AgentRequest::StopOperation => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || {
-                workbench_result("stopped", stop_active_operations(&app))
+                stop_active_operations(&app, CanScanStopReason::AgentRequested)
             })
             .await
             {
-                Ok(result) => AgentResponse::Workbench { result },
+                Ok(Ok(path)) => AgentResponse::Workbench {
+                    result: workbench_result("stopped", path),
+                },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::Internal, error),
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
         }
@@ -274,7 +309,7 @@ fn workbench(
         Operation::StopCapture => {
             let path = active.capture_path.clone();
             engine
-                .stop_can_capture()
+                .stop_can_capture_with_reason(CanScanStopReason::AgentRequested)
                 .map_err(|error| error.to_string())?;
             active.capture_path = None;
             active.scan_active = false;
@@ -313,7 +348,9 @@ fn workbench(
             ))
         }
         Operation::StopScan => {
-            engine.stop_can_scan().map_err(|error| error.to_string())?;
+            engine
+                .stop_can_scan_with_reason(CanScanStopReason::AgentRequested)
+                .map_err(|error| error.to_string())?;
             active.scan_active = false;
             active.send_until = None;
             Ok(workbench_result(

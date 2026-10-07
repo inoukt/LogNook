@@ -35,7 +35,10 @@ pub fn configure_agent_pin(
     let status = access.status();
     drop(access);
     state.agent_ipc.stop();
-    let _ = crate::agent::tools::stop_active_operations(&app);
+    crate::agent::tools::stop_active_operations(
+        &app,
+        lognook_core::CanScanStopReason::AgentAccessRevoked,
+    )?;
     Ok(status)
 }
 
@@ -74,7 +77,10 @@ pub fn lock_agent_access(
     state.agent_ipc.stop();
     let status = access.status();
     drop(access);
-    let _ = crate::agent::tools::stop_active_operations(&app);
+    crate::agent::tools::stop_active_operations(
+        &app,
+        lognook_core::CanScanStopReason::AgentAccessRevoked,
+    )?;
     Ok(status)
 }
 

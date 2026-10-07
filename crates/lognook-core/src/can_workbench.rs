@@ -70,6 +70,16 @@ pub enum CanTriggerEndReason {
     SessionEnded,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanScanStopReason {
+    #[default]
+    UserRequested,
+    AgentRequested,
+    AgentAccessRevoked,
+    CaptureStopped,
+}
+
 impl CanWorkbenchConfig {
     fn validate(&self) -> Result<(), LogNookError> {
         if !(10_000..=1_000_000).contains(&self.bitrate) {
@@ -426,6 +436,8 @@ pub enum CanEvidenceRecord {
     },
     ScanStopped {
         config: CanEvidenceScanConfig,
+        #[serde(default)]
+        reason: CanScanStopReason,
     },
     ScanCompleted {
         config: CanEvidenceScanConfig,
@@ -770,7 +782,11 @@ impl CanWorkbench {
     }
 
     pub fn stop_capture(&self) -> Result<(), LogNookError> {
-        self.request(Command::StopCapture)
+        self.stop_capture_with_reason(CanScanStopReason::CaptureStopped)
+    }
+
+    pub fn stop_capture_with_reason(&self, reason: CanScanStopReason) -> Result<(), LogNookError> {
+        self.request(|reply| Command::StopCapture(reason, reply))
     }
 
     pub fn arm_trigger(
@@ -871,9 +887,13 @@ impl CanWorkbench {
     }
 
     pub fn stop_scan(&self) -> Result<(), LogNookError> {
+        self.stop_scan_with_reason(CanScanStopReason::UserRequested)
+    }
+
+    pub fn stop_scan_with_reason(&self, reason: CanScanStopReason) -> Result<(), LogNookError> {
         let (reply, response) = mpsc::channel();
         self.commands
-            .send(Command::StopScan(reply))
+            .send(Command::StopScan(reason, reply))
             .map_err(|_| LogNookError::new("CAN worker has stopped"))?;
         response
             .recv()

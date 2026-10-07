@@ -25,7 +25,7 @@ The copied configuration points at the current LogNook executable and its tempor
 
 ## Access and evidence
 
-Lock with **Lock agent** in Settings. Access also expires after 15 minutes without agent activity. Lock/expiry stops agent-owned CAN scans, frame sends, and captures and finalizes partial evidence. Use `stop_operation` to stop earlier. The app shows the current operation and trace gap count in Settings.
+Lock with **Lock agent** in Settings. Access also expires after 15 minutes without agent activity. Lock/expiry stops agent-owned CAN scans, frame sends, and captures and finalizes partial evidence; the paired CAN journal records why a scan stopped. Use `stop_operation` to stop earlier. The app shows the current operation and trace gap count in Settings.
 
 The PIN is an in-app access gate. It does not isolate the MCP process from other software already running as the same Windows user. Treat raw protocol replies and CAN frames as research evidence; a response alone does not establish a signal meaning or vehicle validation.
 

@@ -1,7 +1,8 @@
 use lognook_core::{
-    CanByteOrder, CanCaptureReader, CanDirection, CanFrame, CanScanConfig, CanScanMode,
-    CanSignalDefinition, CanTransport, CanTransportError, CanTransportEvent, CanWorkbenchConfig,
-    EngineEvent, LogNookEngine, OemCandidate, OemCandidateTrySpec, SampleQuality,
+    CanByteOrder, CanCaptureReader, CanDirection, CanEvidenceRecord, CanFrame, CanScanConfig,
+    CanScanMode, CanScanStopReason, CanSignalDefinition, CanTransport, CanTransportError,
+    CanTransportEvent, CanWorkbenchConfig, EngineEvent, LogNookEngine, OemCandidate,
+    OemCandidateTrySpec, SampleQuality,
     communication_trace::{
         CommunicationDirection, CommunicationTraceEvent, CommunicationTraceStore,
     },
@@ -2057,4 +2058,46 @@ fn communication_trace_and_can_capture_share_the_workbench_owner_frames() {
     engine.disconnect().unwrap();
     let _ = std::fs::remove_file(&capture_path);
     let _ = std::fs::remove_file(lognook_core::can_evidence_path(&capture_path));
+}
+
+#[test]
+fn agent_access_revocation_reason_is_kept_in_scan_evidence() {
+    let mut engine = LogNookEngine::new(|_| {});
+    let (transport, _incoming, _transmitted, _owners) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("agent-stop-reason.candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::Mode21 {
+                request_id: 0x7e0,
+                response_id: 0x7e8,
+                extended: false,
+                start_pid: 0x01,
+                end_pid: 0xff,
+            },
+            pacing_ms: 100,
+            response_timeout_ms: 1000,
+            source_candidate_id: None,
+        })
+        .unwrap();
+    engine
+        .stop_can_scan_with_reason(CanScanStopReason::AgentAccessRevoked)
+        .unwrap();
+    engine.stop_can_capture().unwrap();
+
+    let journal_path = lognook_core::can_evidence_path(&capture_path);
+    let records = std::fs::read_to_string(&journal_path).unwrap();
+    assert!(records.lines().any(|line| matches!(
+        serde_json::from_str::<CanEvidenceRecord>(line).unwrap(),
+        CanEvidenceRecord::ScanStopped {
+            reason: CanScanStopReason::AgentAccessRevoked,
+            ..
+        }
+    )));
+    engine.disconnect().unwrap();
+    let _ = std::fs::remove_file(&capture_path);
+    let _ = std::fs::remove_file(journal_path);
 }

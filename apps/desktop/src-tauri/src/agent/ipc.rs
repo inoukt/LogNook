@@ -59,7 +59,7 @@ impl AgentIpcService {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Ok(());
+            return self.running_start_result();
         }
         let listener = match bind_listener(&self.endpoint) {
             Ok(listener) => listener,
@@ -99,6 +99,19 @@ impl AgentIpcService {
             if let Some(shutdown) = shutdown.take() {
                 let _ = shutdown.send(true);
             }
+        }
+    }
+
+    fn running_start_result(&self) -> Result<(), String> {
+        if self
+            .shutdown
+            .lock()
+            .map_err(|_| "Agent Access state is unavailable".to_owned())?
+            .is_some()
+        {
+            Ok(())
+        } else {
+            Err("Agent Access listener is stopping; wait before unlocking again".into())
         }
     }
 }
@@ -157,7 +170,10 @@ async fn serve(
             _ = shutdown.changed() => return Ok(()),
             _ = access_check.tick() => {
                 if !agent_access_unlocked(&app) {
-                    let _ = super::tools::stop_active_operations(&app);
+                    let _ = super::tools::stop_active_operations(
+                        &app,
+                        lognook_core::CanScanStopReason::AgentAccessRevoked,
+                    );
                     let _ = stop_sender.send(true);
                     return Ok(());
                 }
@@ -211,7 +227,10 @@ async fn handle_client(
         };
         write_message(reader.get_mut(), &response).await?;
         if !agent_access_unlocked(app) {
-            let _ = super::tools::stop_active_operations(app);
+            let _ = super::tools::stop_active_operations(
+                app,
+                lognook_core::CanScanStopReason::AgentAccessRevoked,
+            );
             return Ok(());
         }
     }
@@ -299,5 +318,16 @@ mod tests {
             .connect_tokio()
             .await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn ipc_does_not_report_success_while_listener_is_stopping() {
+        let service = AgentIpcService::new(&std::env::temp_dir());
+        let (shutdown, _) = watch::channel(false);
+        *service.shutdown.lock().unwrap() = Some(shutdown);
+        service.running.store(true, Ordering::Release);
+        assert!(service.running_start_result().is_ok());
+        service.stop();
+        assert!(service.running_start_result().is_err());
     }
 }
