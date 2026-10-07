@@ -208,6 +208,13 @@ impl LogNookAgent {
     }
 
     #[tool(
+        description = "Cancel the active agent CAN scan/send/capture and finalize any partial evidence."
+    )]
+    async fn stop_operation(&self) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::StopOperation).await
+    }
+
+    #[tool(
         description = "Copy the latest stopped trace file into the LogNook evidence export directory."
     )]
     async fn export_evidence(&self) -> Result<Json<AgentResponse>, ErrorData> {
@@ -215,7 +222,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Operate the connected CAN Workbench: capture, mark a vehicle event, run a configured scan, send one bounded frame pattern, or stop the agent's active work. Scans and TX require an active-mode Candlelight connection and are recorded to app-data evidence."
+        description = "Operate the connected CAN Workbench: capture, mark a vehicle event, run a configured scan, or send one bounded frame pattern. Use stop_operation to cancel agent-owned work. Scans and TX require an active-mode Candlelight connection and are recorded to app-data evidence."
     )]
     async fn workbench(
         &self,
@@ -284,6 +291,7 @@ mod tests {
                 "search_oem_candidates",
                 "set_signal_selection",
                 "start_trace_capture",
+                "stop_operation",
                 "stop_trace_capture",
                 "try_mode06_test",
                 "try_oem_candidate",

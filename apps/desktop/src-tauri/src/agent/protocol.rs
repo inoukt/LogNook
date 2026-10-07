@@ -40,6 +40,7 @@ pub enum AgentRequest {
     },
     StartTraceCapture,
     StopTraceCapture,
+    StopOperation,
     ExportEvidence,
     Workbench {
         operation: AgentWorkbenchOperation,
@@ -60,7 +61,6 @@ pub enum AgentWorkbenchOperation {
         config: AgentCanScanConfig,
     },
     StopScan,
-    StopOperation,
     SendFrame {
         can_id: u32,
         extended: bool,
@@ -508,5 +508,13 @@ mod tests {
             br#"{"action":"workbench","operation":{"kind":"send_frame","can_id":291,"extended":false,"data":[1,2],"pacing_ms":10,"repeat":1,"shell":"bad"}}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn stop_operation_is_a_typed_top_level_action() {
+        assert!(matches!(
+            decode_request(br#"{"action":"stop_operation"}"#).unwrap(),
+            AgentRequest::StopOperation
+        ));
     }
 }

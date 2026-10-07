@@ -205,6 +205,17 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
         }
+        AgentRequest::StopOperation => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                workbench_result("stopped", stop_active_operations(&app))
+            })
+            .await
+            {
+                Ok(result) => AgentResponse::Workbench { result },
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
         AgentRequest::ExportEvidence => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || {
@@ -234,11 +245,6 @@ fn workbench(
     operation: AgentWorkbenchOperation,
 ) -> Result<AgentWorkbenchResult, String> {
     use AgentWorkbenchOperation as Operation;
-
-    if let Operation::StopOperation = operation {
-        let path = stop_active_operations(app);
-        return Ok(workbench_result("stopped", path));
-    }
 
     let state = app.state::<AppState>();
     let mut active = state
@@ -352,7 +358,6 @@ fn workbench(
                 active.capture_path.clone(),
             ))
         }
-        Operation::StopOperation => unreachable!(),
     }
 }
 

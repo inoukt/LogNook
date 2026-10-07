@@ -20,11 +20,12 @@ The copied configuration points at the current LogNook executable and its tempor
 - `search_oem_candidates` and `try_oem_candidate` find catalog-backed candidates and run one selected request. Results retain route/source and response evidence; they do not validate a decoder or vehicle support.
 - `list_mode06_tests` and `try_mode06_test` expose the supported A30 reads.
 - `get_trace`, `start_trace_capture`, `stop_trace_capture`, and `export_evidence` inspect or save the adapter bytes LogNook can observe. The trace reports dropped/evicted-event gaps. J2534 traces cover the worker protocol and returned payloads, not hidden vendor USB traffic.
-- `workbench` captures CAN, marks a labeled event, starts/stops configured CAN scans, sends a bounded CAN frame pattern, or stops agent-owned work. A scan or send creates paired `.candump.csv` and `.jsonl` evidence under app data. Use an active-mode Candlelight connection for scan/TX; connection defaults to listen-only. Stop the operation when finished.
+- `workbench` captures CAN, marks a labeled event, starts/stops configured CAN scans, and sends a bounded CAN frame pattern. A scan or send creates paired `.candump.csv` and `.jsonl` evidence under app data. Use an active-mode Candlelight connection for scan/TX; connection defaults to listen-only.
+- `stop_operation` cancels the current agent CAN scan/send/capture and finalizes partial evidence.
 
 ## Access and evidence
 
-Lock with **Lock agent** in Settings. Access also expires after 15 minutes without agent activity. Lock/expiry stops agent-owned CAN scans, frame sends, and captures and finalizes partial evidence. Use `workbench` with `stop_operation` to stop earlier. The app shows the current operation and trace gap count in Settings.
+Lock with **Lock agent** in Settings. Access also expires after 15 minutes without agent activity. Lock/expiry stops agent-owned CAN scans, frame sends, and captures and finalizes partial evidence. Use `stop_operation` to stop earlier. The app shows the current operation and trace gap count in Settings.
 
 The PIN is an in-app access gate. It does not isolate the MCP process from other software already running as the same Windows user. Treat raw protocol replies and CAN frames as research evidence; a response alone does not establish a signal meaning or vehicle validation.
 
