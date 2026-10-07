@@ -463,3 +463,34 @@ export type EngineEvent =
   | { type: "playbackStarted"; payload?: null }
   | { type: "playbackFinished"; payload?: null }
   | { type: "playbackState"; payload: PlaybackState };
+
+export interface DiagnosticSignalSummary {
+  signal_id: string;
+  requested?: boolean | null;
+  supported?: boolean | null;
+  attempt_count?: number;
+  success_count: number;
+  error_count?: number;
+  first_response_delay_ms?: number | null;
+  rate_hz: number;
+  latency_ms: number | null;
+}
+
+/** Operation metadata only: no measurement values or protocol payloads. */
+export interface DiagnosticRecord {
+  sequence_id: number;
+  timestamp_unix_ms: number;
+  operation_id: string;
+  adapter_id: string | null;
+  operation: string;
+  stage: string;
+  phase: "started" | "progress" | "succeeded" | "failed";
+  duration_ms: number | null;
+  signal_ids: string[];
+  signal_summaries: DiagnosticSignalSummary[] | null;
+  /** Sanitized by the backend diagnostics boundary. */
+  detail: string | null;
+  transient: boolean | null;
+  consecutive_failures?: number | null;
+  omitted_events: number;
+}

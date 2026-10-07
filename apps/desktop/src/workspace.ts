@@ -23,6 +23,59 @@ export type SignalOption = {
   research?: boolean;
 };
 
+const MAX_WORKBENCH_GRAPH_SIGNALS = 500;
+
+function normalizeResearchSignalOption(value: unknown): SignalOption | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const item = value as Record<string, unknown>;
+  const validId = typeof item.id === "string"
+    && (/^oem:[A-Za-z0-9._:-]{1,192}$/i.test(item.id)
+      || item.id === "a30_mode02_engine_rpm"
+      || /^a30_mode06_tid_[0-9a-f]{2}_mid_[0-9a-f]{2}$/i.test(item.id));
+  if (!validId || item.research !== true
+    || typeof item.name !== "string" || item.name.trim().length === 0 || item.name.length > 192
+    || typeof item.unit !== "string" || item.unit.length > 32) return undefined;
+
+  const option: SignalOption = { id: item.id as string, name: item.name, unit: item.unit, research: true };
+  if (typeof item.description === "string" && item.description.length <= 512) option.description = item.description;
+  if (typeof item.formula === "string" && item.formula.length <= 256) option.formula = item.formula;
+  if (typeof item.pid === "number" && Number.isInteger(item.pid) && item.pid >= 0 && item.pid <= 0xffff) option.pid = item.pid;
+  return option;
+}
+
+export function restoreResearchSignalOptions(serialized: string | null): SignalOption[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(serialized ?? "null"); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const options = new Map<string, SignalOption>();
+  for (const value of parsed) {
+    const option = normalizeResearchSignalOption(value);
+    if (!option) continue;
+    options.delete(option.id);
+    options.set(option.id, option);
+  }
+  return [...options.values()].slice(-MAX_WORKBENCH_GRAPH_SIGNALS);
+}
+
+export function upsertResearchSignalOption(options: SignalOption[], value: SignalOption): SignalOption[] {
+  const option = normalizeResearchSignalOption(value);
+  if (!option) return options;
+  return [...options.filter(({ id }) => id !== option.id), option].slice(-MAX_WORKBENCH_GRAPH_SIGNALS);
+}
+
+export function restoreWorkbenchGraphSignalIds(serialized: string | null): string[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(serialized ?? "null"); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const ids = parsed.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 256);
+  return [...new Set(ids)].slice(-MAX_WORKBENCH_GRAPH_SIGNALS);
+}
+
+export function rememberWorkbenchGraphSignalId(signalIds: string[], signalId: string): string[] {
+  if (!signalId || signalId.length > 256) return signalIds;
+  return [...new Set([...signalIds.filter((id) => id !== signalId), signalId])].slice(-MAX_WORKBENCH_GRAPH_SIGNALS);
+}
+
 export function graphRefreshIntervalMs(scrubbing: boolean): number {
   return scrubbing ? 33 : 100;
 }
@@ -34,6 +87,7 @@ export function restoreWorkspacePreferences(
   availableSignalIds: string[],
   defaults: WorkspacePreferences,
   maxStatusHeight: number,
+  graphOnlySignalIds: string[] = [],
 ): WorkspacePreferences {
   let saved: Partial<WorkspacePreferences> = {};
   try {
@@ -42,11 +96,13 @@ export function restoreWorkspacePreferences(
   } catch { /* Ignore malformed optional preferences. */ }
 
   const available = new Set(availableSignalIds);
-  const validIds = (value: unknown, fallback: string[]) => Array.isArray(value)
-    ? [...new Set(value.filter((id): id is string => typeof id === "string" && available.has(id)))]
-    : [...new Set(fallback.filter((id) => available.has(id)))];
+  const graphOnly = new Set(graphOnlySignalIds);
+  const validIds = (value: unknown, fallback: string[], allowed = available) => Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === "string" && allowed.has(id)))]
+    : [...new Set(fallback.filter((id) => allowed.has(id)))];
   const logSignalIds = validIds(saved.logSignalIds, defaults.logSignalIds);
-  const graphSignalIds = validIds(saved.graphSignalIds, defaults.graphSignalIds).filter((id) => logSignalIds.includes(id));
+  const graphSignalIds = validIds(saved.graphSignalIds, defaults.graphSignalIds, new Set([...available, ...graphOnly]))
+    .filter((id) => logSignalIds.includes(id) || graphOnly.has(id));
   const statusHeight = Number.isFinite(saved.statusHeight) ? saved.statusHeight! : defaults.statusHeight;
 
   return {

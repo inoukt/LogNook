@@ -1,5 +1,5 @@
-use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
 use super::unexpected_worker_response;
+use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
 use crate::{EngineEvent, HardwareAdapter, LogNookEngine, SignalDefinition, standard_obd_signals};
 use lognook_j2534_protocol::{
     J2534Identity, J2534Provider, Mode01Payload, WorkerErrorKind, WorkerRequest, WorkerResponse,
@@ -111,7 +111,10 @@ fn provider_listing_uses_only_typed_worker_provider_response() {
     })]);
     let discovery = available_from_session(&mut session).unwrap();
     assert_eq!(discovery.providers[0].id, "opta");
-    assert_eq!(discovery.diagnostics, ["Ignored DENSO: unsupported by LogNook"]);
+    assert_eq!(
+        discovery.diagnostics,
+        ["Ignored DENSO: unsupported by LogNook"]
+    );
     assert_eq!(
         *state.requests.lock().unwrap(),
         vec![WorkerRequest::ListProviders]
@@ -391,4 +394,297 @@ fn adapter_rejects_unsupported_signal_ids_before_worker_read() {
 #[allow(dead_code)]
 fn _worker_error_kind_is_covered(kind: WorkerErrorKind) -> WorkerErrorKind {
     kind
+}
+
+struct ProgressSession(FakeSession);
+impl WorkerSession for ProgressSession {
+    fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, crate::LogNookError> {
+        self.0.request(request)
+    }
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        sink: &crate::DiagnosticSink,
+    ) -> Result<WorkerResponse, crate::LogNookError> {
+        let stage = match &request {
+            WorkerRequest::ListProviders => "provider_resolution",
+            WorkerRequest::Identify { .. } => "version_read",
+            WorkerRequest::Connect { .. } => "filter_setup",
+            WorkerRequest::DiscoverMode01 => "mode01_discovery",
+            WorkerRequest::ReadMode01 { .. } => "pid_read",
+            WorkerRequest::Disconnect => "disconnect",
+        };
+        sink(crate::DiagnosticProgress {
+            adapter_id: None,
+            operation: "fixture".into(),
+            stage: stage.into(),
+            phase: crate::DiagnosticPhase::Progress,
+            duration_ms: Some(1),
+            signal_ids: vec![],
+            detail: None,
+            consecutive_failures: None,
+            transient: None,
+        });
+        self.request(request)
+    }
+    fn shutdown(&mut self) {
+        self.0.shutdown();
+    }
+}
+
+#[test]
+fn discovery_and_identify_helpers_use_progress_aware_session() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let sink: crate::DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+    let (fake, state) = FakeSession::new([
+        Ok(WorkerResponse::Providers {
+            providers: vec![],
+            diagnostics: vec![],
+        }),
+        Ok(WorkerResponse::Identity {
+            identity: identity(),
+        }),
+    ]);
+    let mut session = ProgressSession(fake);
+    super::available_from_session_with_diagnostics(&mut session, &sink).unwrap();
+    super::identify_from_session_with_diagnostics(&mut session, "opta", &sink).unwrap();
+    assert_eq!(
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.stage.clone())
+            .collect::<Vec<_>>(),
+        ["provider_resolution", "provider_inventory", "version_read"]
+    );
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        [
+            WorkerRequest::ListProviders,
+            WorkerRequest::Identify {
+                provider_id: "opta".into()
+            }
+        ]
+    );
+}
+
+#[test]
+fn adapter_progress_keeps_connect_and_acquisition_context_without_payloads() {
+    let (fake, state) = FakeSession::new([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let mut adapter = OpenPort2Adapter::new(PathBuf::from("worker.exe"), "opta".into())
+        .with_session(Box::new(ProgressSession(fake)));
+    adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+    adapter.connect().unwrap();
+    let samples = adapter.read_samples(&[rpm()]).unwrap();
+    assert_eq!(samples.len(), 1);
+    adapter.disconnect();
+    let events = events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|e| (e.operation.as_str(), e.stage.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("connect", "filter_setup"),
+            ("connect", "mode01_discovery"),
+            ("acquisition", "pid_read"),
+            ("acquisition", "pid_read"),
+            ("acquisition", "pid_read"),
+        ]
+    );
+    assert!(
+        events
+            .iter()
+            .all(|e| e.adapter_id.as_deref() == Some("opta") && e.detail.is_none())
+    );
+    assert_eq!(events[2].phase, crate::DiagnosticPhase::Started);
+    assert_eq!(events[3].phase, crate::DiagnosticPhase::Progress);
+    assert_eq!(events[4].phase, crate::DiagnosticPhase::Succeeded);
+    assert_eq!(events[4].signal_ids, ["engine_rpm"]);
+    assert!(events[4].duration_ms.is_some());
+    assert_eq!(state.requests.lock().unwrap().len(), 4);
+}
+
+struct CompletionTimingSession(FakeSession);
+impl WorkerSession for CompletionTimingSession {
+    fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, crate::LogNookError> {
+        self.0.request(request)
+    }
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        sink: &crate::DiagnosticSink,
+    ) -> Result<WorkerResponse, crate::LogNookError> {
+        if matches!(request, WorkerRequest::ReadMode01 { .. }) {
+            sink(crate::DiagnosticProgress {
+                adapter_id: None,
+                operation: "acquisition".into(),
+                stage: "pid_read".into(),
+                phase: crate::DiagnosticPhase::Progress,
+                duration_ms: Some(777),
+                signal_ids: vec![],
+                detail: None,
+                consecutive_failures: None,
+                transient: None,
+            });
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        self.0.request(request)
+    }
+    fn shutdown(&mut self) {
+        self.0.shutdown();
+    }
+}
+
+#[test]
+fn selected_openport_reads_emit_real_completion_timing_without_extra_requests() {
+    for response in [
+        Ok(WorkerResponse::Mode01Responses {
+            responses: vec![payload("7E8", &[0x41, 0x0C, 0x1A, 0xF8])],
+        }),
+        Err("OpenPort Timeout: during read: provider error 0x09".into()),
+    ] {
+        let expected_error = response.as_ref().err().cloned();
+        let (session, state) = FakeSession::new([Ok(connected()), Ok(discovery()), response]);
+        let mut adapter = OpenPort2Adapter::new(PathBuf::from("worker.exe"), "opta".into())
+            .with_session(Box::new(CompletionTimingSession(session)));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+        adapter.connect().unwrap();
+        events.lock().unwrap().clear();
+        let result = adapter.read_samples(&[rpm()]);
+        if let Some(error) = &expected_error {
+            assert_eq!(result.unwrap_err().to_string(), *error);
+        } else {
+            let samples = result.unwrap();
+            assert_eq!(samples.len(), 1);
+            assert_eq!(samples[0].value, 1726.0);
+            assert_eq!(
+                samples[0].raw_bytes.as_deref(),
+                Some(&[0x41, 0x0C, 0x1A, 0xF8][..])
+            );
+        }
+        let records = events.lock().unwrap();
+        let terminal = records
+            .iter()
+            .find(|r| {
+                r.operation == "acquisition"
+                    && r.stage == "pid_read"
+                    && matches!(
+                        r.phase,
+                        crate::DiagnosticPhase::Succeeded | crate::DiagnosticPhase::Failed
+                    )
+            })
+            .expect("OpenPort PID read must emit actual completion timing");
+        assert_eq!(terminal.adapter_id.as_deref(), Some("opta"));
+        assert_eq!(terminal.signal_ids, ["engine_rpm"]);
+        assert!(terminal.duration_ms.unwrap() >= 20);
+        assert_ne!(terminal.duration_ms, Some(777));
+        assert_eq!(
+            terminal.phase,
+            if expected_error.is_some() {
+                crate::DiagnosticPhase::Failed
+            } else {
+                crate::DiagnosticPhase::Succeeded
+            }
+        );
+        assert_eq!(terminal.detail, expected_error);
+        assert_eq!(records[0].phase, crate::DiagnosticPhase::Started);
+        assert_eq!(records[1].phase, crate::DiagnosticPhase::Progress);
+        assert_eq!(records.len(), 3);
+        let json = serde_json::to_string(&*records).unwrap();
+        assert!(!json.contains("raw_bytes"));
+        assert!(!json.contains("1726"));
+        assert!(!json.contains("65,12,26,248"));
+        assert_eq!(
+            *state.requests.lock().unwrap(),
+            [
+                WorkerRequest::Connect {
+                    provider_id: "opta".into()
+                },
+                WorkerRequest::DiscoverMode01,
+                WorkerRequest::ReadMode01 { pid: 0x0C }
+            ]
+        );
+    }
+}
+
+#[test]
+fn discovery_result_observations_preserve_ids_and_safe_reasons_without_paths() {
+    let providers = vec![J2534Provider {
+        id: "opta".into(),
+        name: "Tactrix OpenPort 2.0".into(),
+    }];
+    let diagnostics = vec!["Ignored registered J2534 provider 'DENSO' (DST-010): LogNook supports Tactrix/OpenPort/OPTA only.".into(), "Ignored registered provider 'OPTA': its FunctionLibrary path could not be resolved or the DLL is missing.".into(), "Ignored registered provider 'OpenPort': it has no FunctionLibrary path.".into(), "No 32-bit J2534 04.04 registry entries were found.".into(), "Private provider detail C:\\Users\\private-user\\secret.dll raw 41 0C 1A F8".into()];
+    let (mut session, state) = FakeSession::new([Ok(WorkerResponse::Providers {
+        providers: providers.clone(),
+        diagnostics: diagnostics.clone(),
+    })]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let sink: crate::DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+    let result = super::available_from_session_with_diagnostics(&mut session, &sink).unwrap();
+    assert_eq!(result.providers, providers);
+    assert_eq!(result.diagnostics, diagnostics);
+    let events = events.lock().unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.adapter_id.as_deref() == Some("opta") && e.stage == "provider_found")
+    );
+    let detail = serde_json::to_string(&*events).unwrap();
+    assert!(detail.contains("DENSO"));
+    assert!(detail.contains("not an OpenPort"));
+    assert!(detail.contains("DLL is missing"));
+    assert!(detail.contains("no FunctionLibrary"));
+    assert!(detail.contains("No 32-bit J2534"));
+    assert!(!detail.contains("private-user"));
+    assert!(!detail.contains("secret.dll"));
+    assert!(!detail.contains("41 0C 1A F8"));
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        [WorkerRequest::ListProviders]
+    );
+}
+#[test]
+fn discovery_result_observations_are_bounded_without_changing_returned_inventory() {
+    let providers = (0..100)
+        .map(|i| J2534Provider {
+            id: format!("opta-{i}"),
+            name: "OPTA".into(),
+        })
+        .collect::<Vec<_>>();
+    let (mut session, _) = FakeSession::new([Ok(WorkerResponse::Providers {
+        providers,
+        diagnostics: vec![],
+    })]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let sink: crate::DiagnosticSink = Arc::new(move |event| captured.lock().unwrap().push(event));
+    assert_eq!(
+        super::available_from_session_with_diagnostics(&mut session, &sink)
+            .unwrap()
+            .providers
+            .len(),
+        100
+    );
+    let events = events.lock().unwrap();
+    assert!(!events.is_empty());
+    assert!(events.len() <= 65);
+    assert!(events.iter().any(|e| {
+        e.detail
+            .as_ref()
+            .is_some_and(|s| s.contains("36 entries omitted"))
+    }));
 }

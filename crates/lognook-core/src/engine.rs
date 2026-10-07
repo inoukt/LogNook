@@ -1,6 +1,6 @@
 use crate::{
     CanDeviceSelection, CanScanConfig, CanSignalDefinition, CanTransport, CanWorkbench,
-    CanWorkbenchConfig, CanWorkbenchStatus, HardwareAdapter, ResearchTestRequest,
+    CanWorkbenchConfig, CanWorkbenchStatus, DiagnosticSink, HardwareAdapter, ResearchTestRequest,
     ResearchTestResult, SimulatedObdAdapter,
     acquisition::AcquisitionHandle,
     csv_io::export_recording_csv,
@@ -20,6 +20,7 @@ use std::{
 };
 
 pub struct LogNookEngine {
+    diagnostic_sink: DiagnosticSink,
     event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync>,
     pub(crate) pipeline: SamplePipeline,
     acquisition: Option<AcquisitionHandle>,
@@ -37,6 +38,7 @@ impl LogNookEngine {
     pub fn new(sink: impl Fn(EngineEvent) + Send + Sync + 'static) -> Self {
         let event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync> = Arc::new(sink);
         Self {
+            diagnostic_sink: crate::diagnostics::noop_diagnostic_sink(),
             pipeline: SamplePipeline::new(event_sink.clone()),
             event_sink,
             acquisition: None,
@@ -55,6 +57,11 @@ impl LogNookEngine {
             active_derived_signal_ids: HashSet::new(),
             can_workbench: None,
         }
+    }
+
+    /// Configure diagnostics for subsequent connections, before the adapter connects.
+    pub fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
+        self.diagnostic_sink = sink;
     }
 
     pub fn connect_simulated(
@@ -88,6 +95,7 @@ impl LogNookEngine {
             &self.derived_signal_definitions,
             &crate::standard_obd_signals(),
         )?;
+        adapter.set_diagnostic_sink(self.diagnostic_sink.clone());
         let capabilities = match adapter.connect() {
             Ok(capabilities) => capabilities,
             Err(error) => {
@@ -168,6 +176,8 @@ impl LogNookEngine {
             signals,
             self.pipeline.sender(),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            self.diagnostic_sink.clone(),
+            Some(capabilities.device.stable_id.clone()),
         ));
         Ok(capabilities)
     }

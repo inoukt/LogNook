@@ -35,17 +35,28 @@ impl J2534Session {
         Ok(identity)
     }
 
+    #[cfg(test)]
     pub(crate) fn connect(&mut self) -> Result<J2534Identity, J2534Failure> {
+        self.connect_with_progress(&mut |_| {})
+    }
+
+    pub(crate) fn connect_with_progress(
+        &mut self,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<J2534Identity, J2534Failure> {
         if self.channel.is_some() {
             return Err(J2534Failure::new(
                 WorkerErrorKind::ChannelFailed,
                 "J2534 channel is already connected",
             ));
         }
+        progress("version_read");
         let identity = self.identity()?;
         let device = self.device.expect("identity checked the device");
+        progress("channel_connect");
         let channel = self.api.connect_iso15765(device)?;
         self.channel = Some(channel);
+        progress("filter_setup");
         self.api.start_obd_filter(channel)?;
         Ok(identity)
     }
@@ -275,5 +286,22 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(reads, vec!["read:00"]);
+    }
+    #[test]
+    fn connect_progress_tracks_actual_calls_and_stops_at_failure() {
+        for fail_at in [None, Some("version"), Some("connect"), Some("filter")] {
+            let (api, calls) = fake_api(fail_at);
+            let mut session = J2534Session::open(Box::new(api)).unwrap();
+            let mut stages = Vec::new();
+            let result = session.connect_with_progress(&mut |stage| stages.push(stage.to_owned()));
+            assert_eq!(result.is_err(), fail_at.is_some());
+            let expected = match fail_at {
+                Some("version") => vec!["version_read"],
+                Some("connect") => vec!["version_read", "channel_connect"],
+                _ => vec!["version_read", "channel_connect", "filter_setup"],
+            };
+            assert_eq!(stages, expected);
+            assert_eq!(calls.lock().unwrap().len(), stages.len() + 1);
+        }
     }
 }

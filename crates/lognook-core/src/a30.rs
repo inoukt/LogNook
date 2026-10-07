@@ -7,6 +7,10 @@ use crate::{
     obdlink_sx_protocol::{decode_signal, parse_supported_pid_payload},
     standard_obd_signals,
 };
+use crate::{
+    DiagnosticSink,
+    diagnostics::{diagnostic_stage, noop_diagnostic_sink},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{ErrorKind, Read, Write},
@@ -234,6 +238,24 @@ impl A30Session {
         stream: Box<dyn BluetoothByteStream>,
         timing: A30Timing,
     ) -> Result<Self, LogNookError> {
+        Self::open_with_diagnostics(
+            stream,
+            timing,
+            &noop_diagnostic_sink(),
+            None,
+            "identify",
+            false,
+        )
+    }
+
+    fn open_with_diagnostics(
+        stream: Box<dyn BluetoothByteStream>,
+        timing: A30Timing,
+        sink: &DiagnosticSink,
+        adapter_id: Option<String>,
+        operation: &str,
+        require_announcement: bool,
+    ) -> Result<Self, LogNookError> {
         let mut session = Self {
             stream,
             decoder: A30Decoder::default(),
@@ -243,60 +265,81 @@ impl A30Session {
             announced: false,
         };
 
-        session.send(0xFFF8, &[1, 0, 4, 0x67, 2, 1, 0])?;
-        session.pump(timing.handshake_wait)?;
-        for _ in 0..2 {
-            if session.ready {
-                break;
+        diagnostic_stage(
+            sink,
+            adapter_id.clone(),
+            operation,
+            "relay_identity_handshake",
+            vec![],
+            || {
+                session.send(0xFFF8, &[1, 0, 4, 0x67, 2, 1, 0])?;
+                session.pump(timing.handshake_wait)?;
+                for _ in 0..2 {
+                    if session.ready {
+                        break;
+                    }
+                    session.send(0xFFF8, &[1, 0, 4, 0x67, 2, 1, 0])?;
+                    session.pump(timing.retry_wait)?;
+                }
+                if !session.ready {
+                    return Err(LogNookError::new(
+                        "A30 Bluetooth dongle did not answer the initial SETUP frame",
+                    ));
+                }
+
+                Ok(())
+            },
+        )?;
+
+        diagnostic_stage(sink, adapter_id, operation, "announcement", vec![], || {
+            for _ in 0..3 {
+                session.send(0xFFF9, &[1, 0, 3, 0x60, 0x06, 0])?;
+                session.pump(timing.status_wait)?;
             }
-            session.send(0xFFF8, &[1, 0, 4, 0x67, 2, 1, 0])?;
-            session.pump(timing.retry_wait)?;
-        }
-        if !session.ready {
-            return Err(LogNookError::new(
-                "A30 Bluetooth dongle did not answer the initial SETUP frame",
-            ));
-        }
 
-        for _ in 0..3 {
-            session.send(0xFFF9, &[1, 0, 3, 0x60, 0x06, 0])?;
-            session.pump(timing.status_wait)?;
-        }
-
-        for object in [0xCB, 0xCB, 0xD0, 0xC1, 0xC0, 0xC9, 0xCB, 0xC0] {
-            session.send(0xFFFA, &[1, 0, 2, 0x60, object])?;
-            session.pump(timing.poll_wait)?;
-        }
-        if !session.announced {
-            for object in [0xCB, 0x25, 0xFD] {
+            for object in [0xCB, 0xCB, 0xD0, 0xC1, 0xC0, 0xC9, 0xCB, 0xC0] {
                 session.send(0xFFFA, &[1, 0, 2, 0x60, object])?;
                 session.pump(timing.poll_wait)?;
             }
-        }
+            if !session.announced {
+                for object in [0xCB, 0x25, 0xFD] {
+                    session.send(0xFFFA, &[1, 0, 2, 0x60, object])?;
+                    session.pump(timing.poll_wait)?;
+                }
+            }
 
-        for (command, data) in [
-            (0xFFF8, &[1, 0, 4, 0x67, 2, 1, 0][..]),
-            (0xFFF9, &[1, 0, 3, 0x60, 0x06, 0][..]),
-            (0xFFF8, &[1, 0, 4, 0x60, 0x05, 0x07, 0x01][..]),
-            (0xFFF7, &[1, 0, 5, 0x60, 0x01, 0x00, 0x8C, 0x31][..]),
-            (
-                0xFFF4,
-                &[1, 0, 8, 0x60, 0x02, 0x01, 0x04, 0x03, 0x12, 0x00, 0x08][..],
-            ),
-            (
-                0xFFF2,
-                &[
-                    1, 0, 0x0A, 0x60, 0x03, 0x00, 0x3C, 0x00, 0x64, 0x00, 0x05, 0x00, 0x00,
-                ][..],
-            ),
-            (
-                0xFFF5,
-                &[1, 0, 7, 0x60, 0x08, 0x01, 0x07, 0xE8, 0x07, 0xFF][..],
-            ),
-        ] {
-            session.send(command, data)?;
-            session.pump(timing.config_wait)?;
-        }
+            for (command, data) in [
+                (0xFFF8, &[1, 0, 4, 0x67, 2, 1, 0][..]),
+                (0xFFF9, &[1, 0, 3, 0x60, 0x06, 0][..]),
+                (0xFFF8, &[1, 0, 4, 0x60, 0x05, 0x07, 0x01][..]),
+                (0xFFF7, &[1, 0, 5, 0x60, 0x01, 0x00, 0x8C, 0x31][..]),
+                (
+                    0xFFF4,
+                    &[1, 0, 8, 0x60, 0x02, 0x01, 0x04, 0x03, 0x12, 0x00, 0x08][..],
+                ),
+                (
+                    0xFFF2,
+                    &[
+                        1, 0, 0x0A, 0x60, 0x03, 0x00, 0x3C, 0x00, 0x64, 0x00, 0x05, 0x00, 0x00,
+                    ][..],
+                ),
+                (
+                    0xFFF5,
+                    &[1, 0, 7, 0x60, 0x08, 0x01, 0x07, 0xE8, 0x07, 0xFF][..],
+                ),
+            ] {
+                session.send(command, data)?;
+                session.pump(timing.config_wait)?;
+            }
+            if require_announcement && !session.announced {
+                return Err(LogNookError::new(if operation == "identify" {
+                    "Bluetooth device did not announce the captured A30 relay descriptors"
+                } else {
+                    "A30 answered over Bluetooth but did not announce its relay descriptors"
+                }));
+            }
+            Ok(())
+        })?;
         Ok(session)
     }
 
@@ -458,6 +501,7 @@ pub struct A30Adapter {
     supported_pids: Vec<u8>,
     ecu_id: Option<String>,
     started: Option<Instant>,
+    diagnostic_sink: DiagnosticSink,
     #[cfg(test)]
     test_stream: Option<Box<dyn BluetoothByteStream>>,
     #[cfg(test)]
@@ -472,6 +516,7 @@ impl A30Adapter {
             supported_pids: Vec::new(),
             ecu_id: None,
             started: None,
+            diagnostic_sink: noop_diagnostic_sink(),
             #[cfg(test)]
             test_stream: None,
             #[cfg(test)]
@@ -491,58 +536,107 @@ impl A30Adapter {
         adapter
     }
 
-    fn open_session(&mut self) -> Result<A30Session, LogNookError> {
-        #[cfg(test)]
-        if let Some(stream) = self.test_stream.take() {
-            return A30Session::open_with_timing(stream, self.test_timing);
+    fn open_session(&mut self, operation: &str) -> Result<A30Session, LogNookError> {
+        let sink = self.diagnostic_sink.clone();
+        let id = a30_device(&self.address)
+            .ok()
+            .map(|device| device.stable_id);
+        let timing = {
+            #[cfg(test)]
+            {
+                self.test_timing
+            }
+            #[cfg(not(test))]
+            {
+                A30Timing::default()
+            }
+        };
+        let stream = diagnostic_stage(
+            &sink,
+            id.clone(),
+            operation,
+            "bluetooth_session_open",
+            vec![],
+            || {
+                #[cfg(test)]
+                if let Some(stream) = self.test_stream.take() {
+                    return Ok(stream);
+                }
+                connect_bluetooth_spp(&self.address)
+            },
+        )?;
+        A30Session::open_with_diagnostics(stream, timing, &sink, id, operation, true)
+    }
+
+    fn identify_inner(&mut self) -> Result<DeviceDescriptor, LogNookError> {
+        let session = self.open_session("identify")?;
+        if !session.is_announced() {
+            return Err(LogNookError::new(
+                "Bluetooth device did not announce the captured A30 relay descriptors",
+            ));
         }
-        A30Session::open(&self.address)
+        a30_device(&self.address)
     }
 
     fn connect_inner(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
-        let mut session = self.open_session()?;
+        let mut session = self.open_session("connect")?;
         if !session.is_announced() {
             return Err(LogNookError::new(
                 "A30 answered over Bluetooth but did not announce its relay descriptors",
             ));
         }
 
-        let mut supported_pids = Vec::new();
-        let mut ecu_id: Option<String> = None;
-        let mut start = 0;
-        loop {
-            let response = session.read_mode01_pid(start)?;
-            let responder = response.ecu_id.clone().ok_or_else(|| {
-                LogNookError::new("A30 supported-PID response did not identify its ECU")
-            })?;
-            if ecu_id
-                .as_ref()
-                .is_some_and(|previous| previous != &responder)
-            {
-                return Err(LogNookError::new(
-                    "ECU identity changed during A30 supported-PID discovery",
-                ));
-            }
-            ecu_id.get_or_insert(responder.clone());
-            let range = parse_supported_pid_payload(responder, &response.raw_bytes, start)
-                .map_err(LogNookError::new)?;
-            supported_pids.extend(range.pids);
-            if !range.has_more || start == 0xE0 {
-                break;
-            }
-            start += 0x20;
-        }
-        supported_pids.sort_unstable();
-        supported_pids.dedup();
-        let supported_signals = standard_obd_signals()
-            .into_iter()
-            .filter(|signal| supported_pids.contains(&signal.pid))
-            .collect::<Vec<_>>();
-        if supported_signals.is_empty() {
-            return Err(LogNookError::new(
-                "ECU reports no supported LogNook Mode 01 signals over A30",
-            ));
-        }
+        let sink = self.diagnostic_sink.clone();
+        let id = a30_device(&self.address)
+            .ok()
+            .map(|device| device.stable_id);
+        let (supported_pids, ecu_id, supported_signals) = diagnostic_stage(
+            &sink,
+            id,
+            "connect",
+            "supported_pid_discovery",
+            vec![],
+            || {
+                let mut supported_pids = Vec::new();
+                let mut ecu_id: Option<String> = None;
+                let mut start = 0;
+                loop {
+                    let response = session.read_mode01_pid(start)?;
+                    let responder = response.ecu_id.clone().ok_or_else(|| {
+                        LogNookError::new("A30 supported-PID response did not identify its ECU")
+                    })?;
+                    if ecu_id
+                        .as_ref()
+                        .is_some_and(|previous| previous != &responder)
+                    {
+                        return Err(LogNookError::new(
+                            "ECU identity changed during A30 supported-PID discovery",
+                        ));
+                    }
+                    ecu_id.get_or_insert(responder.clone());
+                    let range = parse_supported_pid_payload(responder, &response.raw_bytes, start)
+                        .map_err(LogNookError::new)?;
+                    supported_pids.extend(range.pids);
+                    if !range.has_more || start == 0xE0 {
+                        break;
+                    }
+                    start += 0x20;
+                }
+                supported_pids.sort_unstable();
+                supported_pids.dedup();
+                let supported_signals = standard_obd_signals()
+                    .into_iter()
+                    .filter(|signal| supported_pids.contains(&signal.pid))
+                    .collect::<Vec<_>>();
+                if supported_signals.is_empty() {
+                    return Err(LogNookError::new(
+                        "ECU reports no supported LogNook Mode 01 signals over A30",
+                    ));
+                }
+
+                Ok((supported_pids, ecu_id, supported_signals))
+            },
+        )?;
 
         let device = a30_device(&self.address)?;
         self.session = Some(session);
@@ -559,6 +653,10 @@ impl A30Adapter {
 }
 
 impl HardwareAdapter for A30Adapter {
+    fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
+        self.diagnostic_sink = sink;
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -611,32 +709,48 @@ impl HardwareAdapter for A30Adapter {
             }
         }
 
+        let sink = self.diagnostic_sink.clone();
+        let id = a30_device(&self.address)
+            .ok()
+            .map(|device| device.stable_id);
         signals
             .iter()
             .map(|signal| {
-                let response = session.read_mode01_pid(signal.pid)?;
-                if response.ecu_id.as_deref().is_some_and(|id| {
-                    self.ecu_id
-                        .as_deref()
-                        .is_some_and(|connected| connected != id)
-                }) {
-                    return Err(LogNookError::new(
-                        "ECU identity changed during the A30 session",
-                    ));
-                }
-                let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-                Ok(Sample {
-                    elapsed_ns,
-                    wall_time_unix_ns: now_unix_ns(),
-                    source_id: format!("xtool-a30:{}", canonical_bluetooth_address(&self.address)?),
-                    ecu_id: response.ecu_id.clone().or_else(|| self.ecu_id.clone()),
-                    signal_id: signal.id.clone(),
-                    value: decode_signal(signal, &response).map_err(LogNookError::new)?,
-                    unit: signal.unit.clone(),
-                    quality: SampleQuality::Valid,
-                    origin: SampleOrigin::Live,
-                    raw_bytes: Some(response.raw_bytes),
-                })
+                diagnostic_stage(
+                    &sink,
+                    id.clone(),
+                    "acquisition",
+                    "pid_read",
+                    vec![signal.id.clone()],
+                    || {
+                        let response = session.read_mode01_pid(signal.pid)?;
+                        if response.ecu_id.as_deref().is_some_and(|id| {
+                            self.ecu_id
+                                .as_deref()
+                                .is_some_and(|connected| connected != id)
+                        }) {
+                            return Err(LogNookError::new(
+                                "ECU identity changed during the A30 session",
+                            ));
+                        }
+                        let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
+                        Ok(Sample {
+                            elapsed_ns,
+                            wall_time_unix_ns: now_unix_ns(),
+                            source_id: format!(
+                                "xtool-a30:{}",
+                                canonical_bluetooth_address(&self.address)?
+                            ),
+                            ecu_id: response.ecu_id.clone().or_else(|| self.ecu_id.clone()),
+                            signal_id: signal.id.clone(),
+                            value: decode_signal(signal, &response).map_err(LogNookError::new)?,
+                            unit: signal.unit.clone(),
+                            quality: SampleQuality::Valid,
+                            origin: SampleOrigin::Live,
+                            raw_bytes: Some(response.raw_bytes),
+                        })
+                    },
+                )
             })
             .collect()
     }
@@ -1170,14 +1284,16 @@ fn hex_bytes(bytes: &[u8]) -> String {
 }
 
 pub fn identify_a30(address: impl Into<String>) -> Result<DeviceDescriptor, LogNookError> {
-    let address = address.into();
-    let session = A30Session::open(&address)?;
-    if !session.is_announced() {
-        return Err(LogNookError::new(
-            "Bluetooth device did not announce the captured A30 relay descriptors",
-        ));
-    }
-    a30_device(&address)
+    identify_a30_with_diagnostics(address, noop_diagnostic_sink())
+}
+
+pub fn identify_a30_with_diagnostics(
+    address: impl Into<String>,
+    sink: DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
+    let mut adapter = A30Adapter::new(address);
+    adapter.set_diagnostic_sink(sink);
+    adapter.identify_inner()
 }
 
 fn a30_device(address: &str) -> Result<DeviceDescriptor, LogNookError> {
@@ -1412,6 +1528,7 @@ mod tests {
         outgoing: Vec<u8>,
         requests: Arc<Mutex<Vec<(u16, Vec<u8>)>>>,
         multiple_ecu_rpm: bool,
+        announce: bool,
     }
 
     fn captured_mode21_block() -> Vec<u8> {
@@ -1544,6 +1661,7 @@ mod tests {
                     outgoing: Vec::new(),
                     requests: requests.clone(),
                     multiple_ecu_rpm: false,
+                    announce: true,
                 },
                 requests,
             )
@@ -1558,9 +1676,11 @@ mod tests {
         fn respond(&mut self, request: A30Frame) {
             let (command, data): (u16, Vec<u8>) =
                 match (request.command, request.data.last().copied()) {
-                    (0xFFFA, Some(0xD0)) => (0xFFF8, vec![1, 0, 4, 6, 16, 5, 16]),
-                    (0xFFFA, Some(0xC1)) => (0xFFEC, vec![1, 0, 16, 0xF5, 0xAB, 0xC9]),
-                    (0xFFFA, Some(0xC0)) => (0xFFF8, vec![1, 0, 4, 6, 1, 7, 128]),
+                    (0xFFFA, Some(0xD0)) if self.announce => (0xFFF8, vec![1, 0, 4, 6, 16, 5, 16]),
+                    (0xFFFA, Some(0xC1)) if self.announce => {
+                        (0xFFEC, vec![1, 0, 16, 0xF5, 0xAB, 0xC9])
+                    }
+                    (0xFFFA, Some(0xC0)) if self.announce => (0xFFF8, vec![1, 0, 4, 6, 1, 7, 128]),
                     (0xFFEC, _) if request.data.get(11) == Some(&0x02) => {
                         (0xFFF1, notify_data(&[0x42, 0x0C, 0, 0x1A, 0x1E]))
                     }
@@ -1702,6 +1822,133 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn missing_announcement_fails_the_announcement_stage() {
+        let (mut dongle, _) = ScriptedDongle::new();
+        dongle.announce = false;
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        let events = std::sync::Arc::new(std::sync::Mutex::new(
+            Vec::<crate::DiagnosticProgress>::new(),
+        ));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(std::sync::Arc::new(move |event| {
+            captured.lock().unwrap().push(event)
+        }));
+        let error = adapter.connect().unwrap_err();
+        let events = events.lock().unwrap();
+        assert_eq!(events.last().unwrap().stage, "announcement");
+        assert_eq!(events.last().unwrap().phase, crate::DiagnosticPhase::Failed);
+        assert_eq!(
+            events.last().unwrap().detail.as_deref(),
+            Some(error.to_string().as_str())
+        );
+        assert!(events.last().unwrap().duration_ms.is_some());
+    }
+
+    #[test]
+    fn selected_a30_pid_failure_keeps_signal_identity_and_original_error() {
+        let (dongle, _) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        let caps = adapter.connect().unwrap();
+        let coolant = caps
+            .supported_signals
+            .iter()
+            .find(|signal| signal.pid == 0x05)
+            .unwrap();
+        let events = std::sync::Arc::new(std::sync::Mutex::new(
+            Vec::<crate::DiagnosticProgress>::new(),
+        ));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(std::sync::Arc::new(move |event| {
+            captured.lock().unwrap().push(event)
+        }));
+        let error = adapter
+            .read_samples(std::slice::from_ref(coolant))
+            .unwrap_err();
+        let events = events.lock().unwrap();
+        let event = events.last().unwrap();
+        assert_eq!(event.signal_ids, ["coolant_temp"]);
+        assert_eq!(event.phase, crate::DiagnosticPhase::Failed);
+        assert_eq!(event.detail.as_deref(), Some(error.to_string().as_str()));
+        assert!(event.duration_ms.is_some());
+    }
+
+    #[test]
+    fn legacy_a30_identify_wrapper_preserves_invalid_address_error() {
+        assert_eq!(
+            super::identify_a30("invalid").unwrap_err().to_string(),
+            super::identify_a30_with_diagnostics(
+                "invalid",
+                crate::diagnostics::noop_diagnostic_sink()
+            )
+            .unwrap_err()
+            .to_string()
+        );
+    }
+
+    #[test]
+    fn identify_stages_do_not_discover_pids() {
+        let (dongle, written) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        let events = std::sync::Arc::new(std::sync::Mutex::new(
+            Vec::<crate::DiagnosticProgress>::new(),
+        ));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(std::sync::Arc::new(move |event| {
+            captured.lock().unwrap().push(event)
+        }));
+        let device = adapter.identify_inner().unwrap();
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.phase == crate::DiagnosticPhase::Succeeded)
+                .map(|event| event.stage.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "bluetooth_session_open",
+                "relay_identity_handshake",
+                "announcement"
+            ]
+        );
+        assert!(events.iter().all(|event| event.operation == "identify"
+            && event.adapter_id.as_deref() == Some(device.stable_id.as_str())));
+        assert!(
+            written
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|frame| frame.0 != 0xFFEC)
+        );
     }
 
     #[test]
@@ -1889,6 +2136,13 @@ mod tests {
         };
         let mut adapter =
             A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        let events = std::sync::Arc::new(std::sync::Mutex::new(
+            Vec::<crate::DiagnosticProgress>::new(),
+        ));
+        let captured = events.clone();
+        adapter.set_diagnostic_sink(std::sync::Arc::new(move |event| {
+            captured.lock().unwrap().push(event)
+        }));
         let capabilities = adapter.connect().unwrap();
 
         assert_eq!(
@@ -1908,6 +2162,30 @@ mod tests {
             .unwrap()
             .clone();
         let samples = adapter.read_samples(&[rpm]).unwrap();
+        let events = events.lock().unwrap();
+        let stages: Vec<_> = events
+            .iter()
+            .filter(|event| event.phase == crate::DiagnosticPhase::Succeeded)
+            .map(|event| event.stage.as_str())
+            .collect();
+        assert_eq!(
+            stages,
+            [
+                "bluetooth_session_open",
+                "relay_identity_handshake",
+                "announcement",
+                "supported_pid_discovery",
+                "pid_read"
+            ]
+        );
+        assert!(
+            events
+                .iter()
+                .filter(|event| event.phase != crate::DiagnosticPhase::Started)
+                .all(|event| event.duration_ms.is_some())
+        );
+        assert_eq!(events.last().unwrap().signal_ids, ["engine_rpm"]);
+        assert!(events.iter().all(|event| event.detail.is_none()));
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].value, 1726.0);
         assert_eq!(samples[0].ecu_id.as_deref(), Some("7E8"));

@@ -11,10 +11,14 @@ import {
   graphRefreshIntervalMs,
   orderMarkersForTimeline,
   panTimeWindow,
+  rememberWorkbenchGraphSignalId,
   positionAtChartX,
+  restoreResearchSignalOptions,
+  restoreWorkbenchGraphSignalIds,
   restoreWorkspacePreferences,
   sampleTimeRange,
   scrubTimeWindow,
+  upsertResearchSignalOption,
   setGraphSignal,
   setLogSignal,
   signalColor,
@@ -130,6 +134,77 @@ test("workspace preference restoration filters unsupported PIDs and malformed va
     restoreWorkspacePreferences("not json", ["engine_rpm"], defaultWorkspacePreferences, 120),
     { ...defaultWorkspacePreferences, logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm"] },
   );
+});
+
+test("research graph signals restore as graph-only options and reject malformed entries", () => {
+  const longName = "N".repeat(142);
+  const saved = [
+    { id: "oem:scion-xb-21-01", name: "Odometer", unit: "km", research: true, pid: 0x28 },
+    { id: "a30_mode06_tid_35_mid_01", name: "Mode 06 TID 35 MID 01", unit: "raw count", research: true },
+    { id: "oem:long-name", name: longName, unit: "rpm", research: true },
+    { id: "engine_rpm", name: "Engine speed", unit: "rpm", research: true },
+    { id: "oem:bad", name: "", unit: "rpm", research: true },
+    { id: "oem:other", name: "Not research", unit: "rpm", research: false },
+  ];
+  const researchSignals = restoreResearchSignalOptions(JSON.stringify(saved));
+
+  assert.deepEqual(researchSignals, saved.slice(0, 3));
+  const graphableIds = restoreWorkbenchGraphSignalIds(JSON.stringify([
+    "engine_rpm", "oem:scion-xb-21-01", "a30_mode06_tid_35_mid_01", "unknown",
+  ]));
+  const restored = restoreWorkspacePreferences(
+    JSON.stringify({ logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm", "oem:scion-xb-21-01", "a30_mode06_tid_35_mid_01", "unknown"] }),
+    ["engine_rpm"],
+    defaultWorkspacePreferences,
+    120,
+    graphableIds.filter((id) => id === "engine_rpm" || researchSignals.some((signal) => signal.id === id)),
+  );
+  assert.deepEqual(restored.logSignalIds, ["engine_rpm"]);
+  assert.deepEqual(restored.graphSignalIds, ["engine_rpm", "oem:scion-xb-21-01", "a30_mode06_tid_35_mid_01"]);
+});
+
+test("Workbench graphable ID restoration is unique, typed, and bounded", () => {
+  const saved = ["engine_rpm", "engine_rpm", 4, "", ...Array.from({ length: 510 }, (_, i) => `oem:candidate-${i}`)];
+  const ids = restoreWorkbenchGraphSignalIds(JSON.stringify(saved));
+  assert.equal(ids.length, 500);
+  assert.equal(new Set(ids).size, 500);
+  assert.equal(ids[0], "oem:candidate-10");
+  assert.equal(ids.at(-1), "oem:candidate-509");
+});
+
+test("remembering a Workbench graphable ID deduplicates and keeps the newest 500", () => {
+  const existing = Array.from({ length: 500 }, (_, i) => `oem:candidate-${i}`);
+  const next = rememberWorkbenchGraphSignalId(existing, "oem:candidate-500");
+  assert.equal(next.length, 500);
+  assert.equal(next[0], "oem:candidate-1");
+  assert.equal(next.at(-1), "oem:candidate-500");
+  assert.equal(rememberWorkbenchGraphSignalId(next, "oem:candidate-500").length, 500);
+  const refreshed = rememberWorkbenchGraphSignalId(next, "oem:candidate-1");
+  assert.equal(refreshed[0], "oem:candidate-2");
+  assert.equal(refreshed.at(-1), "oem:candidate-1");
+});
+
+test("research graph signal restoration is bounded and upsert replaces by ID", () => {
+  const options = Array.from({ length: 500 }, (_, index) => ({
+    id: `oem:candidate-${index}`,
+    name: `Candidate ${index}`,
+    unit: "rpm",
+    research: true,
+  }));
+  const restored = restoreResearchSignalOptions(JSON.stringify(options));
+  assert.equal(restored.length, 500);
+  assert.equal(restoreResearchSignalOptions(JSON.stringify([...options, {
+    id: "oem:candidate-500", name: "Candidate 500", unit: "rpm", research: true,
+  }])).length, 500);
+
+  const updated = upsertResearchSignalOption(restored, {
+    id: "oem:candidate-250", name: "Updated candidate", unit: "km/h", research: true,
+  });
+  assert.equal(updated.length, 500);
+  assert.equal(updated.filter(({ id }) => id === "oem:candidate-250").length, 1);
+  assert.deepEqual(updated.at(-1), {
+    id: "oem:candidate-250", name: "Updated candidate", unit: "km/h", research: true,
+  });
 });
 
 test("workspace appearance preferences accept known themes and reject unknown values", () => {

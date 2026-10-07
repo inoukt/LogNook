@@ -1,7 +1,8 @@
 mod worker_client;
 
 use crate::{
-    HardwareAdapter,
+    DiagnosticSink, HardwareAdapter,
+    diagnostics::{diagnostic_stage, noop_diagnostic_sink},
     model::{
         ConnectionCapabilities, DeviceDescriptor, LogNookError, Sample, SampleOrigin,
         SampleQuality, SignalDefinition,
@@ -24,14 +25,28 @@ use worker_client::WorkerClient;
 
 trait WorkerSession: Send {
     fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, LogNookError>;
+    fn request_with_progress(
+        &mut self,
+        request: WorkerRequest,
+        _sink: &DiagnosticSink,
+    ) -> Result<WorkerResponse, LogNookError> {
+        self.request(request)
+    }
     fn shutdown(&mut self);
 }
 
 pub fn available_openport2_providers(
     worker_path: &Path,
 ) -> Result<J2534ProviderDiscovery, LogNookError> {
+    available_openport2_providers_with_diagnostics(worker_path, noop_diagnostic_sink())
+}
+
+pub fn available_openport2_providers_with_diagnostics(
+    worker_path: &Path,
+    sink: DiagnosticSink,
+) -> Result<J2534ProviderDiscovery, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
-    let result = available_from_session(&mut session);
+    let result = available_from_session_with_diagnostics(&mut session, &sink);
     session.shutdown();
     result
 }
@@ -40,34 +55,170 @@ pub fn identify_openport2(
     worker_path: &Path,
     provider_id: &str,
 ) -> Result<DeviceDescriptor, LogNookError> {
+    identify_openport2_with_diagnostics(worker_path, provider_id, noop_diagnostic_sink())
+}
+
+pub fn identify_openport2_with_diagnostics(
+    worker_path: &Path,
+    provider_id: &str,
+    sink: DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
     let mut session = WorkerClient::spawn(worker_path)?;
-    let result = identify_from_session(&mut session, provider_id);
+    let result = identify_from_session_with_diagnostics(&mut session, provider_id, &sink);
     session.shutdown();
     result
 }
 
+#[cfg(test)]
 fn available_from_session(
     session: &mut dyn WorkerSession,
 ) -> Result<J2534ProviderDiscovery, LogNookError> {
-    match session.request(WorkerRequest::ListProviders)? {
+    available_from_session_with_diagnostics(session, &noop_diagnostic_sink())
+}
+
+fn available_from_session_with_diagnostics(
+    session: &mut dyn WorkerSession,
+    sink: &DiagnosticSink,
+) -> Result<J2534ProviderDiscovery, LogNookError> {
+    match session.request_with_progress(WorkerRequest::ListProviders, sink)? {
         WorkerResponse::Providers {
             providers,
             diagnostics,
-        } => Ok(J2534ProviderDiscovery {
-            providers,
-            diagnostics,
-        }),
+        } => {
+            let discovery = J2534ProviderDiscovery {
+                providers,
+                diagnostics,
+            };
+            emit_provider_inventory(&discovery, sink);
+            Ok(discovery)
+        }
         response => Err(unexpected_worker_response("provider listing", response)),
     }
 }
 
+const MAX_PROVIDER_OBSERVATIONS: usize = 64;
+
+fn safe_provider_label(value: &str) -> Option<String> {
+    (!value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|c| {
+            c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '(' | ')' | '{' | '}' | '&')
+        }))
+    .then(|| value.to_owned())
+}
+
+fn provider_explanation(message: &str) -> (Option<String>, String) {
+    for known in [
+        "No 32-bit J2534 04.04 registry entries were found.",
+        "No registered J2534 provider is eligible for OpenPort 2 connection.",
+    ] {
+        if message == known {
+            return (None, known.into());
+        }
+    }
+    if let Some(rest) = message.strip_prefix("Ignored registered J2534 provider '")
+        && let Some((name, rest)) = rest.split_once("' (")
+        && let Some(id) = rest.strip_suffix("): LogNook supports Tactrix/OpenPort/OPTA only.")
+    {
+        let name = safe_provider_label(name).unwrap_or_else(|| "[provider name redacted]".into());
+        return (
+            safe_provider_label(id),
+            format!("Ignored {name}: not an OpenPort/Tactrix/OPTA provider."),
+        );
+    }
+    if let Some(rest) = message.strip_prefix("Ignored registered provider '")
+        && let Some((name, reason)) = rest.rsplit_once("': ")
+    {
+        let reason = match reason {
+            "it has no FunctionLibrary path." => Some("no FunctionLibrary entry."),
+            "its FunctionLibrary path could not be resolved or the DLL is missing." => {
+                Some("FunctionLibrary could not be resolved or the DLL is missing.")
+            }
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            return (
+                None,
+                format!(
+                    "Ignored {}: {reason}",
+                    safe_provider_label(name).unwrap_or_else(|| "[provider name redacted]".into())
+                ),
+            );
+        }
+    }
+    (
+        None,
+        "An unrecognized provider discovery explanation was omitted.".into(),
+    )
+}
+
+fn emit_provider_inventory(discovery: &J2534ProviderDiscovery, sink: &DiagnosticSink) {
+    let emit = |adapter_id, stage: &str, detail| {
+        sink(crate::DiagnosticProgress {
+            adapter_id,
+            operation: "provider_discovery".into(),
+            stage: stage.into(),
+            phase: crate::DiagnosticPhase::Progress,
+            duration_ms: None,
+            signal_ids: vec![],
+            detail: Some(detail),
+            transient: None,
+            consecutive_failures: None,
+        })
+    };
+    let mut emitted = 0;
+    for provider in discovery.providers.iter().take(MAX_PROVIDER_OBSERVATIONS) {
+        emit(
+            safe_provider_label(&provider.id),
+            "provider_found",
+            format!(
+                "Discovered registered J2534 provider {}.",
+                safe_provider_label(&provider.name)
+                    .unwrap_or_else(|| "[provider name redacted]".into())
+            ),
+        );
+        emitted += 1;
+    }
+    for explanation in discovery
+        .diagnostics
+        .iter()
+        .take(MAX_PROVIDER_OBSERVATIONS - emitted)
+    {
+        let (adapter_id, detail) = provider_explanation(explanation);
+        emit(adapter_id, "provider_explanation", detail);
+        emitted += 1;
+    }
+    let omitted = discovery.providers.len() + discovery.diagnostics.len() - emitted;
+    emit(
+        None,
+        "provider_inventory",
+        format!(
+            "{} eligible providers; {} discovery explanations; {omitted} entries omitted from diagnostics.",
+            discovery.providers.len(),
+            discovery.diagnostics.len()
+        ),
+    );
+}
+
+#[cfg(test)]
 fn identify_from_session(
     session: &mut dyn WorkerSession,
     provider_id: &str,
 ) -> Result<DeviceDescriptor, LogNookError> {
-    let identity = match session.request(WorkerRequest::Identify {
-        provider_id: provider_id.to_owned(),
-    })? {
+    identify_from_session_with_diagnostics(session, provider_id, &noop_diagnostic_sink())
+}
+
+fn identify_from_session_with_diagnostics(
+    session: &mut dyn WorkerSession,
+    provider_id: &str,
+    sink: &DiagnosticSink,
+) -> Result<DeviceDescriptor, LogNookError> {
+    let identity = match session.request_with_progress(
+        WorkerRequest::Identify {
+            provider_id: provider_id.to_owned(),
+        },
+        sink,
+    )? {
         WorkerResponse::Identity { identity } => identity,
         response => return Err(unexpected_worker_response("adapter identity", response)),
     };
@@ -109,6 +260,7 @@ pub struct OpenPort2Adapter {
     started: Option<Instant>,
     ecu_id: Option<String>,
     supported_pids: HashSet<u8>,
+    diagnostic_sink: DiagnosticSink,
 }
 
 impl OpenPort2Adapter {
@@ -121,6 +273,7 @@ impl OpenPort2Adapter {
             started: None,
             ecu_id: None,
             supported_pids: HashSet::new(),
+            diagnostic_sink: noop_diagnostic_sink(),
         }
     }
 
@@ -134,16 +287,20 @@ impl OpenPort2Adapter {
         if self.session.is_none() {
             self.session = Some(Box::new(WorkerClient::spawn(&self.worker_path)?));
         }
+        let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "connect");
         let session = self.session.as_deref_mut().expect("session was created");
-        let identity = match session.request(WorkerRequest::Connect {
-            provider_id: self.provider_id.clone(),
-        })? {
+        let identity = match session.request_with_progress(
+            WorkerRequest::Connect {
+                provider_id: self.provider_id.clone(),
+            },
+            &sink,
+        )? {
             WorkerResponse::Connected { identity } => identity,
             response => return Err(unexpected_worker_response("connect", response)),
         };
         self.connected = true;
 
-        let responses = match session.request(WorkerRequest::DiscoverMode01)? {
+        let responses = match session.request_with_progress(WorkerRequest::DiscoverMode01, &sink)? {
             WorkerResponse::Mode01Responses { responses } => responses,
             response => {
                 return Err(unexpected_worker_response(
@@ -179,7 +336,8 @@ impl OpenPort2Adapter {
             .session
             .as_deref_mut()
             .ok_or_else(|| LogNookError::new("OpenPort adapter is not connected"))?;
-        match session.request(WorkerRequest::ReadMode01 { pid })? {
+        let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "acquisition");
+        match session.request_with_progress(WorkerRequest::ReadMode01 { pid }, &sink)? {
             WorkerResponse::Mode01Responses { responses } if responses.len() == 1 => Ok(responses
                 .into_iter()
                 .next()
@@ -193,6 +351,9 @@ impl OpenPort2Adapter {
 }
 
 impl HardwareAdapter for OpenPort2Adapter {
+    fn set_diagnostic_sink(&mut self, sink: DiagnosticSink) {
+        self.diagnostic_sink = sink;
+    }
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.connected {
             return Err(LogNookError::new("OpenPort adapter is already connected"));
@@ -236,34 +397,51 @@ impl HardwareAdapter for OpenPort2Adapter {
             .map(|signal| signal.pid)
             .filter(|pid| seen_pids.insert(*pid))
         {
-            let payload = self.read_pid(pid)?;
-            if !payload.ecu_id.eq_ignore_ascii_case(&ecu_id) {
-                return Err(LogNookError::new(
-                    "ECU identity changed during the OpenPort session",
-                ));
-            }
-            let response = parse_mode01_payload(ecu_id.clone(), &payload.bytes, pid)
-                .map_err(LogNookError::new)?;
-            for signal in signals.iter().filter(|signal| signal.pid == pid) {
-                let canonical = catalog
-                    .iter()
-                    .find(|known| known.id == signal.id)
-                    .expect("signal was validated against catalog");
-                let value = decode_signal(canonical, &response).map_err(LogNookError::new)?;
-                let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
-                samples.push(Sample {
-                    elapsed_ns,
-                    wall_time_unix_ns: now_unix_ns(),
-                    source_id: format!("openport2:{}", self.provider_id),
-                    ecu_id: Some(ecu_id.clone()),
-                    signal_id: signal.id.clone(),
-                    value,
-                    unit: canonical.unit.clone(),
-                    quality: SampleQuality::Valid,
-                    origin: SampleOrigin::Live,
-                    raw_bytes: Some(response.raw_bytes.clone()),
-                });
-            }
+            let sink = self.diagnostic_sink.clone();
+            let signal_ids = signals
+                .iter()
+                .filter(|signal| signal.pid == pid)
+                .map(|signal| signal.id.clone())
+                .collect();
+            diagnostic_stage(
+                &sink,
+                Some(self.provider_id.clone()),
+                "acquisition",
+                "pid_read",
+                signal_ids,
+                || {
+                    let payload = self.read_pid(pid)?;
+                    if !payload.ecu_id.eq_ignore_ascii_case(&ecu_id) {
+                        return Err(LogNookError::new(
+                            "ECU identity changed during the OpenPort session",
+                        ));
+                    }
+                    let response = parse_mode01_payload(ecu_id.clone(), &payload.bytes, pid)
+                        .map_err(LogNookError::new)?;
+                    for signal in signals.iter().filter(|signal| signal.pid == pid) {
+                        let canonical = catalog
+                            .iter()
+                            .find(|known| known.id == signal.id)
+                            .expect("signal was validated against catalog");
+                        let value =
+                            decode_signal(canonical, &response).map_err(LogNookError::new)?;
+                        let elapsed_ns = started.elapsed().as_nanos().min(i64::MAX as u128) as i64;
+                        samples.push(Sample {
+                            elapsed_ns,
+                            wall_time_unix_ns: now_unix_ns(),
+                            source_id: format!("openport2:{}", self.provider_id),
+                            ecu_id: Some(ecu_id.clone()),
+                            signal_id: signal.id.clone(),
+                            value,
+                            unit: canonical.unit.clone(),
+                            quality: SampleQuality::Valid,
+                            origin: SampleOrigin::Live,
+                            raw_bytes: Some(response.raw_bytes.clone()),
+                        });
+                    }
+                    Ok(())
+                },
+            )?;
         }
         Ok(samples)
     }
@@ -284,6 +462,17 @@ impl HardwareAdapter for OpenPort2Adapter {
         self.ecu_id = None;
         self.supported_pids.clear();
     }
+}
+
+fn contextual_sink(sink: &DiagnosticSink, provider_id: &str, operation: &str) -> DiagnosticSink {
+    let sink = sink.clone();
+    let adapter_id = provider_id.to_owned();
+    let operation = operation.to_owned();
+    std::sync::Arc::new(move |mut event| {
+        event.adapter_id = Some(adapter_id.clone());
+        event.operation = operation.clone();
+        sink(event);
+    })
 }
 
 fn parse_supported_pages(

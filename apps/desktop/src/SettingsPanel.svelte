@@ -14,6 +14,8 @@
     resetDisabled = false,
     onAction,
     onReset,
+    diagnosticsOpen = false,
+    onDiagnostics,
   }: {
     wheelScrubbing?: boolean;
     theme?: WorkspaceTheme;
@@ -22,6 +24,8 @@
     resetDisabled?: boolean;
     onAction: (action: ShortcutAction) => void;
     onReset: () => void;
+    diagnosticsOpen?: boolean;
+    onDiagnostics: () => void;
   } = $props();
 
   const shortcutsKey = "lognook.shortcuts";
@@ -124,6 +128,7 @@
   <summary class="icon-button" aria-label="Settings" title="Settings">⚙</summary>
   <div class="settings-popover">
     <strong>Settings</strong>
+    <button class="button secondary" type="button" aria-pressed={diagnosticsOpen} onclick={onDiagnostics}>{diagnosticsOpen ? "Close Diagnostics" : "Diagnostics"}</button>
     <label class="settings-theme">
       <span>Color theme</span>
       <select class="text-input settings-theme-select" aria-label="Color theme" value={theme} onchange={(event) => theme = event.currentTarget.value as WorkspaceTheme}>

@@ -1,4 +1,5 @@
 mod commands;
+mod diagnostics;
 
 use lognook_core::LogNookEngine;
 use std::{path::PathBuf, sync::Mutex};
@@ -6,6 +7,8 @@ use tauri::{Emitter, Manager};
 
 pub(crate) struct AppState {
     pub engine: Mutex<LogNookEngine>,
+    pub diagnostics: diagnostics::DiagnosticsService,
+    pub diagnostics_path: PathBuf,
     pub recordings_dir: PathBuf,
     pub pid_catalog_path: PathBuf,
     pub oem_validation_log: PathBuf,
@@ -35,12 +38,26 @@ pub fn run() {
                     format!("OEM PID catalog not found: {}", pid_catalog_path.display()).into(),
                 );
             }
+            let diagnostics_path = app
+                .path()
+                .app_data_dir()?
+                .join("diagnostics")
+                .join("operations.jsonl");
+            let diagnostics_handle = app.handle().clone();
+            let diagnostics =
+                diagnostics::DiagnosticsService::start(diagnostics_path.clone(), move |record| {
+                    let _ = diagnostics_handle.emit("diagnostics-event", record);
+                })?;
+            let engine_diagnostics = diagnostics.clone();
             let app_handle = app.handle().clone();
             let engine = LogNookEngine::new(move |event| {
+                engine_diagnostics.observe_engine(&event);
                 let _ = app_handle.emit("lognook-event", event);
             });
             app.manage(AppState {
                 engine: Mutex::new(engine),
+                diagnostics,
+                diagnostics_path,
                 recordings_dir,
                 pid_catalog_path,
                 oem_validation_log: oem_validation_dir.join("scion-xb-mode21.jsonl"),
@@ -50,6 +67,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::diagnostic_snapshot,
+            commands::choose_diagnostics_recording,
+            commands::export_support_bundle,
             commands::available_signals,
             commands::search_oem_catalog,
             commands::probe_scion_xb_mode21,

@@ -146,6 +146,28 @@ test("numeric_result_updates_graph_while_recording", () => {
   includes(results, /within_catalog_range\s*===\s*false/, "out-of-range values keep their Suspect research diagnostic");
 });
 
+test("workbench graph definitions and selections persist without measurement samples", () => {
+  includes(app, /researchSignalOptionsKey\s*=\s*"lognook\.research-signal-options"/, "research signal metadata has its own local preference key");
+  includes(app, /workbenchGraphSignalIdsKey\s*=\s*"lognook\.workbench-graph-signal-ids"/, "Workbench graphable IDs are remembered separately from logged PIDs");
+  includes(app, /savedResearchSignalOptions\s*=\s*localStorage\.getItem\(researchSignalOptionsKey\)/, "research metadata is restored from local storage");
+  includes(app, /savedWorkbenchGraphSignalIds\s*=\s*localStorage\.getItem\(workbenchGraphSignalIdsKey\)/, "graph-only Workbench selections are restored");
+  includes(app, /researchSignalOptions\s*=\s*restoreResearchSignalOptions\(savedResearchSignalOptions\)/, "saved research definitions are validated before use");
+  includes(app, /restoreWorkspacePreferences\([\s\S]*?workbenchGraphSignalIds\s*,\s*\)/, "saved graph-only IDs are allowed without entering the log selection");
+  includes(app, /localStorage\.setItem\(researchSignalOptionsKey,\s*JSON\.stringify\(researchSignalOptions\)\)/, "only signal definitions are persisted");
+  includes(app, /localStorage\.setItem\(workbenchGraphSignalIdsKey,\s*JSON\.stringify\(workbenchGraphSignalIds\)\)/, "Workbench graphable IDs are persisted");
+  includes(app, /rememberWorkbenchGraphSignalId\(workbenchGraphSignalIds,\s*value\.signal_id\)/, "successful A30 Workbench values are remembered as graphable");
+  excludes(app, /captured read result · raw \$\{value\.raw_value\}/, "A30 sample values are not copied into persistent signal metadata");
+  includes(app, /&& !workbenchGraphSignalIds\.includes\(signal\.id\)/, "previously graphed Workbench signals stay selectable after restart");
+});
+
+test("reset_preferences_clears_remembered_workbench_graph_state", () => {
+  const reset = app.match(/function resetPreferences\(\)\s*\{([\s\S]*?)\n  \}/)?.[1] ?? "";
+  includes(reset, /researchSignalOptions\s*=\s*\[\]/, "reset clears persisted research signal definitions");
+  includes(reset, /workbenchGraphSignalIds\s*=\s*\[\]/, "reset clears graph-only Workbench IDs");
+  includes(reset, /localStorage\.removeItem\(researchSignalOptionsKey\)/, "reset removes the research metadata key");
+  includes(reset, /localStorage\.removeItem\(workbenchGraphSignalIdsKey\)/, "reset removes the Workbench graph IDs key");
+});
+
 test("export_uses_completed_run_report", () => {
   includes(types, /export type ResearchRunReport\s*=\s*\{/, "the UI defines the Rust report contract");
   for (const field of ["run_id", "adapter", "started_at_unix_ms", "completed_at_unix_ms", "items", "queue_index", "queue_size", "selection", "result"]) {
