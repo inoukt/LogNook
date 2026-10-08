@@ -91,6 +91,23 @@ impl LogNookAgent {
     }
 
     #[tool(
+        description = "List bounded live PID/CAN buffers and saved LogNook or agent CAN capture sources. Query any supplied recording path separately."
+    )]
+    async fn list_log_sources(&self) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::ListLogSources).await
+    }
+
+    #[tool(
+        description = "Read a bounded time range from a live or saved PID/CAN source. Use list_log_sources first; provide elapsed milliseconds and optional PID or CAN-ID filters."
+    )]
+    async fn query_log_range(
+        &self,
+        Parameters(query): Parameters<AgentLogQueryArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::QueryLogRange { query }).await
+    }
+
+    #[tool(
         description = "Set LogNook's PID log and graph selections. Logging changes are rejected while an adapter is connected; graph changes are immediate."
     )]
     async fn set_signal_selection(
@@ -230,6 +247,17 @@ impl LogNookAgent {
     ) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::Workbench { operation }).await
     }
+
+    #[tool(
+        description = "Send one raw diagnostic payload (hex bytes) or adapter-terminal command over a connected OBDLink SX or ELM327. The serialized adapter owner records TX/RX in its trace; use workbench send_frame for raw Candlelight CAN."
+    )]
+    async fn send_raw_command(
+        &self,
+        Parameters(AgentRawCommandArgs { operation }): Parameters<AgentRawCommandArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::SendRawCommand { operation })
+            .await
+    }
 }
 
 impl LogNookAgent {
@@ -286,9 +314,12 @@ mod tests {
                 "get_status",
                 "get_trace",
                 "list_adapters",
+                "list_log_sources",
                 "list_mode06_tests",
                 "list_signals",
+                "query_log_range",
                 "search_oem_candidates",
+                "send_raw_command",
                 "set_signal_selection",
                 "start_trace_capture",
                 "stop_operation",

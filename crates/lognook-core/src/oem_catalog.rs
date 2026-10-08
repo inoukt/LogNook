@@ -6,6 +6,7 @@ pub const SCION_XB_SOURCE_ID: &str = "OBDB_SCION_XB_DEFAULT";
 pub const SCION_XB_BLOB_SHA: &str = "be4c7ba0624359b6e7bf217af6509bdb12ee37fc";
 const MAX_PAGE_SIZE: usize = 100;
 const MAX_OFFSET: usize = 1_000_000;
+const MAX_OEM_POLL_SIGNALS: usize = 64;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OemCatalogPage {
@@ -72,6 +73,21 @@ pub struct ScionMode21ProbeSpec {
 pub struct OemCandidateTrySpec {
     pub candidate: OemCandidate,
     pub value_format: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct OemVehicleProfile {
+    pub vehicle_id: String,
+    pub brand: String,
+    pub model: String,
+    pub model_year: Option<i32>,
+    pub engine: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct OemPollPlan {
+    pub(crate) vehicle_id: String,
+    pub(crate) groups: Vec<Vec<OemCandidateTrySpec>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -211,6 +227,182 @@ impl OemCatalog {
         Ok(OemCandidateTrySpec { candidate, value_format })
     }
 
+    pub fn vehicle_profiles(&self) -> Result<Vec<OemVehicleProfile>, String> {
+        let connection = open_read_only(&self.path)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT vehicle_id,brand,model,model_year,engine FROM vehicle_profiles
+                 ORDER BY brand,model,model_year,vehicle_id",
+            )
+            .map_err(|error| error.to_string())?;
+        let profiles = statement
+            .query_map([], |row| {
+                Ok(OemVehicleProfile {
+                    vehicle_id: row.get(0)?,
+                    brand: row.get(1)?,
+                    model: row.get(2)?,
+                    model_year: row.get(3)?,
+                    engine: row.get(4)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        profiles
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn search_oem_poll_candidates(
+        &self,
+        vehicle_id: &str,
+        query: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<OemCatalogPage, String> {
+        let vehicle_id = valid_vehicle_id(vehicle_id)?;
+        let limit = limit.clamp(1, MAX_PAGE_SIZE);
+        if offset > MAX_OFFSET {
+            return Err(format!("Catalog offset exceeds {MAX_OFFSET}"));
+        }
+        let connection = open_read_only(&self.path)?;
+        let query = like_filter(query);
+        let total = connection
+            .query_row(
+                "SELECT COUNT(*) FROM oem_candidates c
+                 JOIN vehicle_profiles v ON v.vehicle_id=?1
+                 WHERE c.auto_request=1
+                   AND c.value_format IN ('uint','signed')
+                   AND c.vehicle_validation IN ('vehicle_verified','ecu_variant_verified')
+                   AND c.ecu_filter <> 'REQUIRES_INDIVIDUAL_ECU_VERIFICATION'
+                   AND lower(c.brand)=lower(v.brand)
+                   AND (trim(c.model_scope)='' OR lower(c.model_scope)=lower(v.model))
+                   AND EXISTS (SELECT 1 FROM validation_results r
+                     JOIN validation_sessions s ON s.session_id=r.session_id
+                     WHERE r.candidate_id=c.candidate_id AND s.vehicle_id=v.vehicle_id
+                       AND r.result='PHYSICALLY_VERIFIED')
+                   AND (?2='%%' OR c.name LIKE ?2 OR c.identifier LIKE ?2
+                     OR c.service || c.identifier LIKE ?2 OR c.unit LIKE ?2)",
+                params![vehicle_id, query],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        let mut statement = connection
+            .prepare(
+                "SELECT c.candidate_id,c.source_id,c.family,c.brand,c.model_scope,c.service,c.identifier,
+                        c.request_header,c.response_header,c.frequency_hz,c.module_type,c.category,c.name,
+                        c.signal_source_id,c.bit_offset,c.bit_length,c.formula,c.unit,c.year_filter_json,c.ecu_filter,
+                        c.source_blob_sha,c.research_state,c.vehicle_validation,c.auto_request,c.confidence,c.notes,
+                        s.source_url,s.license,s.license_url,c.decoder_json,c.suggested_metric,c.source_scope,
+                        c.applicability_specificity,c.min_value,c.max_value
+                 FROM oem_candidates c
+                 JOIN source_corpora s ON s.source_id=c.source_id
+                 JOIN vehicle_profiles v ON v.vehicle_id=?1
+                 WHERE c.auto_request=1
+                   AND c.value_format IN ('uint','signed')
+                   AND c.vehicle_validation IN ('vehicle_verified','ecu_variant_verified')
+                   AND c.ecu_filter <> 'REQUIRES_INDIVIDUAL_ECU_VERIFICATION'
+                   AND lower(c.brand)=lower(v.brand)
+                   AND (trim(c.model_scope)='' OR lower(c.model_scope)=lower(v.model))
+                   AND EXISTS (SELECT 1 FROM validation_results r
+                     JOIN validation_sessions vs ON vs.session_id=r.session_id
+                     WHERE r.candidate_id=c.candidate_id AND vs.vehicle_id=v.vehicle_id
+                       AND r.result='PHYSICALLY_VERIFIED')
+                   AND (?2='%%' OR c.name LIKE ?2 OR c.identifier LIKE ?2
+                     OR c.service || c.identifier LIKE ?2 OR c.unit LIKE ?2)
+                 ORDER BY c.request_header,c.response_header,c.service,c.identifier,c.name,c.candidate_id
+                 LIMIT ?3 OFFSET ?4",
+            )
+            .map_err(|error| error.to_string())?;
+        let candidates = statement
+            .query_map(
+                params![vehicle_id, query, limit as i64, offset as i64],
+                read_candidate,
+            )
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        Ok(OemCatalogPage {
+            total: usize::try_from(total).map_err(|error| error.to_string())?,
+            offset,
+            limit,
+            candidates,
+        })
+    }
+
+    pub fn oem_poll_plan(
+        &self,
+        vehicle_id: &str,
+        candidate_ids: &[String],
+    ) -> Result<OemPollPlan, String> {
+        let vehicle_id = valid_vehicle_id(vehicle_id)?;
+        if candidate_ids.is_empty() || candidate_ids.len() > MAX_OEM_POLL_SIGNALS {
+            return Err(format!(
+                "Choose between 1 and {MAX_OEM_POLL_SIGNALS} verified OEM signals"
+            ));
+        }
+        let mut unique = std::collections::HashSet::new();
+        let mut groups: Vec<Vec<OemCandidateTrySpec>> = Vec::new();
+        let mut group_keys: Vec<(String, String, String, String)> = Vec::new();
+        for candidate_id in candidate_ids {
+            if !unique.insert(candidate_id.as_str()) {
+                return Err("A verified OEM signal was selected more than once".into());
+            }
+            let spec = self.candidate_for_try(candidate_id)?;
+            if !matches!(spec.value_format.as_str(), "uint" | "signed")
+                || !self.is_oem_candidate_eligible(&vehicle_id, &spec.candidate)?
+            {
+                return Err(format!(
+                    "OEM candidate '{}' is not auto-requestable and physically verified for the selected vehicle",
+                    spec.candidate.name
+                ));
+            }
+            let candidate = &spec.candidate;
+            let key = (
+                candidate.request_header.to_ascii_uppercase(),
+                candidate.response_header.to_ascii_uppercase(),
+                candidate.service.to_ascii_uppercase(),
+                candidate.identifier.to_ascii_uppercase(),
+            );
+            if let Some(index) = group_keys.iter().position(|existing| existing == &key) {
+                groups[index].push(spec);
+            } else {
+                group_keys.push(key);
+                groups.push(vec![spec]);
+            }
+        }
+        Ok(OemPollPlan { vehicle_id, groups })
+    }
+
+    fn is_oem_candidate_eligible(
+        &self,
+        vehicle_id: &str,
+        candidate: &OemCandidate,
+    ) -> Result<bool, String> {
+        if !candidate.auto_request
+            || !matches!(
+                candidate.vehicle_validation.as_str(),
+                "vehicle_verified" | "ecu_variant_verified"
+            )
+            || candidate.ecu_filter == "REQUIRES_INDIVIDUAL_ECU_VERIFICATION"
+        {
+            return Ok(false);
+        }
+        let connection = open_read_only(&self.path)?;
+        let matching_validation = connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM validation_results r
+                   JOIN validation_sessions s ON s.session_id=r.session_id
+                   JOIN vehicle_profiles v ON v.vehicle_id=s.vehicle_id
+                   WHERE r.candidate_id=?1 AND s.vehicle_id=?2 AND r.result='PHYSICALLY_VERIFIED'
+                     AND lower(v.brand)=lower(?3)
+                     AND (trim(?4)='' OR lower(v.model)=lower(?4)))",
+                params![candidate.candidate_id, vehicle_id, candidate.brand, candidate.model_scope],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(matching_validation)
+    }
+
     pub fn scion_xb_mode21_probe(&self) -> Result<ScionMode21ProbeSpec, String> {
         let connection = open_read_only(&self.path)?;
         let (repository, blob_sha, source_url, license, license_url): (String, String, String, String, String) = connection
@@ -279,6 +471,14 @@ impl OemCatalog {
             request_header: "7E0".into(), response_header: "7E8".into(), channels,
         })
     }
+}
+
+fn valid_vehicle_id(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 128 {
+        return Err("Choose a valid vehicle profile".into());
+    }
+    Ok(value.to_owned())
 }
 
 fn read_candidate(row: &Row<'_>) -> rusqlite::Result<OemCandidate> {
@@ -353,6 +553,9 @@ mod tests {
             let connection = Connection::open(&path).unwrap();
             connection.execute_batch(
                 "CREATE TABLE source_corpora(source_id TEXT, repository TEXT, blob_sha TEXT, source_url TEXT, license TEXT, license_url TEXT);
+                 CREATE TABLE vehicle_profiles(vehicle_id TEXT, brand TEXT, model TEXT, model_year INTEGER, engine TEXT);
+                 CREATE TABLE validation_sessions(session_id TEXT, vehicle_id TEXT);
+                 CREATE TABLE validation_results(session_id TEXT, candidate_id TEXT, result TEXT);
                  CREATE TABLE oem_candidates(
                     candidate_id TEXT, source_id TEXT, family TEXT, brand TEXT, model_scope TEXT,
                     service TEXT, identifier TEXT, request_header TEXT, response_header TEXT,
@@ -478,6 +681,103 @@ mod tests {
                 "candidate should reject {column}={value}"
             );
         }
+    }
+
+    #[test]
+    fn continuous_oem_plan_requires_enabled_candidate_and_physical_validation_for_vehicle() {
+        let db = TestDatabase::new();
+        let catalog = OemCatalog::new(&db.0);
+        let connection = Connection::open(&db.0).unwrap();
+        connection
+            .execute(
+                "INSERT INTO vehicle_profiles VALUES('scion-2014','Scion','xB',2014,'2AZ-FE')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO vehicle_profiles VALUES('other-vehicle','Toyota','Camry',2014,'2AZ-FE')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO validation_sessions VALUES('validated-scion','scion-2014')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO validation_results VALUES('validated-scion','scion-0','PHYSICALLY_VERIFIED')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(catalog.vehicle_profiles().unwrap().len(), 2);
+        assert_eq!(
+            catalog
+                .search_oem_poll_candidates("scion-2014", "", 0, 50)
+                .unwrap()
+                .total,
+            0
+        );
+        assert!(catalog
+            .oem_poll_plan("scion-2014", &["scion-0".into()])
+            .is_err());
+
+        connection
+            .execute(
+                "UPDATE oem_candidates SET auto_request=1,vehicle_validation='vehicle_verified',
+                 ecu_filter='7E0 → 7E8' WHERE candidate_id='scion-0'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE oem_candidates SET auto_request=1,vehicle_validation='vehicle_verified',
+                 ecu_filter='7E0 → 7E8' WHERE candidate_id='scion-1'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE oem_candidates SET auto_request=1,value_format='enum',
+                 vehicle_validation='vehicle_verified',ecu_filter='7E0 → 7E8'
+                 WHERE candidate_id='scion-2'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO validation_results VALUES('validated-scion','scion-1','PHYSICALLY_VERIFIED')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO validation_results VALUES('validated-scion','scion-2','PHYSICALLY_VERIFIED')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let page = catalog
+            .search_oem_poll_candidates("scion-2014", "", 0, 50)
+            .unwrap();
+        assert_eq!(page.total, 2);
+        let plan = catalog
+            .oem_poll_plan("scion-2014", &["scion-0".into(), "scion-1".into()])
+            .unwrap();
+        assert_eq!(plan.vehicle_id, "scion-2014");
+        assert_eq!(plan.groups.len(), 1, "both signals share one 21 01 request");
+        assert_eq!(plan.groups[0].len(), 2);
+        assert!(catalog
+            .oem_poll_plan("other-vehicle", &["scion-0".into()])
+            .is_err());
+
+        let connection = open_read_only(&db.0).unwrap();
+        assert!(connection
+            .execute("UPDATE oem_candidates SET auto_request=0", [])
+            .is_err());
     }
 
     #[test]

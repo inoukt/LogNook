@@ -70,6 +70,56 @@ pub fn query_recording_window(
     Ok(points.into_iter().map(|point| point.sample).collect())
 }
 
+pub fn query_recording_samples(
+    path: &Path,
+    signal_ids: &[String],
+    start_ns: i64,
+    end_ns: i64,
+    limit: usize,
+) -> Result<Vec<Sample>, LogNookError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    if signal_ids.len() > 500 {
+        return Err(LogNookError::new(
+            "At most 500 PID IDs can be queried at once",
+        ));
+    }
+    let duration_ns = recording_duration_ns(path)?.max(0);
+    let start_ns = start_ns.clamp(0, duration_ns);
+    let end_ns = end_ns.clamp(0, duration_ns);
+    if end_ns < start_ns {
+        return Ok(Vec::new());
+    }
+
+    let mut query = String::from(
+        "SELECT id, elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id, value,
+         unit, quality, origin, raw_bytes FROM samples
+         WHERE elapsed_ns >= ?1 AND elapsed_ns <= ?2",
+    );
+    let mut parameters = vec![Value::Integer(start_ns), Value::Integer(end_ns)];
+    if !signal_ids.is_empty() {
+        let placeholders = vec!["?"; signal_ids.len()].join(", ");
+        query.push_str(&format!(" AND signal_id IN ({placeholders})"));
+        parameters.extend(signal_ids.iter().cloned().map(Value::Text));
+    }
+    let limit = limit.min(5_000);
+    parameters.push(Value::Integer(limit as i64));
+    query.push_str(&format!(
+        " ORDER BY elapsed_ns DESC, id DESC LIMIT ?{}",
+        parameters.len()
+    ));
+
+    let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut statement = connection.prepare(&query)?;
+    let rows = statement.query_map(params_from_iter(parameters), map_graph_row)?;
+    let mut samples = rows
+        .map(|row| row?.into_sample())
+        .collect::<Result<Vec<_>, _>>()?;
+    samples.reverse();
+    Ok(samples)
+}
+
 pub fn query_recording_values_at(
     path: &Path,
     signal_ids: &[String],
@@ -222,5 +272,54 @@ impl GraphBucket {
         points.sort_by_key(|point| (point.sample.elapsed_ns, point.id));
         points.dedup_by_key(|point| point.id);
         points
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::query_recording_samples;
+    use crate::{RecordingWriter, Sample, SampleOrigin, SampleQuality};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn recording_sample_query_filters_time_and_signal_and_caps_rows() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-range-{nonce}.lognook"));
+        let mut writer = RecordingWriter::create(&path).unwrap();
+        for (elapsed_ns, signal_id, value) in [
+            (0, "engine_rpm", 100.0),
+            (10, "engine_rpm", 200.0),
+            (20, "coolant_temp", 90.0),
+            (30, "engine_rpm", 300.0),
+            (40, "engine_rpm", 400.0),
+        ] {
+            writer
+                .append(&Sample {
+                    elapsed_ns,
+                    wall_time_unix_ns: elapsed_ns,
+                    source_id: "fixture".into(),
+                    ecu_id: None,
+                    signal_id: signal_id.into(),
+                    value,
+                    unit: "".into(),
+                    quality: SampleQuality::Valid,
+                    origin: SampleOrigin::Live,
+                    raw_bytes: None,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let rows = query_recording_samples(&path, &["engine_rpm".into()], 10, 40, 2).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|sample| (sample.elapsed_ns, sample.value))
+                .collect::<Vec<_>>(),
+            [(30, 300.0), (40, 400.0)]
+        );
+        let _ = std::fs::remove_file(path);
     }
 }

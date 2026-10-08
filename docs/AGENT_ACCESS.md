@@ -8,19 +8,21 @@ Agent Access lets a local MCP client inspect and operate the running LogNook app
 2. Set a six-digit PIN. Keep LogNook open.
 3. Select **Copy agent setup** and add the copied `mcpServers.lognook` entry to the MCP host on this same PC.
 4. Unlock Agent Access in Settings before starting or reconnecting the MCP host.
-5. Ask the agent to call `get_status` first, then `list_adapters` and the specific tool it needs.
+5. Ask the agent to call `get_status` first, then `list_adapters` or `list_log_sources` and the specific tool it needs.
 
 The copied configuration points at the current LogNook executable and its temporary local endpoint. It contains no PIN. The MCP host must be restarted after the app locks or closes.
 
 ## Available tools
 
 - `get_status`, `list_adapters`, and `list_signals` inspect the connected adapter and standard PID set.
+- `list_log_sources` lists bounded live PID/CAN buffers plus saved app recordings and agent CAN captures. `query_log_range` reads an elapsed-time range in milliseconds with optional PID/CAN-ID filters; responses cap at 1,000 rows and report truncation. A known external `.lognook` or `.candump.csv` path can also be queried.
 - `connect_adapter` and `disconnect_adapter` use LogNook's existing adapter owners. Connection alone does not start a scan or transmit.
 - `set_signal_selection` updates logged and graphed PIDs; logged selections cannot change while connected.
 - `search_oem_candidates` and `try_oem_candidate` find catalog-backed candidates and run one selected request. Results retain route/source and response evidence; they do not validate a decoder or vehicle support.
 - `list_mode06_tests` and `try_mode06_test` expose the supported A30 reads.
 - `get_trace`, `start_trace_capture`, `stop_trace_capture`, and `export_evidence` inspect or save the adapter bytes LogNook can observe. The trace reports dropped/evicted-event gaps. J2534 traces cover the worker protocol and returned payloads, not hidden vendor USB traffic.
 - `workbench` captures CAN, marks a labeled event, starts/stops configured CAN scans, and sends a bounded CAN frame pattern. A scan or send creates paired `.candump.csv` and `.jsonl` evidence under app data. Use an active-mode Candlelight connection for scan/TX; connection defaults to listen-only.
+- `send_raw_command` sends one diagnostic hex payload or adapter-terminal command through a connected OBDLink SX or ELM327's serialized owner. Exact TX/RX is available in `get_trace`. Use `workbench` for raw Candlelight CAN frames; unsupported adapter/mode combinations return an error.
 - `stop_operation` cancels the current agent CAN scan/send/capture and finalizes partial evidence.
 
 ## Access and evidence

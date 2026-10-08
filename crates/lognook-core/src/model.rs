@@ -106,6 +106,21 @@ pub struct Sample {
     pub raw_bytes: Option<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct OemPollingStatus {
+    pub active: bool,
+    pub vehicle_id: Option<String>,
+    pub signal_count: usize,
+    pub request_count: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub failed_signals: u64,
+    pub samples_published: u64,
+    pub observed_request_rate_hz: Option<f64>,
+    pub last_latency_ms: Option<u64>,
+    pub last_error: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Marker {
     pub id: Option<i64>,

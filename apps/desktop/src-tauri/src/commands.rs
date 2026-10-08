@@ -342,6 +342,9 @@ mod diagnostics_tests {
                 agent_workbench: std::sync::Mutex::new(
                     crate::agent::tools::AgentWorkbenchState::default(),
                 ),
+                agent_log_buffer: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::agent::log_data::AgentLogBuffer::default(),
+                )),
                 trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
             },
             rx,

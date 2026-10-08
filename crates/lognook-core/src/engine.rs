@@ -1,15 +1,17 @@
 use crate::{
     CanDeviceSelection, CanScanConfig, CanScanStopReason, CanSignalDefinition, CanTransport,
     CanWorkbench, CanWorkbenchConfig, CanWorkbenchStatus, DiagnosticSink, HardwareAdapter,
-    ResearchTestRequest, ResearchTestResult, SimulatedObdAdapter,
+    RawAdapterCommand, RawAdapterCommandResult, ResearchTestRequest, ResearchTestResult,
+    SimulatedObdAdapter,
     acquisition::AcquisitionHandle,
     csv_io::export_recording_csv,
     derived::{CompiledDerivedSignal, compile_derived_signals},
     model::{
         AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
-        DerivedSignalDefinition, EngineEvent, LogNookError, RecordingSummary, Sample, SampleOrigin,
-        SampleQuality, SignalDefinition,
+        DerivedSignalDefinition, EngineEvent, LogNookError, OemPollingStatus, RecordingSummary,
+        Sample, SampleOrigin, SampleQuality, SignalDefinition,
     },
+    oem_catalog::OemPollPlan,
     pipeline::SamplePipeline,
     playback::PlaybackHandle,
 };
@@ -389,6 +391,35 @@ impl LogNookEngine {
             .filter(|acquisition| acquisition.is_running())
             .ok_or_else(|| LogNookError::new("No adapter is connected"))?
             .execute_research_test(request)
+    }
+
+    pub fn execute_raw_command(
+        &self,
+        command: RawAdapterCommand,
+    ) -> Result<RawAdapterCommandResult, LogNookError> {
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No serial OBD adapter is connected"))?
+            .execute_raw_command(command)
+    }
+
+    pub fn set_oem_poll_plan(&self, plan: Option<OemPollPlan>) -> Result<(), LogNookError> {
+        if plan.as_ref().is_some_and(|plan| plan.groups.is_empty()) {
+            return Err(LogNookError::new("Select at least one verified OEM signal"));
+        }
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No adapter is connected"))?
+            .set_oem_poll_plan(plan)
+    }
+
+    pub fn oem_polling_status(&self) -> OemPollingStatus {
+        self.acquisition
+            .as_ref()
+            .map(AcquisitionHandle::oem_polling_status)
+            .unwrap_or_default()
     }
 
     pub fn sample_publisher(&self) -> crate::SamplePublisher {

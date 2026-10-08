@@ -3,8 +3,8 @@ use crate::AppState;
 use lognook_core::{
     A30GraphValue, A30ReadOutcome, A30ReadTest, A30ReadTestResult, OemCandidate,
     OemCandidateOutcome, OemCandidateTryResult, OemCandidateTrySpec, OemCatalog, OemCatalogPage,
-    ResearchTestRequest, ResearchTestResult, Sample, SampleOrigin, SampleQuality,
-    ScionMode21ProbeResult, probe_scion_xb_mode21 as run_probe,
+    OemPollingStatus, OemVehicleProfile, ResearchTestRequest, ResearchTestResult, Sample,
+    SampleOrigin, SampleQuality, ScionMode21ProbeResult, probe_scion_xb_mode21 as run_probe,
 };
 use std::{fs::OpenOptions, io::Write};
 use tauri::State;
@@ -27,6 +27,58 @@ pub async fn search_oem_catalog(
         offset,
         limit,
     )
+}
+
+#[tauri::command]
+pub async fn oem_vehicle_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<OemVehicleProfile>, String> {
+    OemCatalog::new(&state.pid_catalog_path).vehicle_profiles()
+}
+
+#[tauri::command]
+pub async fn search_oem_poll_candidates(
+    state: State<'_, AppState>,
+    vehicle_id: String,
+    query: String,
+    offset: usize,
+    limit: usize,
+) -> Result<OemCatalogPage, String> {
+    OemCatalog::new(&state.pid_catalog_path).search_oem_poll_candidates(
+        &vehicle_id,
+        &query,
+        offset,
+        limit,
+    )
+}
+
+#[tauri::command]
+pub async fn start_oem_logging(
+    state: State<'_, AppState>,
+    vehicle_id: String,
+    candidate_ids: Vec<String>,
+) -> Result<OemPollingStatus, String> {
+    let plan =
+        OemCatalog::new(&state.pid_catalog_path).oem_poll_plan(&vehicle_id, &candidate_ids)?;
+    let engine = engine(&state)?;
+    engine
+        .set_oem_poll_plan(Some(plan))
+        .map_err(|error| error.to_string())?;
+    Ok(engine.oem_polling_status())
+}
+
+#[tauri::command]
+pub async fn stop_oem_logging(state: State<'_, AppState>) -> Result<OemPollingStatus, String> {
+    let engine = engine(&state)?;
+    engine
+        .set_oem_poll_plan(None)
+        .map_err(|error| error.to_string())?;
+    Ok(engine.oem_polling_status())
+}
+
+#[tauri::command]
+pub async fn oem_logging_status(state: State<'_, AppState>) -> Result<OemPollingStatus, String> {
+    Ok(engine(&state)?.oem_polling_status())
 }
 
 #[tauri::command]
@@ -523,6 +575,9 @@ mod tests {
             agent_workbench: std::sync::Mutex::new(
                 crate::agent::tools::AgentWorkbenchState::default(),
             ),
+            agent_log_buffer: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::agent::log_data::AgentLogBuffer::default(),
+            )),
             trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
         }
     }

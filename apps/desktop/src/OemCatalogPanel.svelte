@@ -6,8 +6,9 @@
   import { runResearchQueue, toggleCandidateSelection } from "./researchQueue";
   import type {
     A30GraphValue, A30ReadTestResult, OemCandidateTryResult, OemCatalogPage, OemCandidate,
-    DeviceDescriptor, ResearchRunItem, ResearchRunReport, ResearchRunRow, ResearchRunViewState, ResearchTestResult,
-    ResearchTestSelection, ScionMode21ProbeResult,
+    DeviceDescriptor, OemPollingStatus, OemVehicleProfile, ResearchRunItem, ResearchRunReport,
+    ResearchRunRow, ResearchRunViewState, ResearchTestResult, ResearchTestSelection,
+    ScionMode21ProbeResult,
   } from "./types";
 
   export let selectedPort = "";
@@ -49,12 +50,143 @@
   let completedCount = 0;
   let totalCount = 0;
   let canTryCandidates = false;
+  let vehicleProfiles: OemVehicleProfile[] = [];
+  let pollVehicleId = "";
+  let pollQuery = "";
+  let pollOffset = 0;
+  let pollPage: OemCatalogPage | null = null;
+  let pollLoading = false;
+  let pollCandidateIds: string[] = [];
+  let pollCandidateMetadata: Record<string, OemCandidate> = {};
+  let pollingStatus: OemPollingStatus = {
+    active: false, vehicle_id: null, signal_count: 0, request_count: 0,
+    successful_requests: 0, failed_requests: 0, failed_signals: 0, samples_published: 0,
+    observed_request_rate_hz: null, last_latency_ms: null, last_error: null,
+  };
+  let pollError = "";
+  let pollSearchTimer: number | undefined;
+  let pollStatusTimer: number | undefined;
   $: completedCount = runRows.filter(({ status }) => status === "completed" || status === "error").length;
   $: totalCount = runRows.length;
   $: canTryCandidates = selectedAdapter === "obdlink_sx" || selectedAdapter === "a30" || selectedAdapter === "elm327";
 
-  onMount(() => { void loadPage(); });
-  onDestroy(() => window.clearTimeout(searchTimer));
+  onMount(() => {
+    void loadPage();
+    void loadPollProfiles();
+    pollStatusTimer = window.setInterval(() => {
+      if (pollingStatus.active) void refreshPollingStatus();
+    }, 1000);
+  });
+  onDestroy(() => {
+    window.clearTimeout(searchTimer);
+    window.clearTimeout(pollSearchTimer);
+    window.clearInterval(pollStatusTimer);
+  });
+
+  async function loadPollProfiles() {
+    try {
+      vehicleProfiles = await invoke<OemVehicleProfile[]>("oem_vehicle_profiles");
+      pollingStatus = await invoke<OemPollingStatus>("oem_logging_status");
+      const activeVehicleId = pollingStatus.active ? pollingStatus.vehicle_id : null;
+      if (activeVehicleId && vehicleProfiles.some(({ vehicle_id }) => vehicle_id === activeVehicleId)) {
+        pollVehicleId = activeVehicleId;
+      } else if (!pollVehicleId && vehicleProfiles.length) {
+        pollVehicleId = vehicleProfiles[0].vehicle_id;
+      }
+      if (pollVehicleId) {
+        await loadPollCandidates();
+      }
+    } catch (caught) {
+      pollError = String(caught);
+    }
+  }
+
+  async function loadPollCandidates() {
+    if (!pollVehicleId) return;
+    pollLoading = true;
+    pollError = "";
+    try {
+      pollPage = await invoke<OemCatalogPage>("search_oem_poll_candidates", {
+        vehicleId: pollVehicleId, query: pollQuery, offset: pollOffset, limit: 100,
+      });
+    } catch (caught) {
+      pollPage = null;
+      pollError = String(caught);
+    } finally {
+      pollLoading = false;
+    }
+  }
+
+  function schedulePollSearch() {
+    pollOffset = 0;
+    window.clearTimeout(pollSearchTimer);
+    pollSearchTimer = window.setTimeout(() => void loadPollCandidates(), 220);
+  }
+
+  function changePollVehicle() {
+    pollOffset = 0;
+    pollCandidateIds = [];
+    pollCandidateMetadata = {};
+    void loadPollCandidates();
+  }
+
+  function setPollPage(nextOffset: number) {
+    if (nextOffset < 0 || nextOffset >= (pollPage?.total ?? 0)) return;
+    pollOffset = nextOffset;
+    void loadPollCandidates();
+  }
+
+  async function refreshPollingStatus() {
+    try {
+      pollingStatus = await invoke<OemPollingStatus>("oem_logging_status");
+    } catch (caught) {
+      pollError = String(caught);
+    }
+  }
+
+  function togglePollCandidate(candidate: OemCandidate, selected: boolean) {
+    pollCandidateIds = selected
+      ? [...new Set([...pollCandidateIds, candidate.candidate_id])].slice(0, 64)
+      : pollCandidateIds.filter((id) => id !== candidate.candidate_id);
+    if (selected) pollCandidateMetadata = { ...pollCandidateMetadata, [candidate.candidate_id]: candidate };
+    else {
+      const { [candidate.candidate_id]: _removed, ...remaining } = pollCandidateMetadata;
+      pollCandidateMetadata = remaining;
+    }
+  }
+
+  async function startOemLogging() {
+    if (disabled || !canTryCandidates || !pollCandidateIds.length) return;
+    pollError = "";
+    try {
+      pollingStatus = await invoke<OemPollingStatus>("start_oem_logging", {
+        vehicleId: pollVehicleId, candidateIds: pollCandidateIds,
+      });
+      for (const candidateId of pollCandidateIds) {
+        const candidate = pollCandidateMetadata[candidateId];
+        if (candidate) onGraphCandidate(candidate);
+      }
+    } catch (caught) {
+      pollError = String(caught);
+    }
+  }
+
+  async function stopOemLogging() {
+    pollError = "";
+    try {
+      pollingStatus = await invoke<OemPollingStatus>("stop_oem_logging");
+    } catch (caught) {
+      pollError = String(caught);
+    }
+  }
+
+  function pollStatusSummary() {
+    const rate = pollingStatus.observed_request_rate_hz === null
+      ? "rate waiting"
+      : `${pollingStatus.observed_request_rate_hz.toFixed(2)} req/s`;
+    const latency = pollingStatus.last_latency_ms === null ? "—" : `${pollingStatus.last_latency_ms} ms`;
+    return `${pollingStatus.request_count} requests · ${pollingStatus.samples_published} values · ${pollingStatus.failed_requests} request failures · ${pollingStatus.failed_signals} signal errors · ${rate} · last ${latency}`;
+  }
 
   function scheduleSearch() {
     offset = 0;
@@ -284,6 +416,54 @@
     </div>
   </div>
 
+  <details class="oem-polling">
+    <summary>
+      <strong>Continuous OEM logging</strong>
+      <span>{pollingStatus.active ? "Running" : `${pollPage?.total ?? "…"} verified signals`}</span>
+    </summary>
+    <div class="oem-polling-body">
+      <div class="oem-polling-controls">
+        <select class="text-input" bind:value={pollVehicleId} aria-label="Verified vehicle scope" disabled={pollingStatus.active} onchange={changePollVehicle}>
+          {#each vehicleProfiles as profile (profile.vehicle_id)}
+            <option value={profile.vehicle_id}>{profile.brand} {profile.model}{profile.model_year ? ` ${profile.model_year}` : ""}{profile.engine ? ` · ${profile.engine}` : ""}</option>
+          {/each}
+        </select>
+        <input class="text-input" type="search" bind:value={pollQuery} oninput={schedulePollSearch} placeholder="Filter verified signals" aria-label="Filter verified OEM signals" />
+      </div>
+      {#if pollLoading}
+        <p class="oem-empty">Checking vehicle-specific validation…</p>
+      {:else if pollPage?.candidates.length}
+        <div class="oem-poll-candidates">
+          {#each pollPage.candidates as candidate (candidate.candidate_id)}
+            <label>
+              <input type="checkbox" checked={pollCandidateIds.includes(candidate.candidate_id)} onchange={(event) => togglePollCandidate(candidate, event.currentTarget.checked)} disabled={pollingStatus.active || disabled || !canTryCandidates || (pollCandidateIds.length >= 64 && !pollCandidateIds.includes(candidate.candidate_id))} />
+              <span><strong>{candidate.name}</strong><small>{candidate.service} {candidate.identifier} · {candidate.request_header} → {candidate.response_header} · {candidate.unit}</small></span>
+            </label>
+          {/each}
+        </div>
+        {#if pollPage.total > pollPage.limit}
+          <div class="oem-poll-pages">
+            <button class="button secondary" onclick={() => setPollPage(pollOffset - 100)} disabled={pollOffset === 0 || pollLoading}>Previous</button>
+            <span>{pollOffset + 1}–{Math.min(pollOffset + pollPage.candidates.length, pollPage.total)} of {pollPage.total}</span>
+            <button class="button secondary" onclick={() => setPollPage(pollOffset + 100)} disabled={pollOffset + pollPage.limit >= pollPage.total || pollLoading}>Next</button>
+          </div>
+        {/if}
+      {:else}
+        <p class="oem-empty">No OEM signal is physically verified and enabled for this vehicle profile yet. Research candidates remain one-shot only.</p>
+      {/if}
+      <div class="oem-poll-footer">
+        <span aria-live="polite">{pollingStatus.active ? pollStatusSummary() : `${pollCandidateIds.length} selected · max 64`}</span>
+        {#if pollingStatus.active}
+          <button class="button secondary" onclick={stopOemLogging} disabled={disabled}>Stop logging</button>
+        {:else}
+          <button class="button primary" onclick={startOemLogging} disabled={disabled || !canTryCandidates || !pollCandidateIds.length}>{pollLoading ? "Checking…" : "Start logging"}</button>
+        {/if}
+      </div>
+      {#if pollingStatus.last_error}<p class="oem-error" role="status">Last OEM read error: {pollingStatus.last_error}</p>{/if}
+      {#if pollError}<p class="oem-error" role="alert">OEM logging: {pollError}</p>{/if}
+    </div>
+  </details>
+
   {#if selectedAdapter === "a30"}
     <div class="a30-mode-test">
       <div class="a30-mode-test-controls">
@@ -402,6 +582,25 @@
   .oem-filters { display: grid; gap: 3px; }
   .oem-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 78px; gap: 3px; }
   .oem-filters .text-input { min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .oem-polling { min-width: 0; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
+  .oem-polling > summary { display: flex; align-items: center; justify-content: space-between; gap: 5px; cursor: pointer; color: var(--accent); font-size: 9px; }
+  .oem-polling > summary span { overflow: hidden; color: var(--text-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-polling-body { display: grid; gap: 4px; margin-top: 5px; }
+  .oem-polling-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px; }
+  .oem-polling .text-input { min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .oem-poll-candidates { display: grid; gap: 2px; max-height: 112px; overflow: auto; overscroll-behavior: contain; padding-right: 3px; scrollbar-gutter: stable; }
+  .oem-poll-candidates label { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px; border-radius: 4px; background: #19242e; cursor: pointer; }
+  .oem-poll-candidates input { flex: 0 0 auto; accent-color: var(--accent); }
+  .oem-poll-candidates span { display: grid; min-width: 0; }
+  .oem-poll-candidates strong, .oem-poll-candidates small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-poll-candidates strong { color: var(--text); font-size: 9px; }
+  .oem-poll-candidates small, .oem-poll-footer span { color: var(--text-muted); font-size: 8px; }
+  .oem-poll-pages { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .oem-poll-pages span { color: var(--text-muted); font-size: 8px; }
+  .oem-poll-pages .button { min-height: 22px; padding: 2px 5px; font-size: 8px; }
+  .oem-poll-footer { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+  .oem-poll-footer span { min-width: 0; overflow-wrap: anywhere; }
+  .oem-poll-footer .button { flex: 0 0 auto; min-height: 24px; padding: 2px 6px; font-size: 9px; }
   .a30-mode-test { display: grid; gap: 3px; min-width: 0; }
   .a30-mode-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
   .a30-mode-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }

@@ -1,5 +1,6 @@
 pub(crate) mod access;
 pub(crate) mod ipc;
+pub(crate) mod log_data;
 pub(crate) mod mcp;
 pub(crate) mod protocol;
 pub(crate) mod tools;

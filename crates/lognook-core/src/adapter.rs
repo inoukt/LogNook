@@ -1,8 +1,53 @@
 use crate::model::{ConnectionCapabilities, LogNookError, Sample, SignalDefinition};
 use crate::{
-    DiagnosticSink, ResearchTestRequest, ResearchTestResult, communication_trace::CommunicationSink,
+    DiagnosticSink, OemCandidateTrySpec, ResearchTestRequest, ResearchTestResult,
+    communication_trace::CommunicationSink,
 };
 use std::time::Duration;
+
+const MAX_RAW_DIAGNOSTIC_BYTES: usize = 64;
+const MAX_RAW_TERMINAL_BYTES: usize = 256;
+
+#[derive(Clone, Debug)]
+pub enum RawAdapterCommand {
+    DiagnosticPayload(Vec<u8>),
+    AdapterTerminal(String),
+}
+
+impl RawAdapterCommand {
+    pub fn command_text(&self) -> Result<String, LogNookError> {
+        match self {
+            Self::DiagnosticPayload(bytes)
+                if !bytes.is_empty() && bytes.len() <= MAX_RAW_DIAGNOSTIC_BYTES =>
+            {
+                Ok(bytes.iter().map(|byte| format!("{byte:02X}")).collect())
+            }
+            Self::DiagnosticPayload(_) => Err(LogNookError::new(
+                "Raw diagnostic payload must contain 1-64 bytes",
+            )),
+            Self::AdapterTerminal(command)
+                if !command.is_empty()
+                    && command.len() <= MAX_RAW_TERMINAL_BYTES
+                    && command.is_ascii()
+                    && command
+                        .bytes()
+                        .all(|byte| byte.is_ascii_graphic() || byte == b' ') =>
+            {
+                Ok(command.clone())
+            }
+            Self::AdapterTerminal(_) => Err(LogNookError::new(
+                "Adapter command must be 1-256 printable ASCII bytes without line breaks",
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RawAdapterCommandResult {
+    pub command: String,
+    pub response: String,
+    pub duration_ms: u64,
+}
 
 /// One serialized command owner for a physical or simulated diagnostic interface.
 pub trait HardwareAdapter: Send + 'static {
@@ -18,6 +63,19 @@ pub trait HardwareAdapter: Send + 'static {
     ) -> Result<ResearchTestResult, LogNookError> {
         Err(LogNookError::new(
             "This adapter does not support read-only research tests",
+        ))
+    }
+    fn execute_raw_command(
+        &mut self,
+        _command: RawAdapterCommand,
+    ) -> Result<RawAdapterCommandResult, LogNookError> {
+        Err(LogNookError::new(
+            "This adapter does not support raw terminal or diagnostic commands",
+        ))
+    }
+    fn validate_oem_candidate_poll(&self, _spec: &OemCandidateTrySpec) -> Result<(), LogNookError> {
+        Err(LogNookError::new(
+            "This adapter does not support continuous OEM candidate reads",
         ))
     }
     /// Target delay between read cycles; slow adapter responses naturally reduce the actual rate.
@@ -44,7 +102,7 @@ pub(crate) fn collect_samples_independently<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::collect_samples_independently;
+    use super::{RawAdapterCommand, collect_samples_independently};
     use crate::{LogNookError, Sample, SampleOrigin, SampleQuality};
 
     fn sample(value: f64) -> Sample {
@@ -87,5 +145,35 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn raw_adapter_commands_keep_terminal_text_and_format_diagnostic_bytes() {
+        assert_eq!(
+            RawAdapterCommand::AdapterTerminal("ATZ".into())
+                .command_text()
+                .unwrap(),
+            "ATZ"
+        );
+        assert_eq!(
+            RawAdapterCommand::DiagnosticPayload(vec![0x01, 0x0c])
+                .command_text()
+                .unwrap(),
+            "010C"
+        );
+    }
+
+    #[test]
+    fn raw_adapter_terminal_rejects_line_breaks_and_empty_payload() {
+        assert!(
+            RawAdapterCommand::AdapterTerminal("ATZ\r\n010C".into())
+                .command_text()
+                .is_err()
+        );
+        assert!(
+            RawAdapterCommand::DiagnosticPayload(Vec::new())
+                .command_text()
+                .is_err()
+        );
     }
 }

@@ -752,6 +752,10 @@ impl HardwareAdapter for A30Adapter {
         self.communication_sink = Some(sink);
     }
 
+    fn validate_oem_candidate_poll(&self, spec: &OemCandidateTrySpec) -> Result<(), LogNookError> {
+        candidate_request(spec).map(|_| ())
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -2472,6 +2476,15 @@ mod tests {
             adapter
                 .execute_research_test(crate::ResearchTestRequest::OemCandidate(invalid))
                 .is_err()
+        );
+        let mut unsupported_poll_route = scion_mode21_candidate();
+        unsupported_poll_route.candidate.request_header = "6F1".into();
+        assert!(
+            adapter
+                .validate_oem_candidate_poll(&unsupported_poll_route)
+                .unwrap_err()
+                .to_string()
+                .contains("0x7xx")
         );
     }
 

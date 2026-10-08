@@ -4,7 +4,8 @@ use lognook_core::{
     A30Adapter, A30ReadOutcome, A30ReadTest, A30ReadTestResult, CanDeviceSelection, CanDirection,
     CanFrame, CanScanConfig, CanScanMode, CanScanStopReason, CanWorkbenchConfig, Elm327Adapter,
     ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTryResult, OemCatalog, OpenPort2Adapter,
-    available_can_adapters, available_obdlink_sx_ports, paired_spp_devices, standard_obd_signals,
+    RawAdapterCommand, available_can_adapters, available_obdlink_sx_ports, paired_spp_devices,
+    standard_obd_signals,
 };
 use std::collections::HashSet;
 use std::{
@@ -136,6 +137,38 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
         AgentRequest::ListSignals { query } => AgentResponse::Signals {
             signals: list_signals(&query),
         },
+        AgentRequest::ListLogSources => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                super::log_data::list_log_sources(&app.state::<AppState>())
+            })
+            .await
+            {
+                Ok(Ok(sources)) => AgentResponse::LogSources { sources },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::Internal, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::QueryLogRange { query } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                super::log_data::query_log_range(&app.state::<AppState>(), query)
+            })
+            .await
+            {
+                Ok(Ok(page)) => AgentResponse::LogData { page },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::SendRawCommand { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || send_raw_command(&app, operation)).await {
+                Ok(Ok(result)) => AgentResponse::RawCommand { result },
+                Ok(Err((code, error))) => AgentResponse::error(code, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
         AgentRequest::SetSignalSelection {
             log_signal_ids,
             graph_signal_ids,
@@ -470,6 +503,83 @@ fn workbench_result(operation: &str, path: Option<PathBuf>) -> AgentWorkbenchRes
         detail: None,
         evidence_path: path.map(|path| path.to_string_lossy().into_owned()),
     }
+}
+
+fn send_raw_command(
+    app: &AppHandle,
+    operation: AgentRawCommand,
+) -> Result<AgentRawCommandResult, (AgentErrorCode, String)> {
+    let (kind, command) = match operation {
+        AgentRawCommand::DiagnosticPayload { payload_hex } => (
+            "diagnostic_payload",
+            RawAdapterCommand::DiagnosticPayload(
+                decode_hex_payload(&payload_hex)
+                    .map_err(|error| (AgentErrorCode::InvalidRequest, error))?,
+            ),
+        ),
+        AgentRawCommand::AdapterTerminal { command } => {
+            let operation = RawAdapterCommand::AdapterTerminal(command);
+            operation
+                .command_text()
+                .map_err(|error| (AgentErrorCode::InvalidRequest, error.to_string()))?;
+            ("adapter_terminal", operation)
+        }
+    };
+    let state = app.state::<AppState>();
+    let engine = state.engine.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Acquisition engine lock is unavailable".to_owned(),
+        )
+    })?;
+    let adapter_id = engine
+        .connection_capabilities()
+        .map(|capabilities| capabilities.device.stable_id.clone())
+        .ok_or_else(|| {
+            (
+                AgentErrorCode::UnsupportedAdapter,
+                "No serial OBD adapter is connected".to_owned(),
+            )
+        })?;
+    let result = engine.execute_raw_command(command).map_err(|error| {
+        let message = error.to_string();
+        let code = if message.contains("does not support raw") {
+            AgentErrorCode::UnsupportedAdapter
+        } else {
+            AgentErrorCode::Internal
+        };
+        (code, message)
+    })?;
+    Ok(AgentRawCommandResult {
+        adapter_id,
+        kind: kind.into(),
+        request: result.command,
+        response: result.response,
+        duration_ms: result.duration_ms,
+    })
+}
+
+fn decode_hex_payload(value: &str) -> Result<Vec<u8>, String> {
+    if value.len() > 256 {
+        return Err("Diagnostic payload must be at most 64 hex bytes".into());
+    }
+    let digits = value
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect::<Vec<_>>();
+    if digits.is_empty() || digits.len() > 128 || digits.len() % 2 != 0 {
+        return Err("Diagnostic payload must be 1-64 hex bytes".into());
+    }
+    if !digits.iter().all(u8::is_ascii_hexdigit) {
+        return Err("Diagnostic payload contains a non-hex character".into());
+    }
+    digits
+        .chunks_exact(2)
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).map_err(|error| error.to_string())?;
+            u8::from_str_radix(pair, 16).map_err(|error| error.to_string())
+        })
+        .collect()
 }
 
 fn convert_scan_config(config: AgentCanScanConfig) -> Result<CanScanConfig, String> {
@@ -1215,8 +1325,9 @@ fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
 mod tests {
     use super::{
         AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
-        ensure_mode06_supported, search_oem_candidates, start_agent_scan, summarize_oem_try,
-        supported_mode06_tests, update_agent_scan_state, validate_signal_selection,
+        decode_hex_payload, ensure_mode06_supported, search_oem_candidates, start_agent_scan,
+        summarize_oem_try, supported_mode06_tests, update_agent_scan_state,
+        validate_signal_selection,
     };
     use crate::agent::protocol::{
         AgentAccessSnapshot, AgentAdapterChoice, AgentCanScanConfig, AgentCanScanMode,
@@ -1229,6 +1340,14 @@ mod tests {
 
     fn engine() -> LogNookEngine {
         LogNookEngine::new(|_| {})
+    }
+
+    #[test]
+    fn raw_hex_payload_accepts_spacing_and_rejects_bad_input() {
+        assert_eq!(decode_hex_payload("01 0c").unwrap(), [0x01, 0x0c]);
+        assert!(decode_hex_payload("0").is_err());
+        assert!(decode_hex_payload("zz").is_err());
+        assert!(decode_hex_payload("").is_err());
     }
 
     #[test]

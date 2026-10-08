@@ -52,6 +52,26 @@ export type OemCandidate = {
 
 export type OemCatalogPage = { total: number; offset: number; limit: number; candidates: OemCandidate[] };
 export type OemCandidateTrySpec = { candidate: OemCandidate; value_format: string };
+export type OemVehicleProfile = {
+  vehicle_id: string;
+  brand: string;
+  model: string;
+  model_year: number | null;
+  engine: string;
+};
+export type OemPollingStatus = {
+  active: boolean;
+  vehicle_id: string | null;
+  signal_count: number;
+  request_count: number;
+  successful_requests: number;
+  failed_requests: number;
+  failed_signals: number;
+  samples_published: number;
+  observed_request_rate_hz: number | null;
+  last_latency_ms: number | null;
+  last_error: string | null;
+};
 
 export type ScionMode21ProbeResult = {
   vehicle_profile_id: string;

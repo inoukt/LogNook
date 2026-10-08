@@ -3,7 +3,10 @@ use super::{
     ObdLinkSxAdapter, group_signal_indices, isotp_frame_count, serial::MAX_RESPONSE_BYTES,
 };
 use crate::obdlink_sx_protocol::mode01_pid_data_width;
-use crate::{HardwareAdapter, ScionMode21ProbeSpec, ScionProbeChannel, standard_obd_signals};
+use crate::{
+    HardwareAdapter, RawAdapterCommand, ScionMode21ProbeSpec, ScionProbeChannel,
+    standard_obd_signals,
+};
 use serialport::{SerialPortInfo, SerialPortType, UsbPortInfo};
 use std::{
     io::{Cursor, Read, Write},
@@ -40,6 +43,25 @@ fn adapter_for(transcript: String) -> (ObdLinkSxAdapter, Arc<Mutex<Vec<u8>>>) {
         written: written.clone(),
     };
     (ObdLinkSxAdapter::with_port("COM4", Box::new(port)), written)
+}
+
+#[test]
+fn raw_terminal_and_diagnostic_commands_use_the_serial_command_owner() {
+    let (mut terminal_adapter, terminal_written) = adapter_for("STI\rOBDLink SX\r>".into());
+    let terminal = terminal_adapter
+        .execute_raw_command(RawAdapterCommand::AdapterTerminal("STI".into()))
+        .unwrap();
+    assert!(terminal.response.contains("OBDLink SX"));
+    assert_eq!(&*terminal_written.lock().unwrap(), b"STI\r");
+
+    let (mut diagnostic_adapter, diagnostic_written) =
+        adapter_for("010C\r41 0C 1A F8\r>".into());
+    let diagnostic = diagnostic_adapter
+        .execute_raw_command(RawAdapterCommand::DiagnosticPayload(vec![0x01, 0x0c]))
+        .unwrap();
+    assert!(diagnostic.response.contains("41 0C"));
+    assert_eq!(diagnostic.command, "010C");
+    assert_eq!(&*diagnostic_written.lock().unwrap(), b"010C\r");
 }
 
 fn scion_probe_spec() -> ScionMode21ProbeSpec {

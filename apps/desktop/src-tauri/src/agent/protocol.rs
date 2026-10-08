@@ -10,6 +10,13 @@ pub enum AgentRequest {
     ListSignals {
         query: String,
     },
+    ListLogSources,
+    QueryLogRange {
+        query: AgentLogQueryArgs,
+    },
+    SendRawCommand {
+        operation: AgentRawCommand,
+    },
     SetSignalSelection {
         log_signal_ids: Vec<String>,
         graph_signal_ids: Vec<String>,
@@ -165,6 +172,97 @@ pub struct AgentSignal {
     pub service: u8,
     pub pid: u8,
     pub description: String,
+}
+
+fn default_log_query_limit() -> usize {
+    100
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentLogQueryArgs {
+    pub source_id: String,
+    pub kind: AgentLogKind,
+    pub start_elapsed_ms: u64,
+    pub end_elapsed_ms: u64,
+    #[serde(default)]
+    pub signal_ids: Vec<String>,
+    #[serde(default)]
+    pub can_ids: Vec<u32>,
+    #[serde(default = "default_log_query_limit")]
+    pub limit: usize,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, schemars::JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentLogKind {
+    Pids,
+    Can,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentLogSource {
+    pub source_id: String,
+    pub name: String,
+    pub kind: AgentLogKind,
+    pub recorded: bool,
+    pub start_elapsed_ms: Option<u64>,
+    pub end_elapsed_ms: Option<u64>,
+    pub item_count: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentMeasurement {
+    pub elapsed_ms: u64,
+    pub wall_time_unix_ms: u64,
+    pub source_id: String,
+    pub ecu_id: Option<String>,
+    pub signal_id: String,
+    pub value: f64,
+    pub unit: String,
+    pub quality: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentCanFrame {
+    pub elapsed_ms: u64,
+    pub wall_time_unix_ms: u64,
+    pub can_id: u32,
+    pub extended: bool,
+    pub direction: String,
+    pub data: Vec<u8>,
+    pub flags: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentLogPage {
+    pub source_id: String,
+    pub kind: AgentLogKind,
+    pub start_elapsed_ms: u64,
+    pub end_elapsed_ms: u64,
+    pub truncated: bool,
+    pub pid_samples: Vec<AgentMeasurement>,
+    pub can_frames: Vec<AgentCanFrame>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentRawCommand {
+    DiagnosticPayload { payload_hex: String },
+    AdapterTerminal { command: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentRawCommandArgs {
+    pub operation: AgentRawCommand,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentRawCommandResult {
+    pub adapter_id: String,
+    pub kind: String,
+    pub request: String,
+    pub response: String,
+    pub duration_ms: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -407,6 +505,15 @@ pub enum AgentResponse {
     Signals {
         signals: Vec<AgentSignal>,
     },
+    LogSources {
+        sources: Vec<AgentLogSource>,
+    },
+    LogData {
+        page: AgentLogPage,
+    },
+    RawCommand {
+        result: AgentRawCommandResult,
+    },
     SelectionUpdated {
         selection: AgentSignalSelection,
     },
@@ -489,6 +596,39 @@ mod tests {
         assert!(matches!(
             decode_request(br#"{"action":"get_status"}"#).unwrap(),
             AgentRequest::GetStatus
+        ));
+    }
+
+    #[test]
+    fn agent_log_query_is_typed_and_keeps_the_requested_range() {
+        let request = decode_request(
+            br#"{"action":"query_log_range","query":{"source_id":"live:pids","kind":"pids","start_elapsed_ms":100,"end_elapsed_ms":250,"signal_ids":["engine_rpm"],"can_ids":[],"limit":12}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            request,
+            AgentRequest::QueryLogRange {
+                query: AgentLogQueryArgs {
+                    source_id,
+                    start_elapsed_ms: 100,
+                    end_elapsed_ms: 250,
+                    ..
+                }
+            } if source_id == "live:pids"
+        ));
+    }
+
+    #[test]
+    fn raw_adapter_terminal_command_is_one_typed_operation() {
+        let request = decode_request(
+            br#"{"action":"send_raw_command","operation":{"kind":"adapter_terminal","command":"ATZ"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            request,
+            AgentRequest::SendRawCommand {
+                operation: AgentRawCommand::AdapterTerminal { command }
+            } if command == "ATZ"
         ));
     }
 

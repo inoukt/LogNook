@@ -4,7 +4,8 @@ mod scion_probe;
 mod serial;
 pub use oem_probe::{
     OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse, OemCandidateTryResult,
-    build_oem_candidate_command, decode_oem_candidate_response, try_oem_candidate,
+    build_oem_candidate_command, decode_oem_candidate_payload, decode_oem_candidate_response,
+    try_oem_candidate,
 };
 pub use scion_probe::{ScionMode21DecodedSignal, ScionMode21ProbeResult, probe_scion_xb_mode21};
 #[cfg(test)]
@@ -14,8 +15,9 @@ use scion_probe::{build_scion_probe_command, decode_scion_mode21_response};
 mod tests;
 
 use crate::{
-    ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError, Sample, SampleOrigin,
-    SampleQuality, SignalDefinition,
+    ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError, OemCandidateTrySpec,
+    RawAdapterCommand, RawAdapterCommandResult, Sample, SampleOrigin, SampleQuality,
+    SignalDefinition,
     adapter::collect_samples_independently,
     obdlink_sx_protocol::{
         Mode01ResponseError, decode_signal, mode01_pid_data_width, parse_mode01_responses,
@@ -290,6 +292,10 @@ impl HardwareAdapter for ObdLinkSxAdapter {
         self.transport.set_communication_sink(sink);
     }
 
+    fn validate_oem_candidate_poll(&self, spec: &OemCandidateTrySpec) -> Result<(), LogNookError> {
+        build_oem_candidate_command(spec).map(|_| ())
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -304,6 +310,20 @@ impl HardwareAdapter for ObdLinkSxAdapter {
         }
         self.read_connected_candidate(&spec)
             .map(crate::ResearchTestResult::OemCandidate)
+    }
+
+    fn execute_raw_command(
+        &mut self,
+        command: RawAdapterCommand,
+    ) -> Result<RawAdapterCommandResult, LogNookError> {
+        let command = command.command_text()?;
+        let started = Instant::now();
+        let response = self.transport.command(&command)?;
+        Ok(RawAdapterCommandResult {
+            command,
+            response,
+            duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        })
     }
 
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {

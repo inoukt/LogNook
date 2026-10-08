@@ -198,10 +198,44 @@ pub fn decode_oem_candidate_response(
         .into_iter()
         .next()
         .expect("one response was checked");
+    decode_oem_candidate_payload(spec, Some(&responder), &payload)
+}
+
+pub fn decode_oem_candidate_payload(
+    spec: &OemCandidateTrySpec,
+    responder_header: Option<&str>,
+    payload: &[u8],
+) -> OemCandidateResponse {
+    if let Err(error) = validate_candidate(&spec.candidate) {
+        return response(
+            OemCandidateOutcome::InvalidCandidate,
+            responder_header.map(str::to_owned),
+            payload.to_vec(),
+            None,
+            None,
+            Some(error.to_string()),
+        );
+    }
+    let Some(responder) = responder_header
+        .filter(|header| header.eq_ignore_ascii_case(&spec.candidate.response_header))
+    else {
+        return response(
+            OemCandidateOutcome::WrongResponder,
+            responder_header.map(str::to_owned),
+            payload.to_vec(),
+            None,
+            None,
+            Some(format!(
+                "Expected ECU {}, received a response from another header",
+                spec.candidate.response_header
+            )),
+        );
+    };
+    let payload = payload.to_vec();
     let Ok(service) = u8::from_str_radix(&spec.candidate.service, 16) else {
         return response(
             OemCandidateOutcome::InvalidCandidate,
-            Some(responder),
+            Some(responder.to_owned()),
             payload,
             None,
             None,
@@ -219,7 +253,7 @@ pub fn decode_oem_candidate_response(
         };
         let mut result = response(
             outcome,
-            Some(responder),
+            Some(responder.to_owned()),
             payload,
             None,
             None,
@@ -233,7 +267,7 @@ pub fn decode_oem_candidate_response(
         let Ok(pair) = std::str::from_utf8(pair) else {
             return response(
                 OemCandidateOutcome::InvalidCandidate,
-                Some(responder),
+                Some(responder.to_owned()),
                 payload,
                 None,
                 None,
@@ -243,7 +277,7 @@ pub fn decode_oem_candidate_response(
         let Ok(byte) = u8::from_str_radix(pair, 16) else {
             return response(
                 OemCandidateOutcome::InvalidCandidate,
-                Some(responder),
+                Some(responder.to_owned()),
                 payload,
                 None,
                 None,
@@ -255,7 +289,7 @@ pub fn decode_oem_candidate_response(
     if payload.len() < expected.len() || payload[..expected.len()] != expected {
         return response(
             OemCandidateOutcome::MalformedResponse,
-            Some(responder),
+            Some(responder.to_owned()),
             payload,
             None,
             None,
@@ -275,7 +309,7 @@ pub fn decode_oem_candidate_response(
     };
     response(
         OemCandidateOutcome::Positive,
-        Some(responder),
+        Some(responder.to_owned()),
         payload,
         decoded_value,
         decode_error,

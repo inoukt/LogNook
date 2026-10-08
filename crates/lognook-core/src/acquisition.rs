@@ -1,10 +1,13 @@
 use crate::{
-    DiagnosticPhase, DiagnosticProgress, DiagnosticSink, HardwareAdapter, ResearchTestRequest,
-    ResearchTestResult, SignalDefinition, model::LogNookError, pipeline::SampleSender,
+    DiagnosticPhase, DiagnosticProgress, DiagnosticSink, HardwareAdapter, RawAdapterCommand,
+    RawAdapterCommandResult, ResearchTestRequest, ResearchTestResult, SignalDefinition,
+    model::{LogNookError, OemPollingStatus, Sample, SampleOrigin, SampleQuality},
+    oem_catalog::{OemCandidateTrySpec, OemPollPlan},
+    pipeline::SampleSender,
 };
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
@@ -14,6 +17,7 @@ use std::{
 
 const MAX_CONSECUTIVE_TRANSIENT_FAILURES: usize = 3;
 const RETRY_BACKOFF: Duration = Duration::from_millis(250);
+const OEM_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 enum WorkerCommand {
     Stop,
@@ -21,12 +25,18 @@ enum WorkerCommand {
         ResearchTestRequest,
         mpsc::Sender<Result<ResearchTestResult, LogNookError>>,
     ),
+    RawCommand(
+        RawAdapterCommand,
+        mpsc::Sender<Result<RawAdapterCommandResult, LogNookError>>,
+    ),
+    SetOemPollPlan(Option<OemPollPlan>, mpsc::Sender<Result<(), LogNookError>>),
 }
 
 pub(crate) struct AcquisitionHandle {
     commands: SyncSender<WorkerCommand>,
     worker: Option<JoinHandle<()>>,
     running: Arc<AtomicBool>,
+    oem_status: Arc<Mutex<OemPollingStatus>>,
 }
 
 impl AcquisitionHandle {
@@ -39,8 +49,10 @@ impl AcquisitionHandle {
         adapter_id: Option<String>,
     ) -> Self {
         let (commands, command_rx) = mpsc::sync_channel(1);
+        let oem_status = Arc::new(Mutex::new(OemPollingStatus::default()));
         running.store(true, Ordering::Release);
         let worker_running = running.clone();
+        let worker_oem_status = oem_status.clone();
         let worker = thread::spawn(move || {
             run(
                 adapter.as_mut(),
@@ -50,12 +62,14 @@ impl AcquisitionHandle {
                 worker_running,
                 diagnostic_sink,
                 adapter_id,
+                worker_oem_status,
             )
         });
         Self {
             commands,
             worker: Some(worker),
             running,
+            oem_status,
         }
     }
 
@@ -82,8 +96,38 @@ impl AcquisitionHandle {
         })?
     }
 
+    pub(crate) fn execute_raw_command(
+        &self,
+        request: RawAdapterCommand,
+    ) -> Result<RawAdapterCommandResult, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.commands
+            .send(WorkerCommand::RawCommand(request, reply))
+            .map_err(|_| LogNookError::new("Acquisition worker has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Acquisition worker did not complete the raw command"))?
+    }
+
     pub(crate) fn is_running(&self) -> bool {
         self.running.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn set_oem_poll_plan(&self, plan: Option<OemPollPlan>) -> Result<(), LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.commands
+            .send(WorkerCommand::SetOemPollPlan(plan, reply))
+            .map_err(|_| LogNookError::new("Acquisition worker has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Acquisition worker did not update OEM logging"))?
+    }
+
+    pub(crate) fn oem_polling_status(&self) -> OemPollingStatus {
+        self.oem_status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 }
 
@@ -101,6 +145,7 @@ fn run(
     running: Arc<AtomicBool>,
     diagnostic_sink: DiagnosticSink,
     adapter_id: Option<String>,
+    oem_status: Arc<Mutex<OemPollingStatus>>,
 ) {
     let signal_ids = signals
         .iter()
@@ -120,9 +165,14 @@ fn run(
         });
     };
     let interval = adapter.sample_interval();
+    let acquisition_started = Instant::now();
     let mut failed = false;
     let mut consecutive_transient_failures = 0;
     let mut next_poll = Instant::now();
+    let mut oem_plan: Option<OemPollPlan> = None;
+    let mut next_oem_poll = Instant::now();
+    let mut next_oem_group = 0;
+    let mut last_oem_success = None;
     let mut pending = None;
     loop {
         if pending.is_none() {
@@ -134,6 +184,44 @@ fn run(
         }
         if matches!(pending, Some(WorkerCommand::Stop)) {
             break;
+        }
+        if pending
+            .as_ref()
+            .is_some_and(|command| matches!(command, WorkerCommand::SetOemPollPlan(_, _)))
+        {
+            let Some(WorkerCommand::SetOemPollPlan(plan, reply)) = pending.take() else {
+                unreachable!("the pending command was checked above")
+            };
+            if let Some(plan) = &plan {
+                if let Err(error) = plan
+                    .groups
+                    .iter()
+                    .flatten()
+                    .try_for_each(|spec| adapter.validate_oem_candidate_poll(spec))
+                {
+                    let _ = reply.send(Err(error));
+                    continue;
+                }
+            }
+            let mut status = oem_status
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *status = plan
+                .as_ref()
+                .map(|plan| OemPollingStatus {
+                    active: true,
+                    vehicle_id: Some(plan.vehicle_id.clone()),
+                    signal_count: plan.groups.iter().map(Vec::len).sum(),
+                    ..OemPollingStatus::default()
+                })
+                .unwrap_or_default();
+            drop(status);
+            oem_plan = plan;
+            next_oem_group = 0;
+            last_oem_success = None;
+            next_oem_poll = Instant::now();
+            let _ = reply.send(Ok(()));
+            continue;
         }
         // A due poll precedes the pending research read. Serve only one poll here so
         // slow polls cannot perpetually starve that read by making the next poll due.
@@ -190,17 +278,59 @@ fn run(
             }
             next_poll = cycle + interval;
         }
-        if let Some(WorkerCommand::ResearchTest(request, reply)) = pending.take() {
-            // Request errors belong to the caller. A subsequent poll detects link loss.
-            let _ = reply.send(adapter.execute_research_test(request));
+        if let Some(plan) = oem_plan.as_ref()
+            && Instant::now() >= next_oem_poll
+            && !plan.groups.is_empty()
+        {
+            let group = &plan.groups[next_oem_group % plan.groups.len()];
+            if !poll_oem_group(
+                adapter,
+                group,
+                &output,
+                &diagnostic_sink,
+                adapter_id.as_deref(),
+                &plan.vehicle_id,
+                acquisition_started,
+                &oem_status,
+                &mut last_oem_success,
+            ) {
+                break;
+            }
+            next_oem_group = (next_oem_group + 1) % plan.groups.len();
+            next_oem_poll = Instant::now() + OEM_POLL_INTERVAL;
+            continue;
+        }
+        if let Some(command) = pending.take() {
+            match command {
+                WorkerCommand::ResearchTest(request, reply) => {
+                    // Request errors belong to the caller. A subsequent poll detects link loss.
+                    let _ = reply.send(adapter.execute_research_test(request));
+                }
+                WorkerCommand::RawCommand(request, reply) => {
+                    let _ = reply.send(adapter.execute_raw_command(request));
+                }
+                WorkerCommand::Stop => break,
+                WorkerCommand::SetOemPollPlan(_, _) => {
+                    unreachable!("OEM poll plan commands are handled before adapter I/O")
+                }
+            }
         } else {
-            match commands.recv_timeout(next_poll.saturating_duration_since(Instant::now())) {
+            let deadline = if oem_plan.is_some() {
+                next_poll.min(next_oem_poll)
+            } else {
+                next_poll
+            };
+            match commands.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(command) => pending = Some(command),
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
         }
     }
+    oem_status
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .active = false;
     adapter.disconnect();
     running.store(false, Ordering::Release);
     if failed {
@@ -208,11 +338,192 @@ fn run(
     }
 }
 
+fn poll_oem_group(
+    adapter: &mut dyn HardwareAdapter,
+    group: &[OemCandidateTrySpec],
+    output: &SampleSender,
+    diagnostic_sink: &DiagnosticSink,
+    adapter_id: Option<&str>,
+    vehicle_id: &str,
+    acquisition_started: Instant,
+    status: &Mutex<OemPollingStatus>,
+    last_success: &mut Option<Instant>,
+) -> bool {
+    let Some(first) = group.first() else {
+        return true;
+    };
+    let signal_ids = group
+        .iter()
+        .map(|spec| format!("oem:{}", spec.candidate.candidate_id))
+        .collect::<Vec<_>>();
+    diagnostic_sink(DiagnosticProgress {
+        adapter_id: adapter_id.map(str::to_owned),
+        operation: "acquisition".into(),
+        stage: "oem_poll".into(),
+        phase: DiagnosticPhase::Started,
+        duration_ms: None,
+        signal_ids: signal_ids.clone(),
+        detail: None,
+        transient: None,
+        consecutive_failures: None,
+    });
+    let started = Instant::now();
+    let result = adapter.execute_research_test(ResearchTestRequest::OemCandidate(first.clone()));
+    let mut request_succeeded = false;
+    let mut samples_published = 0;
+    let mut failed_signals = 0;
+    let mut last_error = None;
+    let mut latency_ms = None;
+    let mut transient = None;
+    match result {
+        Ok(ResearchTestResult::OemCandidate(base)) => {
+            latency_ms = Some(base.latency_ms);
+            for spec in group {
+                let mut candidate_result = base.clone();
+                candidate_result.candidate_id = spec.candidate.candidate_id.clone();
+                if base.outcome == crate::OemCandidateOutcome::Positive {
+                    let decoded = crate::decode_oem_candidate_payload(
+                        spec,
+                        base.responder_header.as_deref(),
+                        &base.response_payload,
+                    );
+                    candidate_result.outcome = decoded.outcome;
+                    candidate_result.responder_header = decoded.responder_header;
+                    candidate_result.response_payload = decoded.payload;
+                    candidate_result.negative_response_code = decoded.negative_response_code;
+                    candidate_result.decoded_value = decoded.decoded_value;
+                    candidate_result.decode_error = decoded.decode_error;
+                    candidate_result.error = decoded.error;
+                }
+                let Some(decoded) = candidate_result.decoded_value.as_ref() else {
+                    last_error = Some(candidate_error(&candidate_result));
+                    failed_signals += 1;
+                    continue;
+                };
+                let Some(value) = decoded.value.filter(|value| value.is_finite()) else {
+                    last_error = Some(candidate_error(&candidate_result));
+                    failed_signals += 1;
+                    continue;
+                };
+                let wall_time_unix_ns = base
+                    .started_at_unix_ms
+                    .saturating_mul(1_000_000)
+                    .min(i64::MAX as u64) as i64;
+                let sample = Sample {
+                    elapsed_ns: acquisition_started
+                        .elapsed()
+                        .as_nanos()
+                        .min(i64::MAX as u128) as i64,
+                    wall_time_unix_ns,
+                    source_id: format!(
+                        "oem:{}:{}:{}@{}:{}{}:{}>{}",
+                        vehicle_id,
+                        base.adapter.stable_id,
+                        spec.candidate.source_id,
+                        spec.candidate.source_blob_sha,
+                        spec.candidate.service,
+                        spec.candidate.identifier,
+                        spec.candidate.request_header,
+                        spec.candidate.response_header,
+                    ),
+                    ecu_id: candidate_result.responder_header.clone(),
+                    signal_id: format!("oem:{}", spec.candidate.candidate_id),
+                    value,
+                    unit: spec.candidate.unit.clone(),
+                    quality: if decoded.within_catalog_range == Some(false) {
+                        SampleQuality::Suspect
+                    } else {
+                        SampleQuality::Valid
+                    },
+                    origin: SampleOrigin::Live,
+                    raw_bytes: Some(candidate_result.response_payload.clone()),
+                };
+                if output.send_sample(sample).is_err() {
+                    return false;
+                }
+                samples_published += 1;
+                request_succeeded = true;
+            }
+            transient = Some(matches!(
+                base.outcome,
+                crate::OemCandidateOutcome::NoResponse
+                    | crate::OemCandidateOutcome::TemporarilyUnavailable
+                    | crate::OemCandidateOutcome::ResponsePending
+            ));
+            if !request_succeeded && last_error.is_none() {
+                last_error = Some(candidate_error(&base));
+            }
+        }
+        Ok(_) => {
+            last_error = Some("Adapter returned an unexpected OEM result type".into());
+            failed_signals = group.len() as u64;
+        }
+        Err(error) => {
+            transient = Some(error.is_transient());
+            last_error = Some(crate::diagnostics::diagnostic_error_detail(
+                &error.to_string(),
+            ));
+            failed_signals = group.len() as u64;
+        }
+    }
+    let completed_at = Instant::now();
+    {
+        let mut snapshot = status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        snapshot.request_count += 1;
+        snapshot.last_latency_ms =
+            latency_ms.or_else(|| Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64));
+        snapshot.samples_published += samples_published;
+        snapshot.failed_signals += failed_signals;
+        if request_succeeded {
+            snapshot.successful_requests += 1;
+            snapshot.observed_request_rate_hz = last_success.map(|previous: Instant| {
+                1.0 / completed_at
+                    .duration_since(previous)
+                    .as_secs_f64()
+                    .max(f64::EPSILON)
+            });
+            *last_success = Some(completed_at);
+        } else {
+            snapshot.failed_requests += 1;
+        }
+        snapshot.last_error = last_error.clone();
+    }
+    diagnostic_sink(DiagnosticProgress {
+        adapter_id: adapter_id.map(str::to_owned),
+        operation: "acquisition".into(),
+        stage: "oem_poll".into(),
+        phase: if request_succeeded {
+            DiagnosticPhase::Succeeded
+        } else {
+            DiagnosticPhase::Failed
+        },
+        duration_ms: Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64),
+        signal_ids,
+        detail: last_error,
+        transient,
+        consecutive_failures: None,
+    });
+    true
+}
+
+fn candidate_error(result: &crate::OemCandidateTryResult) -> String {
+    result
+        .error
+        .as_deref()
+        .or(result.decode_error.as_deref())
+        .map(crate::diagnostics::diagnostic_error_detail)
+        .unwrap_or_else(|| format!("OEM read outcome: {:?}", result.outcome))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AcquisitionHandle, WorkerCommand};
     use crate::{
-        A30ReadOutcome, A30ReadTest, A30ReadTestResult, HardwareAdapter, ResearchTestRequest,
+        A30ReadOutcome, A30ReadTest, A30ReadTestResult, HardwareAdapter, OemCandidate,
+        OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateTryResult, OemCandidateTrySpec,
+        OemPollPlan, RawAdapterCommand, RawAdapterCommandResult, ResearchTestRequest,
         ResearchTestResult, SampleOrigin, SampleQuality,
         model::{
             ConnectionCapabilities, DeviceDescriptor, EngineEvent, LogNookError, Sample,
@@ -327,6 +638,20 @@ mod tests {
                 evidence_save_error: None,
             }))
         }
+
+        fn execute_raw_command(
+            &mut self,
+            command: RawAdapterCommand,
+        ) -> Result<RawAdapterCommandResult, LogNookError> {
+            let command = command.command_text()?;
+            self.operations.start("raw");
+            self.operations.finish();
+            Ok(RawAdapterCommandResult {
+                command,
+                response: "fixture response".into(),
+                duration_ms: 1,
+            })
+        }
     }
 
     fn receive_sample(events: &mpsc::Receiver<EngineEvent>) -> Sample {
@@ -335,6 +660,302 @@ mod tests {
             panic!("unexpected event: {event:?}")
         };
         sample
+    }
+
+    #[test]
+    fn raw_command_runs_on_the_existing_serialized_acquisition_owner() {
+        let (events, _event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let operations = Arc::new(AdapterOperations::default());
+        let (research_started, _started_rx) = mpsc::channel();
+        let (_release, release_research) = mpsc::channel();
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(ResearchAdapter {
+                operations: operations.clone(),
+                research_started,
+                release_research,
+                fail_next_research: false,
+                poll_delay: Duration::ZERO,
+                polls: 0,
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            Arc::new(AtomicBool::new(false)),
+            crate::diagnostics::noop_diagnostic_sink(),
+            Some("fixture-adapter".into()),
+        );
+
+        let result = acquisition
+            .execute_raw_command(RawAdapterCommand::AdapterTerminal("ATZ".into()))
+            .unwrap();
+        assert_eq!(result.command, "ATZ");
+        assert!(
+            operations
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(operation, _)| *operation == "raw")
+        );
+        assert_eq!(operations.max_active.load(Ordering::SeqCst), 1);
+        acquisition.stop().unwrap();
+    }
+
+    struct OemPollingAdapter {
+        requests: Arc<AtomicUsize>,
+        polls: Arc<AtomicUsize>,
+        fail_oem: bool,
+    }
+
+    impl HardwareAdapter for OemPollingAdapter {
+        fn validate_oem_candidate_poll(
+            &self,
+            spec: &OemCandidateTrySpec,
+        ) -> Result<(), LogNookError> {
+            crate::build_oem_candidate_command(spec).map(|_| ())
+        }
+
+        fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+            unreachable!("the acquisition worker receives an already-connected adapter")
+        }
+
+        fn read_samples(&mut self, _: &[SignalDefinition]) -> Result<Vec<Sample>, LogNookError> {
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+
+        fn execute_research_test(
+            &mut self,
+            request: ResearchTestRequest,
+        ) -> Result<ResearchTestResult, LogNookError> {
+            let ResearchTestRequest::OemCandidate(spec) = request else {
+                unreachable!("only OEM polling is scheduled in this test")
+            };
+            self.requests.fetch_add(1, Ordering::SeqCst);
+            if self.fail_oem {
+                return Err(LogNookError::transient("OEM fixture timeout"));
+            }
+            Ok(ResearchTestResult::OemCandidate(OemCandidateTryResult {
+                candidate_id: spec.candidate.candidate_id,
+                exact_adapter_command: "fixture read".into(),
+                adapter: DeviceDescriptor {
+                    stable_id: "fixture-adapter".into(),
+                    hardware_family: "fixture".into(),
+                    firmware: None,
+                    path: None,
+                },
+                protocol: "fixture CAN".into(),
+                started_at_unix_ms: 1_000,
+                latency_ms: 12,
+                outcome: OemCandidateOutcome::Positive,
+                raw_response: "fixture response".into(),
+                responder_header: Some("7E8".into()),
+                response_payload: vec![0x61, 0x01, 0x10, 0x20],
+                negative_response_code: None,
+                decoded_value: Some(OemCandidateDecodedValue {
+                    raw_value: "16".into(),
+                    value: Some(16.0),
+                    enum_value: None,
+                    unit: "rpm".into(),
+                    formula: "raw".into(),
+                    within_catalog_range: Some(true),
+                }),
+                decode_error: None,
+                error: None,
+                evidence_saved: false,
+                evidence_save_error: None,
+            }))
+        }
+    }
+
+    fn polling_candidate(candidate_id: &str, bit_offset: u32) -> OemCandidateTrySpec {
+        OemCandidateTrySpec {
+            candidate: OemCandidate {
+                candidate_id: candidate_id.into(),
+                source_id: "fixture-source".into(),
+                family: "Toyota".into(),
+                brand: "Scion".into(),
+                model_scope: "xB".into(),
+                service: "21".into(),
+                identifier: "01".into(),
+                request_header: "7E0".into(),
+                response_header: "7E8".into(),
+                frequency_hz: Some(1.0),
+                module_type: "Engine".into(),
+                category: "Engine".into(),
+                name: candidate_id.into(),
+                signal_source_id: "fixture-2101".into(),
+                bit_offset: Some(bit_offset),
+                bit_length: Some(8),
+                formula: "raw".into(),
+                decoder_json: format!("{{\"bix\":{bit_offset},\"len\":8,\"unit\":\"rpm\"}}"),
+                unit: "rpm".into(),
+                year_filter_json: "{}".into(),
+                ecu_filter: "7E0 → 7E8".into(),
+                source_blob_sha: "fixture-sha".into(),
+                research_state: "research".into(),
+                vehicle_validation: "ecu_variant_verified".into(),
+                auto_request: true,
+                confidence: "verified".into(),
+                notes: String::new(),
+                suggested_metric: "rpm".into(),
+                source_scope: "fixture".into(),
+                applicability_specificity: 100,
+                min_value: Some(0.0),
+                max_value: Some(255.0),
+                source_url: Some("https://fixture.test/source".into()),
+                license: Some("fixture".into()),
+                license_url: Some("https://fixture.test/license".into()),
+            },
+            value_format: "uint".into(),
+        }
+    }
+
+    #[test]
+    fn continuous_oem_poll_shares_one_request_and_publishes_each_channel() {
+        let (events, event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let recording_path =
+            std::env::temp_dir().join(format!("lognook-oem-poll-{}.lognook", std::process::id()));
+        let _ = std::fs::remove_file(&recording_path);
+        pipeline.start_recording(recording_path.clone()).unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(OemPollingAdapter {
+                requests: requests.clone(),
+                polls: Arc::new(AtomicUsize::new(0)),
+                fail_oem: false,
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            Arc::new(AtomicBool::new(false)),
+            crate::diagnostics::noop_diagnostic_sink(),
+            Some("fixture-adapter".into()),
+        );
+        acquisition
+            .set_oem_poll_plan(Some(OemPollPlan {
+                vehicle_id: "scion-2014".into(),
+                groups: vec![vec![
+                    polling_candidate("scion-rpm", 0),
+                    polling_candidate("scion-temp", 8),
+                ]],
+            }))
+            .unwrap();
+
+        let first = receive_sample(&event_rx);
+        let second = receive_sample(&event_rx);
+        assert_eq!(first.value, 16.0);
+        assert_eq!(second.value, 32.0);
+        assert!(first.source_id.contains("scion-2014"));
+        assert_eq!(first.source_id, second.source_id);
+        assert_eq!(first.raw_bytes, second.raw_bytes);
+        assert_ne!(first.signal_id, second.signal_id);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        let status = acquisition.oem_polling_status();
+        assert!(status.active);
+        assert_eq!(status.signal_count, 2);
+        assert_eq!(status.request_count, 1);
+        assert_eq!(status.successful_requests, 1);
+        assert_eq!(status.samples_published, 2);
+        acquisition.stop().unwrap();
+        assert!(!acquisition.oem_polling_status().active);
+        let summary = pipeline.stop_recording().unwrap();
+        let recording = crate::read_recording(&summary.path).unwrap();
+        assert_eq!(recording.samples.len(), 2);
+        assert_eq!(
+            recording.samples[0].raw_bytes,
+            Some(vec![0x61, 0x01, 0x10, 0x20])
+        );
+        let _ = std::fs::remove_file(recording_path);
+    }
+
+    #[test]
+    fn continuous_oem_request_errors_do_not_stop_standard_polling() {
+        let (events, event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(OemPollingAdapter {
+                requests: requests.clone(),
+                polls: polls.clone(),
+                fail_oem: true,
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            Arc::new(AtomicBool::new(false)),
+            crate::diagnostics::noop_diagnostic_sink(),
+            Some("fixture-adapter".into()),
+        );
+        acquisition
+            .set_oem_poll_plan(Some(OemPollPlan {
+                vehicle_id: "scion-2014".into(),
+                groups: vec![vec![polling_candidate("scion-rpm", 0)]],
+            }))
+            .unwrap();
+
+        let until = std::time::Instant::now() + Duration::from_secs(2);
+        while acquisition.oem_polling_status().failed_requests == 0
+            && std::time::Instant::now() < until
+        {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let polls_after_error = polls.load(Ordering::SeqCst);
+        thread::sleep(Duration::from_millis(180));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert!(polls.load(Ordering::SeqCst) > polls_after_error);
+        assert!(acquisition.is_running());
+        assert_eq!(acquisition.oem_polling_status().failed_requests, 1);
+        assert!(
+            event_rx
+                .try_iter()
+                .all(|event| matches!(event, EngineEvent::Sample(_)))
+        );
+        acquisition.stop().unwrap();
+    }
+
+    #[test]
+    fn unsupported_adapter_rejects_oem_plan_before_transmitting() {
+        let (events, _event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let (research_started, _started_rx) = mpsc::channel();
+        let (_release, release_research) = mpsc::channel();
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(ResearchAdapter {
+                operations: Arc::new(AdapterOperations::default()),
+                research_started,
+                release_research,
+                fail_next_research: false,
+                poll_delay: Duration::ZERO,
+                polls: 0,
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            Arc::new(AtomicBool::new(false)),
+            crate::diagnostics::noop_diagnostic_sink(),
+            Some("fixture-adapter".into()),
+        );
+        let error = acquisition
+            .set_oem_poll_plan(Some(OemPollPlan {
+                vehicle_id: "scion-2014".into(),
+                groups: vec![vec![polling_candidate("scion-rpm", 0)]],
+            }))
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("does not support continuous OEM")
+        );
+        assert_eq!(acquisition.oem_polling_status().request_count, 0);
+        acquisition.stop().unwrap();
     }
 
     struct SlowPollingAdapter(ResearchAdapter);

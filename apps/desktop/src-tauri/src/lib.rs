@@ -24,6 +24,7 @@ pub(crate) struct AppState {
     pub agent_selection: Mutex<agent::protocol::AgentSignalSelection>,
     pub agent_scan_active: Arc<AtomicBool>,
     pub agent_workbench: Mutex<agent::tools::AgentWorkbenchState>,
+    pub agent_log_buffer: Arc<Mutex<agent::log_data::AgentLogBuffer>>,
     pub trace_store: lognook_core::communication_trace::CommunicationTraceStore,
 }
 
@@ -72,8 +73,13 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let agent_scan_active = Arc::new(AtomicBool::new(false));
             let engine_agent_scan_active = Arc::clone(&agent_scan_active);
+            let agent_log_buffer = Arc::new(Mutex::new(agent::log_data::AgentLogBuffer::default()));
+            let engine_agent_log_buffer = Arc::clone(&agent_log_buffer);
             let mut engine = LogNookEngine::new(move |event| {
                 agent::tools::update_agent_scan_state(&engine_agent_scan_active, &event);
+                if let Ok(mut buffer) = engine_agent_log_buffer.lock() {
+                    buffer.record_engine_event(&event);
+                }
                 engine_diagnostics.observe_engine(&event);
                 let _ = app_handle.emit("lognook-event", event);
             });
@@ -104,6 +110,7 @@ pub fn run() {
                     ],
                 }),
                 agent_workbench: Mutex::new(agent::tools::AgentWorkbenchState::default()),
+                agent_log_buffer,
                 trace_store,
             });
             Ok(())
@@ -120,6 +127,11 @@ pub fn run() {
             commands::export_support_bundle,
             commands::available_signals,
             commands::search_oem_catalog,
+            commands::oem_vehicle_profiles,
+            commands::search_oem_poll_candidates,
+            commands::start_oem_logging,
+            commands::stop_oem_logging,
+            commands::oem_logging_status,
             commands::probe_scion_xb_mode21,
             commands::try_oem_candidate,
             commands::try_a30_oem_candidate,

@@ -1,7 +1,7 @@
 use crate::{
     BluetoothByteStream, ConnectionCapabilities, DeviceDescriptor, HardwareAdapter, LogNookError,
-    OemCandidateTryResult, OemCandidateTrySpec, Sample, SampleOrigin, SampleQuality,
-    SignalDefinition,
+    OemCandidateTryResult, OemCandidateTrySpec, RawAdapterCommand, RawAdapterCommandResult, Sample,
+    SampleOrigin, SampleQuality, SignalDefinition,
     adapter::collect_samples_independently,
     bluetooth_spp::connect_bluetooth_spp,
     build_oem_candidate_command,
@@ -363,6 +363,10 @@ impl HardwareAdapter for Elm327Adapter {
         self.communication_sink = Some(sink);
     }
 
+    fn validate_oem_candidate_poll(&self, spec: &OemCandidateTrySpec) -> Result<(), LogNookError> {
+        build_oem_candidate_command(spec).map(|_| ())
+    }
+
     fn execute_research_test(
         &mut self,
         request: crate::ResearchTestRequest,
@@ -382,6 +386,20 @@ impl HardwareAdapter for Elm327Adapter {
             self.set_candidate_header("7DF")?;
         }
         result.map(crate::ResearchTestResult::OemCandidate)
+    }
+
+    fn execute_raw_command(
+        &mut self,
+        command: RawAdapterCommand,
+    ) -> Result<RawAdapterCommandResult, LogNookError> {
+        let command = command.command_text()?;
+        let started = Instant::now();
+        let response = self.exchange(&command)?;
+        Ok(RawAdapterCommandResult {
+            command,
+            response,
+            duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        })
     }
 
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
@@ -656,8 +674,8 @@ mod tests {
     use super::{Elm327Adapter, run_elm_oem_candidate_with_stream};
     use crate::communication_trace::CommunicationDirection;
     use crate::{
-        HardwareAdapter, OemCandidate, OemCandidateOutcome, OemCandidateTrySpec, SampleQuality,
-        standard_obd_signals,
+        HardwareAdapter, OemCandidate, OemCandidateOutcome, OemCandidateTrySpec, RawAdapterCommand,
+        SampleQuality, standard_obd_signals,
     };
     use std::{
         collections::VecDeque,
@@ -839,6 +857,23 @@ mod tests {
             page.events[1].bytes_hex.as_deref(),
             Some("3745382030332034312030432031412046380D3E")
         );
+    }
+
+    #[test]
+    fn raw_terminal_and_diagnostic_commands_share_the_elm_exchange() {
+        let (mut adapter, _, written) =
+            connected_adapter(&["OK\r>", "SEARCHING...\r7E8 04 41 0C 1A F8\r>"]);
+        let terminal = adapter
+            .execute_raw_command(RawAdapterCommand::AdapterTerminal("ATZ".into()))
+            .unwrap();
+        let diagnostic = adapter
+            .execute_raw_command(RawAdapterCommand::DiagnosticPayload(vec![0x01, 0x0c]))
+            .unwrap();
+
+        assert!(terminal.response.contains("OK"));
+        assert_eq!(diagnostic.command, "010C");
+        assert!(diagnostic.response.contains("41 0C"));
+        assert!(String::from_utf8_lossy(&written.lock().unwrap()).ends_with("ATZ\r010C\r"));
     }
 
     #[test]
