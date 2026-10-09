@@ -414,6 +414,19 @@ test("saved capture reports expose timing hypotheses, comparisons, and unverifie
   }
 });
 
+test("each configured CAN field can be exported as its own JSON definition", async () => {
+  const calls = [];
+  const api = can.createCanWorkbenchCommands(async (name, args) => { calls.push([name, args]); return null; });
+  const field = { id: "can:engine_rpm", can_id: 0x120, bit_length: 16 };
+  await api.chooseSignalSavePath(field.id);
+  await api.saveSignalDefinition("engine_rpm.can-signal.json", field);
+  assert.deepEqual(calls, [
+    ["choose_can_signal_save_path", { signalId: field.id }],
+    ["save_can_signal_definition", { path: "engine_rpm.can-signal.json", definition: field }],
+  ]);
+  assert.match(panel, /Save this CAN field as its own JSON definition file/);
+});
+
 test("correlation hypothesis rows identify their OBD source and ECU with fallbacks", () => {
   const sx = { obd_source_id: "obd:sx", obd_ecu_id: "7E8", obd_signal_id: "rpm" };
   const elm = { obd_source_id: "obd:elm", obd_ecu_id: "engine", obd_signal_id: "rpm" };

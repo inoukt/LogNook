@@ -68,6 +68,53 @@ pub async fn choose_can_dbc_export_path(app: AppHandle) -> Result<Option<String>
 }
 
 #[tauri::command]
+pub async fn choose_can_signal_save_path(
+    app: AppHandle,
+    signal_id: String,
+) -> Result<Option<String>, String> {
+    let file_name = format!("{}.can-signal.json", safe_can_signal_file_stem(&signal_id));
+    app.dialog()
+        .file()
+        .add_filter("CAN signal definition", &["json"])
+        .set_file_name(file_name)
+        .blocking_save_file()
+        .map(|file| file.into_path().map_err(|error| error.to_string()))
+        .transpose()
+        .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn save_can_signal_definition(
+    path: String,
+    definition: CanSignalDefinition,
+) -> Result<(), String> {
+    definition.validate().map_err(|error| error.to_string())?;
+    let json = serde_json::to_vec_pretty(&definition).map_err(|error| error.to_string())?;
+    std::fs::write(&path, json)
+        .map_err(|error| format!("Could not save CAN signal definition: {error}"))
+}
+
+fn safe_can_signal_file_stem(signal_id: &str) -> String {
+    let stem: String = signal_id
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem: String = stem.trim_matches('-').chars().take(80).collect();
+    if stem.is_empty() {
+        "can-field".into()
+    } else {
+        stem
+    }
+}
+
+#[tauri::command]
 pub async fn choose_can_trigger_save_path(app: AppHandle) -> Result<Option<String>, String> {
     let selected = app
         .dialog()
@@ -871,6 +918,43 @@ mod tests {
             evidence_journal_open_error(&denied),
             Some("permission denied".to_owned())
         );
+    }
+
+    #[test]
+    fn can_signal_export_saves_one_valid_definition_as_json() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("lognook-can-field-{stamp}.json"));
+        let definition = CanSignalDefinition {
+            id: "can:engine_rpm".into(),
+            name: "Engine RPM".into(),
+            can_id: 0x120,
+            extended: false,
+            start_bit: 0,
+            bit_length: 16,
+            byte_order: lognook_core::CanByteOrder::Intel,
+            signed: false,
+            factor: 0.25,
+            offset: 0.0,
+            unit: "rpm".into(),
+        };
+        save_can_signal_definition(path.to_string_lossy().into_owned(), definition.clone())
+            .unwrap();
+        let saved: CanSignalDefinition =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved, definition);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn can_signal_export_suggests_a_sanitized_individual_filename() {
+        assert_eq!(
+            safe_can_signal_file_stem("can:engine rpm/left"),
+            "can-engine-rpm-left"
+        );
+        assert_eq!(safe_can_signal_file_stem("::"), "can-field");
     }
 
     #[test]
