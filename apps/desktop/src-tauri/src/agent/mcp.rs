@@ -9,7 +9,7 @@ use rmcp::{
     tool, tool_handler, tool_router,
     transport::stdio,
 };
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufStream},
     sync::Mutex,
@@ -271,6 +271,13 @@ impl LogNookAgent {
             .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
         Ok(Json(response))
     }
+
+    async fn app_is_alive(&self) -> bool {
+        let Ok(mut client) = self.client.try_lock() else {
+            return true;
+        };
+        client.request(&AgentRequest::GetStatus).await.is_ok()
+    }
 }
 
 #[tool_handler]
@@ -286,20 +293,38 @@ impl ServerHandler for LogNookAgent {
 pub async fn run_agent_mcp() -> Result<(), String> {
     let endpoint = std::env::var(ENDPOINT_ENV).map_err(|_| "LogNook Agent MCP needs the app-provided local endpoint. Open LogNook, unlock Agent Access, and copy the current setup again.".to_owned())?;
     let client = IpcClient::connect(&endpoint).await.map_err(|_| "Could not reach LogNook. Open the app, unlock Agent Access in Settings, then restart the agent connection.".to_owned())?;
-    let service = LogNookAgent::new(client)
+    let agent = LogNookAgent::new(client);
+    let service = agent
+        .clone()
         .serve(stdio())
         .await
         .map_err(|error| error.to_string())?;
-    service
-        .waiting()
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    let cancellation = service.cancellation_token();
+    let mut monitor = tokio::spawn(wait_for_app_disconnect(agent));
+    let result = tokio::select! {
+        result = service.waiting() => result.map(|_| ()).map_err(|error| error.to_string()),
+        _ = &mut monitor => {
+            cancellation.cancel();
+            Ok(())
+        }
+    };
+    monitor.abort();
+    result
+}
+
+async fn wait_for_app_disconnect(agent: LogNookAgent) {
+    loop {
+        if !agent.app_is_alive().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interprocess::local_socket::{ListenerOptions, traits::tokio::Listener as _};
 
     #[test]
     fn mcp_lists_status_tool_for_stdio_server() {
@@ -329,5 +354,34 @@ mod tests {
                 "workbench",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn mcp_detects_when_the_lognook_app_disconnects() {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        #[cfg(windows)]
+        let endpoint = format!("LogNookMcpDisconnect{suffix}");
+        #[cfg(not(windows))]
+        let endpoint = std::env::temp_dir()
+            .join(format!("lognook-mcp-disconnect-{suffix}.sock"))
+            .to_string_lossy()
+            .into_owned();
+        let listener = ListenerOptions::new()
+            .name(parse_endpoint(&endpoint).unwrap())
+            .create_tokio()
+            .unwrap();
+        let server = tokio::spawn(async move {
+            drop(listener.accept().await.unwrap());
+        });
+        let client = IpcClient::connect(&endpoint).await.unwrap();
+        server.await.unwrap();
+        let agent = LogNookAgent::new(client);
+
+        tokio::time::timeout(Duration::from_secs(1), wait_for_app_disconnect(agent))
+            .await
+            .expect("MCP sidecar should exit after the LogNook IPC connection closes");
     }
 }

@@ -10,7 +10,7 @@ Agent Access lets a local MCP client inspect and operate the running LogNook app
 4. Unlock Agent Access in Settings before starting or reconnecting the MCP host.
 5. Ask the agent to call `get_status` first, then `list_adapters` or `list_log_sources` and the specific tool it needs.
 
-The copied configuration points at the current LogNook executable and its temporary local endpoint. It contains no PIN. The MCP host must be restarted after the app locks or closes.
+The copied configuration points at the current LogNook executable and its temporary local endpoint. It contains no PIN. The Codex-launched MCP sidecar monitors that local connection and exits within about one second after LogNook locks or closes. Reopen and unlock LogNook, then reconnect the MCP host before using its tools again.
 
 ## Available tools
 
