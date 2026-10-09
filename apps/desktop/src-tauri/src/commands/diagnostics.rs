@@ -381,6 +381,26 @@ mod tests {
     }
 
     #[test]
+    fn bundle_includes_neutral_obd_read_test_evidence() {
+        let f = Fixture::new();
+        let evidence_directory = f.0.join("oem-validation");
+        let a30 = f.source("oem-validation/a30-read-tests.jsonl", b"a30 evidence");
+        let sx = f.source("oem-validation/obd-read-tests.jsonl", b"sx evidence");
+        let paths = evidence_paths(&evidence_directory).unwrap();
+        write_support_bundle(&f.destination(), &metadata(), &[], &paths, None).unwrap();
+
+        let archive = entries(&f.destination());
+        assert_eq!(
+            archive["oem-validation/obd-read-tests.jsonl"],
+            fs::read(sx).unwrap()
+        );
+        assert_eq!(
+            archive["oem-validation/a30-read-tests.jsonl"],
+            fs::read(a30).unwrap()
+        );
+    }
+
+    #[test]
     fn bundle_omits_recording_by_default() {
         let f = Fixture::new();
         f.source("recordings/private.lognook", b"private recording");

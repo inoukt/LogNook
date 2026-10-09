@@ -137,6 +137,7 @@ pub fn run() {
             commands::try_oem_candidate,
             commands::try_a30_oem_candidate,
             commands::try_a30_read_test,
+            commands::try_obd_read_test,
             commands::try_elm_oem_candidate,
             commands::paired_bluetooth_devices,
             commands::identify_elm327,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { canHelpBubblesEnabled } from "./canHelp";
   import {
     buildCanCommunicationCheck, buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
     canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
@@ -429,21 +430,21 @@
   <div class="can-connection">
     <div class="can-adapter-row">
       <label>GS_USB / Candlelight
-        <select class="text-input" bind:value={selectedAdapterId} disabled={connected || busy || workspaceBusy}>
+        <select class="text-input" bind:value={selectedAdapterId} disabled={connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Choose the GS_USB/Candlelight adapter connected to this CAN bus." : undefined}>
           {#if !adapters.length}<option value="">No Candlelight adapter found</option>{/if}
           {#each adapters as adapter (adapter.id)}
             <option value={adapter.id}>{adapter.product || `${adapter.vendor_id.toString(16)}:${adapter.product_id.toString(16)}`} · {adapter.serial_number || adapter.bus_id}</option>
           {/each}
         </select>
       </label>
-      <button class="button secondary" aria-label="Refresh Candlelight adapters" title="Refresh adapters" onclick={refreshAdapters} disabled={connected || refreshing || busy || workspaceBusy}>↻</button>
+      <button class="button secondary" aria-label="Refresh Candlelight adapters" title={$canHelpBubblesEnabled ? "Rescan for connected Candlelight adapters." : undefined} onclick={refreshAdapters} disabled={connected || refreshing || busy || workspaceBusy}>↻</button>
       <span class:online={connected} class="can-state" role="status">{connected ? status?.listen_only ? "Listen-only" : "Active" : "Disconnected"}</span>
     </div>
     <div class="can-connection-options">
-      <label>Interface<input class="text-input" type="number" min="0" max="255" bind:value={interfaceNumber} disabled={connected || busy || workspaceBusy} /></label>
-      <label>Channel<input class="text-input" type="number" min="0" max="255" bind:value={channel} disabled={connected || busy || workspaceBusy} /></label>
+      <label>Interface<input class="text-input" type="number" min="0" max="255" bind:value={interfaceNumber} disabled={connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Select the GS_USB interface index before connecting." : undefined} /></label>
+      <label>Channel<input class="text-input" type="number" min="0" max="255" bind:value={channel} disabled={connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Select the adapter channel used by this CAN bus." : undefined} /></label>
       <label>Bitrate
-        <select class="text-input" bind:value={bitrate} disabled={connected || busy || workspaceBusy}>
+        <select class="text-input" bind:value={bitrate} disabled={connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Choose the bitrate configured on the CAN bus." : undefined}>
           <option value={1000000}>1 Mbit/s</option>
           <option value={800000}>800 kbit/s</option>
           <option value={500000}>500 kbit/s</option>
@@ -453,12 +454,12 @@
           <option value={50000}>50 kbit/s</option>
         </select>
       </label>
-      <label class="can-check"><input type="checkbox" bind:checked={listenOnly} disabled={connected || busy || workspaceBusy} /> Listen-only</label>
+      <label class="can-check" title={$canHelpBubblesEnabled ? "Receive frames without transmitting. Disconnect and reconnect to change this mode." : undefined}><input type="checkbox" bind:checked={listenOnly} disabled={connected || busy || workspaceBusy} /> Listen-only</label>
       {#if !connected}
-        <button class="button primary" onclick={connect} disabled={!selectedAdapter || busy || workspaceBusy || recording}>Connect</button>
+        <button class="button primary" onclick={connect} disabled={!selectedAdapter || busy || workspaceBusy || recording} title={$canHelpBubblesEnabled ? "Connects at the selected bitrate; connecting alone sends no CAN frames." : undefined}>Connect</button>
       {:else}
         <span class="can-source">{status?.source_id} · {status?.bitrate.toLocaleString()} bit/s</span>
-        <button class="button secondary" onclick={disconnect} disabled={busy || workspaceBusy}>Disconnect CAN</button>
+        <button class="button secondary" onclick={disconnect} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Disconnect to change the adapter, interface, channel, bitrate, or listen-only mode." : undefined}>Disconnect CAN</button>
       {/if}
     </div>
   </div>
@@ -467,34 +468,34 @@
     <strong>Capture</strong>
     {#if captureOpen}
       <span class="can-capture-path" title={capturePath}>{capturePath}</span>
-      <button class="button danger" onclick={stopCapture} disabled={busy || workspaceBusy}>Stop capture</button>
+      <button class="button danger" onclick={stopCapture} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Close and finish the paired CSV and JSONL raw-evidence capture." : undefined}>Stop capture</button>
     {:else}
       <span class="can-muted">CSV + JSONL evidence</span>
-      <button class="button secondary" onclick={startCapture} disabled={!connected || busy || workspaceBusy}>Start capture</button>
+      <button class="button secondary" onclick={startCapture} disabled={!connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Save raw CAN traffic and evidence as CSV plus JSONL; this paired capture enables scans and manual sends." : undefined}>Start capture</button>
     {/if}
     {#if captureAction}<span class="can-capture-status" role="status">{captureAction}</span>{/if}
   </div>
 
   <div class="can-event-mark">
     <strong>Vehicle event</strong>
-    <label class="can-event-label">Label<input class="text-input" aria-label="Vehicle event label" bind:value={eventLabel} placeholder="e.g. traction control toggle" maxlength="128" disabled={busy || workspaceBusy} /></label>
-    <label>Before (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={eventPreMs} disabled={busy || workspaceBusy} /></label>
-    <label>After (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={eventPostMs} disabled={busy || workspaceBusy} /></label>
-    <button class="button primary" onclick={markEvent} disabled={!connected || !captureOpen || !eventLabel.trim() || busy || workspaceBusy}>Mark event</button>
+    <label class="can-event-label">Label<input class="text-input" aria-label="Vehicle event label" bind:value={eventLabel} placeholder="e.g. traction control toggle" maxlength="128" disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Use the same label for repeated physical actions so their traffic can be compared." : undefined} /></label>
+    <label>Before (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={eventPreMs} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Include this much captured traffic before each event mark." : undefined} /></label>
+    <label>After (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={eventPostMs} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Include this much captured traffic after each event mark." : undefined} /></label>
+    <button class="button primary" onclick={markEvent} disabled={!connected || !captureOpen || !eventLabel.trim() || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Mark the physical action; repeated same-label marks rank nearby ID and byte changes as candidates." : undefined}>Mark event</button>
     {#if eventStatus}<span class="can-event-status" role="status">{eventStatus} · {eventMarks.length} total</span>{:else}<span class="can-event-status">Click once per physical action during capture; repeat the label to compare trials.</span>{/if}
   </div>
 
   <details class="can-trigger-settings">
-    <summary>Manual trigger window</summary>
+    <summary title={$canHelpBubblesEnabled ? "Capture a bounded raw-frame window around one manual trigger mark." : undefined}>Manual trigger window</summary>
     <p class="can-muted">Capture a bounded frame window around a manual mark. Frames continue through the serialized Candlelight owner.</p>
     <div class="can-trigger-form">
-      <label>Pre-trigger (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={triggerPreMs} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} /></label>
-      <label>Post-trigger (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={triggerPostMs} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} /></label>
-      <label>Maximum frames<input class="text-input" type="number" min="1" max="100000" bind:value={triggerMaxFrames} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} /></label>
-      <button class="button secondary" onclick={armTrigger} disabled={!connected || !captureOpen || busy || workspaceBusy || triggerArmed || triggerWaiting}>Arm window</button>
-      <button class="button primary" onclick={markTrigger} disabled={!triggerArmed || triggerWaiting || busy || workspaceBusy}>Mark trigger now</button>
+      <label>Pre-trigger (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={triggerPreMs} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} title={$canHelpBubblesEnabled ? "Keep up to this many milliseconds of frames before the trigger." : undefined} /></label>
+      <label>Post-trigger (ms)<input class="text-input" type="number" min="0" max="60000" bind:value={triggerPostMs} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} title={$canHelpBubblesEnabled ? "Continue collecting for this many milliseconds after the trigger." : undefined} /></label>
+      <label>Maximum frames<input class="text-input" type="number" min="1" max="100000" bind:value={triggerMaxFrames} disabled={busy || workspaceBusy || triggerArmed || triggerWaiting} title={$canHelpBubblesEnabled ? "Cap frames saved in this trigger window; reaching the cap truncates it." : undefined} /></label>
+      <button class="button secondary" onclick={armTrigger} disabled={!connected || !captureOpen || busy || workspaceBusy || triggerArmed || triggerWaiting} title={$canHelpBubblesEnabled ? "Arm the configured window; mark the trigger when the action occurs." : undefined}>Arm window</button>
+      <button class="button primary" onclick={markTrigger} disabled={!triggerArmed || triggerWaiting || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Set the trigger time and collect the configured post-trigger window." : undefined}>Mark trigger now</button>
       {#if triggerArmed}<span class="can-muted" role="status">Armed · mark a trigger when ready</span>{:else if triggerWaiting}<span class="can-muted" role="status">Waiting for post-trigger frames…</span>{/if}
-      {#if triggerArmed || triggerWaiting}<button class="button secondary" onclick={disarmTrigger} disabled={busy || workspaceBusy}>Disarm</button>{/if}
+      {#if triggerArmed || triggerWaiting}<button class="button secondary" onclick={disarmTrigger} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Cancel the armed or pending trigger window." : undefined}>Disarm</button>{/if}
     </div>
     {#if triggerCapture}
       <div class="can-trigger-result" role="status">
@@ -502,16 +503,16 @@
         <span>{(triggerCapture.capture.pre_ns / 1e6).toFixed(0)} ms pre / {(triggerCapture.capture.post_ns / 1e6).toFixed(0)} ms post · limit {triggerCapture.capture.max_frames.toLocaleString()}</span>
         <span>{triggerCapture.capture.complete ? "Complete" : "Incomplete"}{triggerCapture.capture.truncated ? " · frame limit reached" : ""}</span>
         <span>{triggerCapture.source_id} · source capture {triggerCapture.source_capture_id}</span>
-        <button class="button secondary" onclick={saveTrigger} disabled={busy || workspaceBusy}>Save as raw CSV + JSONL</button>
+        <button class="button secondary" onclick={saveTrigger} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Export this bounded trigger capture as raw CSV plus JSONL evidence." : undefined}>Save as raw CSV + JSONL</button>
       </div>
     {/if}
   </details>
 
   <details class="can-scan-settings">
-    <summary>Scan configuration</summary>
+    <summary title={$canHelpBubblesEnabled ? "Configure a user-started CAN ID, Mode 01, Mode 21, or Mode 22 scan." : undefined}>Scan configuration</summary>
     <div class="can-scan-form">
       <label>Test
-        <select class="text-input" value={scanKind} onchange={(event) => selectScanKind(event.currentTarget.value as CanScanKind)} disabled={busy || workspaceBusy}>
+        <select class="text-input" value={scanKind} onchange={(event) => selectScanKind(event.currentTarget.value as CanScanKind)} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Choose CAN ID discovery, Mode 01 support/PIDs, a Mode 21 one-byte range, or a Mode 22 two-byte DID range." : undefined}>
           <option value="can_id_range">CAN ID range</option>
           <option value="mode_01_support">Mode 01 support</option>
           <option value="mode_01_pids">Mode 01 PIDs</option>
@@ -520,61 +521,61 @@
         </select>
       </label>
       {#if scanKind !== "can_id_range"}
-        <label>Request ID (hex)<input class="text-input" bind:value={requestId} disabled={busy || workspaceBusy} /></label>
-        <label>Response ID (hex)<input class="text-input" bind:value={responseId} disabled={busy || workspaceBusy} /></label>
+        <label>Request ID (hex)<input class="text-input" bind:value={requestId} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Enter the request CAN ID for the ECU route being tested." : undefined} /></label>
+        <label>Response ID (hex)<input class="text-input" bind:value={responseId} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Enter the expected response CAN ID for the same ECU route." : undefined} /></label>
       {/if}
-      <label class="can-check"><input type="checkbox" bind:checked={extended} disabled={busy || workspaceBusy} /> 29-bit IDs</label>
+      <label class="can-check" title={$canHelpBubblesEnabled ? "Use extended 29-bit CAN identifiers instead of standard 11-bit identifiers." : undefined}><input type="checkbox" bind:checked={extended} disabled={busy || workspaceBusy} /> 29-bit IDs</label>
       {#if scanKind === "can_id_range"}
-        <label>Start CAN ID (hex)<input class="text-input" bind:value={scanStart} disabled={busy || workspaceBusy} /></label>
-        <label>End CAN ID (hex)<input class="text-input" bind:value={scanEnd} disabled={busy || workspaceBusy} /></label>
-        <label>Payload (hex bytes)<input class="text-input" bind:value={scanPayload} placeholder="optional" disabled={busy || workspaceBusy} /></label>
+        <label>Start CAN ID (hex)<input class="text-input" bind:value={scanStart} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "First CAN ID to probe in the selected range." : undefined} /></label>
+        <label>End CAN ID (hex)<input class="text-input" bind:value={scanEnd} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Last CAN ID to probe in the selected range." : undefined} /></label>
+        <label>Payload (hex bytes)<input class="text-input" bind:value={scanPayload} placeholder="optional" disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Optional data bytes sent with each CAN-ID range probe." : undefined} /></label>
       {:else if scanKind !== "mode_01_support"}
-        <label>Start {scanKind === "mode_01_pids" || scanKind === "mode_21" ? "PID" : "DID"} (hex)<input class="text-input" bind:value={scanStart} disabled={busy || workspaceBusy} /></label>
-        <label>End {scanKind === "mode_01_pids" || scanKind === "mode_21" ? "PID" : "DID"} (hex)<input class="text-input" bind:value={scanEnd} disabled={busy || workspaceBusy} /></label>
+        <label>Start {scanKind === "mode_01_pids" || scanKind === "mode_21" ? "PID" : "DID"} (hex)<input class="text-input" bind:value={scanStart} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "First PID or DID to query; Mode 21 uses one byte and Mode 22 uses two." : undefined} /></label>
+        <label>End {scanKind === "mode_01_pids" || scanKind === "mode_21" ? "PID" : "DID"} (hex)<input class="text-input" bind:value={scanEnd} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Last PID or DID to query; Mode 21 uses one byte and Mode 22 uses two." : undefined} /></label>
       {/if}
-      <label>Pacing (ms)<input class="text-input" type="number" min="1" max="60000" bind:value={pacingMs} disabled={busy || workspaceBusy} /></label>
-      <label>Response timeout (ms)<input class="text-input" type="number" min="10" max="10000" bind:value={responseTimeoutMs} disabled={busy || workspaceBusy} /></label>
+      <label>Pacing (ms)<input class="text-input" type="number" min="1" max="60000" bind:value={pacingMs} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Delay between scan requests; increase it to reduce request rate." : undefined} /></label>
+      <label>Response timeout (ms)<input class="text-input" type="number" min="10" max="10000" bind:value={responseTimeoutMs} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "How long each request waits for a reply before its outcome is recorded." : undefined} /></label>
       {#if scanError}<span class="can-error">{scanError}</span>{/if}
       {#if scanRunning}<span class="can-muted" role="status">Scan running</span>{:else if scanStatus}<span class="can-muted" role="status">{scanStatus}</span>{/if}
-      <button class="button primary" onclick={startScan} disabled={!transmissionReady || !scanConfig || scanRunning}>Start scan</button>
-      <button class="button secondary" onclick={tryCanOnce} disabled={!transmissionReady || scanRunning} title="Send one Mode 01 PID 00 request using this route; TX and RX remain in the paired capture">Try CAN once</button>
-      <button class="button secondary" onclick={stopScan} disabled={!scanRunning || busy || workspaceBusy}>Stop scan</button>
+      <button class="button primary" onclick={startScan} disabled={!transmissionReady || !scanConfig || scanRunning} title={$canHelpBubblesEnabled ? "Start the configured scan; Stop cancels requests that have not run yet." : undefined}>Start scan</button>
+      <button class="button secondary" onclick={tryCanOnce} disabled={!transmissionReady || scanRunning} title={$canHelpBubblesEnabled ? "Send one Mode 01 PID 00 request on this route and record TX/RX in the paired capture." : undefined}>Try CAN once</button>
+      <button class="button secondary" onclick={stopScan} disabled={!scanRunning || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Cancel the remaining scan requests; completed evidence stays available." : undefined}>Stop scan</button>
     </div>
     {#if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
   </details>
 
   <details class="can-fields-settings">
-    <summary>CAN fields · {fields.length}</summary>
+    <summary title={$canHelpBubblesEnabled ? "Define CAN ID fields that decode into timestamped samples for the shared graph and recording pipeline." : undefined}>CAN fields · {fields.length}</summary>
     <form class="can-field-form" onsubmit={addField}>
-      <label>Name<input class="text-input" bind:value={fieldName} /></label>
-      <label>Signal ID<input class="text-input" bind:value={fieldId} /></label>
-      <label>CAN ID (hex)<input class="text-input" bind:value={fieldCanId} /></label>
-      <label class="can-check"><input type="checkbox" bind:checked={fieldExtended} /> 29-bit</label>
-      <label>Start bit<input class="text-input" type="number" min="0" max="63" bind:value={fieldStartBit} /></label>
-      <label>Length<input class="text-input" type="number" min="1" max="64" bind:value={fieldBitLength} /></label>
-      <label>Byte order<select class="text-input" bind:value={byteOrder}><option value="intel">Intel</option><option value="motorola">Motorola</option></select></label>
-      <label class="can-check"><input type="checkbox" bind:checked={signed} /> Signed</label>
-      <label>Factor<input class="text-input" type="number" step="any" bind:value={factor} /></label>
-      <label>Offset<input class="text-input" type="number" step="any" bind:value={offset} /></label>
-      <label>Unit<input class="text-input" bind:value={unit} /></label>
-      <button class="button secondary" type="submit" disabled={!connected || busy || workspaceBusy}>Add field</button>
+      <label>Name<input class="text-input" bind:value={fieldName} title={$canHelpBubblesEnabled ? "Name shown for the decoded CAN signal." : undefined} /></label>
+      <label>Signal ID<input class="text-input" bind:value={fieldId} title={$canHelpBubblesEnabled ? "Stable ID used by the shared signal, graph, and recording pipeline." : undefined} /></label>
+      <label>CAN ID (hex)<input class="text-input" bind:value={fieldCanId} title={$canHelpBubblesEnabled ? "CAN identifier whose received frames contain this field." : undefined} /></label>
+      <label class="can-check" title={$canHelpBubblesEnabled ? "Use extended 29-bit identifiers for this field." : undefined}><input type="checkbox" bind:checked={fieldExtended} /> 29-bit</label>
+      <label>Start bit<input class="text-input" type="number" min="0" max="63" bind:value={fieldStartBit} title={$canHelpBubblesEnabled ? "First bit of the value in the CAN data bytes." : undefined} /></label>
+      <label>Length<input class="text-input" type="number" min="1" max="64" bind:value={fieldBitLength} title={$canHelpBubblesEnabled ? "Number of bits decoded starting at the selected bit." : undefined} /></label>
+      <label>Byte order<select class="text-input" bind:value={byteOrder} title={$canHelpBubblesEnabled ? "Choose Intel (little-endian) or Motorola (big-endian) bit ordering." : undefined}><option value="intel">Intel</option><option value="motorola">Motorola</option></select></label>
+      <label class="can-check" title={$canHelpBubblesEnabled ? "Interpret the extracted value as a signed integer." : undefined}><input type="checkbox" bind:checked={signed} /> Signed</label>
+      <label>Factor<input class="text-input" type="number" step="any" bind:value={factor} title={$canHelpBubblesEnabled ? "Multiply the decoded raw value by this factor." : undefined} /></label>
+      <label>Offset<input class="text-input" type="number" step="any" bind:value={offset} title={$canHelpBubblesEnabled ? "Add this offset after applying the factor." : undefined} /></label>
+      <label>Unit<input class="text-input" bind:value={unit} title={$canHelpBubblesEnabled ? "Unit displayed with decoded samples, such as rpm or °C." : undefined} /></label>
+      <button class="button secondary" type="submit" disabled={!connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Save this field on the connected CAN workbench so matching frames publish samples." : undefined}>Add field</button>
     </form>
     {#each fields as field (field.id)}
-      <div class="can-field-row"><span>{field.name} · 0x{field.can_id.toString(16).toUpperCase()} · {field.bit_length} bit · {field.unit}</span><button class="button secondary" onclick={() => removeField(field.id)} disabled={busy || workspaceBusy}>Remove</button></div>
+      <div class="can-field-row"><span>{field.name} · 0x{field.can_id.toString(16).toUpperCase()} · {field.bit_length} bit · {field.unit}</span><button class="button secondary" onclick={() => removeField(field.id)} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Remove this CAN field definition." : undefined}>Remove</button></div>
     {:else}
       <p class="can-muted">Fields are configured in Rust and publish timestamped samples to the common graph/recording pipeline.</p>
     {/each}
   </details>
 
   <details class="can-send-settings">
-    <summary>Manual CAN frame</summary>
+    <summary title={$canHelpBubblesEnabled ? "Configure a user-authored CAN frame; sending requires active mode and a paired capture." : undefined}>Manual CAN frame</summary>
     <div class="can-send-form">
-      <label>CAN ID (hex)<input class="text-input" bind:value={txCanId} disabled={busy || workspaceBusy} /></label>
-      <label class="can-check"><input type="checkbox" bind:checked={txExtended} disabled={busy || workspaceBusy} /> 29-bit</label>
-      <label>Data bytes (hex)<input class="text-input" bind:value={txPayload} placeholder="02 21 01" disabled={busy || workspaceBusy} /></label>
-      <label>Pacing (ms)<input class="text-input" type="number" min="1" max="60000" bind:value={txPacingMs} disabled={busy || workspaceBusy} /></label>
-      <label>Repeat<input class="text-input" type="number" min="1" max="10000" bind:value={txRepeat} disabled={busy || workspaceBusy} /></label>
-      <button class="button danger" onclick={sendCanFrame} disabled={!transmissionReady}>Send frame</button>
+      <label>CAN ID (hex)<input class="text-input" bind:value={txCanId} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Enter the CAN ID to use for each transmitted frame." : undefined} /></label>
+      <label class="can-check" title={$canHelpBubblesEnabled ? "Send with an extended 29-bit CAN identifier." : undefined}><input type="checkbox" bind:checked={txExtended} disabled={busy || workspaceBusy} /> 29-bit</label>
+      <label>Data bytes (hex)<input class="text-input" bind:value={txPayload} placeholder="02 21 01" disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Enter the raw data bytes to transmit, separated by spaces." : undefined} /></label>
+      <label>Pacing (ms)<input class="text-input" type="number" min="1" max="60000" bind:value={txPacingMs} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Delay between repeated transmissions." : undefined} /></label>
+      <label>Repeat<input class="text-input" type="number" min="1" max="10000" bind:value={txRepeat} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Number of times to transmit the configured frame." : undefined} /></label>
+      <button class="button danger" onclick={sendCanFrame} disabled={!transmissionReady} title={$canHelpBubblesEnabled ? "Transmit the configured raw frame; TX and received echoes are recorded in the paired capture." : undefined}>Send frame</button>
     </div>
     {#if !transmissionReady}<p class="can-hint">Sending is enabled only in active mode with a paired capture open.</p>{/if}
     {#if txStatuses.length}
@@ -614,11 +615,11 @@
   {/if}
 
   <details class="can-replay-report">
-    <summary>Replay a saved capture and review Rust analysis</summary>
+    <summary title={$canHelpBubblesEnabled ? "Open saved raw CAN captures, compare traffic, and inspect the replay analysis." : undefined}>Replay a saved capture and review Rust analysis</summary>
     <div class="can-report-actions">
-      <button class="button secondary" onclick={replayCapture} disabled={captureOpen || busy || workspaceBusy}>Open .candump.csv</button>
-      <button class="button secondary" onclick={compareCapture} disabled={!replayReport || captureOpen || busy || workspaceBusy}>Compare another CSV</button>
-      <button class="button secondary" onclick={exportDbc} disabled={!replayReport || busy || workspaceBusy}>Export UNVERIFIED DBC skeleton</button>
+      <button class="button secondary" onclick={replayCapture} disabled={captureOpen || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Open a saved .candump.csv capture and its JSONL evidence sidecar for analysis." : undefined}>Open .candump.csv</button>
+      <button class="button secondary" onclick={compareCapture} disabled={!replayReport || captureOpen || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Compare another saved capture with the replay currently loaded." : undefined}>Compare another CSV</button>
+      <button class="button secondary" onclick={exportDbc} disabled={!replayReport || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Export a DBC skeleton from this replay; the skeleton is explicitly unverified." : undefined}>Export UNVERIFIED DBC skeleton</button>
     </div>
     {#if captureOpen}<p class="can-hint">Stop the current capture before replaying its CSV and JSONL sidecar.</p>{/if}
     {#if replayReport}

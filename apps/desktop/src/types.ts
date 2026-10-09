@@ -108,6 +108,7 @@ export type A30GraphValue = {
   value: number;
   unit: string;
   raw_value: string;
+  response_payload?: number[];
 };
 
 export type A30ReadTestResult = {

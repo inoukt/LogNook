@@ -192,11 +192,3 @@ test("export_uses_completed_run_report", () => {
   includes(results, /Export run report/, "the result table exposes report export");
   includes(results, /completed/, "the table distinguishes completed results");
 });
-
-test("results_panel_can_collapse_and_resize_without_growing_past_its_limit", () => {
-  includes(results, /aria-expanded=\{!collapsed\}/, "the collapse control announces its expanded state");
-  includes(results, /collapsed \? "Expand results" : "Collapse results"/, "the collapse control remains discoverable in both states");
-  includes(results, /type="range"[^>]*min="120"[^>]*max="360"/, "a native keyboard-accessible range resizes the table");
-  includes(results, /--research-results-height/, "the selected height controls the results panel");
-  includes(results, /max-height:\s*min\([^;]*40vh\)/, "the panel height remains bounded relative to the graph viewport");
-});

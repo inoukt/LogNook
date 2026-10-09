@@ -1,5 +1,6 @@
 <script lang="ts">
   import { A30_READ_TESTS } from "./a30ReadTests";
+  import { adjustResearchResultsHeight } from "./researchResultsResize";
   import type { ResearchRunViewState, ResearchRunRow, ResearchTestSelection } from "./types";
 
   export let state: ResearchRunViewState;
@@ -8,13 +9,46 @@
   export let onExport: () => void = () => {};
   let collapsed = false;
   let resultsHeight = 190;
+  let viewportHeight = window.innerHeight;
+  let resultsPanelElement: HTMLElement | undefined;
+  let resultsResize: { y: number; height: number } | null = null;
+
+  function startResultsResize(event: PointerEvent) {
+    const splitter = event.currentTarget as HTMLElement | null;
+    if (!resultsPanelElement || !splitter || collapsed) return;
+    resultsResize = { y: event.clientY, height: resultsPanelElement.getBoundingClientRect().height };
+    splitter.setPointerCapture(event.pointerId);
+  }
+
+  function resizeResults(event: PointerEvent) {
+    if (!resultsResize) return;
+    resultsHeight = adjustResearchResultsHeight(resultsResize.height, resultsResize.y - event.clientY, viewportHeight);
+  }
+
+  function finishResultsResize() {
+    resultsResize = null;
+  }
+
+  function resizeResultsFromKeyboard(event: KeyboardEvent) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const height = resultsPanelElement?.getBoundingClientRect().height ?? resultsHeight;
+    resultsHeight = adjustResearchResultsHeight(height, event.key === "ArrowUp" ? 16 : -16, viewportHeight);
+  }
 
   function label(selection: ResearchTestSelection) {
     if (selection.type === "oemCandidate") return selection.payload.name;
     return A30_READ_TESTS.find(([id]) => id === selection.payload)?.[1] ?? selection.payload;
   }
 
+  function hasMultipleResponders(row: ResearchRunRow) {
+    return row.result?.type === "a30ReadTest"
+      && row.result.payload.outcome === "wrong_responder"
+      && row.result.payload.detail?.startsWith("Multiple ECU responders were returned") === true;
+  }
+
   function outcome(row: ResearchRunRow) {
+    if (hasMultipleResponders(row)) return "multiple ECU responders";
     return row.result?.payload.outcome.replaceAll("_", " ") ?? "—";
   }
 
@@ -23,6 +57,7 @@
   }
 
   function responder(row: ResearchRunRow) {
+    if (hasMultipleResponders(row)) return "Multiple ECUs";
     return row.result?.payload.responder_header ?? "No responding ECU";
   }
 
@@ -70,7 +105,18 @@
   }
 </script>
 
-<section class="research-run-results" class:collapsed style={`--research-results-height:${resultsHeight}px`} aria-label="Research run results">
+<svelte:window bind:innerHeight={viewportHeight} />
+
+<section class="research-run-results" class:collapsed bind:this={resultsPanelElement} style={`--research-results-height:${resultsHeight}px`} aria-label="Research run results">
+  {#if !collapsed}
+    <div class="can-monitor-splitter research-results-splitter" role="slider" tabindex="0" aria-orientation="vertical"
+      aria-valuemin={Math.min(120, Math.min(360, viewportHeight * 0.4))}
+      aria-valuemax={Math.min(360, viewportHeight * 0.4)}
+      aria-valuenow={Math.round(adjustResearchResultsHeight(resultsHeight, 0, viewportHeight))}
+      aria-label="Research results height"
+      onpointerdown={startResultsResize} onpointermove={resizeResults} onpointerup={finishResultsResize}
+      onpointercancel={finishResultsResize} onlostpointercapture={finishResultsResize} onkeydown={resizeResultsFromKeyboard}></div>
+  {/if}
   <header class="research-results-heading">
     <div>
       <h3>Research run results</h3>
@@ -128,11 +174,6 @@
         </tbody>
       </table>
     </div>
-    <label class="research-results-resize">
-      <span>Height</span>
-      <input type="range" min="120" max="360" step="10" value={resultsHeight} aria-label="Results panel height" oninput={(event) => resultsHeight = Number(event.currentTarget.value)} />
-      <output>{resultsHeight}px</output>
-    </label>
   {/if}
 </section>
 
@@ -145,11 +186,9 @@
   .research-results-heading .button { min-height: 29px; flex: 0 0 auto; padding: 4px 8px; font-size: 10px; }
   .research-collapse { width: 25px; height: 25px; flex: 0 0 25px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-secondary); background: var(--surface-raised); cursor: pointer; }
   .research-collapse:hover { color: var(--accent); border-color: var(--accent); }
+  .research-results-splitter { flex: 0 0 8px; }
   .research-export-path { flex: 0 0 auto; margin: 0; padding: 3px 10px; color: var(--text-muted); font-size: 9px; overflow-wrap: anywhere; }
   .research-results-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-  .research-results-resize { display: flex; flex: 0 0 25px; align-items: center; gap: 8px; padding: 0 10px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 9px; }
-  .research-results-resize input { flex: 1 1 auto; min-width: 80px; height: 16px; accent-color: var(--accent); cursor: ns-resize; }
-  .research-results-resize output { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .research-results-scroll table { width: 100%; border-collapse: collapse; font-size: 10px; text-align: left; }
   .research-results-scroll th { position: sticky; top: 0; z-index: 1; padding: 5px 8px; color: var(--text-muted); background: var(--surface-top); font-size: 9px; font-weight: 650; white-space: nowrap; }
   .research-results-scroll td { max-width: 260px; padding: 5px 8px; border-top: 1px solid var(--border); color: var(--text-secondary); overflow-wrap: anywhere; vertical-align: top; }

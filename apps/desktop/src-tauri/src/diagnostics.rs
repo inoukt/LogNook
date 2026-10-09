@@ -215,6 +215,7 @@ impl DiagnosticsService {
                 if sample.origin == SampleOrigin::Live
                     && sample.quality == SampleQuality::Valid
                     && !sample.source_id.starts_with("a30-research:")
+                    && !sample.source_id.starts_with("obd-research:")
                     && !sample.source_id.starts_with("oem:") =>
             {
                 self.enqueue(Observation::Sample(
@@ -1181,11 +1182,13 @@ mod tests {
         let (service, rx) = service(&path());
         let op = connected(&service, &["engine_rpm", "vehicle_speed"]);
         op.sink()(poll(DiagnosticPhase::Started, None));
-        let EngineEvent::Sample(mut research) = sample("engine_rpm") else {
-            unreachable!()
-        };
-        research.source_id = "a30-research:adapter".into();
-        service.observe_engine(&EngineEvent::Sample(research));
+        for source_id in ["a30-research:adapter", "obd-research:adapter"] {
+            let EngineEvent::Sample(mut research) = sample("engine_rpm") else {
+                unreachable!()
+            };
+            research.source_id = source_id.into();
+            service.observe_engine(&EngineEvent::Sample(research));
+        }
         service.observe_engine(&EngineEvent::Disconnected);
         let records = until_disconnected(&rx);
         let summary = records

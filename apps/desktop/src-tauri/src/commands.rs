@@ -14,7 +14,7 @@ mod sessions;
 pub use sessions::*;
 mod oem_catalog;
 pub use oem_catalog::*;
-pub(crate) use oem_catalog::{execute_a30_read_test, execute_candidate_try};
+pub(crate) use oem_catalog::{execute_candidate_try, execute_obd_read_test};
 mod openport2;
 pub use openport2::*;
 pub(crate) use openport2::{discover_providers, worker_path};

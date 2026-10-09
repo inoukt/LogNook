@@ -41,6 +41,7 @@ pub struct A30CanReply {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+// Legacy wire names are retained for saved research reports and the desktop quick-test picker.
 pub enum A30ReadTest {
     #[serde(rename = "mode_01_engine_rpm")]
     Mode01EngineRpm,
@@ -97,6 +98,8 @@ pub struct A30GraphValue {
     pub value: f64,
     pub unit: String,
     pub raw_value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_payload: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1229,7 +1232,7 @@ fn read_a30_vehicle_diagnostic(
 }
 
 impl A30ReadTest {
-    fn request(
+    pub(crate) fn request(
         self,
     ) -> (
         String,
@@ -1350,7 +1353,10 @@ impl A30ReadTest {
     }
 }
 
-fn decode_read_test_values(test: A30ReadTest, replies: &[A30CanReply]) -> Vec<A30GraphValue> {
+pub(crate) fn decode_read_test_values(
+    test: A30ReadTest,
+    replies: &[A30CanReply],
+) -> Vec<A30GraphValue> {
     match test {
         A30ReadTest::Mode01EngineRpm | A30ReadTest::Mode02FreezeFrameRpm => replies
             .iter()
@@ -1397,6 +1403,7 @@ fn decode_read_test_values(test: A30ReadTest, replies: &[A30CanReply]) -> Vec<A3
                     value,
                     unit: signal.unit,
                     raw_value: hex_bytes(data),
+                    response_payload: Some(reply.payload.clone()),
                 })
             })
             .collect(),
@@ -1420,6 +1427,7 @@ fn decode_read_test_values(test: A30ReadTest, replies: &[A30CanReply]) -> Vec<A3
                         value,
                         unit: "raw count".into(),
                         raw_value: format!("{}", value as u64),
+                        response_payload: Some(reply.payload.clone()),
                     });
                 }
                 values
@@ -2681,6 +2689,10 @@ mod tests {
         };
         assert_eq!(candidate.outcome, OemCandidateOutcome::Positive);
         assert_eq!(read.outcome, A30ReadOutcome::Positive);
+        assert_eq!(
+            read.graph_values[0].response_payload,
+            Some(vec![0x42, 0x0C, 0x00, 0x1A, 0x1E])
+        );
         assert_eq!(did.response_payload, [0x62, 0x12, 0x34, 0x64]);
         let requests = requests.lock().unwrap();
         assert_eq!(requests.len(), 3);
@@ -2875,6 +2887,10 @@ mod tests {
         assert_eq!(freeze.outcome, A30ReadOutcome::Positive);
         assert_eq!(freeze.graph_values[0].value, 1671.5);
         assert_eq!(freeze.graph_values[0].unit, "rpm");
+        assert_eq!(
+            freeze.graph_values[0].response_payload,
+            Some(vec![0x42, 0x0C, 0x00, 0x1A, 0x1E])
+        );
 
         let (monitor_dongle, _) = ScriptedDongle::new();
         let monitor_session =
@@ -2888,6 +2904,10 @@ mod tests {
         assert_eq!(monitor.outcome, A30ReadOutcome::Positive);
         assert_eq!(monitor.graph_values[0].value, 0.0);
         assert_eq!(monitor.graph_values[0].unit, "raw count");
+        assert_eq!(
+            monitor.graph_values[0].response_payload,
+            Some(vec![0x46, 0x35, 0x81, 0x35, 0, 0, 0, 0, 3, 0xB5])
+        );
 
         let (vin_dongle, _) = ScriptedDongle::new();
         let vin_session = A30Session::open_with_timing(Box::new(vin_dongle), timing).unwrap();

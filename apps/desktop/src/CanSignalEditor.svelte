@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { canHelpBubblesEnabled } from "./canHelp";
   import { canSignalBitPositions, canSignalDefinitionError, extractCanSignalRaw } from "./canWorkbench";
   import { canScopePoints, scopePath } from "./canDiscovery";
   import type { CanFrame, CanSignalDefinition, Sample } from "./types";
@@ -194,25 +195,25 @@
 <dialog bind:this={dialogElement} class="can-signal-editor" aria-labelledby="can-editor-title" oncancel={(event) => { event.preventDefault(); closeEditor(); }}>
     <header class="can-editor-heading">
       <div><p class="eyebrow">VISUAL CAN FIELD</p><h2 id="can-editor-title">{selectedFieldId === "__new" ? "Add signal" : "Edit signal"}</h2></div>
-      <button class="button secondary" type="button" onclick={closeEditor} aria-label="Close CAN signal editor">×</button>
+      <button class="button secondary" type="button" onclick={closeEditor} aria-label="Close CAN signal editor" title={$canHelpBubblesEnabled ? "Close the editor without saving current changes." : undefined}>×</button>
     </header>
     <p class="can-editor-frame">{followLive ? "Live RX" : "Frozen RX"} · {frame.extended ? "29-bit" : "11-bit"} ID 0x{frame.can_id.toString(16).toUpperCase().padStart(frame.extended ? 8 : 3, "0")} · DLC {frame.data.length} · {(frame.elapsed_ns / 1e9).toFixed(3)}s{#if frameAgeNs > 0} · { (frameAgeNs / 1e9).toFixed(2)}s older than latest bus frame{/if}</p>
     {#if matchingFields.length}
       <label class="can-editor-existing">Field
-        <select class="text-input" bind:value={selectedFieldId} onchange={chooseField}>
+        <select class="text-input" bind:value={selectedFieldId} onchange={chooseField} title={$canHelpBubblesEnabled ? "Choose a saved field for this CAN ID or start a new definition." : undefined}>
           <option value="__new">＋ New field</option>
           {#each matchingFields as field (field.id)}<option value={field.id}>{field.name} · {field.id}</option>{/each}
         </select>
       </label>
     {/if}
 
-    <div class="can-bit-grid" aria-label="Select signal start bit; active cells show the extraction range">
+    <div class="can-bit-grid" aria-label="Select signal start bit; active cells show the extraction range" title={$canHelpBubblesEnabled ? "Bit numbers are LSB0 within each byte. Click a cell to choose the start bit; highlighted cells show the selected field range." : undefined}>
       {#each bytes as byte}
         <div class="can-bit-byte">
           <strong>B{byte} {frame.data[byte] === undefined ? "—" : `0x${frame.data[byte].toString(16).padStart(2, "0").toUpperCase()}`}</strong>
           {#each bitRows as bitRow}
             {@const bit = byte * 8 + bitRow}
-            <button type="button" class:in-range={selectedBits.includes(bit)} class:start-bit={startBit === bit} aria-pressed={selectedBits.includes(bit)} aria-label={`Byte ${byte}, bit ${bitRow}, ${frame.data[byte] === undefined ? "no data" : (frame.data[byte] >> bitRow) & 1}`} onclick={() => selectStart(bit)}>
+            <button type="button" class:in-range={selectedBits.includes(bit)} class:start-bit={startBit === bit} aria-pressed={selectedBits.includes(bit)} aria-label={`Byte ${byte}, bit ${bitRow}, ${frame.data[byte] === undefined ? "no data" : (frame.data[byte] >> bitRow) & 1}`} onclick={() => selectStart(bit)} title={$canHelpBubblesEnabled ? `Choose byte ${byte}, bit ${bitRow} (LSB0 position ${bit}) as the signal start.` : undefined}>
               <small>{bitRow}</small><span>{frame.data[byte] === undefined ? "·" : (frame.data[byte] >> bitRow) & 1}</span>
             </button>
           {/each}
@@ -220,24 +221,24 @@
       {/each}
     </div>
     <p class="can-editor-help">Bit numbers are LSB0 within each byte. Click a start bit; the highlighted range follows the selected Intel or Motorola order.</p>
-    {#if evidence}<p class="can-editor-help">Event evidence: {evidence}</p>{/if}
-    <label class="can-editor-check"><input type="checkbox" bind:checked={followLive} /> Follow live RX · {followLive ? "latest frame" : "event frame frozen"}</label>
-    <svg class="can-mini-scope" viewBox="0 0 100 50" preserveAspectRatio="none" role="img" aria-label="Recent decoded CAN field values"><path d={scopePath(scope)} fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke" /></svg>
+    {#if evidence}<p class="can-editor-help" title={$canHelpBubblesEnabled ? "Raw byte transitions from the marked event; they are correlation evidence, not a decoded signal." : undefined}>Event evidence: {evidence}</p>{/if}
+    <label class="can-editor-check" title={$canHelpBubblesEnabled ? "Use the latest matching RX frame for the byte grid and decoded preview; off keeps the frame that opened this editor. The scope still shows recent samples." : undefined}><input type="checkbox" bind:checked={followLive} /> Follow live RX · {followLive ? "latest frame" : "event frame frozen"}</label>
+    <svg class="can-mini-scope" viewBox="0 0 100 50" preserveAspectRatio="none" role="img" aria-label="Recent decoded CAN field values">{#if $canHelpBubblesEnabled}<title>Draft values from up to 120 recent RX frames for this ID that fit the selected field; this scope is independent of Follow live.</title>{/if}<path d={scopePath(scope)} fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke" /></svg>
     <p class="can-editor-help">{scope.length} recent samples · preview only; saving uses the Rust decoder and common recording pipeline.</p>
 
     <div class="can-editor-form">
-      <label>Name<input class="text-input" bind:value={name} oninput={schedulePreview} /></label>
-      <label>Signal ID<input class="text-input" bind:value={fieldId} oninput={schedulePreview} disabled={selectedFieldId !== "__new"} /></label>
-      <label>Start bit<input class="text-input" type="number" min="0" max="63" bind:value={startBit} oninput={schedulePreview} /></label>
-      <label>Length<input class="text-input" type="number" min="1" max="64" bind:value={bitLength} oninput={schedulePreview} /></label>
-      <label>Byte order<select class="text-input" bind:value={byteOrder} onchange={schedulePreview}><option value="intel">Intel</option><option value="motorola">Motorola</option></select></label>
-      <label class="can-editor-check"><input type="checkbox" bind:checked={signed} onchange={schedulePreview} /> Signed</label>
-      <label>Factor<input class="text-input" type="number" step="any" bind:value={factor} oninput={schedulePreview} /></label>
-      <label>Offset<input class="text-input" type="number" step="any" bind:value={offset} oninput={schedulePreview} /></label>
-      <label>Unit<input class="text-input" bind:value={unit} oninput={schedulePreview} /></label>
+      <label>Name<input class="text-input" bind:value={name} oninput={schedulePreview} title={$canHelpBubblesEnabled ? "Display name for this saved CAN signal." : undefined} /></label>
+      <label>Signal ID<input class="text-input" bind:value={fieldId} oninput={schedulePreview} disabled={selectedFieldId !== "__new"} title={$canHelpBubblesEnabled ? "Unique CAN signal key; it must start with can: and is fixed while editing an existing field." : undefined} /></label>
+      <label>Start bit<input class="text-input" type="number" min="0" max="63" bind:value={startBit} oninput={schedulePreview} title={$canHelpBubblesEnabled ? "First bit position in the payload; numbering is LSB0 within each byte." : undefined} /></label>
+      <label>Length<input class="text-input" type="number" min="1" max="64" bind:value={bitLength} oninput={schedulePreview} title={$canHelpBubblesEnabled ? "Number of bits to extract; the selected field must fit in this frame's payload." : undefined} /></label>
+      <label>Byte order<select class="text-input" bind:value={byteOrder} onchange={schedulePreview} title={$canHelpBubblesEnabled ? "Intel assembles least-significant bit first; Motorola follows big-endian bit order." : undefined}><option value="intel">Intel</option><option value="motorola">Motorola</option></select></label>
+      <label class="can-editor-check" title={$canHelpBubblesEnabled ? "Interpret the extracted value as signed two's-complement; unchecked values are unsigned." : undefined}><input type="checkbox" bind:checked={signed} onchange={schedulePreview} /> Signed</label>
+      <label>Factor<input class="text-input" type="number" step="any" bind:value={factor} oninput={schedulePreview} title={$canHelpBubblesEnabled ? "Multiply the raw value by this factor before adding the offset." : undefined} /></label>
+      <label>Offset<input class="text-input" type="number" step="any" bind:value={offset} oninput={schedulePreview} title={$canHelpBubblesEnabled ? "Add this amount after multiplying the raw value by the factor." : undefined} /></label>
+      <label>Unit<input class="text-input" bind:value={unit} oninput={schedulePreview} title={$canHelpBubblesEnabled ? "Unit label shown with the numeric value; it does not convert that value." : undefined} /></label>
     </div>
     <div class="can-editor-shortcuts" aria-label="Byte-aligned field lengths">
-      {#each [8, 16, 32] as length}<button class="button secondary" type="button" onclick={() => alignLength(length)}>{length}-bit</button>{/each}
+      {#each [8, 16, 32] as length}<button class="button secondary" type="button" onclick={() => alignLength(length)} title={$canHelpBubblesEnabled ? `Set the field to ${length} bits and align its start to this byte (${byteOrder === "motorola" ? "bit 7 for Motorola" : "bit 0 for Intel"}).` : undefined}>{length}-bit</button>{/each}
     </div>
 
     <div class="can-editor-preview" aria-live="polite">
@@ -247,8 +248,8 @@
       {#if definitionError}<span class="can-editor-error">{definitionError}</span>{:else if previewError}<span class="can-editor-error">{previewError}</span>{:else if !preview}<span class="can-muted">Previewing in Rust…</span>{/if}
     </div>
     <footer class="can-editor-actions">
-      {#if selectedFieldId !== "__new"}<button class="button danger" type="button" onclick={remove}>Remove field</button>{/if}
-      <button class="button primary" type="button" onclick={save} disabled={Boolean(definitionError)}>Save and graph</button>
+      {#if selectedFieldId !== "__new"}<button class="button danger" type="button" onclick={remove} title={$canHelpBubblesEnabled ? "Remove this saved signal definition; raw CAN capture evidence remains." : undefined}>Remove field</button>{/if}
+      <button class="button primary" type="button" onclick={save} disabled={Boolean(definitionError)} title={$canHelpBubblesEnabled ? "Save the signal definition and add its decoded numeric samples to the graph." : undefined}>Save and graph</button>
     </footer>
 </dialog>
 

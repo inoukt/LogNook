@@ -115,6 +115,46 @@ fn mode06_reports_raw_uasid_limits_and_distinct_malformed_and_negative_results()
         }]
     );
 
+    let multiple_mids = parse_adapter_response(
+        &query(
+            vec![0x06, 0x35],
+            DiagnosticReadKind::Mode06Monitor,
+            Some(0x35),
+        ),
+        "0635".into(),
+        "7E8 10 13 46 35 0A 01 00 64\r7E8 21 00 10 00 C8 35 0B 01\r7E8 22 00 C8 00 20 00 FA\r>"
+            .into(),
+        10,
+        2,
+    );
+    assert_eq!(multiple_mids[0].outcome, DiagnosticOutcome::Positive);
+    assert_eq!(multiple_mids[0].values.len(), 2);
+    assert!(
+        multiple_mids[0]
+            .values
+            .iter()
+            .all(|value| matches!(value, DiagnosticValue::Mode06Monitor { test_id: 0x35, .. }))
+    );
+
+    let mixed_tids = parse_adapter_response(
+        &query(
+            vec![0x06, 0x35],
+            DiagnosticReadKind::Mode06Monitor,
+            Some(0x35),
+        ),
+        "0635".into(),
+        "7E8 10 13 46 35 0A 01 00 64\r7E8 21 00 10 00 C8 36 0B 01\r7E8 22 00 C8 00 20 00 FA\r>"
+            .into(),
+        10,
+        2,
+    );
+    assert_eq!(mixed_tids[0].outcome, DiagnosticOutcome::MalformedResponse);
+    assert!(mixed_tids[0].values.is_empty());
+    assert_eq!(
+        mixed_tids[0].response_payload[0], 0x46,
+        "the raw response remains available after typed validation fails"
+    );
+
     let malformed = parse_adapter_response(
         &query(
             vec![0x06, 0x35],

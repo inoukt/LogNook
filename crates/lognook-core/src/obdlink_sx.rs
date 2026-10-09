@@ -1,5 +1,6 @@
 use crate::{DiagnosticSink, diagnostics::noop_diagnostic_sink};
 mod oem_probe;
+mod quick_test;
 mod scion_probe;
 mod serial;
 pub use oem_probe::{
@@ -369,9 +370,9 @@ impl HardwareAdapter for ObdLinkSxAdapter {
                 self.read_connected_candidate(&spec)
                     .map(crate::ResearchTestResult::OemCandidate)
             }
-            crate::ResearchTestRequest::A30ReadTest(_) => Err(LogNookError::new(
-                "OBDLink SX does not support A30 captured read tests",
-            )),
+            crate::ResearchTestRequest::A30ReadTest(test) => self
+                .read_connected_quick_test(test)
+                .map(crate::ResearchTestResult::A30ReadTest),
             crate::ResearchTestRequest::Diagnostic(query) => self
                 .read_vehicle_diagnostic(query)
                 .map(crate::ResearchTestResult::Diagnostic),

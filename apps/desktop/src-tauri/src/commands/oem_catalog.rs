@@ -7,7 +7,10 @@ use lognook_core::{
     SampleOrigin, SampleQuality, ScionMode21ProbeResult, probe_scion_xb_mode21 as run_probe,
 };
 use std::{fs::OpenOptions, io::Write};
-use tauri::State;
+use tauri::{Manager, State};
+
+const A30_READ_TEST_FAMILY: &str = "Xtool A30/A30M Bluetooth SPP";
+const SX_READ_TEST_FAMILY: &str = "OBDLink SX";
 
 #[tauri::command]
 pub async fn search_oem_catalog(
@@ -175,6 +178,22 @@ pub async fn try_a30_read_test(
     execute_a30_read_test(&state, test, &run_id, queue_index, queue_size)
 }
 
+#[tauri::command]
+pub async fn try_obd_read_test(
+    app: tauri::AppHandle,
+    test: A30ReadTest,
+    run_id: String,
+    queue_index: usize,
+    queue_size: usize,
+) -> Result<A30ReadTestResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        execute_obd_read_test(&state, test, &run_id, queue_index, queue_size)
+    })
+    .await
+    .map_err(|error| format!("OBD read-test worker failed: {error}"))?
+}
+
 fn validate_run_item(run_id: &str, queue_index: usize, queue_size: usize) -> Result<(), String> {
     if run_id.trim().is_empty() || run_id.len() > 256 {
         return Err("Choose a valid research run ID".into());
@@ -233,7 +252,17 @@ pub(crate) fn execute_candidate_try(
     )
 }
 
-pub(crate) fn execute_a30_read_test(
+fn execute_a30_read_test(
+    state: &AppState,
+    test: A30ReadTest,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
+) -> Result<A30ReadTestResult, String> {
+    execute_obd_read_test(state, test, run_id, queue_index, queue_size)
+}
+
+pub(crate) fn execute_obd_read_test(
     state: &AppState,
     test: A30ReadTest,
     run_id: &str,
@@ -253,15 +282,49 @@ pub(crate) fn execute_a30_read_test(
         ],
         |op| {
             validate_run_item(run_id, queue_index, queue_size)?;
-            let engine = engine(state)?;
-            let result = engine
-                .execute_research_test(ResearchTestRequest::A30ReadTest(test))
+            let (expected_adapter, response) = {
+                let engine = engine(state)?;
+                if !engine.is_obd_connected() {
+                    return Err(
+                        "Connect an OBDLink SX or Xtool A30 before running a one-shot OBD read test"
+                            .into(),
+                    );
+                }
+                let capabilities = engine.connection_capabilities().ok_or_else(|| {
+                    "The OBD adapter disconnected before the read test".to_owned()
+                })?;
+                let family = capabilities.device.hardware_family.as_str();
+                if family != SX_READ_TEST_FAMILY && family != A30_READ_TEST_FAMILY {
+                    return Err(format!(
+                        "One-shot OBD read tests are not supported by {family}"
+                    ));
+                }
+                let expected_adapter = capabilities.device.clone();
+                let response = engine
+                    .queue_research_test(ResearchTestRequest::A30ReadTest(test))
+                    .map_err(|error| error.to_string())?;
+                (expected_adapter, response)
+            };
+            let result = response
+                .recv()
+                .map_err(|_| "Acquisition worker did not complete the OBD read test".to_owned())?
                 .map_err(|error| error.to_string())?;
             let ResearchTestResult::A30ReadTest(mut result) = result else {
                 return Err("Active adapter returned the wrong research result type".into());
             };
-            match append_a30_read_test_evidence(
+            if result.adapter.stable_id != expected_adapter.stable_id
+                || result.adapter.hardware_family != expected_adapter.hardware_family
+            {
+                return Err(
+                    "Active adapter returned a read-test result for a different adapter".into(),
+                );
+            }
+            let evidence_path = read_test_evidence_path(
                 &state.a30_read_test_log,
+                &expected_adapter.hardware_family,
+            )?;
+            match append_read_test_evidence(
+                &evidence_path,
                 &result,
                 run_id,
                 queue_index,
@@ -270,8 +333,14 @@ pub(crate) fn execute_a30_read_test(
                 Ok(()) => result.evidence_saved = true,
                 Err(error) => result.evidence_save_error = Some(error),
             }
-            for value in &result.graph_values {
-                publish_a30_graph_value(&engine, value, &result)?;
+            let engine = engine(state)?;
+            if engine.connection_capabilities().is_some_and(|active| {
+                active.device.stable_id == expected_adapter.stable_id
+                    && active.device.hardware_family == expected_adapter.hardware_family
+            }) {
+                for value in &result.graph_values {
+                    publish_read_test_graph_value(&engine, value, &result)?;
+                }
             }
             op.research_outcome(
                 serde_json::to_value(&result.outcome)
@@ -327,7 +396,7 @@ fn publish_graphable_candidate_sample(
     publish_research_sample(engine, sample)
 }
 
-fn publish_a30_graph_value(
+fn publish_read_test_graph_value(
     engine: &lognook_core::LogNookEngine,
     value: &A30GraphValue,
     result: &A30ReadTestResult,
@@ -335,6 +404,16 @@ fn publish_a30_graph_value(
     if result.outcome != A30ReadOutcome::Positive || !value.value.is_finite() {
         return Ok(());
     }
+    let positive_service = value.service.checked_add(0x40);
+    let raw_bytes = value.response_payload.clone().or_else(|| {
+        result
+            .response_payloads
+            .iter()
+            .find(|payload| {
+                positive_service.is_some_and(|service| payload.first() == Some(&service))
+            })
+            .cloned()
+    });
     publish_research_sample(
         engine,
         Sample {
@@ -344,14 +423,18 @@ fn publish_a30_graph_value(
                 .unwrap_or_default()
                 .as_nanos()
                 .min(i64::MAX as u128) as i64,
-            source_id: format!("a30-research:{}", result.adapter.stable_id),
+            source_id: if result.adapter.hardware_family == A30_READ_TEST_FAMILY {
+                format!("a30-research:{}", result.adapter.stable_id)
+            } else {
+                format!("obd-research:{}", result.adapter.stable_id)
+            },
             ecu_id: result.responder_header.clone(),
             signal_id: value.signal_id.clone(),
             value: value.value,
             unit: value.unit.clone(),
             quality: SampleQuality::Valid,
             origin: SampleOrigin::Live,
-            raw_bytes: result.response_payloads.first().cloned(),
+            raw_bytes,
         },
     )
 }
@@ -365,7 +448,20 @@ fn publish_research_sample(
         .map_err(|error| error.to_string())
 }
 
-fn append_a30_read_test_evidence(
+fn read_test_evidence_path(
+    a30_path: &std::path::Path,
+    family: &str,
+) -> Result<std::path::PathBuf, String> {
+    match family {
+        A30_READ_TEST_FAMILY => Ok(a30_path.to_path_buf()),
+        SX_READ_TEST_FAMILY => Ok(a30_path.with_file_name("obd-read-tests.jsonl")),
+        _ => Err(format!(
+            "One-shot OBD read tests are not supported by {family}"
+        )),
+    }
+}
+
+fn append_read_test_evidence(
     path: &std::path::Path,
     result: &A30ReadTestResult,
     run_id: &str,
@@ -383,13 +479,18 @@ fn append_a30_read_test_evidence(
         "queue_size": queue_size,
         "probe": evidence,
     });
+    let mut line = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
+    line.push(b'\n');
+    static APPEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = APPEND_LOCK
+        .lock()
+        .map_err(|_| "OBD read-test evidence lock is unavailable".to_owned())?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
-        .map_err(|error| format!("Could not open A30 read-test evidence log: {error}"))?;
-    serde_json::to_writer(&mut file, &envelope).map_err(|error| error.to_string())?;
-    file.write_all(b"\n").map_err(|error| error.to_string())
+        .map_err(|error| format!("Could not open OBD read-test evidence log: {error}"))?;
+    file.write_all(&line).map_err(|error| error.to_string())
 }
 
 fn append_oem_candidate_try_evidence(
@@ -424,8 +525,8 @@ fn append_oem_candidate_try_evidence(
 #[cfg(test)]
 mod tests {
     use super::{
-        append_a30_read_test_evidence, append_oem_candidate_try_evidence, execute_a30_read_test,
-        execute_candidate_try,
+        append_oem_candidate_try_evidence, append_read_test_evidence, execute_a30_read_test,
+        execute_candidate_try, execute_obd_read_test,
     };
     use lognook_core::{
         A30ReadOutcome, A30ReadTest, A30ReadTestResult, DeviceDescriptor, OemCandidate,
@@ -450,9 +551,13 @@ mod tests {
     }
 
     fn adapter() -> DeviceDescriptor {
+        adapter_for("Xtool A30/A30M Bluetooth SPP", "active-adapter")
+    }
+
+    fn adapter_for(hardware_family: &str, stable_id: &str) -> DeviceDescriptor {
         DeviceDescriptor {
-            stable_id: "active-adapter".into(),
-            hardware_family: "test".into(),
+            stable_id: stable_id.into(),
+            hardware_family: hardware_family.into(),
             firmware: None,
             path: None,
         }
@@ -501,6 +606,8 @@ mod tests {
     }
 
     struct ActiveAdapter {
+        device: DeviceDescriptor,
+        wrong_result_type: bool,
         requests: std::sync::Arc<std::sync::Mutex<Vec<lognook_core::OemCandidateTrySpec>>>,
         reads: std::sync::Arc<std::sync::Mutex<Vec<A30ReadTest>>>,
     }
@@ -510,7 +617,7 @@ mod tests {
             &mut self,
         ) -> Result<lognook_core::ConnectionCapabilities, lognook_core::LogNookError> {
             Ok(lognook_core::ConnectionCapabilities {
-                device: adapter(),
+                device: self.device.clone(),
                 protocol: "CAN".into(),
                 read_only: true,
                 supported_signals: lognook_core::standard_obd_signals(),
@@ -534,10 +641,36 @@ mod tests {
                 }
                 lognook_core::ResearchTestRequest::A30ReadTest(test) => {
                     self.reads.lock().unwrap().push(test);
-                    lognook_core::ResearchTestResult::A30ReadTest(a30_result(test))
+                    if self.wrong_result_type {
+                        lognook_core::ResearchTestResult::OemCandidate(candidate_result("wrong"))
+                    } else {
+                        let mut result = a30_result(test);
+                        result.adapter = self.device.clone();
+                        if self.device.hardware_family == "OBDLink SX" {
+                            result.exact_adapter_command = "010C".into();
+                            result.protocol = "ISO 15765-4 (CAN 11/500)".into();
+                            result.raw_response = "7E8 04 41 0C 1F 40".into();
+                            result.outcome = A30ReadOutcome::Positive;
+                            result.responder_header = Some("7E8".into());
+                            result.response_payloads = vec![vec![0x41, 0x0C, 0x1F, 0x40]];
+                            result.graph_values = vec![lognook_core::A30GraphValue {
+                                signal_id: "engine_rpm".into(),
+                                name: "Engine RPM".into(),
+                                service: 1,
+                                pid: Some(0x0C),
+                                value: 1984.0,
+                                unit: "rpm".into(),
+                                raw_value: "1F40".into(),
+                                response_payload: Some(vec![0x41, 0x0C, 0x1F, 0x40]),
+                            }];
+                        }
+                        lognook_core::ResearchTestResult::A30ReadTest(result)
+                    }
                 }
                 lognook_core::ResearchTestRequest::Diagnostic(_) => {
-                    return Err(lognook_core::LogNookError::new("This fixture does not implement vehicle diagnostics"));
+                    return Err(lognook_core::LogNookError::new(
+                        "This fixture does not implement vehicle diagnostics",
+                    ));
                 }
             })
         }
@@ -607,6 +740,8 @@ mod tests {
             .unwrap()
             .connect_adapter(
                 Box::new(ActiveAdapter {
+                    device: adapter(),
+                    wrong_result_type: false,
                     requests: requests.clone(),
                     reads: Default::default(),
                 }),
@@ -705,6 +840,8 @@ mod tests {
             .unwrap()
             .connect_adapter(
                 Box::new(ActiveAdapter {
+                    device: adapter(),
+                    wrong_result_type: false,
                     requests: Default::default(),
                     reads: reads.clone(),
                 }),
@@ -759,6 +896,148 @@ mod tests {
             records[2]["probe"]["response_payloads"],
             serde_json::json!([[0x7F, 0x06, 0x12]])
         );
+        state.engine.lock().unwrap().disconnect().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn sx_read_tests_use_neutral_evidence_and_publish_ordered_samples() {
+        let directory = test_directory("sx-read-test");
+        let state = app_state(&directory, catalog_path());
+        let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    device: adapter_for("OBDLink SX", "sx-serial"),
+                    wrong_result_type: false,
+                    requests: Default::default(),
+                    reads: reads.clone(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        let recording_path = directory.join("sx.lognook");
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .start_recording(&recording_path)
+            .unwrap();
+
+        for (test, queue_index) in [
+            (A30ReadTest::Mode01EngineRpm, 1),
+            (A30ReadTest::Mode02FreezeFrameRpm, 2),
+        ] {
+            let result = execute_obd_read_test(&state, test, "sx-run", queue_index, 2).unwrap();
+            assert_eq!(result.adapter.hardware_family, "OBDLink SX");
+            assert!(result.evidence_saved);
+        }
+
+        assert_eq!(
+            *reads.lock().unwrap(),
+            [
+                A30ReadTest::Mode01EngineRpm,
+                A30ReadTest::Mode02FreezeFrameRpm
+            ]
+        );
+        assert!(!state.a30_read_test_log.exists());
+        let sx_log = state
+            .a30_read_test_log
+            .with_file_name("obd-read-tests.jsonl");
+        let records = std::fs::read_to_string(sx_log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 2);
+        for (index, evidence) in records.iter().enumerate() {
+            assert_eq!(evidence["run_id"], "sx-run");
+            assert_eq!(evidence["queue_index"], index + 1);
+            assert_eq!(evidence["queue_size"], 2);
+            assert_eq!(evidence["probe"]["adapter"]["stable_id"], "sx-serial");
+            assert_eq!(
+                evidence["probe"]["adapter"]["hardware_family"],
+                "OBDLink SX"
+            );
+            assert_eq!(evidence["probe"]["protocol"], "ISO 15765-4 (CAN 11/500)");
+            assert_eq!(evidence["probe"]["exact_adapter_command"], "010C");
+            assert_eq!(
+                evidence["probe"]["response_payloads"],
+                serde_json::json!([[0x41, 0x0C, 0x1F, 0x40]])
+            );
+        }
+
+        state.engine.lock().unwrap().stop_recording().unwrap();
+        state.engine.lock().unwrap().disconnect().unwrap();
+        let recording = lognook_core::read_recording(&recording_path).unwrap();
+        assert_eq!(recording.samples.len(), 2);
+        assert_eq!(recording.samples[0].source_id, "obd-research:sx-serial");
+        assert_eq!(recording.samples[0].ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(recording.samples[0].signal_id, "engine_rpm");
+        assert_eq!(recording.samples[0].value, 1984.0);
+        assert_eq!(
+            recording.samples[0].raw_bytes.as_deref(),
+            Some(&[0x41, 0x0C, 0x1F, 0x40][..])
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn read_test_rejects_disconnected_unsupported_and_wrong_result_types() {
+        let directory = test_directory("read-test-gates");
+        let state = app_state(&directory, catalog_path());
+        let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        assert!(
+            execute_obd_read_test(&state, A30ReadTest::Mode06TidA2, "run", 1, 1)
+                .unwrap_err()
+                .contains("Connect an OBDLink SX or Xtool A30")
+        );
+
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    device: adapter_for("ELM327 Bluetooth SPP", "elm-serial"),
+                    wrong_result_type: false,
+                    requests: Default::default(),
+                    reads: reads.clone(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        assert!(
+            execute_obd_read_test(&state, A30ReadTest::Mode06TidA2, "run", 1, 1)
+                .unwrap_err()
+                .contains("not supported by ELM327")
+        );
+        assert!(reads.lock().unwrap().is_empty());
+        state.engine.lock().unwrap().disconnect().unwrap();
+
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    device: adapter(),
+                    wrong_result_type: true,
+                    requests: Default::default(),
+                    reads: reads.clone(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        assert!(
+            execute_obd_read_test(&state, A30ReadTest::Mode06TidA2, "run", 1, 1)
+                .unwrap_err()
+                .contains("wrong research result type")
+        );
+        assert_eq!(*reads.lock().unwrap(), [A30ReadTest::Mode06TidA2]);
         state.engine.lock().unwrap().disconnect().unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -867,6 +1146,8 @@ mod tests {
             .unwrap()
             .connect_adapter(
                 Box::new(ActiveAdapter {
+                    device: adapter(),
+                    wrong_result_type: false,
                     requests: Default::default(),
                     reads: Default::default(),
                 }),
@@ -902,20 +1183,43 @@ mod tests {
             .unwrap();
 
         let mut read = a30_result(A30ReadTest::Mode06TidA2);
-        let mut graph = lognook_core::A30GraphValue {
-            signal_id: "raw-mode06-count".into(),
+        let tid_a2_payload = vec![0x46, 0xA2, 0x0B, 0x24];
+        let tid_a5_payload = vec![0x46, 0xA5, 0x0C, 0x34];
+        read.response_payloads = vec![
+            vec![0x7F, 0x06, 0x78],
+            tid_a2_payload.clone(),
+            tid_a5_payload.clone(),
+        ];
+        let legacy_graph = lognook_core::A30GraphValue {
+            signal_id: "mode06_tid_a2".into(),
             name: "Raw count".into(),
             service: 6,
             pid: Some(0xA2),
             value: 456.0,
             unit: "raw count".into(),
             raw_value: "456".into(),
+            response_payload: None,
         };
-        super::publish_a30_graph_value(&state.engine.lock().unwrap(), &graph, &read).unwrap();
+        let mut precise_graph = lognook_core::A30GraphValue {
+            signal_id: "mode06_tid_a5".into(),
+            name: "Second raw count".into(),
+            service: 6,
+            pid: Some(0xA5),
+            value: 789.0,
+            unit: "raw count".into(),
+            raw_value: "789".into(),
+            response_payload: Some(tid_a5_payload.clone()),
+        };
+        super::publish_read_test_graph_value(&state.engine.lock().unwrap(), &legacy_graph, &read)
+            .unwrap();
         read.outcome = A30ReadOutcome::Positive;
-        super::publish_a30_graph_value(&state.engine.lock().unwrap(), &graph, &read).unwrap();
-        graph.value = f64::INFINITY;
-        super::publish_a30_graph_value(&state.engine.lock().unwrap(), &graph, &read).unwrap();
+        super::publish_read_test_graph_value(&state.engine.lock().unwrap(), &legacy_graph, &read)
+            .unwrap();
+        super::publish_read_test_graph_value(&state.engine.lock().unwrap(), &precise_graph, &read)
+            .unwrap();
+        precise_graph.value = f64::INFINITY;
+        super::publish_read_test_graph_value(&state.engine.lock().unwrap(), &precise_graph, &read)
+            .unwrap();
         state.engine.lock().unwrap().stop_recording().unwrap();
         state.engine.lock().unwrap().disconnect().unwrap();
         let recording = lognook_core::read_recording(&recording_path).unwrap();
@@ -925,7 +1229,7 @@ mod tests {
                 .iter()
                 .map(|sample| sample.value)
                 .collect::<Vec<_>>(),
-            [123.0, 456.0]
+            [123.0, 456.0, 789.0]
         );
         assert_eq!(
             recording.samples[0].quality,
@@ -935,7 +1239,18 @@ mod tests {
             recording.samples[0].raw_bytes.as_deref(),
             Some(&[0x61, 0x01, 0x64][..])
         );
-        assert_eq!(recording.samples[1].signal_id, "raw-mode06-count");
+        assert_eq!(recording.samples[1].signal_id, "mode06_tid_a2");
+        assert_eq!(recording.samples[1].ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(
+            recording.samples[1].raw_bytes.as_deref(),
+            Some(&tid_a2_payload[..])
+        );
+        assert_eq!(recording.samples[2].signal_id, "mode06_tid_a5");
+        assert_eq!(recording.samples[2].ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(
+            recording.samples[2].raw_bytes.as_deref(),
+            Some(&tid_a5_payload[..])
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -972,7 +1287,7 @@ mod tests {
             evidence_save_error: None,
         };
 
-        append_a30_read_test_evidence(&path, &result, "one-shot", 1, 1).unwrap();
+        append_read_test_evidence(&path, &result, "one-shot", 1, 1).unwrap();
         let line = std::fs::read_to_string(&path).unwrap();
         let evidence: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(evidence["probe"]["test"], "mode_06_tid_a2");

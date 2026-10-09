@@ -163,6 +163,26 @@ test("research graph signals restore as graph-only options and reject malformed 
   assert.deepEqual(restored.graphSignalIds, ["engine_rpm", "oem:scion-xb-21-01", "a30_mode06_tid_35_mid_01"]);
 });
 
+test("OBDLink SX read-test channels survive research metadata persistence", () => {
+  const signals = [
+    { id: "obdlink_sx_mode02_engine_rpm", name: "Freeze frame RPM", unit: "rpm", research: true },
+    { id: "obdlink_sx_mode06_tid_35_mid_01", name: "Mode 06 TID 35 MID 01", unit: "raw count", research: true },
+  ];
+
+  assert.deepEqual(restoreResearchSignalOptions(JSON.stringify(signals)), signals);
+  assert.deepEqual(upsertResearchSignalOption([], signals[0]), [signals[0]]);
+  assert.deepEqual(
+    restoreWorkspacePreferences(
+      JSON.stringify({ logSignalIds: ["engine_rpm"], graphSignalIds: ["engine_rpm", ...signals.map(({ id }) => id)] }),
+      ["engine_rpm"],
+      defaultWorkspacePreferences,
+      120,
+      signals.map(({ id }) => id),
+    ).graphSignalIds,
+    ["engine_rpm", ...signals.map(({ id }) => id)],
+  );
+});
+
 test("Workbench graphable ID restoration is unique, typed, and bounded", () => {
   const saved = ["engine_rpm", "engine_rpm", 4, "", ...Array.from({ length: 510 }, (_, i) => `oem:candidate-${i}`)];
   const ids = restoreWorkbenchGraphSignalIds(JSON.stringify(saved));

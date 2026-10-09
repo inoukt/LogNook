@@ -184,7 +184,9 @@ impl LogNookAgent {
             .await
     }
 
-    #[tool(description = "List Mode 06 read tests supported by the connected A30 adapter.")]
+    #[tool(
+        description = "List Mode 06 read tests supported by the connected OBDLink SX or A30 adapter."
+    )]
     async fn list_mode06_tests(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::ListMode06Tests).await
     }
@@ -214,7 +216,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Run one explicit A30 Mode 06 read test. Each result is retained as research evidence."
+        description = "Run one explicit Mode 06 read test on a connected OBDLink SX or A30. Each result is retained as research evidence."
     )]
     async fn try_mode06_test(
         &self,

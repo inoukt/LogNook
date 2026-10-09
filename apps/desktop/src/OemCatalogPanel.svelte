@@ -8,7 +8,6 @@
     A30GraphValue, A30ReadTestResult, OemCandidateTryResult, OemCatalogPage, OemCandidate,
     DeviceDescriptor, OemPollingStatus, OemVehicleProfile, ResearchRunItem, ResearchRunReport,
     ResearchRunRow, ResearchRunViewState, ResearchTestResult, ResearchTestSelection,
-    ScionMode21ProbeResult,
   } from "./types";
 
   export let selectedPort = "";
@@ -16,7 +15,6 @@
   export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx";
   export let activeAdapter: DeviceDescriptor | null = null;
   export let disabled = false;
-  export let scionProbeDisabled = false;
   export let canConnected = false;
   export let canCandidateDisabled = true;
   export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
@@ -32,15 +30,12 @@
   let offset = 0;
   let page: OemCatalogPage | null = null;
   let loading = false;
-  let probing = false;
   let selectedCandidateIds: string[] = [];
   let selectedCandidateMetadata: Record<string, OemCandidate> = {};
   let error = "";
-  let probeError = "";
-  let probe: ScionMode21ProbeResult | null = null;
   let searchTimer: number | undefined;
   let requestId = 0;
-  let selectedA30Test: A30ReadTestId = A30_READ_TESTS[0][0];
+  let selectedReadTest: A30ReadTestId = A30_READ_TESTS[0][0];
   let runRows: ResearchRunRow[] = [];
   let runInProgress = false;
   let stopRequested = false;
@@ -216,20 +211,6 @@
     void loadPage();
   }
 
-  async function runScionProbe() {
-    if (selectedAdapter !== "obdlink_sx" || !selectedPort || scionProbeDisabled || probing || runInProgress) return;
-    probing = true;
-    probe = null;
-    probeError = "";
-    try {
-      probe = await invoke<ScionMode21ProbeResult>("probe_scion_xb_mode21", { portName: selectedPort });
-    } catch (caught) {
-      probeError = String(caught);
-    } finally {
-      probing = false;
-    }
-  }
-
   function selectCandidate(candidate: OemCandidate, selected: boolean) {
     selectedCandidateIds = toggleCandidateSelection(selectedCandidateIds, candidate.candidate_id, selected);
     if (selected) {
@@ -292,7 +273,7 @@
         publishRunUpdate();
 
         if (item.selection.type === "a30ReadTest") {
-          const payload = await invoke<A30ReadTestResult>("try_a30_read_test", {
+          const payload = await invoke<A30ReadTestResult>("try_obd_read_test", {
             test: item.selection.payload,
             runId,
             queueIndex: index + 1,
@@ -368,12 +349,12 @@
     void runQueue(items);
   }
 
-  function runA30ReadTest() {
-    const label = A30_READ_TESTS.find(([id]) => id === selectedA30Test)?.[1] ?? selectedA30Test;
+  function runObdReadTest() {
+    const label = A30_READ_TESTS.find(([id]) => id === selectedReadTest)?.[1] ?? selectedReadTest;
     void runQueue([{
-      id: selectedA30Test,
+      id: selectedReadTest,
       label,
-      selection: { type: "a30ReadTest", payload: selectedA30Test },
+      selection: { type: "a30ReadTest", payload: selectedReadTest },
     }]);
   }
 
@@ -382,7 +363,7 @@
   }
 
   function tryCandidate(candidate: OemCandidate) {
-    const state = oemCandidateTryState(candidate, currentCandidateDevice(), disabled || probing || runInProgress, selectedAdapter);
+    const state = oemCandidateTryState(candidate, currentCandidateDevice(), disabled || runInProgress, selectedAdapter);
     if (state.disabled) return;
     void runQueue([{
       id: candidate.candidate_id,
@@ -464,43 +445,17 @@
     </div>
   </details>
 
-  {#if selectedAdapter === "a30"}
-    <div class="a30-mode-test">
-      <div class="a30-mode-test-controls">
-        <select class="text-input" bind:value={selectedA30Test} aria-label="A30 read mode">
+  {#if selectedAdapter === "obdlink_sx" || selectedAdapter === "a30"}
+    <div class="obd-read-test">
+      <div class="obd-read-test-controls">
+        <select class="text-input" bind:value={selectedReadTest} aria-label="OBD read mode">
           {#each A30_READ_TESTS as [value, label]}<option {value}>{label}</option>{/each}
         </select>
-        <button class="button secondary" onclick={runA30ReadTest} disabled={disabled || !selectedBluetoothAddress || runInProgress}>
-          {runInProgress && currentQueueKey === selectedA30Test ? "Running…" : "Try once"}
+        <button class="button secondary" onclick={runObdReadTest} disabled={disabled || !activeAdapter || !currentCandidateDevice() || runInProgress}>
+          {runInProgress && currentQueueKey === selectedReadTest ? "Running…" : "Try once"}
         </button>
       </div>
     </div>
-  {/if}
-
-  {#if selectedAdapter === "obdlink_sx"}<div class="scion-probe-card">
-    <div><strong>Scion xB 2014 · 21 01</strong><p>One source-backed read via the selected OBDLink SX. Only use on the 2AZ-FE Scion xB, stationary in Park with the parking brake set, ignition on and engine off. Close other diagnostic apps.</p></div>
-    <button class="button secondary" onclick={runScionProbe} disabled={scionProbeDisabled || !selectedPort || probing || runInProgress}>
-      {probing ? "Reading once…" : "Read 21 01 once"}
-    </button>
-  </div>{/if}
-  {#if selectedAdapter === "obdlink_sx" && probeError}<p class="oem-error" role="alert">Probe could not start: {probeError}</p>{/if}
-  {#if selectedAdapter === "obdlink_sx" && probe}
-    <article class="probe-result" aria-live="polite">
-      <header><strong>Probe outcome: {probe.outcome.replaceAll("_", " ")}</strong><span>{probe.latency_ms} ms</span></header>
-      <p>{probe.adapter.hardware_family} · {probe.adapter.stable_id} · {probe.adapter.firmware ?? "firmware unknown"}</p>
-      <p>{probe.vehicle_profile_id} · {probe.request_header} → {probe.expected_response_header} · {probe.exact_adapter_command}</p>
-      <p>Source {probe.source_id} · SHA {probe.source_blob_sha} · {probe.license}</p>
-      {#if probe.error}<p class="oem-error">{probe.error}</p>{/if}
-      {#if probe.evidence_saved}<p>Evidence saved in app data, outside the catalog.</p>{:else if probe.evidence_save_error}<p class="oem-error">Probe completed, but evidence could not be saved: {probe.evidence_save_error}</p>{/if}
-      {#if probe.decoded_signals.length}
-        <div class="probe-values">
-          {#each probe.decoded_signals as signal (signal.candidate_id)}
-            <span>{signal.name}<strong>{signal.value.toFixed(2)} {displayUnit(signal.unit)}</strong><small>raw {signal.raw_value} · bits {signal.bit_offset}–{signal.bit_offset + signal.bit_length - 1}</small><code>{signal.formula}</code></span>
-          {/each}
-        </div>
-      {/if}
-      <details><summary>Raw SX response</summary><pre>{probe.raw_response || "No response text received"}</pre></details>
-    </article>
   {/if}
 
   <div class="research-queue-controls">
@@ -526,7 +481,7 @@
     <div class="oem-catalog-list" aria-busy={loading}>
       {#each page.candidates as candidate (candidate.candidate_id)}
         {@const candidateDevice = currentCandidateDevice()}
-        {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || probing || runInProgress, selectedAdapter)}
+        {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || runInProgress, selectedAdapter)}
         <article class="oem-candidate">
           <header>
             <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name}`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
@@ -536,7 +491,7 @@
               <button class="button secondary oem-try-button" onclick={() => onTryCanCandidate(candidate.candidate_id)} disabled={canCandidateDisabled} title="Read this source-backed service 21/22 candidate over the active Candlelight CAN route" aria-label={`Try ${candidate.name} over CAN`}>CAN read</button>
             {/if}
           </header>
-          {#if tryState.disabled && !runInProgress && !probing}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
+          {#if tryState.disabled && !runInProgress}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
           <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
           <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
             {#if candidate.bit_offset !== null && candidate.bit_length !== null} · bits {candidate.bit_offset}–{candidate.bit_offset + candidate.bit_length - 1}{/if}
@@ -575,9 +530,9 @@
 <style>
   .oem-research { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden; }
   .oem-research > :not(.oem-catalog-list) { flex: 0 0 auto; }
-  .oem-research-heading, .scion-probe-card, .probe-result > header, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+  .oem-research-heading, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
   .oem-catalog-note { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-  .scion-probe-card p, .probe-result p, .oem-candidate p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.25; }
+  .oem-candidate p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.25; }
   .oem-count, .oem-pagination span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
   .oem-filters { display: grid; gap: 3px; }
   .oem-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 78px; gap: 3px; }
@@ -601,19 +556,16 @@
   .oem-poll-footer { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
   .oem-poll-footer span { min-width: 0; overflow-wrap: anywhere; }
   .oem-poll-footer .button { flex: 0 0 auto; min-height: 24px; padding: 2px 6px; font-size: 9px; }
-  .a30-mode-test { display: grid; gap: 3px; min-width: 0; }
-  .a30-mode-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
-  .a30-mode-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
-  .a30-mode-test-controls .button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
+  .obd-read-test { display: grid; gap: 3px; min-width: 0; }
+  .obd-read-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .obd-read-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .obd-read-test-controls .button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
   .research-queue-controls { display: flex; align-items: center; gap: 3px; }
   .selected-candidate-count { flex: 1 1 auto; color: var(--text-muted); font-size: 10px; }
   .selected-candidate-count strong { color: var(--text); font-variant-numeric: tabular-nums; }
   .research-queue-controls .button { min-height: 24px; padding: 2px 6px; font-size: 9px; }
   .research-queue-progress { min-height: 0; margin: -2px 0 0 !important; color: var(--text-muted); font-size: 8px; line-height: 1.2; }
   .candidate-select { flex: 0 0 auto; accent-color: var(--accent); }
-  .scion-probe-card, .probe-result { padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
-  .scion-probe-card strong, .probe-result strong { font-size: 10px; }
-  .scion-probe-card .button { flex: 0 0 auto; min-height: 25px; padding: 3px 5px; font-size: 9px; }
   .oem-catalog-list { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 0; align-content: start; gap: 3px; max-height: none; min-width: 0; min-height: 80px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-gutter: stable; }
   .oem-candidate { min-width: 0; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #19242e; }
   .oem-candidate > header { min-width: 0; gap: 4px; }
@@ -624,19 +576,13 @@
   .oem-address { color: #b8c9d3 !important; }
   .oem-badges { display: flex; flex-wrap: nowrap; gap: 3px; margin-top: 3px; overflow: hidden; }
   .oem-badges span { overflow: hidden; padding: 1px 4px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-candidate details, .probe-result details { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
-  .oem-candidate summary, .probe-result summary { cursor: pointer; }
+  .oem-candidate details { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
+  .oem-candidate summary { cursor: pointer; }
   .oem-candidate dl { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 3px 6px; margin: 6px 0; }
   .oem-candidate dt { color: var(--text-muted); }
   .oem-candidate dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text); }
   .oem-candidate code { white-space: pre-wrap; overflow-wrap: anywhere; }
   .oem-candidate a { display: inline-block; margin: 3px 8px 0 0; color: var(--accent); font-size: 9px; }
-  .probe-result > header strong { text-transform: capitalize; }
-  .probe-values { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 7px; }
-  .probe-values span { display: flex; flex-direction: column; padding: 5px; border-radius: 5px; color: var(--text-muted); background: #202d37; font-size: 9px; }
-  .probe-values strong { color: var(--text); font-size: 10px; }
-  .probe-values small, .probe-values code { overflow-wrap: anywhere; color: var(--text-muted); font-size: 8px; }
-  .probe-result pre { max-height: 140px; overflow: auto; white-space: pre-wrap; color: var(--text); font-size: 9px; }
   .oem-error { color: #ffb8ae; font-size: 10px; overflow-wrap: anywhere; }
   .oem-empty, .oem-footnote { margin: 0; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
   .oem-pagination { justify-content: center; }

@@ -771,7 +771,10 @@ fn oem_outcome_name(outcome: &OemCandidateOutcome) -> &'static str {
 }
 
 fn supported_mode06_tests(adapter_family: Option<&str>) -> Vec<AgentMode06Test> {
-    if !adapter_family.is_some_and(|family| family.to_ascii_lowercase().contains("a30")) {
+    if !adapter_family.is_some_and(|family| {
+        family.eq_ignore_ascii_case("Xtool A30/A30M Bluetooth SPP")
+            || family.eq_ignore_ascii_case("OBDLink SX")
+    }) {
         return vec![];
     }
     vec![
@@ -789,7 +792,7 @@ fn supported_mode06_tests(adapter_family: Option<&str>) -> Vec<AgentMode06Test> 
 
 fn ensure_mode06_supported(adapter_family: Option<&str>) -> Result<(), String> {
     if supported_mode06_tests(adapter_family).is_empty() {
-        Err("Mode 06 reads are currently available only through a connected A30 adapter".into())
+        Err("Mode 06 reads are currently available only through a connected OBDLink SX or A30 adapter".into())
     } else {
         Ok(())
     }
@@ -805,9 +808,10 @@ fn list_mode06_tests(app: &AppHandle) -> AgentMode06Tests {
     let tests = supported_mode06_tests(family.as_deref());
     AgentMode06Tests {
         active_adapter: family.clone(),
-        message: tests
-            .is_empty()
-            .then(|| "Connect a Bluetooth A30 adapter to run the available Mode 06 tests".into()),
+        message: tests.is_empty().then(|| {
+            "Connect an OBDLink SX or Bluetooth A30 adapter to run the available Mode 06 tests"
+                .into()
+        }),
         tests,
     }
 }
@@ -832,7 +836,7 @@ fn try_mode06_test(app: &AppHandle, test: AgentMode06Test) -> Result<AgentMode06
         .map(|caps| caps.device.hardware_family.clone());
     ensure_mode06_supported(family.as_deref())?;
     let run_id = agent_run_id();
-    crate::commands::execute_a30_read_test(&state, to_a30_test(test), &run_id, 1, 1)
+    crate::commands::execute_obd_read_test(&state, to_a30_test(test), &run_id, 1, 1)
         .map(summarize_mode06)
 }
 
@@ -1379,7 +1383,7 @@ mod tests {
     use super::{
         AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
         decode_hex_payload, ensure_mode06_supported, search_oem_candidates, start_agent_scan,
-        summarize_oem_try, supported_mode06_tests, update_agent_scan_state,
+        summarize_oem_try, supported_mode06_tests, to_a30_test, update_agent_scan_state,
         validate_signal_selection,
     };
     use crate::agent::protocol::{
@@ -1531,14 +1535,29 @@ mod tests {
 
     #[test]
     fn agent_mode06_lists_adapter_capabilities() {
-        assert!(!supported_mode06_tests(Some("Xtool A30/A30M")).is_empty());
-        assert!(supported_mode06_tests(Some("OBDLink SX")).is_empty());
-        assert!(ensure_mode06_supported(Some("Xtool A30/A30M")).is_ok());
+        let a30_tests = supported_mode06_tests(Some("Xtool A30/A30M Bluetooth SPP"));
+        assert_eq!(a30_tests.len(), 9);
+        assert!(ensure_mode06_supported(Some("Xtool A30/A30M Bluetooth SPP")).is_ok());
+        assert!(ensure_mode06_supported(Some("OBDLink SX")).is_ok());
+        let sx_tests = supported_mode06_tests(Some("OBDLink SX"));
+        assert_eq!(
+            a30_tests
+                .iter()
+                .copied()
+                .map(to_a30_test)
+                .collect::<Vec<_>>(),
+            sx_tests
+                .iter()
+                .copied()
+                .map(to_a30_test)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn agent_mode06_rejects_unsupported_adapter() {
-        assert!(ensure_mode06_supported(Some("OBDLink SX")).is_err());
+        assert!(ensure_mode06_supported(Some("ELM327 Bluetooth SPP")).is_err());
+        assert!(ensure_mode06_supported(Some("not an A30 adapter")).is_err());
         assert!(ensure_mode06_supported(None).is_err());
     }
 

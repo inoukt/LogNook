@@ -12,6 +12,7 @@ Current feature bundle: [CAN discovery, vehicle diagnostics and simultaneous ada
 
 ## Recently implemented
 
+- **CAN Help and optional hover explanations.** The small `?` beside CAN bus fields opens a compact guide to connection, capture, repeated event discovery, counts/frames, decoding/scopes, triggers, scans, manual frames, and saved analysis. Its persisted **Show control tips** checkbox toggles the CAN control hints, including checkbox explanations. Opening Help does not transmit traffic. Instructions: [CAN Help](DISCOVERY_DIAGNOSTICS.md#can-help-and-control-explanations).
 - **Dedicated diagnostic views.** The top-bar vehicle view groups DTC categories, VIN/calibration/ECU name and Mode 06 support/results by responding ECU. Explicit SX/ELM/A30 reads yield between queries, save raw evidence, and are available through native MCP. Unmapped Mode 06 values remain raw. OpenPort, legacy/29-bit diagnostic routes and physical acceptance remain future work.
 - **CAN discovery workflow.** Live event candidates link changed bytes/bits to the existing field editor, transition evidence, a bounded live/frozen scope and Save and graph. Saved-capture analysis remains available; this new interactive scope uses live recent frames.
 - **Simultaneous OBD and CAN.** One OBD source and one RH02/Candlelight source share a session timeline and recording, with independent disconnect/failure handling. Adding a second source during recording still requires stopping first. Instructions: [Discovery and diagnostics](DISCOVERY_DIAGNOSTICS.md).

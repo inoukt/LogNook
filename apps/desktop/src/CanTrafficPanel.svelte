@@ -1,6 +1,7 @@
 <script lang="ts">
   import CanSignalEditor from "./CanSignalEditor.svelte";
   import { changedBits, discoverySeed } from "./canDiscovery";
+  import { canHelpBubblesEnabled } from "./canHelp";
   import type { CanEventCandidate, CanFrame, CanLiveEventGroup, CanLiveEventSnapshot, CanSignalDefinition } from "./types";
   import type { CanTrafficSummary } from "./canWorkbench";
 
@@ -101,18 +102,27 @@
       <p class="eyebrow">LIVE CAN BUS</p>
       <h2>Traffic monitor</h2>
     </div>
-    <span class="count-pill">{trafficFrameCount.toLocaleString()} frames · {trafficSummary.length} IDs</span>
+    <span class="count-pill" title={$canHelpBubblesEnabled ? "Traffic totals and per-ID counts reset with the CAN connection." : undefined}>{trafficFrameCount.toLocaleString()} frames · {trafficSummary.length} IDs</span>
     <div class="can-view-switch" role="group" aria-label="CAN traffic view">
-      <button class="can-view-option" aria-pressed={trafficView === "summary"} onclick={() => trafficView = "summary"}>Counts</button>
-      <button class="can-view-option" aria-pressed={trafficView === "frames"} onclick={() => trafficView = "frames"}>Frames</button>
-      <button class="can-view-option" aria-pressed={trafficView === "events"} onclick={() => trafficView = "events"}>Events</button>
+      <button class="can-view-option" aria-pressed={trafficView === "summary"} onclick={() => trafficView = "summary"} title={$canHelpBubblesEnabled ? "Show per-ID RX and TX totals observed since connection." : undefined}>Counts</button>
+      <button class="can-view-option" aria-pressed={trafficView === "frames"} onclick={() => trafficView = "frames"} title={$canHelpBubblesEnabled ? "Show the latest 80 frames from up to 400 retained; an active capture records the full raw traffic." : undefined}>Frames</button>
+      <button class="can-view-option" aria-pressed={trafficView === "events"} onclick={() => trafficView = "events"} title={$canHelpBubblesEnabled ? "Compare byte changes around marked actions; these correlations are not decoded signal meanings." : undefined}>Events</button>
     </div>
   </div>
   <p class="can-monitor-hint">{#if trafficView === "summary"}Counts since connection · RX period and rate are averages across received frames.{:else if trafficView === "frames"}Latest {frames.length} frames retained for inspection (up to 400).{:else}Mark each physical action during a paired capture; recurring RX changes rise to the top.{/if}</p>
   {#if trafficView === "summary"}
     <div class="can-table-wrap">
       <table aria-label="Live CAN ID counts">
-        <thead><tr><th>ID</th><th>DLC</th><th>Data</th><th>Period</th><th>Count</th><th>Rate</th><th>ASCII</th><th>Field</th></tr></thead>
+        <thead><tr>
+          <th title={$canHelpBubblesEnabled ? "CAN identifier and 11-bit or 29-bit frame format." : undefined}>ID</th>
+          <th title={$canHelpBubblesEnabled ? "Payload byte count in the most recent frame for this ID." : undefined}>DLC</th>
+          <th title={$canHelpBubblesEnabled ? "Most recent payload bytes and their direction." : undefined}>Data</th>
+          <th title={$canHelpBubblesEnabled ? "Average time between received frames for this ID." : undefined}>Period</th>
+          <th title={$canHelpBubblesEnabled ? "Received and transmitted frame totals since this CAN connection." : undefined}>Count</th>
+          <th title={$canHelpBubblesEnabled ? "Average received frames per second since the first frame for this ID." : undefined}>Rate</th>
+          <th title={$canHelpBubblesEnabled ? "Printable ASCII view of the latest payload; non-printable bytes appear as dots." : undefined}>ASCII</th>
+          <th>Field</th>
+        </tr></thead>
         <tbody>
           {#each trafficSummary as row (`${row.can_id}:${row.extended}`)}
             <tr>
@@ -123,7 +133,7 @@
               <td>{row.rx_count.toLocaleString()} RX / {row.tx_count.toLocaleString()} TX</td>
               <td>{row.rate_hz === null ? "—" : `${row.rate_hz.toFixed(1)} Hz`}</td>
               <td><code>{row.ascii || "—"}</code></td>
-              <td><button class="can-small-action" type="button" disabled={!latestRxFrame(row.can_id, row.extended)} onclick={() => openTrafficEditor(row.can_id, row.extended)}>{fields.some((field) => field.can_id === row.can_id && field.extended === row.extended) ? "Edit" : "＋ Field"}</button></td>
+              <td><button class="can-small-action" type="button" disabled={!latestRxFrame(row.can_id, row.extended)} onclick={() => openTrafficEditor(row.can_id, row.extended)} title={$canHelpBubblesEnabled ? "Open the signal editor from the latest received frame for this ID." : undefined}>{fields.some((field) => field.can_id === row.can_id && field.extended === row.extended) ? "Edit" : "＋ Field"}</button></td>
             </tr>
           {:else}
             <tr><td colspan="8" class="can-muted">Waiting for Candlelight frames</td></tr>
@@ -134,14 +144,21 @@
   {:else if trafficView === "frames"}
     <div class="can-table-wrap">
       <table aria-label="Recent CAN frames">
-        <thead><tr><th>Time</th><th>Dir</th><th>ID</th><th>DLC</th><th>Data</th><th>Field</th></tr></thead>
+        <thead><tr>
+          <th title={$canHelpBubblesEnabled ? "Elapsed time for this frame." : undefined}>Time</th>
+          <th title={$canHelpBubblesEnabled ? "Whether this frame was received (RX) or transmitted (TX)." : undefined}>Dir</th>
+          <th title={$canHelpBubblesEnabled ? "CAN identifier and 11-bit or 29-bit frame format." : undefined}>ID</th>
+          <th title={$canHelpBubblesEnabled ? "Payload byte count in this frame." : undefined}>DLC</th>
+          <th title={$canHelpBubblesEnabled ? "Raw bytes in this frame; the table shows up to 80 recent frames while an active capture records the full traffic." : undefined}>Data</th>
+          <th>Field</th>
+        </tr></thead>
         <tbody>
           {#each frames.slice(-80).reverse() as frame, index (`${frame.wall_time_unix_ns}:${frame.can_id}:${index}`)}
             <tr>
               <td>{(frame.elapsed_ns / 1e9).toFixed(3)}s</td><td>{frame.direction.toUpperCase()}</td>
               <td>{frame.extended ? "29" : "11"}-bit 0x{frame.can_id.toString(16).toUpperCase()}</td>
               <td>{frame.data.length}</td><td><code>{bytesHex(frame.data)}</code></td>
-              <td><button class="can-small-action" type="button" disabled={frame.direction !== "rx"} onclick={() => openEditor(frame, fields.find((field) => field.can_id === frame.can_id && field.extended === frame.extended)?.id ?? null)}>＋ Field</button></td>
+              <td><button class="can-small-action" type="button" disabled={frame.direction !== "rx"} onclick={() => openEditor(frame, fields.find((field) => field.can_id === frame.can_id && field.extended === frame.extended)?.id ?? null)} title={$canHelpBubblesEnabled ? "Open the signal editor from this received frame and select any saved field for its ID." : undefined}>＋ Field</button></td>
             </tr>
           {:else}
             <tr><td colspan="6" class="can-muted">Waiting for Candlelight frames</td></tr>
@@ -151,12 +168,12 @@
     </div>
   {:else}
     <div class="can-event-toolbar">
-      <input class="text-input" aria-label="Filter CAN event candidates by ID" placeholder="Filter CAN ID…" bind:value={eventFilter} />
-      <button class="can-small-action" type="button" onclick={freezeEvents} disabled={!liveEventAnalysis}>{frozenEvents ? "Resume live" : "Freeze ranking"}</button>
-      <button class="can-small-action" type="button" onclick={clearEvents} disabled={!eventSnapshot || !eventSnapshot.active || !eventSnapshot.groups.length} title="Clears live results and pending analysis; capture evidence remains saved">Clear trials</button>
+      <input class="text-input" aria-label="Filter CAN event candidates by ID" placeholder="Filter CAN ID…" bind:value={eventFilter} title={$canHelpBubblesEnabled ? "Filter each event group's candidate list by matching CAN ID text." : undefined} />
+      <button class="can-small-action" type="button" onclick={freezeEvents} disabled={!liveEventAnalysis} title={$canHelpBubblesEnabled ? (frozenEvents ? "Resume following new event analysis; adapter polling and capture kept running while frozen." : "Hold the current event ranking while adapter polling and capture continue.") : undefined}>{frozenEvents ? "Resume live" : "Freeze ranking"}</button>
+      <button class="can-small-action" type="button" onclick={clearEvents} disabled={!eventSnapshot || !eventSnapshot.active || !eventSnapshot.groups.length} title={$canHelpBubblesEnabled ? "Clear live trial results and pending analysis; saved capture evidence remains." : undefined}>Clear trials</button>
       {#if frozenEvents}<span class="can-muted">Frozen · capture {frozenEvents.capture_id}</span>{/if}
     </div>
-    {#if pinnedId}<p class="can-pinned-id">Pinned {canId(pinnedId.can_id, pinnedId.extended)} <button class="can-small-action" type="button" onclick={() => pinnedId = null}>Unpin</button></p>{/if}
+    {#if pinnedId}<p class="can-pinned-id">Pinned {canId(pinnedId.can_id, pinnedId.extended)} <button class="can-small-action" type="button" onclick={() => pinnedId = null} title={$canHelpBubblesEnabled ? "Remove the candidate highlight for this CAN ID." : undefined}>Unpin</button></p>{/if}
     {#if actionError}<p class="can-event-error" role="alert">{actionError}</p>{/if}
     <div class="can-event-list-wrap">
       {#if eventSnapshot?.groups.length}
@@ -167,20 +184,26 @@
             {#if group.omitted_candidates}<p class="can-muted">{group.omitted_candidates} candidate observations omitted by the memory bound.</p>{/if}
             <div class="can-table-wrap can-candidate-wrap">
               <table aria-label={`CAN event candidates for ${group.label}`}>
-                <thead><tr><th>Candidate ID</th><th>Changed / seen</th><th>RX frames · before / after rate</th><th>Byte transitions</th><th>Field</th></tr></thead>
+                <thead><tr>
+                  <th title={$canHelpBubblesEnabled ? "CAN ID whose traffic changed around this marked action; it is not a decoded signal." : undefined}>Candidate ID</th>
+                  <th title={$canHelpBubblesEnabled ? "Changed and observed event counts, followed by observed trials over completed trials; correlation is not proof of meaning." : undefined}>Changed / seen</th>
+                  <th title={$canHelpBubblesEnabled ? "Received frame counts and average rates in the before and after windows." : undefined}>RX frames · before / after rate</th>
+                  <th title={$canHelpBubblesEnabled ? "Byte transitions observed across trials; these are raw traffic clues, not decoded values." : undefined}>Byte transitions</th>
+                  <th>Field</th>
+                </tr></thead>
                 <tbody>
                   {#each candidates as item (`${item.candidate.can_id}:${item.candidate.extended}`)}
                     <tr class:pinned-candidate={pinnedId?.can_id === item.candidate.can_id && pinnedId.extended === item.candidate.extended}>
-                      <td><button class="can-id-pin" type="button" onclick={() => togglePinned(item.candidate)} aria-pressed={pinnedId?.can_id === item.candidate.can_id && pinnedId.extended === item.candidate.extended}>{canId(item.candidate.can_id, item.candidate.extended)}</button></td>
+                      <td><button class="can-id-pin" type="button" onclick={() => togglePinned(item.candidate)} aria-pressed={pinnedId?.can_id === item.candidate.can_id && pinnedId.extended === item.candidate.extended} title={$canHelpBubblesEnabled ? (pinnedId?.can_id === item.candidate.can_id && pinnedId.extended === item.candidate.extended ? "Unpin this CAN ID and remove its row highlight." : "Pin this CAN ID to highlight its candidate row in the event results.") : undefined}>{canId(item.candidate.can_id, item.candidate.extended)}</button></td>
                       <td>{item.candidate.changed_events}/{item.candidate.observed_events} observed · {item.candidate.observed_events}/{group.completed_events} trials</td>
                       <td>{item.candidate.before_frames} / {item.candidate.after_frames} · {frameRate(item.candidate.before_frames, item.candidate.before_window_ns)} / {frameRate(item.candidate.after_frames, item.candidate.after_window_ns)}</td>
                       <td>{eventBytes(item.candidate)}
                         <div class="can-byte-actions">{#each item.candidate.changed_bytes as byte}
-                          <button class="can-small-action" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label, byte.byte_index)}>Scope B{byte.byte_index}</button>
-                          {#each changedBits(item.candidate, byte.byte_index) as bit}<button class="can-small-action" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label, byte.byte_index, bit)}>B{byte.byte_index}.{bit}</button>{/each}
+                          <button class="can-small-action" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label, byte.byte_index)} title={$canHelpBubblesEnabled ? "Open this byte as an 8-bit draft signal." : undefined}>Scope B{byte.byte_index}</button>
+                          {#each changedBits(item.candidate, byte.byte_index) as bit}<button class="can-small-action" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label, byte.byte_index, bit)} title={$canHelpBubblesEnabled ? `Open this bit as a 1-bit draft signal (B${byte.byte_index}.${bit}).` : undefined}>B{byte.byte_index}.{bit}</button>{/each}
                         {/each}</div>
-                        {#if item.counter_like_bytes.length || item.sum_checksum_like_bytes.length}<small class="can-noise-hint">Noise hint · {item.counter_like_bytes.length ? `counter-like B${item.counter_like_bytes.join(", B")}` : ""}{#if item.counter_like_bytes.length && item.sum_checksum_like_bytes.length} · {/if}{item.sum_checksum_like_bytes.length ? `sum-checksum-like B${item.sum_checksum_like_bytes.join(", B")}` : ""}</small>{/if}</td>
-                      <td><button class="can-small-action" type="button" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label)}>Inspect → graph</button></td>
+                        {#if item.counter_like_bytes.length || item.sum_checksum_like_bytes.length}<small class="can-noise-hint" title={$canHelpBubblesEnabled ? "Heuristic pattern hints only; these bytes are not confirmed counters or checksums." : undefined}>Noise hint · {item.counter_like_bytes.length ? `counter-like B${item.counter_like_bytes.join(", B")}` : ""}{#if item.counter_like_bytes.length && item.sum_checksum_like_bytes.length} · {/if}{item.sum_checksum_like_bytes.length ? `sum-checksum-like B${item.sum_checksum_like_bytes.join(", B")}` : ""}</small>{/if}</td>
+                      <td><button class="can-small-action" type="button" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label)} title={$canHelpBubblesEnabled ? "Open the most changed byte as a draft signal and preview its values." : undefined}>Inspect → graph</button></td>
                     </tr>
                   {:else}
                     <tr><td colspan="5" class="can-muted">{eventFilter ? "No candidate IDs match this filter." : group.pending_events ? "Waiting for the post-event window to finish." : "No recurring changed IDs in the completed trials."}</td></tr>

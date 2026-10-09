@@ -166,7 +166,7 @@ fn split_responses_by_ecu(raw: &str) -> Option<Vec<(String, String)>> {
     (!groups.is_empty()).then_some(groups)
 }
 
-fn is_functional_responder(ecu_id: &str) -> bool {
+pub(crate) fn is_functional_responder(ecu_id: &str) -> bool {
     ecu_id.len() == 3
         && u16::from_str_radix(ecu_id, 16).is_ok_and(|id| (0x7E8..=0x7EF).contains(&id))
 }
@@ -374,8 +374,12 @@ fn decode_mode06_monitors(
         })
         .collect::<Vec<_>>();
     let test_id = query.identifier.expect("monitor query has a TID");
-    if !values.iter().any(|value| matches!(value, DiagnosticValue::Mode06Monitor { test_id: received, .. } if *received == test_id)) {
-        return Err(format!("Mode 06 response did not include requested test ID {test_id:02X}"));
+    if values.iter().any(|value| {
+        !matches!(value, DiagnosticValue::Mode06Monitor { test_id: received, .. } if *received == test_id)
+    }) {
+        return Err(format!(
+            "Mode 06 response contains a test ID other than requested {test_id:02X}"
+        ));
     }
     Ok(values)
 }

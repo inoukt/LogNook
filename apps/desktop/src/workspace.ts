@@ -31,7 +31,9 @@ function normalizeResearchSignalOption(value: unknown): SignalOption | undefined
   const validId = typeof item.id === "string"
     && (/^oem:[A-Za-z0-9._:-]{1,192}$/i.test(item.id)
       || item.id === "a30_mode02_engine_rpm"
-      || /^a30_mode06_tid_[0-9a-f]{2}_mid_[0-9a-f]{2}$/i.test(item.id));
+      || /^a30_mode06_tid_[0-9a-f]{2}_mid_[0-9a-f]{2}$/i.test(item.id)
+      || item.id === "obdlink_sx_mode02_engine_rpm"
+      || /^obdlink_sx_mode06_tid_[0-9a-f]{2}_mid_[0-9a-f]{2}$/i.test(item.id));
   if (!validId || item.research !== true
     || typeof item.name !== "string" || item.name.trim().length === 0 || item.name.length > 192
     || typeof item.unit !== "string" || item.unit.length > 32) return undefined;

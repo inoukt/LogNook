@@ -18,6 +18,7 @@
   import ResearchRunResults from "./ResearchRunResults.svelte";
   import CanTrafficPanel from "./CanTrafficPanel.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
+  import CanHelp from "./CanHelp.svelte";
   import VehicleDiagnosticsPanel from "./VehicleDiagnosticsPanel.svelte";
   import {
     appendCanFrames, appendCanTrafficSummary, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
@@ -1578,7 +1579,7 @@
     <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible} disabled={researchRunView.running}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
-        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><div style="display:flex; align-items:center; gap:6px;"><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2>{#if !session && pidPickerView === "can"}<CanHelp />{/if}</div></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
         {#if !session}
           <div class="pid-picker-tabs three-tabs" role="group" aria-label="Signal source and workbench">
           <button class:active={pidPickerView === "signals"} aria-label="Live PIDs" aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live</button>
@@ -1627,7 +1628,6 @@
           canCandidateDisabled={!canTransmitEnabled(canWorkbenchStatus, canCaptureOpen) || busy || canScanRunning}
           onTryCanCandidate={startCanOemCandidate}
           disabled={busy || !obdConnected || !activeAdapterDescriptor || replaying || session !== null}
-          scionProbeDisabled={busy || obdConnected || recording || replaying || session !== null}
         />
         {/if}
         <CanWorkbenchPanel
