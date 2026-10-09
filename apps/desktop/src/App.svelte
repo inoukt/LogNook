@@ -18,6 +18,7 @@
   import ResearchRunResults from "./ResearchRunResults.svelte";
   import CanTrafficPanel from "./CanTrafficPanel.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
+  import VehicleDiagnosticsPanel from "./VehicleDiagnosticsPanel.svelte";
   import {
     appendCanFrames, appendCanTrafficSummary, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
     adjustCanMonitorHeight, restoreCanSignalDefinitions,
@@ -95,6 +96,8 @@
   let liveGraphSignalIds: string[] | null = null;
   let playback: PlaybackState = { session_id: 0, position_ns: 0, duration_ns: 0, speed: 1, playing: false };
   let timeWindow: TimeWindow = { startNs: 0, endNs: 0 };
+  let obdConnected = false;
+  let canConnected = false;
   let connected = false;
   let recording = false;
   let automaticRecording = false;
@@ -146,6 +149,7 @@
   let agentSelectionUnlisten: UnlistenFn | undefined;
   let diagnosticsUnlisten: UnlistenFn | undefined;
   let diagnosticsOpen = false;
+  let vehicleDiagnosticsOpen = false;
   let diagnosticRecords: DiagnosticRecord[] = [];
   let diagnosticsListenerError = "";
   let agentAccessStatus: AgentAccessStatus = { configured: false, unlocked: false, host_connected: false, expires_at_unix_ms: null, active_operation: null, trace_gaps: 0 };
@@ -193,11 +197,12 @@
   let scrubInFlight: number | null = null;
   let availableSignals: SignalOption[] = [];
   let visibleLiveSignalIds: string[] = [];
+  $: connected = obdConnected || canConnected;
   $: connectionControls = connectionControlState(selectedAdapter, {
     busy: busy || researchRunView.running,
     recording,
     replaying,
-    hasSignals: logSignalIds.length > 0,
+    hasSignals: logSignalIds.length > 0 && requestedAdapterSignals().length > 0,
     sxPort: selectedSxPort,
     sxIdentityMatches: sxIdentity?.path === selectedSxPort,
     openPortProvider: selectedOpenPortProvider,
@@ -358,7 +363,7 @@
       }
     };
     sxPortRefreshTimer = window.setInterval(() => {
-      if (selectedAdapter === "obdlink_sx" && !connected) void refreshSxPorts();
+      if (selectedAdapter === "obdlink_sx" && !obdConnected) void refreshSxPorts();
     }, 2000);
     window.addEventListener("focus", refreshSelectedSx);
     document.addEventListener("visibilitychange", refreshSelectedSx);
@@ -421,7 +426,7 @@
   });
 
   async function refreshSxPorts() {
-    if (!isTauri() || refreshingSxPorts || busy || connected) return;
+    if (!isTauri() || refreshingSxPorts || busy || obdConnected) return;
     refreshingSxPorts = true;
     try {
       const detectedPorts = await invoke<string[]>("available_obdlink_sx_ports");
@@ -443,7 +448,7 @@
   }
 
   async function refreshBluetoothDevices() {
-    if (!isTauri() || refreshingBluetoothDevices || busy || connected) return;
+    if (!isTauri() || refreshingBluetoothDevices || busy || obdConnected) return;
     refreshingBluetoothDevices = true;
     try {
       bluetoothDevices = await invoke<BluetoothSppDevice[]>("paired_bluetooth_devices");
@@ -509,9 +514,11 @@
       readoutRequest++;
       latest = { ...latest, [sample.signal_id]: sample };
     } else if (event.type === "canWorkbenchStatus") {
-      if (event.payload.connected && !canWorkbenchStatus?.connected) {
-        if (session) void clearSession();
-        resetLiveHistory();
+      if (event.payload.connected && !canConnected) {
+        if (!obdConnected) {
+          if (session) void clearSession();
+          resetLiveHistory();
+        }
         const empty = emptyCanSessionEvents();
         canFrames = empty.frames;
         canTrafficSummary = empty.trafficSummary;
@@ -528,16 +535,22 @@
         clearCanSignalSamples();
       }
       canWorkbenchStatus = event.payload;
-      connected = event.payload.connected;
-      activeAdapterDescriptor = null;
+      canConnected = event.payload.connected;
+      if (!obdConnected) activeAdapterDescriptor = null;
       if (event.payload.connected) {
         pidPickerView = "can";
-        status = `Candlelight CAN · ${event.payload.bitrate.toLocaleString()} bit/s · ${event.payload.listen_only ? "listen-only" : "active"}`;
+        const canStatus = `Candlelight CAN · ${event.payload.bitrate.toLocaleString()} bit/s · ${event.payload.listen_only ? "listen-only" : "active"}`;
+        status = obdConnected && activeAdapterDescriptor
+          ? `${activeAdapterDescriptor.hardware_family} + ${canStatus}`
+          : canStatus;
       } else {
         canCaptureOpen = false;
         canCapturePath = "";
         clearCanSignalSamples();
-        status = "Disconnected";
+        if (!obdConnected) recording = false;
+        status = obdConnected && activeAdapterDescriptor
+          ? `${activeAdapterDescriptor.hardware_family} · read only`
+          : "Disconnected";
       }
     } else if (event.type === "canFrames") {
       queuedCanFrames = appendCanFrames(queuedCanFrames, event.payload, 400);
@@ -602,9 +615,11 @@
         recording = false;
       }
     } else if (event.type === "connected") {
-      if (session) void clearSession();
-      resetLiveHistory();
-      connected = true;
+      if (!canConnected && !obdConnected) {
+        if (session) void clearSession();
+        resetLiveHistory();
+      }
+      obdConnected = true;
       activeAdapterDescriptor = event.payload.device;
       const family = event.payload.device.hardware_family.toLowerCase();
       if (family.includes("simulator")) selectedAdapter = "simulator";
@@ -622,19 +637,19 @@
         selectedBluetoothAddress = event.payload.device.path ?? selectedBluetoothAddress;
       }
       pidPickerView = "signals";
-      status = event.payload.device.hardware_family === "simulator"
+      const obdStatus = event.payload.device.hardware_family === "simulator"
         ? "Simulated OBD · read only"
         : `${event.payload.device.hardware_family} · read only`;
+      status = canConnected && canWorkbenchStatus
+        ? `${obdStatus} + Candlelight CAN · ${canWorkbenchStatus.bitrate.toLocaleString()} bit/s · ${canWorkbenchStatus.listen_only ? "listen-only" : "active"}`
+        : obdStatus;
     } else if (event.type === "disconnected") {
-      connected = false;
-      canWorkbenchStatus = null;
-      canScanRunning = false;
-      canCaptureOpen = false;
-      canCapturePath = "";
-      canTriggerCapture = null;
-      clearCanSignalSamples();
+      obdConnected = false;
       activeAdapterDescriptor = null;
-      status = "Disconnected";
+      if (!canConnected) recording = false;
+      status = canConnected && canWorkbenchStatus
+        ? `Candlelight CAN · ${canWorkbenchStatus.bitrate.toLocaleString()} bit/s · ${canWorkbenchStatus.listen_only ? "listen-only" : "active"}`
+        : "Disconnected";
     } else if (event.type === "playbackState") {
       if (event.payload.session_id !== playback.session_id) return;
       const pendingPosition = scrubPending ?? scrubInFlight;
@@ -770,7 +785,7 @@
       });
       const capabilities = await invoke<ConnectionCapabilities>("connect_simulator", { signalIds: requested });
       activeAdapterDescriptor = capabilities.device;
-      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
     });
@@ -789,7 +804,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
-      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
     });
@@ -808,7 +823,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
-      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
     });
@@ -828,7 +843,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
-      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id)]);
+      const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
     });
@@ -893,7 +908,15 @@
   }
 
   function disconnect() {
-    return run(async () => { await invoke("disconnect"); connected = false; activeAdapterDescriptor = null; recording = false; });
+    return run(async () => {
+      await invoke("disconnect_obd");
+      obdConnected = false;
+      activeAdapterDescriptor = null;
+      if (!canConnected) recording = false;
+      status = canConnected && canWorkbenchStatus
+        ? `Candlelight CAN · ${canWorkbenchStatus.bitrate.toLocaleString()} bit/s · ${canWorkbenchStatus.listen_only ? "listen-only" : "active"}`
+        : "Disconnected";
+    });
   }
 
   function startRecording() {
@@ -1414,6 +1437,7 @@
       onAgentLock={lockAgentAccess}
       agentSetupJson={agentSetupJson}
     />
+    <button class="button secondary" title="Vehicle diagnostics: DTCs, identity and Mode 06" onclick={() => vehicleDiagnosticsOpen = true}>Diagnostics</button>
     <div class="session-tools">
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
         <summary aria-label="Browse saved sessions" title="Browse saved sessions">Browse saved sessions</summary>
@@ -1430,11 +1454,17 @@
     open={diagnosticsOpen}
     liveRecords={diagnosticRecords}
     listenerError={diagnosticsListenerError}
-    connectedAdapterId={connected && activeAdapterDescriptor ? activeAdapterDescriptor.stable_id : null}
+    connectedAdapterId={obdConnected && activeAdapterDescriptor ? activeAdapterDescriptor.stable_id : null}
     connectedAdapterLabel={activeAdapterDescriptor?.hardware_family ?? "OBD adapter"}
     onClose={() => diagnosticsOpen = false}
     onChooseRecording={chooseDiagnosticsRecording}
     onExport={exportSupportBundle}
+  />
+  <VehicleDiagnosticsPanel
+    open={vehicleDiagnosticsOpen}
+    adapterFamily={obdConnected ? activeAdapterDescriptor?.hardware_family ?? null : null}
+    adapterId={obdConnected ? activeAdapterDescriptor?.stable_id ?? null : null}
+    onClose={() => vehicleDiagnosticsOpen = false}
   />
   <main>
     <section class="workspace-toolbar" aria-label="Acquisition controls">
@@ -1461,8 +1491,8 @@
         </div>
         <span class="toolbar-divider" aria-hidden="true"></span>
         <div class="toolbar-group connection-actions" role="group" aria-label="Connection and recording controls">
-          {#if connected}
-            <button class="button secondary" onclick={disconnect} disabled={busy || researchRunView.running}>Disconnect</button>
+          {#if obdConnected}
+            <button class="button secondary" onclick={disconnect} disabled={busy || researchRunView.running}>Disconnect OBD</button>
           {:else}
             <select class="text-input adapter-select" value={selectedAdapter} onchange={(event) => selectAdapter(event.currentTarget.value as AdapterKind)} aria-label="Adapter" disabled={busy || recording || replaying || researchRunView.running}>
               <option value="simulator">Simulator</option>
@@ -1538,8 +1568,8 @@
         baseSignalIds={signalCatalog.map(({ id }) => id)}
         sourceSignal={derivedSignalSource}
         currentValues={currentDerivedValues}
-        disabled={busy || connected || recording || replaying || session !== null}
-        tareDisabled={busy || !connected || replaying || session !== null}
+        disabled={busy || obdConnected || recording || replaying || session !== null}
+        tareDisabled={busy || !obdConnected || replaying || session !== null}
         onChange={updateDerivedSignals}
         onTare={tareDerivedSignal}
       />
@@ -1562,7 +1592,7 @@
             signals={automaticTriggerSignals}
             config={automaticTriggerConfig}
             status={automaticTriggerStatus}
-            disabled={busy || !connected || recording || replaying || session !== null}
+            disabled={busy || (!obdConnected && !automaticTriggerStatus.armed) || recording || replaying || session !== null}
             onConfigChange={updateAutomaticTriggerConfig}
             onArm={armAutomaticTrigger}
             onDisarm={disarmAutomaticTrigger}
@@ -1576,7 +1606,7 @@
                   <span class="signal-name-row"><span title={signal.name}>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
                   <small title={signal.description}>{signal.research ? "RESEARCH" : signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
                 </span>
-                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || connected || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
+                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || obdConnected || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
                 <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id) && !researchSignalOptions.some((research) => research.id === signal.id) && !workbenchGraphSignalIds.includes(signal.id))} />
               </div>
             {:else}
@@ -1596,14 +1626,14 @@
           canConnected={canWorkbenchStatus?.connected ?? false}
           canCandidateDisabled={!canTransmitEnabled(canWorkbenchStatus, canCaptureOpen) || busy || canScanRunning}
           onTryCanCandidate={startCanOemCandidate}
-          disabled={busy || !connected || !activeAdapterDescriptor || replaying || session !== null}
-          scionProbeDisabled={busy || connected || recording || replaying || session !== null}
+          disabled={busy || !obdConnected || !activeAdapterDescriptor || replaying || session !== null}
+          scionProbeDisabled={busy || obdConnected || recording || replaying || session !== null}
         />
         {/if}
         <CanWorkbenchPanel
           hidden={session !== null || pidPickerView !== "can"}
           workspaceBusy={busy || replaying || researchRunView.running || session !== null}
-          otherAdapterConnected={connected && !canWorkbenchStatus?.connected}
+          {recording}
           status={canWorkbenchStatus}
           fields={canSignalDefinitions}
           scanResults={canScanResults}

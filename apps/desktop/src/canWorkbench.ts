@@ -15,6 +15,7 @@ export function createCanWorkbenchCommands(invoke: CanInvoke) {
     availableAdapters: () => invoke<CanDeviceCandidate[]>("available_can_adapters"),
     connect: (selection: CanDeviceSelection, config: CanWorkbenchConfig) =>
       invoke<CanWorkbenchStatus>("connect_candlelight", { selection, config }),
+    disconnect: () => invoke<void>("disconnect_can"),
     configureFields: (fields: CanSignalDefinition[]) => invoke<void>("configure_can_signals", { fields }),
     startCapture: (path: string) => invoke<void>("start_can_capture", { path }),
     stopCapture: () => invoke<void>("stop_can_capture"),

@@ -484,7 +484,12 @@ fn a_single_worker_owns_io_and_decoded_rx_samples_enter_the_recording_pipeline()
     assert!(status.connected);
     assert!(status.listen_only);
     assert_eq!(status.bitrate, 500_000);
-    assert!(engine.connect_simulated(&["engine_rpm".into()]).is_err());
+    let (second_can, _, _, _) = self::transport();
+    assert!(
+        engine
+            .connect_can_transport(config(true), second_can)
+            .is_err()
+    );
     engine
         .configure_can_signals(vec![CanSignalDefinition {
             id: "engine_rpm_can".into(),

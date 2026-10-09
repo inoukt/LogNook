@@ -11,6 +11,7 @@ const trafficPanel = await readFile(new URL("../src/CanTrafficPanel.svelte", imp
 const oemPanel = await readFile(new URL("../src/OemCatalogPanel.svelte", import.meta.url), "utf8");
 const styles = await readFile(new URL("../src/app.css", import.meta.url), "utf8");
 const commands = await readFile(new URL("../src-tauri/src/commands/can.rs", import.meta.url), "utf8");
+const obdCommands = await readFile(new URL("../src-tauri/src/commands.rs", import.meta.url), "utf8");
 const registration = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
 
 const field = {
@@ -160,9 +161,10 @@ test("CAN field graph selections and definitions survive restart", () => {
   assert.match(app, /enabled && canSignalDefinitions\.some[\s\S]*?rememberWorkbenchGraphSignalId/);
 });
 
-test("connecting a standard OBD adapter filters out saved CAN fields", () => {
+test("connecting a standard OBD adapter preserves saved CAN fields", () => {
   assert.match(app, /function requestedAdapterSignals\(\)[\s\S]*?!id\.startsWith\("can:"\)/);
   assert.match(app, /const requested = requestedAdapterSignals\(\)/);
+  assert.equal((app.match(/const availableIds = new Set\(\[[^\n]*canSignalDefinitions/g) ?? []).length, 4);
 });
 
 test("a successful new CAN capture clears the old trigger window", () => {
@@ -252,13 +254,14 @@ test("a new CAN session resets its event history and only its own signal samples
     latest: { engine_rpm: latest.engine_rpm },
     series: { engine_rpm: [latest.engine_rpm] },
   });
-  assert.match(app, /if \(event\.payload\.connected && !canWorkbenchStatus\?\.connected\) \{[\s\S]*?const empty = emptyCanSessionEvents\(\)/, "new connected status starts with fresh CAN session event state");
+  assert.match(app, /if \(event\.payload\.connected && !canConnected\) \{[\s\S]*?const empty = emptyCanSessionEvents\(\)/, "new connected status starts with fresh CAN session event state");
   for (const assignment of ["canFrames = empty.frames", "canTrafficSummary = empty.trafficSummary", "canScanResults = empty.scanResults", "canTxStatuses = empty.txStatuses", "canTransportErrors = empty.transportErrors"]) {
     assert.ok(app.includes(assignment), `new CAN session resets ${assignment}`);
   }
   assert.match(app, /emptyCanSessionEvents\(\)/, "a new CAN connection clears the old frame/scan/TX/error view");
   assert.match(app, /clearCanSignalSamples\(/, "CAN elapsed samples are cleared on session changes");
-  assert.match(app, /event\.type === "disconnected"[\s\S]*?clearCanSignalSamples\(\)/, "disconnect clears CAN samples before another elapsed timeline starts");
+  assert.match(app, /else if \(event\.type === "canWorkbenchStatus"\)[\s\S]*?clearCanSignalSamples\(\)/, "CAN disconnect clears its own samples before reconnecting");
+  assert.match(app, /event\.type === "disconnected"[\s\S]*?status = canConnected/, "OBD disconnect retains CAN state");
 });
 
 test("changed and removed CAN definitions clear stale values while unchanged definitions stay live", () => {
@@ -292,6 +295,7 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
   const invoke = async (name, args) => { calls.push([name, args]); return null; };
   const api = can.createCanWorkbenchCommands(invoke);
   await api.connect({ id: "usb:device", interface_number: 0, channel: 0 }, can.defaultCanWorkbenchConfig);
+  await api.disconnect();
   await api.configureFields([field]);
   await api.startCapture("D:/captures/run.candump.csv");
   await api.markEvent("Traction control toggle", 1000, 1000);
@@ -302,6 +306,7 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
   await api.replay("D:/captures/run.candump.csv", [field]);
   assert.deepEqual(calls, [
     ["connect_candlelight", { selection: { id: "usb:device", interface_number: 0, channel: 0 }, config: { bitrate: 500_000, listen_only: true } }],
+    ["disconnect_can", undefined],
     ["configure_can_signals", { fields: [field] }],
     ["start_can_capture", { path: "D:/captures/run.candump.csv" }],
     ["mark_can_event", { label: "Traction control toggle", preMs: 1000, postMs: 1000 }],
@@ -313,6 +318,13 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
   ]);
 });
 
+test("OBD and CAN expose separately registered disconnect commands", () => {
+  assert.match(obdCommands, /pub async fn disconnect_obd/);
+  assert.match(commands, /pub async fn disconnect_can/);
+  assert.match(registration, /commands::disconnect_obd/);
+  assert.match(registration, /commands::disconnect_can/);
+});
+
 test("configured CAN fields become ordinary signal-picker graph options", () => {
   assert.ok(can, "CAN workbench helpers exist");
   assert.deepEqual(can.canSignalOption(field), {
@@ -321,7 +333,10 @@ test("configured CAN fields become ordinary signal-picker graph options", () => 
   assert.match(app, /\.\.\.\s*canSignalOptions/, "CAN field options are merged into the normal signal picker");
   assert.match(app, /<CanWorkbenchPanel[\s\S]*?hidden=\{(?:session !== null \|\| )?pidPickerView !== "can"\}/, "the CAN panel stays mounted when another picker view is active");
   assert.match(app, /CanWorkbenchStatus|canWorkbenchStatus/, "CAN connection status flows through App's event handler");
-  assert.match(app, /connected = event\.payload\.connected/, "CAN status controls the existing app-wide Disconnect/Record state");
+  assert.match(app, /canConnected = event\.payload\.connected/, "CAN status controls the app-wide connection state");
+  assert.match(app, /connected = obdConnected \|\| canConnected/, "the global status includes either source");
+  assert.match(app, /\{#if obdConnected\}[\s\S]*?Disconnect OBD/, "the top bar disconnects only OBD");
+  assert.match(panel, /Disconnect CAN/, "the Workbench disconnects only CAN");
   assert.match(styles, /pid-picker-tabs\.three-tabs\s*\{\s*grid-template-columns:\s*repeat\(3/, "the three signal/workbench tabs stay on one row");
 });
 

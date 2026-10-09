@@ -117,6 +117,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::diagnostic_snapshot,
+            commands::run_vehicle_diagnostics,
             commands::agent_access_status,
             commands::configure_agent_pin,
             commands::unlock_agent_access,
@@ -173,6 +174,8 @@ pub fn run() {
             commands::connect_simulator,
             commands::connect_obdlink_sx,
             commands::disconnect,
+            commands::disconnect_obd,
+            commands::disconnect_can,
             commands::configure_derived_signals,
             commands::tare_derived_signal,
             commands::start_recording,

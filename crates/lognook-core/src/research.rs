@@ -83,14 +83,15 @@ mod tests {
     }
 }
 use crate::{
-    A30ReadTest, A30ReadTestResult, DeviceDescriptor, OemCandidate, OemCandidateTryResult,
-    OemCandidateTrySpec,
+    A30ReadTest, A30ReadTestResult, DeviceDescriptor, DiagnosticQueryRequest, DiagnosticReport,
+    OemCandidate, OemCandidateTryResult, OemCandidateTrySpec,
 };
 use serde::{Deserialize, Serialize};
 
 pub enum ResearchTestRequest {
     OemCandidate(OemCandidateTrySpec),
     A30ReadTest(A30ReadTest),
+    Diagnostic(DiagnosticQueryRequest),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -98,6 +99,7 @@ pub enum ResearchTestRequest {
 pub enum ResearchTestResult {
     OemCandidate(OemCandidateTryResult),
     A30ReadTest(A30ReadTestResult),
+    Diagnostic(DiagnosticReport),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

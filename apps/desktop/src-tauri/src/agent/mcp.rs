@@ -125,7 +125,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Connect one explicitly selected adapter using LogNook's existing adapter owner. Connection does not start scans or transmit diagnostic requests."
+        description = "Connect an explicitly selected source using its existing adapter owner. One OBD adapter and one Candlelight adapter can run together. No bench scan starts on connection; OBD initialization performs normal identity/PID discovery."
     )]
     async fn connect_adapter(
         &self,
@@ -141,7 +141,9 @@ impl LogNookAgent {
         .await
     }
 
-    #[tool(description = "Disconnect the adapter currently owned by LogNook.")]
+    #[tool(
+        description = "Disconnect both OBD and CAN adapters and finalize the shared recording. Use disconnect_source to stop only one."
+    )]
     async fn disconnect_adapter(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::DisconnectAdapter).await
     }
@@ -185,6 +187,30 @@ impl LogNookAgent {
     #[tool(description = "List Mode 06 read tests supported by the connected A30 adapter.")]
     async fn list_mode06_tests(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::ListMode06Tests).await
+    }
+
+    #[tool(
+        description = "Disconnect only the OBD or CAN source. A connected second source keeps acquiring and recording. disconnect_adapter disconnects both."
+    )]
+    async fn disconnect_source(
+        &self,
+        Parameters(AgentDisconnectSourceArgs { source }): Parameters<AgentDisconnectSourceArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::DisconnectSource { source })
+            .await
+    }
+
+    #[tool(
+        description = "Read DTC categories, VIN/ECU identity and Mode 06 support from the connected SX, ELM327 or A30. Optional byte-sized monitor IDs add result reads. Returns per-ECU timestamped outcomes, raw replies and decoded values; unmapped values remain raw counts. Does not clear codes."
+    )]
+    async fn read_vehicle_diagnostics(
+        &self,
+        Parameters(AgentVehicleDiagnosticsArgs { mode06_test_ids }): Parameters<
+            AgentVehicleDiagnosticsArgs,
+        >,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::ReadVehicleDiagnostics { mode06_test_ids })
+            .await
     }
 
     #[tool(
@@ -335,6 +361,7 @@ mod tests {
             [
                 "connect_adapter",
                 "disconnect_adapter",
+                "disconnect_source",
                 "export_evidence",
                 "get_status",
                 "get_trace",
@@ -343,6 +370,7 @@ mod tests {
                 "list_mode06_tests",
                 "list_signals",
                 "query_log_range",
+                "read_vehicle_diagnostics",
                 "search_oem_candidates",
                 "send_raw_command",
                 "set_signal_selection",

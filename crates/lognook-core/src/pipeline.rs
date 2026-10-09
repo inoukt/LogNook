@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
         mpsc::{self, SyncSender},
     },
     thread::{self, JoinHandle},
@@ -35,13 +35,17 @@ pub(crate) enum Message {
     PlaybackStarted,
     PlaybackFinished,
     PlaybackState(PlaybackState),
-    Disconnected,
+    SourceDisconnected {
+        obd: bool,
+        failed: bool,
+        last_source: bool,
+    },
     Error(String),
     Shutdown,
 }
 
 #[derive(Clone)]
-pub(crate) struct SampleSender(SyncSender<Message>);
+pub(crate) struct SampleSender(SyncSender<Message>, Arc<AtomicUsize>);
 
 impl SampleSender {
     pub(crate) fn send_sample(&self, sample: Sample) -> Result<(), LogNookError> {
@@ -56,9 +60,25 @@ impl SampleSender {
             .map_err(|_| LogNookError::new("Sample pipeline has stopped"))
     }
 
-    pub(crate) fn send_disconnected(&self) -> Result<(), LogNookError> {
+    pub(crate) fn source_connected(&self) {
+        self.1.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn source_disconnected(&self, obd: bool, failed: bool) -> Result<(), LogNookError> {
+        let Ok(previous) = self
+            .1
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                count.checked_sub(1)
+            })
+        else {
+            return Err(LogNookError::new("Acquisition source was not connected"));
+        };
         self.0
-            .send(Message::Disconnected)
+            .send(Message::SourceDisconnected {
+                obd,
+                failed,
+                last_source: previous == 1,
+            })
             .map_err(|_| LogNookError::new("Sample pipeline has stopped"))
     }
 
@@ -99,6 +119,14 @@ pub struct SamplePublisher {
 }
 
 impl SamplePublisher {
+    pub(crate) fn source_connected(&self) {
+        self.sender.source_connected();
+    }
+
+    pub(crate) fn source_disconnected(&self, obd: bool, failed: bool) -> Result<(), LogNookError> {
+        self.sender.source_disconnected(obd, failed)
+    }
+
     pub fn publish_timestamped_sample(&self, sample: Sample) -> Result<(), LogNookError> {
         if sample.elapsed_ns < 0
             || sample.origin != crate::SampleOrigin::Live
@@ -130,6 +158,7 @@ pub(crate) struct SamplePipeline {
 impl SamplePipeline {
     pub(crate) fn new(event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync>) -> Self {
         let (tx, rx) = mpsc::sync_channel(QUEUE_CAPACITY);
+        let active_sources = Arc::new(AtomicUsize::new(0));
         let latest_elapsed_ns = Arc::new(AtomicI64::new(0));
         let recording_active = Arc::new(AtomicBool::new(false));
         let automatic_trigger_status = Arc::new(Mutex::new(AutomaticTriggerStatus::default()));
@@ -151,7 +180,7 @@ impl SamplePipeline {
             }
         });
         Self {
-            sender: SampleSender(tx),
+            sender: SampleSender(tx, active_sources),
             latest_elapsed_ns,
             recording_active,
             automatic_trigger_status,

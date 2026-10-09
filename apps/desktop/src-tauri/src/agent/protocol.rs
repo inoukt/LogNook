@@ -26,6 +26,9 @@ pub enum AgentRequest {
         log_signal_ids: Vec<String>,
     },
     DisconnectAdapter,
+    DisconnectSource {
+        source: AgentConnectionSource,
+    },
     SearchOemCandidates {
         query: String,
         brand: String,
@@ -40,6 +43,10 @@ pub enum AgentRequest {
     ListMode06Tests,
     TryMode06Test {
         test: AgentMode06Test,
+    },
+    ReadVehicleDiagnostics {
+        #[serde(default)]
+        mode06_test_ids: Vec<u8>,
     },
     GetTrace {
         after_sequence: u64,
@@ -289,6 +296,25 @@ pub struct AgentConnectArgs {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentConnectionSource {
+    Obd,
+    Can,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentDisconnectSourceArgs {
+    pub source: AgentConnectionSource,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentVehicleDiagnosticsArgs {
+    /// Additional Mode 06 monitor IDs. Empty reads standard DTCs, identity and support bitmaps.
+    #[serde(default)]
+    pub mode06_test_ids: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub enum AgentMode06Test {
     #[serde(rename = "mode_06_bitmap_00")]
     Bitmap00,
@@ -466,6 +492,12 @@ pub struct AgentStatus {
     pub host_connected: bool,
     pub adapter_id: Option<String>,
     pub adapter_connected: bool,
+    #[serde(default)]
+    pub obd_connected: bool,
+    #[serde(default)]
+    pub can_connected: bool,
+    #[serde(default)]
+    pub can_adapter_id: Option<String>,
     pub recording: bool,
     pub active_operation: Option<String>,
     pub supported_signal_ids: Vec<String>,
@@ -534,6 +566,9 @@ pub enum AgentResponse {
     Mode06Try {
         result: AgentMode06Summary,
     },
+    VehicleDiagnostics {
+        report: serde_json::Value,
+    },
     Trace {
         page: AgentTracePage,
     },
@@ -597,6 +632,34 @@ mod tests {
             decode_request(br#"{"action":"get_status"}"#).unwrap(),
             AgentRequest::GetStatus
         ));
+    }
+
+    #[test]
+    fn individual_disconnect_requires_an_explicit_known_source() {
+        assert!(matches!(
+            decode_request(br#"{"action":"disconnect_source","source":"can"}"#).unwrap(),
+            AgentRequest::DisconnectSource {
+                source: AgentConnectionSource::Can
+            }
+        ));
+        assert!(decode_request(br#"{"action":"disconnect_source","source":"all"}"#).is_err());
+    }
+
+    #[test]
+    fn diagnostic_monitors_are_byte_sized_and_do_not_accept_raw_commands() {
+        assert!(
+            matches!(decode_request(br#"{"action":"read_vehicle_diagnostics","mode06_test_ids":[53,162]}"#).unwrap(), AgentRequest::ReadVehicleDiagnostics { mode06_test_ids } if mode06_test_ids == [53,162])
+        );
+        assert!(
+            decode_request(br#"{"action":"read_vehicle_diagnostics","mode06_test_ids":[256]}"#)
+                .is_err()
+        );
+        assert!(
+            decode_request(
+                br#"{"action":"read_vehicle_diagnostics","mode06_test_ids":[],"clear_codes":true}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -16,7 +16,7 @@
 
   export let hidden = false;
   export let workspaceBusy = false;
-  export let otherAdapterConnected = false;
+  export let recording = false;
   export let status: CanWorkbenchStatus | null = null;
   export let fields: CanSignalDefinition[] = [];
   export let scanResults: CanScanResult[] = [];
@@ -129,7 +129,7 @@
   }
 
   async function connect() {
-    if (!selectedAdapter || otherAdapterConnected || workspaceBusy || busy || connected) return;
+    if (!selectedAdapter || workspaceBusy || busy || recording || connected) return;
     if (!Number.isInteger(interfaceNumber) || interfaceNumber < 0 || interfaceNumber > 255
       || !Number.isInteger(channel) || channel < 0 || channel > 255) {
       error = "USB interface and channel must be byte-sized integers.";
@@ -197,6 +197,16 @@
     await runBusy(async () => {
       await commands.startScan(config);
       scanStatus = "Scan started";
+    });
+  }
+
+  async function disconnect() {
+    if (!connected || busy || workspaceBusy) return;
+    await runBusy(async () => {
+      await commands.disconnect();
+      captureOpen = false;
+      capturePath = "";
+      captureAction = "CAN adapter disconnected";
     });
   }
 
@@ -416,8 +426,6 @@
 </script>
 
 <section class="can-workbench" hidden={hidden} aria-label="CAN Workbench">
-  {#if otherAdapterConnected}<p class="can-hint">Disconnect the currently connected adapter from the top bar before connecting Candlelight.</p>{/if}
-
   <div class="can-connection">
     <div class="can-adapter-row">
       <label>GS_USB / Candlelight
@@ -447,9 +455,10 @@
       </label>
       <label class="can-check"><input type="checkbox" bind:checked={listenOnly} disabled={connected || busy || workspaceBusy} /> Listen-only</label>
       {#if !connected}
-        <button class="button primary" onclick={connect} disabled={!selectedAdapter || otherAdapterConnected || busy || workspaceBusy}>Connect</button>
+        <button class="button primary" onclick={connect} disabled={!selectedAdapter || busy || workspaceBusy || recording}>Connect</button>
       {:else}
         <span class="can-source">{status?.source_id} · {status?.bitrate.toLocaleString()} bit/s</span>
+        <button class="button secondary" onclick={disconnect} disabled={busy || workspaceBusy}>Disconnect CAN</button>
       {/if}
     </div>
   </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import CanSignalEditor from "./CanSignalEditor.svelte";
+  import { changedBits, discoverySeed } from "./canDiscovery";
   import type { CanEventCandidate, CanFrame, CanLiveEventGroup, CanLiveEventSnapshot, CanSignalDefinition } from "./types";
   import type { CanTrafficSummary } from "./canWorkbench";
 
@@ -15,7 +16,7 @@
   let eventFilter = "";
   let frozenEvents: CanLiveEventSnapshot | null = null;
   let pinnedId: { can_id: number; extended: boolean } | null = null;
-  let editor: { frame: CanFrame; fieldId: string | null } | null = null;
+  let editor: { frame: CanFrame; fieldId: string | null; seed?: ReturnType<typeof discoverySeed>; evidence?: string } | null = null;
   let actionError = "";
   $: trafficFrameCount = trafficSummary.reduce((total, row) => total + row.rx_count + row.tx_count, 0);
   $: eventSnapshot = frozenEvents ?? liveEventAnalysis;
@@ -47,6 +48,10 @@
     if (!frame) return;
     const field = fields.find((item) => item.can_id === can_id && item.extended === extended);
     openEditor(frame, field?.id ?? null);
+  }
+
+  function inspectCandidate(frame: CanFrame, candidate: CanEventCandidate, label: string, byte?: number, bit?: number) {
+    editor = { frame, fieldId: null, seed: discoverySeed(candidate, label, byte, bit), evidence: eventBytes(candidate) };
   }
 
   function matchingCandidates(group: CanLiveEventGroup): Array<{
@@ -169,8 +174,13 @@
                       <td><button class="can-id-pin" type="button" onclick={() => togglePinned(item.candidate)} aria-pressed={pinnedId?.can_id === item.candidate.can_id && pinnedId.extended === item.candidate.extended}>{canId(item.candidate.can_id, item.candidate.extended)}</button></td>
                       <td>{item.candidate.changed_events}/{item.candidate.observed_events} observed · {item.candidate.observed_events}/{group.completed_events} trials</td>
                       <td>{item.candidate.before_frames} / {item.candidate.after_frames} · {frameRate(item.candidate.before_frames, item.candidate.before_window_ns)} / {frameRate(item.candidate.after_frames, item.candidate.after_window_ns)}</td>
-                      <td>{eventBytes(item.candidate)}{#if item.counter_like_bytes.length || item.sum_checksum_like_bytes.length}<small class="can-noise-hint">Noise hint · {item.counter_like_bytes.length ? `counter-like B${item.counter_like_bytes.join(", B")}` : ""}{#if item.counter_like_bytes.length && item.sum_checksum_like_bytes.length} · {/if}{item.sum_checksum_like_bytes.length ? `sum-checksum-like B${item.sum_checksum_like_bytes.join(", B")}` : ""}</small>{/if}</td>
-                      <td><button class="can-small-action" type="button" disabled={!item.sample_frame} onclick={() => item.sample_frame && openEditor(item.sample_frame, fields.find((field) => field.can_id === item.candidate.can_id && field.extended === item.candidate.extended)?.id ?? null)}>＋ Field</button></td>
+                      <td>{eventBytes(item.candidate)}
+                        <div class="can-byte-actions">{#each item.candidate.changed_bytes as byte}
+                          <button class="can-small-action" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label, byte.byte_index)}>Scope B{byte.byte_index}</button>
+                          {#each changedBits(item.candidate, byte.byte_index) as bit}<button class="can-small-action" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label, byte.byte_index, bit)}>B{byte.byte_index}.{bit}</button>{/each}
+                        {/each}</div>
+                        {#if item.counter_like_bytes.length || item.sum_checksum_like_bytes.length}<small class="can-noise-hint">Noise hint · {item.counter_like_bytes.length ? `counter-like B${item.counter_like_bytes.join(", B")}` : ""}{#if item.counter_like_bytes.length && item.sum_checksum_like_bytes.length} · {/if}{item.sum_checksum_like_bytes.length ? `sum-checksum-like B${item.sum_checksum_like_bytes.join(", B")}` : ""}</small>{/if}</td>
+                      <td><button class="can-small-action" type="button" disabled={!item.sample_frame} onclick={() => item.sample_frame && inspectCandidate(item.sample_frame, item.candidate, group.label)}>Inspect → graph</button></td>
                     </tr>
                   {:else}
                     <tr><td colspan="5" class="can-muted">{eventFilter ? "No candidate IDs match this filter." : group.pending_events ? "Waiting for the post-event window to finish." : "No recurring changed IDs in the completed trials."}</td></tr>
@@ -194,6 +204,11 @@
     fields={fields}
     latestElapsedNs={latestElapsedNs}
     initialFieldId={editor.fieldId}
+    initialStartBit={editor.seed?.startBit ?? 0}
+    initialBitLength={editor.seed?.bitLength ?? 16}
+    initialName={editor.seed?.name ?? ""}
+    evidence={editor.evidence ?? ""}
+    history={frames}
     onSave={onSaveField}
     onRemove={onRemoveField}
     onClose={() => editor = null}
@@ -201,6 +216,7 @@
 {/if}
 
 <style>
+  .can-byte-actions { display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
   .can-traffic-panel { display:flex; flex-direction:column; gap:4px; min-width:0; min-height:0; overflow:hidden; padding:6px; }
   .can-monitor-toolbar { display:flex; align-items:center; gap:8px; min-width:0; }
   .can-monitor-title { min-width:0; }

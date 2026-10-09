@@ -121,7 +121,7 @@ pub fn agent_sync_signal_selection(
         .agent_selection
         .lock()
         .map_err(|_| "Agent selection is unavailable".to_owned())?;
-    if engine.is_connected() && !same_ids(&selection.log_signal_ids, &log_signal_ids) {
+    if engine.is_obd_connected() && !same_ids(&selection.log_signal_ids, &log_signal_ids) {
         return Err("Disconnect before changing logged signals".into());
     }
     *selection = AgentSignalSelection {
@@ -132,9 +132,34 @@ pub fn agent_sync_signal_selection(
 }
 
 fn same_ids(left: &[String], right: &[String]) -> bool {
-    let mut left = left.to_vec();
-    let mut right = right.to_vec();
+    let mut left = left
+        .iter()
+        .filter(|id| !id.starts_with("can:"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut right = right
+        .iter()
+        .filter(|id| !id.starts_with("can:"))
+        .cloned()
+        .collect::<Vec<_>>();
     left.sort();
     right.sort();
     left == right
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_ids;
+
+    #[test]
+    fn can_field_changes_do_not_change_the_obd_poll_selection() {
+        assert!(same_ids(
+            &["engine_rpm".into()],
+            &["can:button".into(), "engine_rpm".into()]
+        ));
+        assert!(!same_ids(
+            &["engine_rpm".into()],
+            &["coolant_temp".into(), "can:button".into()]
+        ));
+    }
 }

@@ -317,11 +317,14 @@ pub(super) fn run_worker(
                         &event_sink,
                         &mut frames,
                     );
-                    let live_event_error = if capture.as_ref().is_some_and(|session| !session.failed()) {
-                        live_events.as_mut().and_then(|analyzer| analyzer.feed(&frame).err())
-                    } else {
-                        None
-                    };
+                    let live_event_error =
+                        if capture.as_ref().is_some_and(|session| !session.failed()) {
+                            live_events
+                                .as_mut()
+                                .and_then(|analyzer| analyzer.feed(&frame).err())
+                        } else {
+                            None
+                        };
                     if let Some(error) = live_event_error {
                         (event_sink)(EngineEvent::Error(format!(
                             "Live CAN event analysis stopped: {error}"
@@ -329,9 +332,7 @@ pub(super) fn run_worker(
                         if let Some(mut analyzer) = live_events.take() {
                             (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.finish()));
                         }
-                    } else if capture
-                        .as_ref()
-                        .is_none_or(|session| session.failed())
+                    } else if capture.as_ref().is_none_or(|session| session.failed())
                         && let Some(mut analyzer) = live_events.take()
                     {
                         (event_sink)(EngineEvent::CanLiveEventAnalysis(analyzer.finish()));
@@ -425,7 +426,8 @@ pub(super) fn run_worker(
             &mut capture,
             &event_sink,
         );
-        let live_event_advance = live_events.as_mut()
+        let live_event_advance = live_events
+            .as_mut()
             .map(|analyzer| analyzer.advance(elapsed_ns(&started)));
         if let Some(result) = live_event_advance {
             match result {
@@ -487,6 +489,7 @@ pub(super) fn run_worker(
     if !frames.is_empty() {
         (event_sink)(EngineEvent::CanFrames(frames));
     }
+    let _ = publisher.source_disconnected(false, disconnected);
 }
 
 fn handle_command(

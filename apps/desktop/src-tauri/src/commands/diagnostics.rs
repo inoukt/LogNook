@@ -82,6 +82,7 @@ fn existing_diagnostics_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
         path.to_path_buf(),
         path.with_file_name("operations.1.jsonl"),
         path.with_file_name("operations.2.jsonl"),
+        path.with_file_name("vehicle-reads.jsonl"),
     ] {
         if candidate.try_exists().map_err(|error| error.to_string())? {
             paths.push(candidate);
@@ -508,13 +509,17 @@ mod tests {
         let f = Fixture::new();
         let current = f.source("diagnostics/operations.jsonl", b"current");
         let previous = f.source("diagnostics/operations.2.jsonl", b"previous");
+        let vehicle = f.source(
+            "diagnostics/vehicle-reads.jsonl",
+            b"vehicle diagnostic evidence",
+        );
         f.source("diagnostics/unrelated.jsonl", b"unrelated");
         let evidence = f.source("oem-validation/research.jsonl", b"evidence");
         f.source("oem-validation/private.txt", b"private");
         fs::create_dir(f.0.join("oem-validation/directory.jsonl")).unwrap();
         assert_eq!(
             existing_diagnostics_paths(&current).unwrap(),
-            vec![current, previous]
+            vec![current, previous, vehicle]
         );
         assert_eq!(
             evidence_paths(&f.0.join("oem-validation")).unwrap(),

@@ -103,10 +103,15 @@ pub(crate) fn process(
                         let _ = reply.send(if processed {
                             Ok(offset)
                         } else {
-                            Err("Tare was applied, but the recording stopped after a write error".into())
+                            Err(
+                                "Tare was applied, but the recording stopped after a write error"
+                                    .into(),
+                            )
                         });
                     }
-                    Err(error) => { let _ = reply.send(Err(error)); }
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                    }
                 }
             }
             Message::StartRecording(path, reply) => {
@@ -150,7 +155,10 @@ pub(crate) fn process(
             Message::DisarmAutomaticTrigger(reply) => {
                 let status = get_trigger_status(&automatic_trigger_status);
                 let result = if status.recording {
-                    Err("Stop the active recording before disarming the automatic trigger".to_owned())
+                    Err(
+                        "Stop the active recording before disarming the automatic trigger"
+                            .to_owned(),
+                    )
                 } else {
                     automatic_trigger = None;
                     pre_trigger_samples.clear();
@@ -209,18 +217,38 @@ pub(crate) fn process(
             Message::PlaybackStarted => sink(EngineEvent::PlaybackStarted),
             Message::PlaybackFinished => sink(EngineEvent::PlaybackFinished),
             Message::PlaybackState(state) => sink(EngineEvent::PlaybackState(state)),
-            Message::Disconnected => {
-                automatic_trigger = None;
-                pre_trigger_samples.clear();
-                newest_elapsed_ns = 0;
-                if get_trigger_status(&automatic_trigger_status).armed {
-                    set_trigger_status(
-                        &automatic_trigger_status,
-                        AutomaticTriggerStatus::default(),
-                        &sink,
-                    );
+            Message::SourceDisconnected {
+                obd,
+                failed,
+                last_source,
+            } => {
+                if last_source {
+                    automatic_trigger = None;
+                    pre_trigger_samples.clear();
+                    newest_elapsed_ns = 0;
+                    latest.store(0, Ordering::Release);
+                    let trigger_status = get_trigger_status(&automatic_trigger_status);
+                    if trigger_status.armed || trigger_status.recording {
+                        set_trigger_status(
+                            &automatic_trigger_status,
+                            AutomaticTriggerStatus::default(),
+                            &sink,
+                        );
+                    }
+                    if failed && let Some(writer) = recorder.take() {
+                        recording_active.store(false, Ordering::Release);
+                        match writer.finish() {
+                            Ok(summary) => {
+                                set_last_recording_path(&last_recording_path, &summary.path);
+                                sink(EngineEvent::RecordingFailed(summary));
+                            }
+                            Err(error) => sink(EngineEvent::Error(error.to_string())),
+                        }
+                    }
                 }
-                sink(EngineEvent::Disconnected);
+                if obd && failed {
+                    sink(EngineEvent::Disconnected);
+                }
             }
             Message::Error(message) => sink(EngineEvent::Error(message)),
             Message::Shutdown => {

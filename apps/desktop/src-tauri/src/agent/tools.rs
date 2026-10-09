@@ -240,6 +240,44 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
         AgentRequest::ListMode06Tests => AgentResponse::Mode06Tests {
             result: list_mode06_tests(app),
         },
+        AgentRequest::DisconnectSource { source } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                let mut engine = state
+                    .engine
+                    .lock()
+                    .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
+                match source {
+                    AgentConnectionSource::Obd => engine.disconnect_obd(),
+                    AgentConnectionSource::Can => engine.disconnect_can(),
+                }
+                .map_err(|error| error.to_string())
+            })
+            .await
+            {
+                Ok(Ok(())) => AgentResponse::Disconnected,
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::Internal, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::ReadVehicleDiagnostics { mode06_test_ids } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                crate::commands::vehicle_diagnostics::execute_vehicle_diagnostic(
+                    &state,
+                    lognook_core::DiagnosticRequest { mode06_test_ids },
+                )
+                .and_then(|report| serde_json::to_value(report).map_err(|error| error.to_string()))
+            })
+            .await
+            {
+                Ok(Ok(report)) => AgentResponse::VehicleDiagnostics { report },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::UnsupportedAdapter, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
         AgentRequest::TryMode06Test { test } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || try_mode06_test(&app, test)).await {
@@ -961,7 +999,9 @@ fn build_agent_status(
     signal_selection: AgentSignalSelection,
     active_operation: Option<String>,
 ) -> AgentStatus {
-    let capabilities = engine.connection_capabilities();
+    let capabilities = engine
+        .connection_capabilities()
+        .filter(|_| engine.is_obd_connected());
     let can = engine.can_workbench_status();
     AgentStatus {
         configured: access.configured,
@@ -970,8 +1010,13 @@ fn build_agent_status(
         host_connected: access.host_connected,
         adapter_id: capabilities
             .map(|caps| caps.device.stable_id.clone())
-            .or_else(|| can.map(|status| status.source_id)),
+            .or_else(|| can.as_ref().map(|status| status.source_id.clone())),
         adapter_connected: engine.is_connected(),
+        obd_connected: engine.is_obd_connected(),
+        can_connected: can.as_ref().is_some_and(|status| status.connected),
+        can_adapter_id: can
+            .filter(|status| status.connected)
+            .map(|status| status.source_id),
         recording: engine.is_recording(),
         active_operation,
         supported_signal_ids: capabilities
@@ -1118,15 +1163,23 @@ fn validate_signal_selection(
     {
         return Err("Graphed PIDs must also be selected for logging".into());
     }
-    if engine.is_connected() && !same_ids(current_log_signal_ids, log_signal_ids) {
+    if engine.is_obd_connected() && !same_ids(current_log_signal_ids, log_signal_ids) {
         return Err("Disconnect before changing logged PIDs".into());
     }
     Ok(())
 }
 
 fn same_ids(left: &[String], right: &[String]) -> bool {
-    let mut left = left.to_vec();
-    let mut right = right.to_vec();
+    let mut left = left
+        .iter()
+        .filter(|id| !id.starts_with("can:"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut right = right
+        .iter()
+        .filter(|id| !id.starts_with("can:"))
+        .cloned()
+        .collect::<Vec<_>>();
     left.sort();
     right.sort();
     left == right
@@ -1384,6 +1437,15 @@ mod tests {
             validate_signal_selection(&engine, &["engine_rpm".into()], &["engine_rpm".into()], &[])
                 .is_ok()
         );
+        assert!(
+            validate_signal_selection(
+                &engine,
+                &["engine_rpm".into(), "can:button".into()],
+                &["engine_rpm".into()],
+                &[],
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1410,6 +1472,9 @@ mod tests {
             None,
         );
         assert!(status.adapter_connected);
+        assert!(status.obd_connected);
+        assert!(!status.can_connected);
+        assert!(status.can_adapter_id.is_none());
         assert!(status.host_connected);
         assert_eq!(status.adapter_id.as_deref(), Some("simulated-obd"));
     }

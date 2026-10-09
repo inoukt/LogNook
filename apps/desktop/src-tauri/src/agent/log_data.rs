@@ -15,6 +15,8 @@ pub(crate) const MAX_LOG_QUERY_ROWS: usize = 1_000;
 pub(crate) struct AgentLogBuffer {
     samples: VecDeque<Sample>,
     can_frames: VecDeque<CanFrame>,
+    obd_connected: bool,
+    can_connected: bool,
 }
 
 pub(crate) struct LogPage<T> {
@@ -25,6 +27,17 @@ pub(crate) struct LogPage<T> {
 impl AgentLogBuffer {
     pub(crate) fn record_engine_event(&mut self, event: &EngineEvent) {
         match event {
+            EngineEvent::Connected(_) => {
+                self.start_session_if_idle();
+                self.obd_connected = true;
+            }
+            EngineEvent::Disconnected => self.obd_connected = false,
+            EngineEvent::CanWorkbenchStatus(status) => {
+                if status.connected {
+                    self.start_session_if_idle();
+                }
+                self.can_connected = status.connected;
+            }
             EngineEvent::Sample(sample) => self.record_sample(sample.clone()),
             EngineEvent::CanFrames(frames) => {
                 for frame in frames {
@@ -32,6 +45,13 @@ impl AgentLogBuffer {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn start_session_if_idle(&mut self) {
+        if !self.obd_connected && !self.can_connected {
+            self.samples.clear();
+            self.can_frames.clear();
         }
     }
 
@@ -48,8 +68,8 @@ impl AgentLogBuffer {
 
     pub(crate) fn sample_range(&self) -> Option<(i64, i64, usize)> {
         Some((
-            self.samples.front()?.elapsed_ns,
-            self.samples.back()?.elapsed_ns,
+            self.samples.iter().map(|sample| sample.elapsed_ns).min()?,
+            self.samples.iter().map(|sample| sample.elapsed_ns).max()?,
             self.samples.len(),
         ))
     }
@@ -421,6 +441,7 @@ where
         }
     }
     result.reverse();
+    result.sort_by_key(HasElapsed::elapsed_ns);
     LogPage {
         items: result,
         truncated,
@@ -464,6 +485,48 @@ mod tests {
             origin: SampleOrigin::Live,
             raw_bytes: None,
         }
+    }
+
+    #[test]
+    fn mixed_source_results_have_sorted_time_bounds() {
+        let mut buffer = AgentLogBuffer::default();
+        for elapsed in [30, 10, 20] {
+            buffer.record_sample(sample(elapsed, "engine_rpm", 1.0));
+        }
+        assert_eq!(buffer.sample_range(), Some((10, 30, 3)));
+        assert_eq!(
+            buffer
+                .query_samples(0, 40, &[], 10)
+                .items
+                .iter()
+                .map(|sample| sample.elapsed_ns)
+                .collect::<Vec<_>>(),
+            [10, 20, 30]
+        );
+    }
+
+    #[test]
+    fn a_second_source_preserves_logs_and_a_new_session_clears_them() {
+        use lognook_core::{CanWorkbenchStatus, EngineEvent, HardwareAdapter, SimulatedObdAdapter};
+        let mut buffer = AgentLogBuffer::default();
+        let caps = SimulatedObdAdapter::default().connect().unwrap();
+        let can = |connected| {
+            EngineEvent::CanWorkbenchStatus(CanWorkbenchStatus {
+                connected,
+                bitrate: 500_000,
+                listen_only: true,
+                source_id: "can:test".into(),
+            })
+        };
+        buffer.record_engine_event(&EngineEvent::Connected(caps.clone()));
+        buffer.record_sample(sample(1, "engine_rpm", 1.0));
+        buffer.record_engine_event(&can(true));
+        buffer.record_engine_event(&EngineEvent::Disconnected);
+        assert_eq!(buffer.sample_range(), Some((1, 1, 1)));
+        buffer.record_engine_event(&can(false));
+        assert!(buffer.sample_range().is_some());
+        buffer.record_engine_event(&EngineEvent::Connected(caps));
+        assert!(buffer.sample_range().is_none());
     }
 
     #[test]

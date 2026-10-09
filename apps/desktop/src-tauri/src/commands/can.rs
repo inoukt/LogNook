@@ -109,6 +109,13 @@ pub async fn connect_candlelight(
 }
 
 #[tauri::command]
+pub async fn disconnect_can(state: State<'_, AppState>) -> Result<(), String> {
+    engine(&state)?
+        .disconnect_can()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn configure_can_signals(
     state: State<'_, AppState>,
     fields: Vec<CanSignalDefinition>,

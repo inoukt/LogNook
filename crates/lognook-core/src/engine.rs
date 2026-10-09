@@ -19,6 +19,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Instant,
 };
 
 pub struct LogNookEngine {
@@ -35,6 +36,8 @@ pub struct LogNookEngine {
     active_derived_signal_ids: HashSet<String>,
     can_workbench: Option<CanWorkbench>,
     connection_capabilities: Option<ConnectionCapabilities>,
+    session_origin: Option<Instant>,
+    session_origin_wall_unix_ns: Option<i64>,
     communication_sink: Option<crate::communication_trace::CommunicationSink>,
 }
 
@@ -61,6 +64,8 @@ impl LogNookEngine {
             active_derived_signal_ids: HashSet::new(),
             can_workbench: None,
             connection_capabilities: None,
+            session_origin: None,
+            session_origin_wall_unix_ns: None,
             communication_sink: None,
         }
     }
@@ -91,8 +96,12 @@ impl LogNookEngine {
                 "Stop the active recording before connecting another adapter",
             ));
         }
-        if self.is_connected() {
-            return Err(LogNookError::new("An adapter is already connected"));
+        if self.is_obd_connected() {
+            return Err(LogNookError::new("An OBD adapter is already connected"));
+        }
+        if !self.is_connected() {
+            self.session_origin = None;
+            self.session_origin_wall_unix_ns = None;
         }
         self.stop_playback();
         if let Some(mut old) = self.acquisition.take() {
@@ -116,6 +125,8 @@ impl LogNookEngine {
                 return Err(error);
             }
         };
+        let adapter_connected_at = Instant::now();
+        let adapter_connected_wall_unix_ns = now_unix_ns();
         let derived_by_id = compiled
             .iter()
             .map(|derived| (derived.definition.id.as_str(), derived))
@@ -178,19 +189,30 @@ impl LogNookEngine {
                 .cloned()
                 .collect(),
         )?;
+        let session_origin = *self.session_origin.get_or_insert(adapter_connected_at);
+        let session_origin_wall_unix_ns = *self
+            .session_origin_wall_unix_ns
+            .get_or_insert(adapter_connected_wall_unix_ns);
+        let adapter_offset_ns = adapter_connected_at
+            .saturating_duration_since(session_origin)
+            .as_nanos()
+            .min(i64::MAX as u128) as i64;
         (self.event_sink)(EngineEvent::Connected(capabilities.clone()));
         self.selected_signal_ids = signals
             .iter()
             .map(|signal| signal.id.clone())
             .chain(selected_derived_ids)
             .collect();
-        self.acquisition = Some(AcquisitionHandle::start(
+        self.acquisition = Some(AcquisitionHandle::start_at(
             adapter,
             signals,
             self.pipeline.sender(),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             self.diagnostic_sink.clone(),
             Some(capabilities.device.stable_id.clone()),
+            session_origin,
+            session_origin_wall_unix_ns,
+            adapter_offset_ns,
         ));
         self.connection_capabilities = Some(capabilities.clone());
         Ok(capabilities)
@@ -209,22 +231,29 @@ impl LogNookEngine {
                 "Stop the active recording before connecting another adapter",
             ));
         }
-        if self.is_connected() {
-            return Err(LogNookError::new("An adapter is already connected"));
+        if self.is_can_connected() {
+            return Err(LogNookError::new("A CAN adapter is already connected"));
+        }
+        if !self.is_connected() {
+            self.session_origin = None;
+            self.session_origin_wall_unix_ns = None;
         }
         self.stop_playback();
         if let Some(sink) = &self.communication_sink {
             transport.set_communication_sink(sink.clone());
         }
-        let workbench = CanWorkbench::start(
+        let session_origin = *self.session_origin.get_or_insert_with(Instant::now);
+        self.session_origin_wall_unix_ns
+            .get_or_insert_with(now_unix_ns);
+        let workbench = CanWorkbench::start_at(
             transport,
             config,
             self.sample_publisher(),
             self.event_sink.clone(),
+            session_origin,
         )?;
         let status = workbench.status();
         self.can_workbench = Some(workbench);
-        self.connection_capabilities = None;
         (self.event_sink)(EngineEvent::CanWorkbenchStatus(status.clone()));
         Ok(status)
     }
@@ -355,17 +384,25 @@ impl LogNookEngine {
     }
 
     pub fn is_connected(&self) -> bool {
+        self.is_obd_connected() || self.is_can_connected()
+    }
+
+    pub fn is_obd_connected(&self) -> bool {
         self.acquisition
             .as_ref()
             .is_some_and(AcquisitionHandle::is_running)
-            || self
-                .can_workbench
-                .as_ref()
-                .is_some_and(CanWorkbench::is_running)
+    }
+
+    pub fn is_can_connected(&self) -> bool {
+        self.can_workbench
+            .as_ref()
+            .is_some_and(CanWorkbench::is_running)
     }
 
     pub fn connection_capabilities(&self) -> Option<&ConnectionCapabilities> {
-        self.connection_capabilities.as_ref()
+        self.is_obd_connected()
+            .then_some(self.connection_capabilities.as_ref())
+            .flatten()
     }
 
     pub fn can_workbench_status(&self) -> Option<CanWorkbenchStatus> {
@@ -373,6 +410,9 @@ impl LogNookEngine {
     }
 
     pub fn selected_signal_ids(&self) -> Vec<String> {
+        if !self.is_obd_connected() {
+            return Vec::new();
+        }
         let mut signal_ids = self.selected_signal_ids.iter().cloned().collect::<Vec<_>>();
         signal_ids.sort();
         signal_ids
@@ -391,6 +431,18 @@ impl LogNookEngine {
             .filter(|acquisition| acquisition.is_running())
             .ok_or_else(|| LogNookError::new("No adapter is connected"))?
             .execute_research_test(request)
+    }
+
+    pub fn queue_research_test(
+        &self,
+        request: ResearchTestRequest,
+    ) -> Result<std::sync::mpsc::Receiver<Result<ResearchTestResult, LogNookError>>, LogNookError>
+    {
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No adapter is connected"))?
+            .queue_research_test(request)
     }
 
     pub fn execute_raw_command(
@@ -451,7 +503,7 @@ impl LogNookEngine {
         definitions: &[DerivedSignalDefinition],
         active_ids: &[String],
     ) -> Result<(), LogNookError> {
-        if self.is_connected() || self.pipeline.is_recording() {
+        if self.is_obd_connected() || self.pipeline.is_recording() {
             return Err(LogNookError::new(
                 "Disconnect and stop recording before changing derived signals",
             ));
@@ -481,7 +533,7 @@ impl LogNookEngine {
     }
 
     pub fn tare_derived_signal(&mut self, id: &str) -> Result<f64, LogNookError> {
-        if !self.is_connected() {
+        if !self.is_obd_connected() {
             return Err(LogNookError::new(
                 "Connect an adapter before taring a derived signal",
             ));
@@ -514,12 +566,47 @@ impl LogNookEngine {
         }
         self.selected_signal_ids.clear();
         self.connection_capabilities = None;
+        self.session_origin = None;
+        self.session_origin_wall_unix_ns = None;
         self.stop_playback();
         if self.pipeline.is_recording() {
             self.stop_recording()?;
         }
         self.pipeline.disarm_automatic_trigger()?;
         (self.event_sink)(EngineEvent::Disconnected);
+        Ok(())
+    }
+
+    pub fn disconnect_obd(&mut self) -> Result<(), LogNookError> {
+        if let Some(mut acquisition) = self.acquisition.take() {
+            acquisition.stop()?;
+        }
+        self.selected_signal_ids.clear();
+        self.connection_capabilities = None;
+        self.stop_playback();
+        (self.event_sink)(EngineEvent::Disconnected);
+        self.finish_source_session_if_idle()
+    }
+
+    pub fn disconnect_can(&mut self) -> Result<(), LogNookError> {
+        if let Some(workbench) = self.can_workbench.take() {
+            let mut status = workbench.status();
+            drop(workbench);
+            status.connected = false;
+            (self.event_sink)(EngineEvent::CanWorkbenchStatus(status));
+        }
+        self.finish_source_session_if_idle()
+    }
+
+    fn finish_source_session_if_idle(&mut self) -> Result<(), LogNookError> {
+        if !self.is_connected() {
+            self.session_origin = None;
+            self.session_origin_wall_unix_ns = None;
+            if self.pipeline.is_recording() {
+                self.stop_recording()?;
+            }
+            self.pipeline.disarm_automatic_trigger()?;
+        }
         Ok(())
     }
 
@@ -539,7 +626,7 @@ impl LogNookEngine {
         config: &AutomaticTriggerConfig,
         path: &Path,
     ) -> Result<AutomaticTriggerStatus, LogNookError> {
-        if !self.is_connected() {
+        if !self.is_obd_connected() {
             return Err(LogNookError::new(
                 "Connect an adapter before arming an automatic trigger",
             ));
@@ -641,6 +728,14 @@ fn select_signals(
         ));
     }
     Ok(selected)
+}
+
+fn now_unix_ns() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .min(i64::MAX as u128) as i64
 }
 
 #[cfg(test)]

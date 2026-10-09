@@ -14,12 +14,13 @@ The copied configuration points at the current LogNook executable and its tempor
 
 ## Available tools
 
-- `get_status`, `list_adapters`, and `list_signals` inspect the connected adapter and standard PID set.
+- `get_status`, `list_adapters`, and `list_signals` inspect connections and the standard PID set. Status reports OBD and CAN connection state separately, including the CAN adapter identity.
 - `list_log_sources` lists bounded live PID/CAN buffers plus saved app recordings and agent CAN captures. `query_log_range` reads an elapsed-time range in milliseconds with optional PID/CAN-ID filters; responses cap at 1,000 rows and report truncation. A known external `.lognook` or `.candump.csv` path can also be queried.
-- `connect_adapter` and `disconnect_adapter` use LogNook's existing adapter owners. Connection alone does not start a scan or transmit.
-- `set_signal_selection` updates logged and graphed PIDs; logged selections cannot change while connected.
+- `connect_adapter` uses the existing owners and allows one OBD adapter plus one Candlelight adapter. `disconnect_source` with `source: "obd"` or `"can"` disconnects only that source; `disconnect_adapter` disconnects both. Check `get_status` after a partial disconnect. A passive CAN connection does not transmit; connecting an OBD adapter performs its normal identification and PID discovery.
+- `set_signal_selection` updates logged and graphed PIDs; the OBD poll selection cannot change while OBD is connected. CAN field graph selection remains independent.
 - `search_oem_candidates` and `try_oem_candidate` find catalog-backed candidates and run one selected request. Results retain route/source and response evidence; they do not validate a decoder or vehicle support.
 - `list_mode06_tests` and `try_mode06_test` expose the supported A30 reads.
+- `read_vehicle_diagnostics` reads DTC categories, VIN/ECU identity and Mode 06 support on SX, ELM327 or A30. Optional `mode06_test_ids` adds byte-sized monitor IDs, for example `[53, 162]`; `[]` requests the standard diagnostic snapshot. Results retain each ECU's timestamp, exact request, raw reply, typed outcome and decoded values. Unmapped Mode 06 values stay raw. Evidence is saved to `diagnostics/vehicle-reads.jsonl` and included in support ZIP exports.
 - `get_trace`, `start_trace_capture`, `stop_trace_capture`, and `export_evidence` inspect or save the adapter bytes LogNook can observe. The trace reports dropped/evicted-event gaps. J2534 traces cover the worker protocol and returned payloads, not hidden vendor USB traffic.
 - `workbench` captures CAN, marks a labeled event, starts/stops configured CAN scans, and sends a bounded CAN frame pattern. A scan or send creates paired `.candump.csv` and `.jsonl` evidence under app data. Use an active-mode Candlelight connection for scan/TX; connection defaults to listen-only.
 - `send_raw_command` sends one diagnostic hex payload or adapter-terminal command through a connected OBDLink SX or ELM327's serialized owner. Exact TX/RX is available in `get_trace`. Use `workbench` for raw Candlelight CAN frames; unsupported adapter/mode combinations return an error.

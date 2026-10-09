@@ -536,6 +536,9 @@ mod tests {
                     self.reads.lock().unwrap().push(test);
                     lognook_core::ResearchTestResult::A30ReadTest(a30_result(test))
                 }
+                lognook_core::ResearchTestRequest::Diagnostic(_) => {
+                    return Err(lognook_core::LogNookError::new("This fixture does not implement vehicle diagnostics"));
+                }
             })
         }
     }

@@ -83,16 +83,22 @@ fn disconnect_disarms_trigger_and_drops_samples_from_the_previous_connection() {
         EngineEvent::Sample(_)
     ));
 
-    pipeline.sender().send_disconnected().unwrap();
+    pipeline.sender().source_connected();
+    pipeline.sender().source_disconnected(true, true).unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
     while std::time::Instant::now() < deadline {
-        if matches!(rx.recv_timeout(Duration::from_millis(100)), Ok(EngineEvent::Disconnected)) {
+        if matches!(
+            rx.recv_timeout(Duration::from_millis(100)),
+            Ok(EngineEvent::Disconnected)
+        ) {
             break;
         }
     }
     assert!(!pipeline.automatic_trigger_status().armed);
 
-    pipeline.arm_automatic_trigger(config, path.clone()).unwrap();
+    pipeline
+        .arm_automatic_trigger(config, path.clone())
+        .unwrap();
     let _ = rx.recv_timeout(Duration::from_secs(1)).unwrap();
     pipeline
         .sender()
@@ -101,7 +107,10 @@ fn disconnect_disarms_trigger_and_drops_samples_from_the_previous_connection() {
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
     let mut triggered = false;
     while std::time::Instant::now() < deadline {
-        if matches!(rx.recv_timeout(Duration::from_millis(100)), Ok(EngineEvent::Marker(_))) {
+        if matches!(
+            rx.recv_timeout(Duration::from_millis(100)),
+            Ok(EngineEvent::Marker(_))
+        ) {
             triggered = true;
             break;
         }

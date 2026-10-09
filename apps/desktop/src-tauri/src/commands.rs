@@ -1,9 +1,11 @@
 mod agent_access;
 mod diagnostics;
 mod player;
+pub(crate) mod vehicle_diagnostics;
 pub use agent_access::*;
 pub use diagnostics::*;
 pub use player::*;
+pub use vehicle_diagnostics::*;
 mod bluetooth;
 pub use bluetooth::*;
 mod exports;
@@ -97,6 +99,15 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     diagnose(&state, None, "disconnect", vec![], |_| {
         engine(&state)?
             .disconnect()
+            .map_err(|error| error.to_string())
+    })
+}
+
+#[tauri::command]
+pub async fn disconnect_obd(state: State<'_, AppState>) -> Result<(), String> {
+    diagnose(&state, None, "disconnect", vec![], |_| {
+        engine(&state)?
+            .disconnect_obd()
             .map_err(|error| error.to_string())
     })
 }
@@ -265,7 +276,7 @@ pub(crate) fn connect_with_diagnostics(
         |op| {
             let engine = engine.as_mut().map_err(|error| error.clone())?;
             // A failed second Connect must not replace the existing session's diagnostic route.
-            if !engine.is_connected() {
+            if !engine.is_obd_connected() {
                 engine.set_diagnostic_sink(op.sink());
             }
             let result = action(engine, &signal_ids);
@@ -515,7 +526,7 @@ mod diagnostics_tests {
         first.join().unwrap().unwrap();
         assert_eq!(
             second.join().unwrap().unwrap_err(),
-            "An adapter is already connected"
+            "An OBD adapter is already connected"
         );
         state
             .diagnostics

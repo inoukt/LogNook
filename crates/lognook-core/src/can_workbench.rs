@@ -691,17 +691,26 @@ pub struct CanWorkbench {
 
 impl CanWorkbench {
     pub fn start(
+        transport: Box<dyn CanTransport>,
+        config: CanWorkbenchConfig,
+        publisher: SamplePublisher,
+        event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync>,
+    ) -> Result<Self, LogNookError> {
+        Self::start_at(transport, config, publisher, event_sink, Instant::now())
+    }
+
+    pub(crate) fn start_at(
         mut transport: Box<dyn CanTransport>,
         config: CanWorkbenchConfig,
         publisher: SamplePublisher,
         event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync>,
+        session_origin: Instant,
     ) -> Result<Self, LogNookError> {
         config.validate()?;
         let bitrate = config.bitrate;
         let listen_only = config.listen_only;
         let source_id = transport.source_id();
         let worker_source_id = source_id.clone();
-        let session_origin = Instant::now();
         let (commands, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (ready_tx, ready_rx) = mpsc::channel();
         let running = Arc::new(AtomicBool::new(false));
@@ -715,10 +724,12 @@ impl CanWorkbench {
                     let _ = ready_tx.send(Err(error.to_string()));
                     return;
                 }
+                publisher.source_connected();
                 thread_running.store(true, Ordering::Release);
                 if ready_tx.send(Ok(())).is_err() {
                     let _ = transport.stop();
                     thread_running.store(false, Ordering::Release);
+                    let _ = publisher.source_disconnected(false, false);
                     return;
                 }
                 run_worker(

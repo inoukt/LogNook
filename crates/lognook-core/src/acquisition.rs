@@ -5,6 +5,8 @@ use crate::{
     oem_catalog::{OemCandidateTrySpec, OemPollPlan},
     pipeline::SampleSender,
 };
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     sync::{
         Arc, Mutex,
@@ -41,17 +43,47 @@ pub(crate) struct AcquisitionHandle {
 }
 
 impl AcquisitionHandle {
+    #[cfg(test)]
     pub(crate) fn start(
-        mut adapter: Box<dyn HardwareAdapter>,
+        adapter: Box<dyn HardwareAdapter>,
         signals: Vec<SignalDefinition>,
         output: SampleSender,
         running: Arc<AtomicBool>,
         diagnostic_sink: DiagnosticSink,
         adapter_id: Option<String>,
     ) -> Self {
+        Self::start_at(
+            adapter,
+            signals,
+            output,
+            running,
+            diagnostic_sink,
+            adapter_id,
+            Instant::now(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+                .min(i64::MAX as u128) as i64,
+            0,
+        )
+    }
+
+    pub(crate) fn start_at(
+        mut adapter: Box<dyn HardwareAdapter>,
+        signals: Vec<SignalDefinition>,
+        output: SampleSender,
+        running: Arc<AtomicBool>,
+        diagnostic_sink: DiagnosticSink,
+        adapter_id: Option<String>,
+        session_origin: Instant,
+        session_origin_wall_unix_ns: i64,
+        adapter_offset_ns: i64,
+    ) -> Self {
         let (commands, command_rx) = mpsc::sync_channel(1);
         let oem_status = Arc::new(Mutex::new(OemPollingStatus::default()));
         running.store(true, Ordering::Release);
+        output.source_connected();
         let worker_running = running.clone();
         let worker_oem_status = oem_status.clone();
         let worker = thread::spawn(move || {
@@ -64,6 +96,9 @@ impl AcquisitionHandle {
                 diagnostic_sink,
                 adapter_id,
                 worker_oem_status,
+                session_origin,
+                session_origin_wall_unix_ns,
+                adapter_offset_ns,
             )
         });
         Self {
@@ -88,13 +123,25 @@ impl AcquisitionHandle {
         &self,
         request: ResearchTestRequest,
     ) -> Result<ResearchTestResult, LogNookError> {
-        let (reply, response) = mpsc::channel();
-        self.commands
-            .send(WorkerCommand::ResearchTest(request, reply))
-            .map_err(|_| LogNookError::new("Acquisition worker has stopped"))?;
-        response.recv().map_err(|_| {
+        self.queue_research_test(request)?.recv().map_err(|_| {
             LogNookError::new("Acquisition worker did not complete the research test")
         })?
+    }
+
+    pub(crate) fn queue_research_test(
+        &self,
+        request: ResearchTestRequest,
+    ) -> Result<mpsc::Receiver<Result<ResearchTestResult, LogNookError>>, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.commands
+            .try_send(WorkerCommand::ResearchTest(request, reply))
+            .map_err(|error| match error {
+                mpsc::TrySendError::Full(_) => LogNookError::new("Acquisition worker is busy"),
+                mpsc::TrySendError::Disconnected(_) => {
+                    LogNookError::new("Acquisition worker has stopped")
+                }
+            })?;
+        Ok(response)
     }
 
     pub(crate) fn execute_raw_command(
@@ -147,6 +194,9 @@ fn run(
     diagnostic_sink: DiagnosticSink,
     adapter_id: Option<String>,
     oem_status: Arc<Mutex<OemPollingStatus>>,
+    session_origin: Instant,
+    session_origin_wall_unix_ns: i64,
+    adapter_offset_ns: i64,
 ) {
     let signal_ids = signals
         .iter()
@@ -166,7 +216,9 @@ fn run(
         });
     };
     let interval = adapter.sample_interval();
-    let acquisition_started = Instant::now();
+    let acquisition_started = session_origin;
+    let mut adapter_offset_ns = adapter_offset_ns;
+    let mut adapter_offset_from_wall = false;
     let mut failed = false;
     let mut consecutive_transient_failures = 0;
     let mut next_poll = Instant::now();
@@ -254,10 +306,20 @@ fn run(
             match result {
                 Ok(samples) => {
                     consecutive_transient_failures = 0;
-                    if samples
-                        .into_iter()
-                        .any(|sample| output.send_sample(sample).is_err())
-                    {
+                    if samples.into_iter().any(|mut sample| {
+                        if !adapter_offset_from_wall
+                            && sample.wall_time_unix_ns >= session_origin_wall_unix_ns
+                            && sample.elapsed_ns >= 0
+                        {
+                            adapter_offset_ns = sample
+                                .wall_time_unix_ns
+                                .saturating_sub(session_origin_wall_unix_ns)
+                                .saturating_sub(sample.elapsed_ns);
+                            adapter_offset_from_wall = true;
+                        }
+                        sample.elapsed_ns = sample.elapsed_ns.saturating_add(adapter_offset_ns);
+                        output.send_sample(sample).is_err()
+                    }) {
                         break;
                     }
                 }
@@ -338,9 +400,7 @@ fn run(
         .active = false;
     adapter.disconnect();
     running.store(false, Ordering::Release);
-    if failed {
-        let _ = output.send_disconnected();
-    }
+    let _ = output.source_disconnected(true, failed);
 }
 
 fn poll_oem_group(

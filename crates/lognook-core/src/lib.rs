@@ -29,6 +29,7 @@ mod recording_view;
 mod research;
 mod session;
 mod simulator;
+mod vehicle_diagnostics;
 
 pub use a30::{
     A30Adapter, A30CanReply, A30Decoder, A30Frame, A30GraphValue, A30ReadOutcome, A30ReadTest,
@@ -111,3 +112,7 @@ pub use research::{
     ResearchTestResult, ResearchTestSelection,
 };
 pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
+pub use vehicle_diagnostics::{
+    DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticRead, DiagnosticReadKind,
+    DiagnosticReport, DiagnosticRequest, DiagnosticValue, supports_vehicle_diagnostics,
+};

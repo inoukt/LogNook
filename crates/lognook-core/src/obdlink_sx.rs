@@ -73,6 +73,67 @@ impl ObdLinkSxAdapter {
         adapter
     }
 
+    fn read_vehicle_diagnostic(
+        &mut self,
+        query: crate::DiagnosticQueryRequest,
+    ) -> Result<crate::DiagnosticReport, LogNookError> {
+        if self.started.is_none() {
+            return Err(LogNookError::new("OBDLink SX adapter is not connected"));
+        }
+        if !self.restore_adapter_settings {
+            return Err(LogNookError::new(
+                "OBDLink SX vehicle diagnostics require ISO 15765-4 (CAN 11/500)",
+            ));
+        }
+        query.validate().map_err(LogNookError::new)?;
+        let adapter = self
+            .device
+            .clone()
+            .ok_or_else(|| LogNookError::new("OBDLink SX identity is unavailable"))?;
+        let started_at_unix_ms = crate::vehicle_diagnostics::now_unix_ms();
+        let adapter_started_at_unix_ms = started_at_unix_ms;
+        let request_started = Instant::now();
+        let data = query
+            .payload
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>();
+        let exact_adapter_command = format!("STPX H:7DF, D:{data}, T:250");
+        let reads = match self.command(&exact_adapter_command) {
+            Ok(raw_response) => crate::vehicle_diagnostics::parse_adapter_response(
+                &query,
+                exact_adapter_command.clone(),
+                raw_response,
+                adapter_started_at_unix_ms,
+                request_started.elapsed().as_millis() as u64,
+            ),
+            Err(error) if error.is_transient() => vec![query.no_response(
+                String::new(),
+                exact_adapter_command.clone(),
+                adapter_started_at_unix_ms,
+                request_started.elapsed().as_millis() as u64,
+                Some(error.to_string()),
+            )],
+            Err(error) => vec![query.transport_error(
+                String::new(),
+                exact_adapter_command,
+                adapter_started_at_unix_ms,
+                request_started.elapsed().as_millis() as u64,
+                error.to_string(),
+            )],
+        };
+        Ok(crate::DiagnosticReport {
+            adapter,
+            protocol: "ISO 15765-4 (CAN 11/500) via OBDLink SX".into(),
+            started_at_unix_ms,
+            request: crate::DiagnosticRequest::default(),
+            reads,
+            route_restore_error: None,
+            evidence_saved: false,
+            evidence_save_error: None,
+        })
+    }
+
     fn open(&mut self) -> Result<(), LogNookError> {
         self.transport.open()
     }
@@ -300,16 +361,21 @@ impl HardwareAdapter for ObdLinkSxAdapter {
         &mut self,
         request: crate::ResearchTestRequest,
     ) -> Result<crate::ResearchTestResult, LogNookError> {
-        let crate::ResearchTestRequest::OemCandidate(spec) = request else {
-            return Err(LogNookError::new(
+        match request {
+            crate::ResearchTestRequest::OemCandidate(spec) => {
+                if self.started.is_none() {
+                    return Err(LogNookError::new("OBDLink SX adapter is not connected"));
+                }
+                self.read_connected_candidate(&spec)
+                    .map(crate::ResearchTestResult::OemCandidate)
+            }
+            crate::ResearchTestRequest::A30ReadTest(_) => Err(LogNookError::new(
                 "OBDLink SX does not support A30 captured read tests",
-            ));
-        };
-        if self.started.is_none() {
-            return Err(LogNookError::new("OBDLink SX adapter is not connected"));
+            )),
+            crate::ResearchTestRequest::Diagnostic(query) => self
+                .read_vehicle_diagnostic(query)
+                .map(crate::ResearchTestResult::Diagnostic),
         }
-        self.read_connected_candidate(&spec)
-            .map(crate::ResearchTestResult::OemCandidate)
     }
 
     fn execute_raw_command(

@@ -809,6 +809,10 @@ impl HardwareAdapter for A30Adapter {
                 read_a30_test(session, &self.address, test)
                     .map(crate::ResearchTestResult::A30ReadTest)
             }
+            crate::ResearchTestRequest::Diagnostic(query) => {
+                read_a30_vehicle_diagnostic(session, &self.address, query)
+                    .map(crate::ResearchTestResult::Diagnostic)
+            }
         }
     }
 
@@ -1115,6 +1119,110 @@ fn read_a30_test(
             read_test_detail(test, &replies)
         },
         raw_response,
+        evidence_saved: false,
+        evidence_save_error: None,
+    })
+}
+
+fn read_a30_vehicle_diagnostic(
+    session: &mut A30Session,
+    address: &str,
+    query: crate::DiagnosticQueryRequest,
+) -> Result<crate::DiagnosticReport, LogNookError> {
+    query.validate().map_err(LogNookError::new)?;
+    let adapter = a30_device(address)?;
+    let started_at_unix_ms = crate::vehicle_diagnostics::now_unix_ms();
+    let mut reads = Vec::new();
+    let adapter_started_at_unix_ms = crate::vehicle_diagnostics::now_unix_ms();
+    let request_started = Instant::now();
+    let trailer = if query.service == 0x06 { 0x01 } else { 0xFF };
+    let request_frame = A30Frame {
+        sequence: session.next_sequence,
+        command: 0xFFEC,
+        data: build_record_payload(query.service, 0xDF, &query.payload, trailer),
+    };
+    let exact_adapter_command = format!(
+        "A30 RFCOMM TX {}",
+        hex_bytes(&encode_host_frame(&request_frame)?)
+    );
+    let route_restore_error = None;
+    match session.request_record_frames(
+        query.service,
+        0xDF,
+        &query.payload,
+        trailer,
+        Duration::from_millis(query.wait_ms),
+        None,
+    ) {
+        Ok((sequence, frames)) => {
+            let latency_ms = request_started.elapsed().as_millis() as u64;
+            let raw_response = frames
+                .iter()
+                .map(|frame| hex_bytes(&encode_dongle_frame(frame)))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let mut replies = Vec::new();
+            let mut decode_errors = Vec::new();
+            for frame in frames.iter().filter(|frame| frame.sequence == sequence) {
+                match decode_can_replies(frame) {
+                    Ok(mut decoded) => replies.append(&mut decoded),
+                    Err(error) => decode_errors.push(error.to_string()),
+                }
+            }
+            if !decode_errors.is_empty() {
+                reads.push(crate::vehicle_diagnostics::malformed_response(
+                    &query,
+                    raw_response.clone(),
+                    exact_adapter_command.clone(),
+                    adapter_started_at_unix_ms,
+                    latency_ms,
+                    decode_errors.join("; "),
+                ));
+            }
+            if replies.is_empty() && decode_errors.is_empty() {
+                reads.push(query.no_response(
+                    raw_response,
+                    exact_adapter_command,
+                    adapter_started_at_unix_ms,
+                    latency_ms,
+                    None,
+                ));
+            } else {
+                reads.extend(replies.into_iter().map(|reply| {
+                    query.report(
+                        Some(reply.response_header),
+                        reply.payload,
+                        raw_response.clone(),
+                        exact_adapter_command.clone(),
+                        adapter_started_at_unix_ms,
+                        latency_ms,
+                        reply.truncated,
+                    )
+                }));
+            }
+        }
+        Err(error) if error.is_transient() => reads.push(query.no_response(
+            String::new(),
+            exact_adapter_command,
+            adapter_started_at_unix_ms,
+            request_started.elapsed().as_millis() as u64,
+            Some(error.to_string()),
+        )),
+        Err(error) => reads.push(query.transport_error(
+            String::new(),
+            exact_adapter_command,
+            adapter_started_at_unix_ms,
+            request_started.elapsed().as_millis() as u64,
+            error.to_string(),
+        )),
+    }
+    Ok(crate::DiagnosticReport {
+        adapter,
+        protocol: "Xtool A30/A30M Bluetooth SPP · SAE J1979 functional CAN".into(),
+        started_at_unix_ms,
+        request: crate::DiagnosticRequest::default(),
+        reads,
+        route_restore_error,
         evidence_saved: false,
         evidence_save_error: None,
     })

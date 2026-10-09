@@ -139,7 +139,7 @@ test("numeric_result_updates_graph_while_recording", () => {
 
   includes(catalogProps, /onGraphCandidate=\{graphResearchCandidate\}/, "the existing candidate graph callback remains connected");
   includes(catalogProps, /onGraphReadValue=\{graphA30ReadValue\}/, "the existing A30 graph callback remains connected");
-  includes(catalogProps, /disabled=\{[^}]*busy[^}]*connected[^}]*replaying[^}]*session/, "only non-live busy/replay/session states block tests");
+  includes(catalogProps, /disabled=\{[^}]*busy[^}]*obdConnected[^}]*replaying[^}]*session/, "only non-live busy/replay/session states block tests");
   const testDisabledProp = catalogProps.match(/disabled=\{([^}]*)\}/)?.[1] ?? "";
   excludes(testDisabledProp, /recording/, "recording does not block active-session research reads");
   includes(panel, /Number\.isFinite\(typedResult\.payload\.decoded_value\?\.value\)/, "only finite positive candidate values select a graph trace");

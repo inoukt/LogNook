@@ -2,12 +2,18 @@
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { canSignalBitPositions, canSignalDefinitionError, extractCanSignalRaw } from "./canWorkbench";
+  import { canScopePoints, scopePath } from "./canDiscovery";
   import type { CanFrame, CanSignalDefinition, Sample } from "./types";
 
   export let frame: CanFrame;
   export let fields: CanSignalDefinition[] = [];
   export let latestElapsedNs = frame.elapsed_ns;
   export let initialFieldId: string | null = null;
+  export let initialStartBit = 0;
+  export let initialBitLength = 16;
+  export let initialName = "";
+  export let evidence = "";
+  export let history: CanFrame[] = [];
   export let onSave: (field: CanSignalDefinition) => unknown = () => {};
   export let onRemove: (id: string) => unknown = () => {};
   export let onClose: () => void = () => {};
@@ -18,9 +24,9 @@
     && field.can_id === frame.can_id && field.extended === frame.extended);
   let selectedFieldId = initialField?.id ?? "__new";
   let fieldId = initialField?.id ?? makeFieldId();
-  let name = initialField?.name ?? `CAN 0x${frame.can_id.toString(16).toUpperCase()}`;
-  let startBit = initialField?.start_bit ?? 0;
-  let bitLength = initialField?.bit_length ?? 16;
+  let name = initialField?.name ?? (initialName || `CAN 0x${frame.can_id.toString(16).toUpperCase()}`);
+  let startBit = initialField?.start_bit ?? initialStartBit;
+  let bitLength = initialField?.bit_length ?? initialBitLength;
   let byteOrder: "intel" | "motorola" = initialField?.byte_order ?? "intel";
   let signed = initialField?.signed ?? false;
   let factor = initialField?.factor ?? 1;
@@ -31,10 +37,23 @@
   let dialogElement: HTMLDialogElement;
   let previewTimer: ReturnType<typeof setTimeout> | undefined;
   let previewSequence = 0;
+  let previewInFlight = false;
+  let previewPending = false;
+  let followLive = true;
+  const evidenceFrame = frame;
+  let previewFrame: CanFrame | null = null;
+  let lastLiveFrame: CanFrame | null = null;
+  $: liveFrame = [...history].reverse().find((item) => item.direction === "rx" && item.can_id === evidenceFrame.can_id && item.extended === evidenceFrame.extended);
+  $: frame = followLive && liveFrame ? liveFrame : evidenceFrame;
+  $: refreshFramePreview(frame);
+  $: scope = canScopePoints(history, frame.can_id, frame.extended, startBit, bitLength, byteOrder, signed, factor, offset);
 
   $: matchingFields = fields.filter((field) => field.can_id === frame.can_id && field.extended === frame.extended);
   $: selectedBits = canSignalBitPositions(startBit, bitLength, byteOrder) ?? [];
   $: rawValue = extractCanSignalRaw(frame.data, startBit, bitLength, byteOrder, signed);
+  $: previewRawValue = preview && previewFrame
+    ? extractCanSignalRaw(previewFrame.data, startBit, bitLength, byteOrder, signed)
+    : rawValue;
   $: frameAgeNs = Math.max(0, latestElapsedNs - frame.elapsed_ns);
   $: definitionError = canSignalDefinitionError({
     id: fieldId.trim(), name: name.trim(), can_id: frame.can_id, extended: frame.extended,
@@ -102,26 +121,57 @@
   }
 
   function schedulePreview() {
+    schedulePreviewTask(true);
+  }
+
+  function schedulePreviewTask(invalidate: boolean) {
     if (previewTimer) clearTimeout(previewTimer);
-    const sequence = ++previewSequence;
-    preview = null;
+    if (invalidate) previewSequence++;
+    const sequence = previewSequence;
+    if (invalidate) {
+      preview = null;
+      previewFrame = null;
+    }
     previewError = "";
     previewTimer = setTimeout(async () => {
+      previewTimer = undefined;
+      if (previewInFlight) { previewPending = true; return; }
+      previewInFlight = true;
+      const requestFrame = frame;
       const current = definition();
       const invalid = canSignalDefinitionError(current)
         ?? (fields.some((field) => field.id === current.id && field.id !== selectedFieldId) ? "Signal ID already exists" : null);
-      if (invalid) { previewError = invalid; return; }
-      if (rawValue === null) { previewError = `Selected ${bitLength}-bit field extends past this ${frame.data.length}-byte frame.`; return; }
       try {
-        const result = await invoke<Sample | null>("preview_can_signal", { frame, definition: current });
-        if (sequence === previewSequence) {
-          preview = result;
-          if (!result) previewError = "This frame is not an RX sample for the selected CAN ID.";
+        const requestRaw = extractCanSignalRaw(requestFrame.data, startBit, bitLength, byteOrder, signed);
+        if (invalid) {
+          if (sequence === previewSequence) previewError = invalid;
+        } else if (requestRaw === null) {
+          if (sequence === previewSequence) previewError = `Selected ${bitLength}-bit field extends past this ${requestFrame.data.length}-byte frame.`;
+        } else {
+          const result = await invoke<Sample | null>("preview_can_signal", { frame: requestFrame, definition: current });
+          if (sequence === previewSequence) {
+            preview = result;
+            previewFrame = requestFrame;
+            if (!result) previewError = "This frame is not an RX sample for the selected CAN ID.";
+          }
         }
       } catch (error) {
         if (sequence === previewSequence) previewError = String(error);
+      } finally {
+        previewInFlight = false;
+        if (previewPending) {
+          previewPending = false;
+          schedulePreviewTask(false);
+        }
       }
     }, 120);
+  }
+
+  function refreshFramePreview(current: CanFrame) {
+    if (current === lastLiveFrame) return;
+    lastLiveFrame = current;
+    if (previewInFlight) previewPending = true;
+    else if (!previewTimer) schedulePreviewTask(false);
   }
 
   async function save() {
@@ -146,7 +196,7 @@
       <div><p class="eyebrow">VISUAL CAN FIELD</p><h2 id="can-editor-title">{selectedFieldId === "__new" ? "Add signal" : "Edit signal"}</h2></div>
       <button class="button secondary" type="button" onclick={closeEditor} aria-label="Close CAN signal editor">×</button>
     </header>
-    <p class="can-editor-frame">Frozen RX · {frame.extended ? "29-bit" : "11-bit"} ID 0x{frame.can_id.toString(16).toUpperCase().padStart(frame.extended ? 8 : 3, "0")} · DLC {frame.data.length} · {(frame.elapsed_ns / 1e9).toFixed(3)}s{#if frameAgeNs > 0} · { (frameAgeNs / 1e9).toFixed(2)}s older than latest bus frame{/if}</p>
+    <p class="can-editor-frame">{followLive ? "Live RX" : "Frozen RX"} · {frame.extended ? "29-bit" : "11-bit"} ID 0x{frame.can_id.toString(16).toUpperCase().padStart(frame.extended ? 8 : 3, "0")} · DLC {frame.data.length} · {(frame.elapsed_ns / 1e9).toFixed(3)}s{#if frameAgeNs > 0} · { (frameAgeNs / 1e9).toFixed(2)}s older than latest bus frame{/if}</p>
     {#if matchingFields.length}
       <label class="can-editor-existing">Field
         <select class="text-input" bind:value={selectedFieldId} onchange={chooseField}>
@@ -170,6 +220,10 @@
       {/each}
     </div>
     <p class="can-editor-help">Bit numbers are LSB0 within each byte. Click a start bit; the highlighted range follows the selected Intel or Motorola order.</p>
+    {#if evidence}<p class="can-editor-help">Event evidence: {evidence}</p>{/if}
+    <label class="can-editor-check"><input type="checkbox" bind:checked={followLive} /> Follow live RX · {followLive ? "latest frame" : "event frame frozen"}</label>
+    <svg class="can-mini-scope" viewBox="0 0 100 50" preserveAspectRatio="none" role="img" aria-label="Recent decoded CAN field values"><path d={scopePath(scope)} fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke" /></svg>
+    <p class="can-editor-help">{scope.length} recent samples · preview only; saving uses the Rust decoder and common recording pipeline.</p>
 
     <div class="can-editor-form">
       <label>Name<input class="text-input" bind:value={name} oninput={schedulePreview} /></label>
@@ -187,8 +241,9 @@
     </div>
 
     <div class="can-editor-preview" aria-live="polite">
-      <span>Raw <strong>{rawValue?.toString() ?? "—"}</strong></span>
+      <span>Raw <strong>{previewRawValue?.toString() ?? "—"}</strong></span>
       <span>Decoded <strong>{preview ? `${preview.value.toFixed(4)} ${preview.unit}` : "—"}</strong></span>
+      {#if preview}<span>Frame {(preview.elapsed_ns / 1e9).toFixed(3)}s</span>{/if}
       {#if definitionError}<span class="can-editor-error">{definitionError}</span>{:else if previewError}<span class="can-editor-error">{previewError}</span>{:else if !preview}<span class="can-muted">Previewing in Rust…</span>{/if}
     </div>
     <footer class="can-editor-actions">
@@ -198,6 +253,7 @@
 </dialog>
 
 <style>
+  .can-mini-scope { width:100%; height:80px; border:1px solid var(--border); background:var(--surface-deep); border-radius:4px; }
   .can-signal-editor { position:fixed; inset:0; display:grid; gap:8px; width:min(760px, calc(100vw - 24px)); max-width:none; max-height:calc(100vh - 24px); margin:auto; overflow:auto; padding:12px; border:1px solid var(--border-strong); border-radius:9px; color:var(--text); background:var(--surface); box-shadow:0 16px 48px #0009; }
   .can-signal-editor::backdrop { background:#05090dcc; backdrop-filter:blur(2px); }
   .can-editor-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }

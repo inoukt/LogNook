@@ -371,21 +371,26 @@ impl HardwareAdapter for Elm327Adapter {
         &mut self,
         request: crate::ResearchTestRequest,
     ) -> Result<crate::ResearchTestResult, LogNookError> {
-        let crate::ResearchTestRequest::OemCandidate(spec) = request else {
-            return Err(LogNookError::new(
+        match request {
+            crate::ResearchTestRequest::OemCandidate(spec) => {
+                if self.started.is_none() {
+                    return Err(LogNookError::new("ELM327 adapter is not connected"));
+                }
+                build_oem_candidate_command(&spec)?;
+                let result = self.read_connected_candidate(&spec);
+                if self.stream.is_some() {
+                    // Mode 01 acquisition uses functional addressing again after research.
+                    self.set_candidate_header("7DF")?;
+                }
+                result.map(crate::ResearchTestResult::OemCandidate)
+            }
+            crate::ResearchTestRequest::A30ReadTest(_) => Err(LogNookError::new(
                 "ELM327 does not support A30 captured read tests",
-            ));
-        };
-        if self.started.is_none() {
-            return Err(LogNookError::new("ELM327 adapter is not connected"));
+            )),
+            crate::ResearchTestRequest::Diagnostic(query) => self
+                .read_vehicle_diagnostic(query)
+                .map(crate::ResearchTestResult::Diagnostic),
         }
-        build_oem_candidate_command(&spec)?;
-        let result = self.read_connected_candidate(&spec);
-        if self.stream.is_some() {
-            // Mode 01 acquisition uses functional addressing again after research.
-            self.set_candidate_header("7DF")?;
-        }
-        result.map(crate::ResearchTestResult::OemCandidate)
     }
 
     fn execute_raw_command(
@@ -515,6 +520,78 @@ fn run_elm_oem_candidate_with_stream(
 }
 
 impl Elm327Adapter {
+    fn read_vehicle_diagnostic(
+        &mut self,
+        query: crate::DiagnosticQueryRequest,
+    ) -> Result<crate::DiagnosticReport, LogNookError> {
+        if self.started.is_none() {
+            return Err(LogNookError::new("ELM327 adapter is not connected"));
+        }
+        query.validate().map_err(LogNookError::new)?;
+        self.set_candidate_header("7DF")?;
+        let address =
+            crate::format_bluetooth_address(crate::parse_bluetooth_address(&self.address)?);
+        let adapter = DeviceDescriptor {
+            stable_id: format!("bt-elm327-{address}"),
+            hardware_family: "ELM327 Bluetooth SPP".into(),
+            firmware: self.firmware.clone(),
+            path: Some(address),
+        };
+        let started_at_unix_ms = crate::vehicle_diagnostics::now_unix_ms();
+        let adapter_started_at_unix_ms = started_at_unix_ms;
+        let request_started = Instant::now();
+        let command = query
+            .payload
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>();
+        let exact_adapter_command = format!("ATSH7DF;{command}");
+        let mut reads = match self.exchange(&command) {
+            Ok(raw_response) => crate::vehicle_diagnostics::parse_adapter_response(
+                &query,
+                exact_adapter_command.clone(),
+                raw_response,
+                adapter_started_at_unix_ms,
+                request_started.elapsed().as_millis() as u64,
+            ),
+            Err(error) if error.is_transient() => vec![query.no_response(
+                String::new(),
+                exact_adapter_command.clone(),
+                adapter_started_at_unix_ms,
+                request_started.elapsed().as_millis() as u64,
+                Some(error.to_string()),
+            )],
+            Err(error) => vec![query.transport_error(
+                String::new(),
+                exact_adapter_command,
+                adapter_started_at_unix_ms,
+                request_started.elapsed().as_millis() as u64,
+                error.to_string(),
+            )],
+        };
+        let route_restore_error = self
+            .set_candidate_header("7DF")
+            .err()
+            .map(|error| error.to_string());
+        if let Some(error) = route_restore_error.as_ref() {
+            for read in &mut reads {
+                read.detail.get_or_insert_with(|| {
+                    format!("Could not restore functional CAN route: {error}")
+                });
+            }
+        }
+        Ok(crate::DiagnosticReport {
+            adapter,
+            protocol: "ISO 15765-4 (CAN 11/500) via ELM327 SPP".into(),
+            started_at_unix_ms,
+            request: crate::DiagnosticRequest::default(),
+            reads,
+            route_restore_error,
+            evidence_saved: false,
+            evidence_save_error: None,
+        })
+    }
+
     fn read_connected_candidate(
         &mut self,
         spec: &OemCandidateTrySpec,

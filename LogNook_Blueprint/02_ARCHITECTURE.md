@@ -273,3 +273,36 @@ payloads while preserving the original returned error for callers.
 `App.svelte` owns the single `diagnostics-event` subscription, its disposal, and native recording-picker/support-export invocation. It retains at most 500 live metadata records. `DiagnosticsPanel.svelte` is mounted once behind the Settings entry; its native modal preserves filters, optional recording selection, and export feedback while closed. On opening or Refresh, it merges `diagnostic_snapshot` with live records by sequence ID, preserving events that arrived during the snapshot request and bounding the merged view to 500.
 
 The typed view formats operation/stage/status/duration, sanitized backend detail, omitted-event/storage failures, and per-signal success/rate/latency summaries. Its explicit field projection excludes packet and measurement fields. Adapter, operation, and errors-only filters affect only display. Opening, refreshing, and exporting diagnostics use no acquisition or research commands. Recording selection defaults to `null`, changes only after an explicit successful picker result, and can be removed. Picker/save cancellation preserves panel state. Native ZIP export receives Tauri's camelCase `recordingPath` argument for the backend's `recording_path` parameter.
+
+## Discovery, vehicle diagnostics and dual adapters — 2026-10-09
+
+The live CAN event analysis remains in Rust. `CanTrafficPanel` now maps an
+operator-selected candidate byte/bit into the shared `CanSignalEditor` using
+`canDiscovery.ts`; this selects an extraction range without assigning semantics.
+The editor keeps the original evidence frame, can follow recent matching RX
+frames, and displays a bounded 120-point scope. The Rust `preview_can_signal`
+command verifies decoded values before the existing save/graph path configures
+fields on the CAN owner. Graph selections and definitions retain their existing
+workspace persistence.
+
+Vehicle diagnostic requests are typed core research requests served by the
+existing serialized OBD owner. The diagnostic model retains one result per
+request and responding ECU, including transport and decoder outcomes, exact
+request, raw response, timestamps, NRC and decoded fields. DTC, identity and
+Mode 06 parsing is separate from the adapter envelopes. Unmapped unit/scaling
+identifiers are displayed as raw values. The async desktop helper releases the
+engine mutex before waiting on a queued research response, so independent CAN
+controls remain available. The dedicated vehicle view complements the existing
+application communication diagnostics view. Saved vehicle-read evidence is
+included in support exports and returned through the native MCP tool.
+
+The engine owns one OBD acquisition worker and one CAN workbench worker.
+Connection checks distinguish OBD, CAN and any connection; a second adapter
+does not replace the first adapter's capabilities or display history. Both
+workers share the session origin while samples retain their source and ECU
+identity. Individual disconnects affect their own owner; full disconnect and
+shutdown finalize both. Recording/export/replay continue on the existing sample
+pipeline and recording schema. Adding a second adapter requires recording to be
+stopped. `get_status` reports both sources; `disconnect_source` operates on one.
+
+User and agent operation instructions: [Discovery and diagnostics](../docs/DISCOVERY_DIAGNOSTICS.md).
