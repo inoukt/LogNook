@@ -69,6 +69,12 @@ pub async fn load_last_recording(state: State<'_, AppState>) -> Result<Recording
 }
 
 #[tauri::command]
+pub async fn close_session(state: State<'_, AppState>) -> Result<(), String> {
+    engine(&state)?.close_session();
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn start_replay(state: State<'_, AppState>, speed: f64) -> Result<(), String> {
     engine(&state)?
         .start_replay(speed)

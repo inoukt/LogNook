@@ -1,6 +1,7 @@
 use super::engine;
 use crate::AppState;
 use lognook_core::{RecordingInfo, export_recording_csv, inspect_recording};
+use std::process::Command;
 use std::{
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
@@ -17,6 +18,58 @@ pub async fn list_recordings(
     list_recordings_in(&state.recordings_dir)
 }
 
+#[tauri::command]
+pub async fn rename_recording(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+) -> Result<(), String> {
+    let mut engine = engine(&state)?;
+    rename_recording_in(&state.recordings_dir, Path::new(&path), &name, &mut engine)
+}
+
+#[tauri::command]
+pub async fn delete_recording(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    let mut engine = engine(&state)?;
+    delete_recording_in(&state.recordings_dir, Path::new(&path), &mut engine)
+}
+
+#[tauri::command]
+pub async fn open_recording_folder(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    let recording = selected_recording_path(&state.recordings_dir, Path::new(&path))?;
+    inspect_recording(&recording).map_err(|error| error.to_string())?;
+    let folder = recording.parent().ok_or("Recording has no parent folder")?;
+    #[cfg(windows)]
+    {
+        Command::new("explorer.exe")
+            .arg(folder)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(folder)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(folder)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = folder;
+        Err("Opening recording folders is unavailable on this platform".into())
+    }
+}
+
 fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>, String> {
     let recordings_dir = recordings_dir
         .canonicalize()
@@ -24,7 +77,9 @@ fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>,
     let mut recordings = Vec::new();
     for entry in std::fs::read_dir(&recordings_dir).map_err(|error| error.to_string())? {
         let Ok(entry) = entry else { continue };
-        let Ok(file_type) = entry.file_type() else { continue };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
         let path = entry.path();
         if !file_type.is_file()
             || path
@@ -33,7 +88,9 @@ fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>,
         {
             continue;
         }
-        let Ok(info) = inspect_recording(&path) else { continue };
+        let Ok(info) = inspect_recording(&path) else {
+            continue;
+        };
         let modified_unix_ms = entry
             .metadata()
             .ok()
@@ -50,9 +107,7 @@ fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>,
             info.sample_count,
         ));
     }
-    recordings.sort_by(|left, right| {
-        right.2.cmp(&left.2).then_with(|| left.1.cmp(&right.1))
-    });
+    recordings.sort_by(|left, right| right.2.cmp(&left.2).then_with(|| left.1.cmp(&right.1)));
     Ok(recordings)
 }
 
@@ -128,7 +183,10 @@ fn same_directory(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn selected_recording_path(recordings_dir: &Path, selected_path: &Path) -> Result<PathBuf, String> {
+pub(super) fn selected_recording_path(
+    recordings_dir: &Path,
+    selected_path: &Path,
+) -> Result<PathBuf, String> {
     let recordings_dir = recordings_dir
         .canonicalize()
         .map_err(|error| error.to_string())?;
@@ -142,7 +200,7 @@ fn selected_recording_path(recordings_dir: &Path, selected_path: &Path) -> Resul
     Ok(selected_path)
 }
 
-fn native_recording_path(selected_path: &Path) -> Result<PathBuf, String> {
+pub(super) fn native_recording_path(selected_path: &Path) -> Result<PathBuf, String> {
     let selected_path = selected_path
         .canonicalize()
         .map_err(|error| error.to_string())?;
@@ -184,6 +242,89 @@ fn save_recording_as_in(
     Ok(target)
 }
 
+fn recording_for_mutation(
+    recordings_dir: &Path,
+    selected_path: &Path,
+    engine: &lognook_core::LogNookEngine,
+) -> Result<PathBuf, String> {
+    if engine.is_recording() {
+        return Err("Stop recording before changing a session".into());
+    }
+    let source = selected_recording_path(recordings_dir, selected_path)?;
+    if engine
+        .active_session_path()
+        .ok()
+        .and_then(|path| path.canonicalize().ok())
+        .is_some_and(|active| same_directory(&active, &source))
+    {
+        return Err("Close the loaded session before changing it".into());
+    }
+    inspect_recording(&source).map_err(|error| error.to_string())?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = PathBuf::from(format!("{}{}", source.to_string_lossy(), suffix));
+        if sidecar.exists() {
+            return Err(
+                "Session has active SQLite sidecar files; close it before changing it".into(),
+            );
+        }
+    }
+    Ok(source)
+}
+
+fn valid_recording_name(name: &str) -> bool {
+    let reserved = ["CON", "PRN", "AUX", "NUL"];
+    let device = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    !name.is_empty()
+        && !name.to_ascii_lowercase().ends_with(".lognook")
+        && name.trim() == name
+        && !name.ends_with('.')
+        && !name
+            .chars()
+            .any(|character| character.is_control() || "<>:\"/\\|?*".contains(character))
+        && !reserved.contains(&device.as_str())
+        && !["COM", "LPT"].iter().any(|prefix| {
+            device.strip_prefix(prefix).is_some_and(|digit| {
+                matches!(
+                    digit,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        })
+}
+
+fn rename_recording_in(
+    recordings_dir: &Path,
+    selected_path: &Path,
+    name: &str,
+    engine: &lognook_core::LogNookEngine,
+) -> Result<(), String> {
+    if !valid_recording_name(name) {
+        return Err("Enter a valid filename without a .lognook extension".into());
+    }
+    let source = recording_for_mutation(recordings_dir, selected_path, engine)?;
+    let target = source.with_file_name(format!("{name}.lognook"));
+    if same_directory(&source, &target) {
+        return Err("Enter a different filename".into());
+    }
+    if target.exists() {
+        return Err("A recording with that filename already exists".into());
+    }
+    std::fs::rename(source, target).map_err(|error| error.to_string())
+}
+
+fn delete_recording_in(
+    recordings_dir: &Path,
+    selected_path: &Path,
+    engine: &lognook_core::LogNookEngine,
+) -> Result<(), String> {
+    let source = recording_for_mutation(recordings_dir, selected_path, engine)?;
+    std::fs::remove_file(source).map_err(|error| error.to_string())
+}
+
 pub(super) fn open_selected_recording(
     selected_path: &Path,
     engine: &mut lognook_core::LogNookEngine,
@@ -199,11 +340,12 @@ pub(super) fn open_selected_recording(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        list_recordings_in, open_selected_recording, save_recording_as_in, share_recording_csv_in,
-    };
     #[cfg(windows)]
     use super::same_directory;
+    use super::{
+        delete_recording_in, list_recordings_in, open_selected_recording, rename_recording_in,
+        save_recording_as_in, share_recording_csv_in, valid_recording_name,
+    };
     use lognook_core::{LogNookEngine, RecordingWriter, Sample, SampleOrigin, SampleQuality};
     use std::{
         path::{Path, PathBuf},
@@ -262,7 +404,10 @@ mod tests {
         let recordings = list_recordings_in(&directory).unwrap();
 
         assert_eq!(
-            recordings.iter().map(|recording| recording.1.as_str()).collect::<Vec<_>>(),
+            recordings
+                .iter()
+                .map(|recording| recording.1.as_str())
+                .collect::<Vec<_>>(),
             ["newer", "older"],
         );
         assert_eq!(recordings[0].3, 2);
@@ -287,7 +432,10 @@ mod tests {
         let info = open_selected_recording(&path, &mut engine).unwrap();
 
         assert_eq!(info.sample_count, 1);
-        assert_eq!(engine.active_session_path().unwrap(), path.canonicalize().unwrap());
+        assert_eq!(
+            engine.active_session_path().unwrap(),
+            path.canonicalize().unwrap()
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -303,7 +451,10 @@ mod tests {
 
         let info = open_selected_recording(&path, &mut engine).unwrap();
         assert_eq!(info.sample_count, 1);
-        assert_eq!(engine.active_session_path().unwrap(), path.canonicalize().unwrap());
+        assert_eq!(
+            engine.active_session_path().unwrap(),
+            path.canonicalize().unwrap()
+        );
         std::fs::remove_dir_all(directory).unwrap();
         std::fs::remove_dir_all(outside).unwrap();
     }
@@ -338,6 +489,80 @@ mod tests {
     }
 
     #[test]
+    fn renames_and_deletes_only_valid_inactive_native_recordings() {
+        let directory = test_directory("session-manage");
+        std::fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("before.lognook");
+        let target = directory.join("after.lognook");
+        create_recording(&source, 1);
+        let engine = LogNookEngine::new(|_| {});
+
+        rename_recording_in(&directory, &source, "after", &engine).unwrap();
+
+        assert!(target.is_file());
+        assert_eq!(
+            lognook_core::inspect_recording(&target)
+                .unwrap()
+                .sample_count,
+            1
+        );
+        assert!(rename_recording_in(&directory, &target, "after", &engine).is_err());
+        assert!(rename_recording_in(&directory, &target, "CON", &engine).is_err());
+        assert!(rename_recording_in(&directory, &target, "bad/name", &engine).is_err());
+        delete_recording_in(&directory, &target, &engine).unwrap();
+        assert!(!target.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_mutate_loaded_recordings_or_sqlite_files_with_sidecars() {
+        let directory = test_directory("session-manage-guard");
+        std::fs::create_dir_all(&directory).unwrap();
+        let loaded = directory.join("loaded.lognook");
+        let other = directory.join("other.lognook");
+        create_recording(&loaded, 1);
+        create_recording(&other, 1);
+        let mut engine = LogNookEngine::new(|_| {});
+        engine.load_recording(&loaded).unwrap();
+
+        assert!(
+            delete_recording_in(&directory, &loaded, &engine)
+                .unwrap_err()
+                .contains("Close the loaded session")
+        );
+        std::fs::write(format!("{}-wal", other.display()), b"pending").unwrap();
+        assert!(
+            rename_recording_in(&directory, &other, "renamed", &engine)
+                .unwrap_err()
+                .contains("sidecar")
+        );
+        assert!(loaded.is_file());
+        assert!(other.is_file());
+        engine.close_session();
+        rename_recording_in(&directory, &loaded, "unloaded", &engine).unwrap();
+        delete_recording_in(&directory, &directory.join("unloaded.lognook"), &engine).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_windows_reserved_and_path_like_names() {
+        for name in [
+            "",
+            "..",
+            "NUL.txt",
+            "COM1",
+            "LPT9",
+            "COM¹",
+            "name.lognook",
+            "foo/bar",
+            "trailing ",
+        ] {
+            assert!(!valid_recording_name(name), "accepted {name:?}");
+        }
+        assert!(valid_recording_name("engine-run 2"));
+    }
+
+    #[test]
     fn share_csv_exports_the_selected_session_and_rejects_external_sources() {
         let directory = test_directory("session-share");
         let outside = test_directory("session-share-outside");
@@ -357,12 +582,10 @@ mod tests {
         let contents = std::fs::read_to_string(&csv).unwrap();
         assert!(contents.contains("signal_key"));
         assert!(contents.contains("test_signal"));
-        assert!(share_recording_csv_in(
-            &directory,
-            &external,
-            &output_directory.join("bad.csv")
-        )
-        .is_err());
+        assert!(
+            share_recording_csv_in(&directory, &external, &output_directory.join("bad.csv"))
+                .is_err()
+        );
         std::fs::remove_dir_all(directory).unwrap();
         std::fs::remove_dir_all(outside).unwrap();
         std::fs::remove_dir_all(output_directory).unwrap();

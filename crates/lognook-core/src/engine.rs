@@ -9,7 +9,7 @@ use crate::{
     model::{
         AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
         DerivedSignalDefinition, EngineEvent, LogNookError, OemPollingStatus, RecordingSummary,
-        Sample, SampleOrigin, SampleQuality, SignalDefinition,
+        RetrospectiveRecordingStart, Sample, SampleOrigin, SampleQuality, SignalDefinition,
     },
     oem_catalog::OemPollPlan,
     pipeline::SamplePipeline,
@@ -619,6 +619,20 @@ impl LogNookEngine {
         }
         self.pipeline.start_recording(path.to_path_buf())?;
         Ok(())
+    }
+
+    pub fn start_recording_from_connect(
+        &mut self,
+        path: &Path,
+    ) -> Result<RetrospectiveRecordingStart, LogNookError> {
+        if !self.is_connected() {
+            return Err(LogNookError::new("Connect an adapter before recording"));
+        }
+        if self.pipeline.is_recording() {
+            return Err(LogNookError::new("A recording is already active"));
+        }
+        self.pipeline
+            .start_recording_from_connect(path.to_path_buf())
     }
 
     pub fn arm_automatic_trigger(

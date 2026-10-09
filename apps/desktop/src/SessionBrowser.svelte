@@ -26,7 +26,10 @@
   let recordings = $state<BrowserRecording[]>([]);
   let loading = $state(false);
   let actionPath = $state<string | null>(null);
-  let actionKind = $state<"open" | "share" | "saveAs" | null>(null);
+  let actionKind = $state<"open" | "share" | "saveAs" | "rename" | "delete" | "folder" | null>(null);
+  let renamingPath = $state<string | null>(null);
+  let renameName = $state("");
+  let confirmDeletePath = $state<string | null>(null);
   let error = $state("");
   let wasOpen = false;
 
@@ -74,6 +77,38 @@
     }
   }
 
+  function startRename(recording: BrowserRecording) {
+    renamingPath = recording.path;
+    renameName = recording.name;
+    confirmDeletePath = null;
+  }
+
+  function focusRenameInput(input: HTMLInputElement) {
+    input.focus();
+    input.select();
+  }
+
+  async function manageRecording(recording: BrowserRecording, action: "rename" | "delete" | "folder") {
+    if (disabled || loading || actionPath !== null) return;
+    if (action === "delete" && confirmDeletePath !== recording.path) return;
+    actionPath = recording.path;
+    actionKind = action;
+    error = "";
+    try {
+      if (action === "rename") await invoke("rename_recording", { path: recording.path, name: renameName });
+      else if (action === "delete") await invoke("delete_recording", { path: recording.path });
+      else await invoke("open_recording_folder", { path: recording.path });
+      renamingPath = null;
+      confirmDeletePath = null;
+      if (action !== "folder") await refresh();
+    } catch (cause) {
+      error = errorMessage(cause);
+    } finally {
+      actionPath = null;
+      actionKind = null;
+    }
+  }
+
   function errorMessage(cause: unknown): string {
     if (typeof cause === "string") return cause;
     if (cause instanceof Error) return cause.message;
@@ -103,7 +138,15 @@
       {#each recordings as recording (recording.path)}
         <li class="recording-row">
           <div class="recording-details">
-            <strong>{recording.name}</strong>
+            {#if renamingPath === recording.path}
+              <form class="rename-form" onsubmit={(event) => { event.preventDefault(); void manageRecording(recording, "rename"); }}>
+                <input use:focusRenameInput aria-label={`New filename for ${recording.name}`} bind:value={renameName} required maxlength="180" disabled={disabled || actionPath !== null} />
+                <button class="button secondary" type="submit" disabled={disabled || loading || actionPath !== null}>Save name</button>
+                <button class="button secondary" type="button" onclick={() => { renamingPath = null; }} disabled={actionPath !== null}>Cancel</button>
+              </form>
+            {:else}
+              <strong>{recording.name}</strong>
+            {/if}
             <span>{formatRecordingTime(recording.modified_unix_ms)}</span>
             <span>{recording.sample_count.toLocaleString()} samples</span>
           </div>
@@ -121,8 +164,8 @@
             <button
               class="button secondary"
               type="button"
-              aria-label={`Share ${recording.name} as CSV`}
-              title="Save a CSV copy with samples and markers for sharing"
+              aria-label={`Share ${recording.name}`}
+              title="Create a public session link or save a CSV locally"
               onclick={() => runRecordingAction(recording, "share")}
               disabled={disabled || loading || actionPath !== null}
             >
@@ -138,6 +181,18 @@
             >
               {#if actionPath === recording.path && actionKind === "saveAs"}Saving…{:else}Save As{/if}
             </button>
+            <button class="button secondary" type="button" aria-label={`Open folder for ${recording.name}`} onclick={() => manageRecording(recording, "folder")} disabled={disabled || loading || actionPath !== null}>
+              {#if actionPath === recording.path && actionKind === "folder"}Opening…{:else}Folder{/if}
+            </button>
+            {#if confirmDeletePath === recording.path}
+              <button class="button secondary" type="button" onclick={() => manageRecording(recording, "delete")} disabled={disabled || loading || actionPath !== null}>
+                {#if actionPath === recording.path && actionKind === "delete"}Deleting…{:else}Confirm delete{/if}
+              </button>
+              <button class="button secondary" type="button" onclick={() => { confirmDeletePath = null; }} disabled={actionPath !== null}>Cancel</button>
+            {:else}
+              <button class="button secondary" type="button" aria-label={`Rename ${recording.name}`} onclick={() => startRename(recording)} disabled={disabled || loading || actionPath !== null}>Rename</button>
+              <button class="button secondary" type="button" aria-label={`Delete ${recording.name}`} onclick={() => { confirmDeletePath = recording.path; renamingPath = null; }} disabled={disabled || loading || actionPath !== null}>Delete</button>
+            {/if}
           </div>
         </li>
       {/each}
@@ -155,6 +210,8 @@
   .recording-row { flex-wrap: wrap; }
   .recording-details { flex: 1; flex-wrap: wrap; gap: 0.3rem 0.8rem; min-width: 0; }
   .recording-details strong { flex-basis: 100%; overflow-wrap: anywhere; }
+  .rename-form { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 0.35rem; }
+  .rename-form input { min-width: 8rem; flex: 1; }
   .recording-details span, .browser-message { color: var(--muted, #9aa8b5); font-size: 0.86rem; }
   .browser-message { margin: 0; }
   .recording-actions { flex-wrap: wrap; gap: 0.35rem; }

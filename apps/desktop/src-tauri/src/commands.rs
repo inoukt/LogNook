@@ -12,6 +12,8 @@ mod exports;
 pub use exports::*;
 mod sessions;
 pub use sessions::*;
+mod session_share;
+pub use session_share::*;
 mod oem_catalog;
 pub use oem_catalog::*;
 pub(crate) use oem_catalog::{execute_candidate_try, execute_obd_read_test};
@@ -119,6 +121,27 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<String, Strin
         .start_recording(&path)
         .map_err(|error| error.to_string())?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn start_recording_from_connect(
+    state: State<'_, AppState>,
+) -> Result<RecordingFromConnect, String> {
+    let path = session_path(&state.recordings_dir);
+    let result = engine(&state)?
+        .start_recording_from_connect(&path)
+        .map_err(|error| error.to_string())?;
+    Ok(RecordingFromConnect {
+        path: path.to_string_lossy().into_owned(),
+        history: result,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct RecordingFromConnect {
+    path: String,
+    #[serde(flatten)]
+    history: lognook_core::RetrospectiveRecordingStart,
 }
 
 #[tauri::command]

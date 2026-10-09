@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const browser = await import("../src/sessionBrowser.ts").catch(() => null);
@@ -40,4 +41,15 @@ test("opening a session waits until the player has activated it", async () => {
   releaseActivation();
   await pending;
   assert.equal(active, true);
+});
+
+test("session browser exposes inline rename, confirmed delete, and folder actions", async () => {
+  const source = await readFile(new URL("../src/SessionBrowser.svelte", import.meta.url), "utf8");
+  assert.match(source, /invoke\("rename_recording"/);
+  assert.match(source, /invoke\("delete_recording"/);
+  assert.match(source, /invoke\("open_recording_folder"/);
+  assert.match(source, /Confirm delete/);
+  assert.match(source, /New filename for/);
+  assert.match(source, /use:focusRenameInput/);
+  assert.match(source, /Open folder for/);
 });

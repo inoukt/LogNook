@@ -79,8 +79,9 @@ pub use lognook_j2534_protocol::{J2534Provider, J2534ProviderDiscovery};
 pub use model::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
     DerivedSignalDefinition, DeviceDescriptor, EngineEvent, LogNookError, Marker, OemPollingStatus,
-    PlaybackState, Recording, RecordingInfo, RecordingSignal, RecordingSummary, Sample,
-    SampleOrigin, SampleQuality, SignalDefinition, TriggerDirection,
+    PlaybackState, Recording, RecordingInfo, RecordingSignal, RecordingSummary,
+    RetrospectiveRecordingStart, Sample, SampleOrigin, SampleQuality, SignalDefinition,
+    TriggerDirection,
 };
 pub use obdlink_sx::{
     ObdLinkSxAdapter, OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse,

@@ -14,13 +14,11 @@ pub(super) fn start_automatic_recording(
     let cutoff_ns = trigger_sample
         .elapsed_ns
         .saturating_sub((config.pre_trigger_ms as i64).saturating_mul(1_000_000));
-    for sample in pre_trigger_samples.iter().filter(|sample| {
+    if let Err(error) = writer.append_batch(pre_trigger_samples.iter().filter(|sample| {
         sample.elapsed_ns >= cutoff_ns && sample.elapsed_ns <= trigger_sample.elapsed_ns
-    }) {
-        if let Err(error) = writer.append(sample) {
-            let _ = writer.finish();
-            return Err(error.to_string());
-        }
+    })) {
+        let _ = writer.finish();
+        return Err(error.to_string());
     }
     let marker = Marker {
         id: None,
