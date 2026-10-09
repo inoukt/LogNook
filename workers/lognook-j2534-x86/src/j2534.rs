@@ -15,7 +15,9 @@ const ERR_TIMEOUT: u32 = 0x09;
 const ERR_BUFFER_EMPTY: u32 = 0x10;
 const MESSAGE_DATA_SIZE: usize = 4128;
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
-const MAX_READ_MESSAGES: usize = 8;
+// OPTA can lose an already-received reply while waiting to fill a larger batch.
+// Read one at a time and retain the bounded loop's per-ECU response collection.
+const MAX_READ_MESSAGES: usize = 1;
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
 const READ_WINDOW: Duration = Duration::from_millis(250);
 
@@ -148,6 +150,7 @@ pub(crate) trait PassThruApi {
         channel: u32,
         pid: u8,
         timeout_ms: u32,
+        expected_ecu: Option<u16>,
     ) -> Result<Vec<Mode01Payload>, J2534Failure>;
     fn disconnect(&mut self, channel: u32) -> Result<(), J2534Failure>;
     fn close_device(&mut self, device: u32) -> Result<(), J2534Failure>;
@@ -194,21 +197,76 @@ pub(crate) fn decode_mode01_message(
     }))
 }
 
+fn timeout_left_messages_unfilled(status: u32, messages: &[J2534Message]) -> bool {
+    status == ERR_TIMEOUT
+        && messages.iter().all(|message| {
+            message.protocol_id == 0
+                && message.rx_status == 0
+                && message.tx_flags == 0
+                && message.timestamp == 0
+                && message.data_size == 0
+                && message.extra_data_index == 0
+                && message.data.iter().all(|byte| *byte == 0)
+        })
+}
+
+#[derive(Debug)]
+struct Mode01DecodeFailure {
+    kind: WorkerErrorKind,
+    diagnostic: String,
+}
+
+fn malformed_mode01_diagnostic(message: &J2534Message, requested_pid: u8) -> String {
+    let length = (message.data_size as usize).min(message.data.len()).min(16);
+    let prefix = message.data[..length]
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "J2534 returned an invalid ISO15765 OBD response for PID {requested_pid:02X} (RxStatus=0x{:08X}, ProtocolID=0x{:08X}, DataSize={}, DataPrefix=[{prefix}])",
+        message.rx_status, message.protocol_id, message.data_size
+    )
+}
+
 fn decode_mode01_batch(
     messages: &[J2534Message],
     requested_pid: u8,
     latency_us: u64,
-) -> Result<Vec<Mode01Payload>, WorkerErrorKind> {
-    messages
-        .iter()
-        .filter_map(
-            |message| match decode_mode01_message(message, requested_pid, latency_us) {
-                Ok(Some(payload)) => Some(Ok(payload)),
-                Ok(None) => None,
-                Err(error) => Some(Err(error)),
-            },
-        )
-        .collect()
+) -> Result<Vec<Mode01Payload>, Mode01DecodeFailure> {
+    let mut payloads = Vec::new();
+    for message in messages {
+        match decode_mode01_message(message, requested_pid, latency_us) {
+            Ok(Some(payload)) => payloads.push(payload),
+            Ok(None) => {}
+            Err(kind) => {
+                return Err(Mode01DecodeFailure {
+                    kind,
+                    diagnostic: malformed_mode01_diagnostic(message, requested_pid),
+                });
+            }
+        }
+    }
+    Ok(payloads)
+}
+
+fn mode01_request_id(expected_ecu: Option<u16>) -> Result<u32, J2534Failure> {
+    match expected_ecu {
+        None => Ok(0x7DF),
+        Some(ecu @ 0x7E8..=0x7EF) => Ok(u32::from(ecu - 8)),
+        Some(_) => Err(J2534Failure::new(
+            WorkerErrorKind::MalformedResponse,
+            "Invalid standard OBD ECU route",
+        )),
+    }
+}
+
+fn matching_physical_reply(expected_ecu: Option<u16>, replies: &[Mode01Payload]) -> bool {
+    expected_ecu.is_some_and(|ecu| {
+        replies
+            .iter()
+            .any(|reply| u16::from_str_radix(&reply.ecu_id, 16).ok() == Some(ecu))
+    })
 }
 
 #[cfg(all(target_os = "windows", target_arch = "x86"))]
@@ -216,7 +274,8 @@ mod dynamic {
     use super::{
         ISO15765_FRAME_PAD, ISO15765_PROTOCOL_ID, J2534Failure, J2534Message, MAX_READ_MESSAGES,
         PassThruApi, READ_WINDOW, ReadBatch, build_obd_flow_control_filters, classify_read_batch,
-        decode_mode01_batch, no_response_diagnostic,
+        decode_mode01_batch, matching_physical_reply, mode01_request_id, no_response_diagnostic,
+        timeout_left_messages_unfilled,
     };
     use lognook_j2534_protocol::{J2534Identity, Mode01Payload, WorkerErrorKind};
     use std::{
@@ -418,13 +477,15 @@ mod dynamic {
             channel: u32,
             pid: u8,
             timeout_ms: u32,
+            expected_ecu: Option<u16>,
         ) -> Result<Vec<Mode01Payload>, J2534Failure> {
             let started = Instant::now();
             let mut request = J2534Message::default();
             request.protocol_id = ISO15765_PROTOCOL_ID;
             request.tx_flags = ISO15765_FRAME_PAD;
             request.data_size = 6;
-            request.data[..6].copy_from_slice(&[0x00, 0x00, 0x07, 0xDF, 0x01, pid]);
+            request.data[..4].copy_from_slice(&mode01_request_id(expected_ecu)?.to_be_bytes());
+            request.data[4..6].copy_from_slice(&[0x01, pid]);
             let mut written = 1;
             let status =
                 unsafe { (self.write_messages)(channel, &mut request, &mut written, timeout_ms) };
@@ -450,6 +511,13 @@ mod dynamic {
                 let status = unsafe {
                     (self.read_messages)(channel, messages.as_mut_ptr(), &mut count, remaining_ms)
                 };
+                // OPTA leaves NumMsgs unchanged on a timeout and does not fill pMsg.
+                // Preserve genuine partial replies, but never decode untouched slots.
+                if count as usize <= MAX_READ_MESSAGES
+                    && timeout_left_messages_unfilled(status, &messages[..count as usize])
+                {
+                    break;
+                }
                 let batch =
                     classify_read_batch(status, count, MAX_READ_MESSAGES).map_err(|kind| {
                         J2534Failure::new(
@@ -476,16 +544,10 @@ mod dynamic {
                     started.elapsed().as_micros().min(u64::MAX as u128) as u64
                 });
                 responses.extend(
-                    decode_mode01_batch(&messages[..batch_count], pid, *latency_us).map_err(
-                        |kind| {
-                            J2534Failure::new(
-                                kind,
-                                "J2534 returned an invalid ISO15765 OBD response",
-                            )
-                        },
-                    )?,
+                    decode_mode01_batch(&messages[..batch_count], pid, *latency_us)
+                        .map_err(|failure| J2534Failure::new(failure.kind, failure.diagnostic))?,
                 );
-                if stop_after {
+                if stop_after || matching_physical_reply(expected_ecu, &responses) {
                     break;
                 }
             }
@@ -553,7 +615,8 @@ mod tests {
     use super::{
         ERR_BUFFER_EMPTY, ERR_TIMEOUT, ISO15765_PROTOCOL_ID, J2534Message, RX_STATUS_TX_MSG_TYPE,
         ReadBatch, build_obd_flow_control_filters, classify_read_batch, decode_mode01_batch,
-        decode_mode01_message, no_response_diagnostic,
+        decode_mode01_message, matching_physical_reply, mode01_request_id, no_response_diagnostic,
+        timeout_left_messages_unfilled,
     };
     use lognook_j2534_protocol::WorkerErrorKind;
 
@@ -568,6 +631,23 @@ mod tests {
     #[test]
     fn j2534_message_matches_the_v0404_buffer_layout() {
         assert_eq!(std::mem::size_of::<J2534Message>(), 4152);
+    }
+
+    #[test]
+    fn live_read_targets_only_a_discovered_standard_ecu_and_finishes_on_its_reply() {
+        assert_eq!(mode01_request_id(None).unwrap(), 0x7DF);
+        assert_eq!(mode01_request_id(Some(0x7E8)).unwrap(), 0x7E0);
+        assert_eq!(mode01_request_id(Some(0x7EF)).unwrap(), 0x7E7);
+        assert!(mode01_request_id(Some(0x700)).is_err());
+        let reply = decode_mode01_message(&rpm_message(), 0x0C, 1000)
+            .unwrap()
+            .unwrap();
+        assert!(!matching_physical_reply(None, std::slice::from_ref(&reply)));
+        assert!(!matching_physical_reply(
+            Some(0x7E9),
+            std::slice::from_ref(&reply)
+        ));
+        assert!(matching_physical_reply(Some(0x7E8), &[reply]));
     }
 
     #[test]
@@ -667,6 +747,54 @@ mod tests {
         assert_eq!(
             decode_mode01_message(&message, 0x0C, 0),
             Err(WorkerErrorKind::MalformedResponse)
+        );
+    }
+
+    #[test]
+    fn opta_timeout_with_unchanged_count_does_not_fabricate_a_response() {
+        assert!(timeout_left_messages_unfilled(
+            ERR_TIMEOUT,
+            &[J2534Message::default()]
+        ));
+        assert!(!timeout_left_messages_unfilled(
+            ERR_TIMEOUT,
+            &[rpm_message()]
+        ));
+        assert!(!timeout_left_messages_unfilled(
+            0,
+            &[J2534Message::default()]
+        ));
+    }
+
+    #[test]
+    fn malformed_batch_diagnostic_includes_j2534_message_metadata() {
+        let mut message = rpm_message();
+        message.protocol_id = 0x05;
+
+        let failure = decode_mode01_batch(&[message], 0x0C, 0).unwrap_err();
+        assert_eq!(failure.kind, WorkerErrorKind::MalformedResponse);
+
+        assert!(
+            failure.diagnostic.contains("ProtocolID=0x00000005"),
+            "{}",
+            failure.diagnostic
+        );
+        assert!(
+            failure.diagnostic.contains("RxStatus=0x00000000"),
+            "{}",
+            failure.diagnostic
+        );
+        assert!(
+            failure.diagnostic.contains("DataSize=8"),
+            "{}",
+            failure.diagnostic
+        );
+        assert!(
+            failure
+                .diagnostic
+                .contains("DataPrefix=[00 00 07 E8 41 0C 1A F8]"),
+            "{}",
+            failure.diagnostic
         );
     }
 

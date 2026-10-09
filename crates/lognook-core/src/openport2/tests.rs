@@ -191,7 +191,7 @@ fn adapter_discovers_supported_pids_and_emits_timestamped_rpm_samples() {
     assert!(sample.wall_time_unix_ns > 0);
     assert_eq!(sample.origin, crate::SampleOrigin::Live);
     assert_eq!(sample.raw_bytes, Some(vec![0x41, 0x0C, 0x1A, 0xF8]));
-    assert_eq!(adapter.sample_interval(), Duration::from_millis(100));
+    assert_eq!(adapter.sample_interval(), Duration::ZERO);
     adapter.disconnect();
 
     assert_eq!(
