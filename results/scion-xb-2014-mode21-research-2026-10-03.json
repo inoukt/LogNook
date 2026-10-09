@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-03",
+  "purpose": "Read-only Mode 21 research; no hardware requests sent",
+  "scion_profile_commit": "d77a1cdde8706f0d14386096404b67bc6dc4669c",
+  "scion_profile_source": "https://raw.githubusercontent.com/OBDb/Scion-xB/d77a1cdde8706f0d14386096404b67bc6dc4669c/signalsets/v3/default.json",
+  "profile_command_count": 213,
+  "profile_mode21_count": 107,
+  "preferred_first_request": "2101",
+  "candidates": [
+    {
+      "service": "21",
+      "local_id": "01",
+      "request_header": "7E0",
+      "response_header": "7E8",
+      "names": [
+        "Calculated load",
+        "Mass air flow",
+        "Manifold absolute pressure",
+        "Intake air temperature",
+        "Atmospheric pressure",
+        "Coolant temperature",
+        "Engine speed",
+        "Vehicle speed",
+        "Engine run time",
+        "Throttle sensor position",
+        "Throttle sensor voltage, 1",
+        "Throttle sensor voltage, 2",
+        "Accelerator sensor voltage, 1",
+        "Accelerator sensor voltage, 2",
+        "Throttle motor duty",
+        "Warm-up cycles since DTCs cleared",
+        "Time since DTCs cleared",
+        "Battery voltage"
+      ],
+      "scion_physically_verified": false
+    },
+    {
+      "service": "21",
+      "local_id": "3C",
+      "request_header": "7E0",
+      "response_header": "7E8",
+      "names": [
+        "Injection volume per 10 injections, cylinder 1",
+        "Injection duration for cylinder 1",
+        "Total fuel trim, bank 1"
+      ],
+      "scion_physically_verified": false
+    },
+    {
+      "service": "21",
+      "local_id": "45",
+      "request_header": "7E0",
+      "response_header": "7E8",
+      "names": [
+        "Misfire RPM",
+        "Misfire load",
+        "Cylinder #1 misfire count",
+        "Cylinder #2 misfire count",
+        "Cylinder #3 misfire count",
+        "Cylinder #4 misfire count",
+        "All cylinders misfire count",
+        "Ignition trigger count",
+        "Misfire margin"
+      ],
+      "scion_physically_verified": false
+    },
+    {
+      "service": "21",
+      "local_id": "54",
+      "request_header": "7E0",
+      "response_header": "7E8",
+      "names": [
+        "Engine speed of cylinder 1",
+        "Engine speed of cylinder 2",
+        "Engine speed of cylinder 3",
+        "Engine speed of cylinder 4",
+        "Average engine speed of all cylinders"
+      ],
+      "scion_physically_verified": false
+    },
+    {
+      "service": "21",
+      "local_id": "82",
+      "request_header": "7E0",
+      "response_header": "7E8",
+      "names": [
+        "Transmission temperature, pan",
+        "Transmission temperature, torque converter"
+      ],
+      "scion_physically_verified": false
+    },
+    {
+      "service": "21",
+      "local_id": "E4",
+      "request_header": "7E0",
+      "response_header": "7E8",
+      "names": [
+        "Injector pulse width"
+      ],
+      "scion_physically_verified": false
+    }
+  ],
+  "camry_reference_comparisons": [
+    {
+      "vehicle": "Toyota Camry reference only",
+      "year": 2010,
+      "source": "https://raw.githubusercontent.com/OBDb/Toyota-Camry/1f9e619ffcec78f394256a33879d99e83fd4b922/tests/test_cases/2010/commands/7E0.7E8.2101%7Cf%3D-2011.yaml",
+      "raw_frames": [
+        "7E8101D610148002A",
+        "7E821017E3A79625F0E",
+        "7E822A90000E900297A",
+        "7E82328512900000000",
+        "7E8240C3665"
+      ],
+      "payload_bytes": 29,
+      "data_bytes": 27,
+      "decoded": {
+        "rpm": 938.25,
+        "coolant_c": 55,
+        "intake_c": 81,
+        "speed_kmh": 0,
+        "throttle_percent": 0
+      },
+      "five_common_values_match_fixture": true
+    },
+    {
+      "vehicle": "Toyota Camry reference only",
+      "year": 2011,
+      "source": "https://raw.githubusercontent.com/OBDb/Toyota-Camry/1f9e619ffcec78f394256a33879d99e83fd4b922/tests/test_cases/2011/commands/7E0.7E8.2101%7Cf%3D-2011.yaml",
+      "raw_frames": [
+        "7E8101D6101360018",
+        "7E821014C3831648216",
+        "7E8225D2E0555002D7F",
+        "7E82328512DFF16CA2B",
+        "7E824193861"
+      ],
+      "payload_bytes": 29,
+      "data_bytes": 27,
+      "decoded": {
+        "rpm": 1431.25,
+        "coolant_c": 90,
+        "intake_c": 9,
+        "speed_kmh": 46,
+        "throttle_percent": 0
+      },
+      "five_common_values_match_fixture": true
+    }
+  ],
+  "reference_engine_identity": "Not independently verified: reference captures do not identify ECM/CALID/engine; North American 2010 Camry engine changed to 2.5 litre."
+}

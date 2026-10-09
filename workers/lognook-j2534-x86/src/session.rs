@@ -5,6 +5,7 @@ pub(crate) struct J2534Session {
     api: Box<dyn PassThruApi>,
     device: Option<u32>,
     channel: Option<u32>,
+    expected_ecu: Option<u16>,
 }
 
 impl J2534Session {
@@ -13,6 +14,7 @@ impl J2534Session {
             api,
             device: None,
             channel: None,
+            expected_ecu: None,
         };
         session.device = Some(session.api.open_device()?);
         Ok(session)
@@ -62,6 +64,7 @@ impl J2534Session {
     }
 
     pub(crate) fn discover_mode01(&mut self) -> Result<Vec<Mode01Payload>, J2534Failure> {
+        self.expected_ecu = None;
         let mut responses = Vec::new();
         for pid in [0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0, 0xE0] {
             let page = self.read_mode01(pid)?;
@@ -75,6 +78,14 @@ impl J2534Session {
                 break;
             }
         }
+        if let Some(first) = responses.first()
+            && responses
+                .iter()
+                .all(|reply| reply.ecu_id.eq_ignore_ascii_case(&first.ecu_id))
+            && let Ok(ecu @ 0x7E8..=0x7EF) = u16::from_str_radix(&first.ecu_id, 16)
+        {
+            self.expected_ecu = Some(ecu);
+        }
         Ok(responses)
     }
 
@@ -85,10 +96,11 @@ impl J2534Session {
                 "J2534 channel is not connected",
             )
         })?;
-        self.api.read_mode01(channel, pid, 250)
+        self.api.read_mode01(channel, pid, 250, self.expected_ecu)
     }
 
     pub(crate) fn shutdown(&mut self) {
+        self.expected_ecu = None;
         if let Some(channel) = self.channel.take()
             && let Err(error) = self.api.disconnect(channel)
         {
@@ -179,8 +191,12 @@ mod tests {
             _channel: u32,
             pid: u8,
             _timeout_ms: u32,
+            expected_ecu: Option<u16>,
         ) -> Result<Vec<Mode01Payload>, J2534Failure> {
-            self.record(format!("read:{pid:02X}"));
+            self.record(match expected_ecu {
+                Some(ecu) => format!("read:{pid:02X}:ecu={ecu:03X}"),
+                None => format!("read:{pid:02X}"),
+            });
             self.fail("read")?;
             if pid == 0x00 && self.multiple_page_zero_responders {
                 return Ok(vec![
@@ -286,6 +302,26 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(reads, vec!["read:00"]);
+    }
+
+    #[test]
+    fn physical_live_route_requires_a_unique_discovered_ecu() {
+        for multiple in [false, true] {
+            let (mut api, calls) = fake_api(None);
+            api.multiple_page_zero_responders = multiple;
+            let mut session = J2534Session::open(Box::new(api)).unwrap();
+            session.connect().unwrap();
+            session.discover_mode01().unwrap();
+            session.read_mode01(0x0C).unwrap();
+            assert_eq!(
+                calls.lock().unwrap().last().unwrap(),
+                if multiple {
+                    "read:0C"
+                } else {
+                    "read:0C:ecu=7E8"
+                }
+            );
+        }
     }
     #[test]
     fn connect_progress_tracks_actual_calls_and_stops_at_failure() {

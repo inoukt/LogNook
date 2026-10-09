@@ -70,7 +70,7 @@ fn ignored_provider_diagnostic(id: &str, name: &str) -> String {
 pub(crate) fn resolve_openport2_provider(
     provider_id: &str,
 ) -> Result<RegisteredProvider, J2534Failure> {
-    if provider_id.is_empty() || provider_id.contains(['\\', '/', '\0']) {
+    if provider_id.is_empty() || provider_id.contains(['\\', '\0']) {
         return Err(J2534Failure::new(
             WorkerErrorKind::ProviderNotFound,
             "The selected J2534 provider is not registered",
@@ -406,5 +406,22 @@ mod tests {
         assert!(!providers.diagnostics.is_empty() || !providers.providers.is_empty());
         let error = resolve_openport2_provider("__lognook_unregistered_provider__").unwrap_err();
         assert_eq!(error.kind, WorkerErrorKind::ProviderNotFound);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_registered_provider_ids_with_forward_slashes() {
+        let providers = list_openport2_providers().unwrap();
+        let Some(provider) = providers
+            .providers
+            .iter()
+            .find(|provider| provider.id.contains('/'))
+        else {
+            return;
+        };
+
+        let resolved = resolve_openport2_provider(&provider.id)
+            .expect("a listed provider ID with forward slashes should resolve");
+        assert_eq!(resolved.provider, *provider);
     }
 }

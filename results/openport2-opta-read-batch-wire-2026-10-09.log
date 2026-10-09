@@ -1,0 +1,120 @@
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[j2534] PassThruConnect OK proto=6 flags=0x0 baud=500000 ch=6
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 E8 00 00 07 E0]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 30 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 E8] flow=[00 00 07 E0] id=1
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 E9 00 00 07 E1]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 31 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 E9] flow=[00 00 07 E1] id=2
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EA 00 00 07 E2]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 32 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EA] flow=[00 00 07 E2] id=3
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EB 00 00 07 E3]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 33 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EB] flow=[00 00 07 E3] id=4
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EC 00 00 07 E4]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 34 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EC] flow=[00 00 07 E4] id=5
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 ED 00 00 07 E5]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 35 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 ED] flow=[00 00 07 E5] id=6
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EE 00 00 07 E6]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 36 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EE] flow=[00 00 07 E6] id=7
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EF 00 00 07 E7]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 37 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EF] flow=[00 00 07 E7] id=8
+[tactrix] tactrix TX wire: 17 bytes [61 74 74 36 20 36 20 36 34 0D 0A 00 00 07 DF 01 00]
+[j2534] PassThruWriteMsgs OK ch=6 sent=1 first=[tx_flags=0x40 data=[00 00 07 DF 01 00]]
+[tactrix] tactrix RX wire: 13 bytes [61 72 36 09 10 29 89 0A 59 00 00 07 DF]
+[tactrix] tactrix RX frame: Data(proto=0x36 kind=TxDone ts_us=696846937 len=4 payload=[00 00 07 DF])
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[tactrix] tactrix RX wire: 19 bytes [61 72 36 0F 40 29 89 0C 93 00 00 07 E8 41 00 BF BE A8 93]
+[tactrix] tactrix RX frame: Data(proto=0x36 kind=RxEnd ts_us=696847507 len=10 payload=[00 00 07 E8 41 00 BF BE A8 93])
+[j2534] PassThruReadMsgs ERR ch=6 timeout=248 transport error: operation timed out
+[tactrix] tactrix TX wire: 6 bytes [61 74 63 36 0D 0A]
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[j2534] PassThruDisconnect OK ch=6
+[tactrix] tactrix TX wire: 5 bytes [61 74 7A 0D 0A]
+[j2534] PassThruClose OK id=1
+[tactrix] tactrix TX wire: 5 bytes [61 74 69 0D 0A]
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[tactrix] tactrix RX wire: 35 bytes [61 72 69 20 6D 61 69 6E 20 63 6F 64 65 20 76 65 72 73 69 6F 6E 20 3A 20 31 2E 31 37 2E 34 38 37 37 0D 0A]
+[tactrix] tactrix RX frame: Identify("main code version : 1.17.4877")
+[tactrix] tactrix TX wire: 5 bytes [61 74 61 0D 0A]
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[j2534] PassThruOpen OK id=1
+[tactrix] tactrix TX wire: 17 bytes [61 74 6F 36 20 30 20 35 30 30 30 30 30 20 30 0D 0A]
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[j2534] PassThruConnect OK proto=6 flags=0x0 baud=500000 ch=6
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 E8 00 00 07 E0]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 30 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 E8] flow=[00 00 07 E0] id=1
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 E9 00 00 07 E1]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 31 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 E9] flow=[00 00 07 E1] id=2
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EA 00 00 07 E2]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 32 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EA] flow=[00 00 07 E2] id=3
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EB 00 00 07 E3]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 33 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EB] flow=[00 00 07 E3] id=4
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EC 00 00 07 E4]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 34 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EC] flow=[00 00 07 E4] id=5
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 ED 00 00 07 E5]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 35 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 ED] flow=[00 00 07 E5] id=6
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EE 00 00 07 E6]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 36 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EE] flow=[00 00 07 E6] id=7
+[tactrix] tactrix TX wire: 25 bytes [61 74 66 36 20 33 20 36 34 20 34 0D 0A 00 00 07 FF 00 00 07 EF 00 00 07 E7]
+[tactrix] tactrix RX wire: 10 bytes [61 72 66 36 20 37 20 30 0D 0A]
+[tactrix] tactrix RX frame: FilterAck(id=0)
+[j2534] PassThruStartMsgFilter OK ch=6 type=3 mask=[00 00 07 FF] pattern=[00 00 07 EF] flow=[00 00 07 E7] id=8
+[tactrix] tactrix TX wire: 17 bytes [61 74 74 36 20 36 20 36 34 0D 0A 00 00 07 DF 01 00]
+[j2534] PassThruWriteMsgs OK ch=6 sent=1 first=[tx_flags=0x40 data=[00 00 07 DF 01 00]]
+[tactrix] tactrix RX wire: 13 bytes [61 72 36 09 10 29 92 1C 6F 00 00 07 DF]
+[tactrix] tactrix RX frame: Data(proto=0x36 kind=TxDone ts_us=697441391 len=4 payload=[00 00 07 DF])
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[tactrix] tactrix RX wire: 19 bytes [61 72 36 0F 40 29 92 34 15 00 00 07 E8 41 00 BF BE A8 93]
+[tactrix] tactrix RX frame: Data(proto=0x36 kind=RxEnd ts_us=697447445 len=10 payload=[00 00 07 E8 41 00 BF BE A8 93])
+[j2534] PassThruReadMsgs ERR ch=6 timeout=248 transport error: operation timed out
+[tactrix] tactrix TX wire: 6 bytes [61 74 63 36 0D 0A]
+[j2534] PassThruDisconnect OK ch=6
+[tactrix] tactrix TX wire: 5 bytes [61 74 7A 0D 0A]
+[j2534] PassThruClose OK id=1
+[tactrix] tactrix TX wire: 5 bytes [61 74 69 0D 0A]
+[tactrix] tactrix TX wire: 5 bytes [61 74 7A 0D 0A]
+[j2534] PassThruOpen ERR transport error: operation timed out
+[tactrix] tactrix TX wire: 5 bytes [61 74 69 0D 0A]
+[tactrix] tactrix RX wire: 35 bytes [61 72 69 20 6D 61 69 6E 20 63 6F 64 65 20 76 65 72 73 69 6F 6E 20 3A 20 31 2E 31 37 2E 34 38 37 37 0D 0A]
+[tactrix] tactrix RX frame: Identify("main code version : 1.17.4877")
+[tactrix] tactrix TX wire: 5 bytes [61 74 61 0D 0A]
+[tactrix] tactrix RX wire: 5 bytes [61 72 6F 0D 0A]
+[tactrix] tactrix RX frame: Ack(channel=None)
+[j2534] PassThruOpen OK id=1
+[tactrix] tactrix TX wire: 5 bytes [61 74 7A 0D 0A]
+[j2534] PassThruClose OK id=1

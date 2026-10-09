@@ -34,6 +34,10 @@ export function createCanWorkbenchCommands(invoke: CanInvoke) {
     exportDbcSkeleton: (capturePath: string, path: string) =>
       invoke<void>("export_can_dbc_skeleton", { capturePath, path }),
     chooseDbcExportPath: () => invoke<string | null>("choose_can_dbc_export_path"),
+    chooseSignalSavePath: (signalId: string) =>
+      invoke<string | null>("choose_can_signal_save_path", { signalId }),
+    saveSignalDefinition: (path: string, definition: CanSignalDefinition) =>
+      invoke<void>("save_can_signal_definition", { path, definition }),
     armTrigger: (preMs: number, postMs: number, maxFrames: number) =>
       invoke<void>("arm_can_trigger", { preMs, postMs, maxFrames }),
     triggerNow: () => invoke<void>("trigger_can_now"),

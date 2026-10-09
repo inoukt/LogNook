@@ -1,0 +1,28 @@
+Single DID 1002 Service 22 probe with ATSH 700 receive-filter alignment; 2026-10-03
+Vehicle: owner-confirmed Park, parking brake, ignition on, engine off. Same CAN 11/500 protocol and STPX transport as LogNook.
+OPEN COM4 115200 8-N-1; SX=USB\VID_0403&PID_6015\113011166292
+TX STI
+RX STISTN1130 v5.10.1>
+TX STDI
+RX STDIOBDLink SX r4.3.1>
+TX STSN
+RX STSN113011166292>
+TX STPRS
+RX STPRSISO 15765-4 (CAN 11/500) [AT]>
+TX ATE0
+RX ATE0OK>
+TX AT H1
+RX OK>
+TX AT SH 700
+RX OK>
+TX STPX H:700, D:221002, R:1, T:250
+RX NO DATA>
+EXPECTED positive pattern: 708 ... 62 10 02 <two data bytes>; candidate formula raw*12.207/10000 V.
+RESULT: NO DATA at documented 700/708 route with ATSH aligned.
+TX AT H0
+RX OK>
+TX AT SH 7DF
+RX OK>
+TX ATE1
+RX OK>
+CLOSE COM4

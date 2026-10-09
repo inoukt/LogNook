@@ -153,6 +153,8 @@ pub fn run() {
             commands::choose_can_capture_save_path,
             commands::choose_can_capture_open_path,
             commands::choose_can_dbc_export_path,
+            commands::choose_can_signal_save_path,
+            commands::save_can_signal_definition,
             commands::choose_can_trigger_save_path,
             commands::connect_candlelight,
             commands::configure_can_signals,

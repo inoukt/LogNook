@@ -1,0 +1,71 @@
+Scion xB Toyota DID second direct pass; 2026-10-03
+Candidate-database request/response header 700/708; same ISO 15765-4 CAN 11/500 STPX transport as LogNook.
+Read-only Service 22 payloads only; no reset/wake/NVM/write.
+OPEN COM4 115200 8-N-1; SX=USB\VID_0403&PID_6015\113011166292
+TX STI
+RX STISTN1130 v5.10.1>
+TX STDI
+RX STDIOBDLink SX r4.3.1>
+TX STSN
+RX STSN113011166292>
+TX STPRS
+RX STPRSISO 15765-4 (CAN 11/500) [AT]>
+Protocol gate passed: ISO 15765-4 CAN 11/500.
+TX ATE0
+RX ATE0OK>
+TX AT H1
+RX OK>
+TX AT SH 7DF
+RX OK>
+TX STPX H:700, D:220103, R:1, T:250
+RX NO DATA>
+DID 0103 (ECU odometer): No response
+TX STPX H:700, D:221002, R:1, T:250
+RX NO DATA>
+DID 1002 (12V starter battery voltage): No response
+TX STPX H:700, D:221017, R:1, T:250
+RX NO DATA>
+DID 1017 (Fuel injection volume): No response
+TX STPX H:700, D:221018, R:1, T:250
+RX NO DATA>
+DID 1018 (Port injector pulse width): No response
+TX STPX H:700, D:22102A, R:2, T:250
+RX NO DATA>
+DID 102A (Learned fuel trims, bank 1): No response
+TX STPX H:700, D:221041, R:1, T:250
+RX NO DATA>
+DID 1041 (Coolant temperature at ignition/initial): No response
+TX STPX H:700, D:221046, R:1, T:250
+RX NO DATA>
+DID 1046 (Cooling fan duty): No response
+TX STPX H:700, D:22105E, R:1, T:250
+RX NO DATA>
+DID 105E (Engine ECU internal temperature): No response
+TX STPX H:700, D:221062, R:1, T:250
+RX NO DATA>
+DID 1062 (Exhaust VVT OCV duty): No response
+TX STPX H:700, D:22106F, R:1, T:250
+RX NO DATA>
+DID 106F (Intake VVT target bank 1): No response
+TX STPX H:700, D:221071, R:1, T:250
+RX NO DATA>
+DID 1071 (Exhaust VVT target bank 1): No response
+TX STPX H:700, D:221087, R:1, T:250
+RX NO DATA>
+DID 1087 (Intake VVT change bank 1): No response
+TX STPX H:700, D:221088, R:1, T:250
+RX NO DATA>
+DID 1088 (Exhaust VVT change bank 1): No response
+TX STPX H:700, D:2210A5, R:1, T:250
+RX NO DATA>
+DID 10A5 (Misfire count all cylinders): No response
+TX STPX H:700, D:2210A7, R:1, T:250
+RX NO DATA>
+DID 10A7 (Misfire counts cylinders 1-4): No response
+TX AT H0
+RX OK>
+TX AT SH 7DF
+RX OK>
+TX ATE1
+RX OK>
+CLOSE COM4

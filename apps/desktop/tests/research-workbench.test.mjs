@@ -148,6 +148,13 @@ test("numeric_result_updates_graph_while_recording", () => {
   includes(results, /within_catalog_range\s*===\s*false/, "out-of-range values keep their Suspect research diagnostic");
 });
 
+test("all OEM research candidates can be added to the graph without requesting the ECU", () => {
+  includes(panel, /onclick=\{\(\) => onGraphCandidate\(candidate\)\}[^>]*aria-label=\{`Graph \$\{candidate\.name\}`\}/, "each catalog result has a graph-only action");
+  includes(panel, /Add this research signal to the graph\. This does not send a request to the vehicle\./, "the graph action makes its no-request behavior explicit");
+  includes(app, /function graphResearchCandidate\(candidate:[\s\S]*?graphSignalIds = \[\.\.\.new Set\(\[\.\.\.graphSignalIds, id\]\)\];/, "graphing registers the OEM definition and selects it without adding it to logged signals");
+  excludes(app.match(/function graphResearchCandidate\(candidate:[\s\S]*?\n  \}/)?.[0] ?? "", /logSignalIds|invoke\(/, "the graph-only action neither enables logging nor invokes vehicle I/O");
+});
+
 test("workbench graph definitions and selections persist without measurement samples", () => {
   includes(app, /researchSignalOptionsKey\s*=\s*"lognook\.research-signal-options"/, "research signal metadata has its own local preference key");
   includes(app, /workbenchGraphSignalIdsKey\s*=\s*"lognook\.workbench-graph-signal-ids"/, "Workbench graphable IDs are remembered separately from logged PIDs");

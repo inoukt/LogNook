@@ -1,0 +1,114 @@
+Scion xB Toyota DID direct adapter probe; 2026-10-03
+Method: app-matching SX UART 115200 8-N-1; current CAN/STPX path; no reset/wake/NVM/write.
+Vehicle state: owner-confirmed Park, parking brake set, ignition ON, engine OFF.
+Toyota candidate database address metadata is 700/708; the probe will follow the live app ECU route discovered below.
+PnP verified: USB\VID_0403&PID_6015\113011166292; port=USB Serial Port (COM4); port-instance=FTDIBUS\VID_0403+PID_6015+113011166292A\0000
+OPEN COM4 115200 8-N-1
+TX STI
+RX STN1130 v5.10.1>
+TX STDI
+RX OBDLink SX r4.3.1>
+TX STSN
+RX 113011166292>
+TX 0100
+RX 7E8 06 41 00 BE 1F A8 13 >
+RANGE 0100 bitmap=BE1FA813 continuation=True
+TX 0120
+RX 7E8 06 41 20 90 05 B0 15 >
+RANGE 0120 bitmap=9005B015 continuation=True
+TX 0140
+RX 7E8 06 41 40 FA DC A0 01 >
+RANGE 0140 bitmap=FADCA001 continuation=True
+TX 0160
+RX 7E8 06 41 60 08 00 00 00 >
+RANGE 0160 bitmap=08000000 continuation=False
+TX STPRS
+RX ISO 15765-4 (CAN 11/500) [AT]>
+PROTOCOL GATE PASSED: ISO 15765-4 (CAN 11/500) [AT]>
+TX ATE0
+RX OK>
+TX AT H1
+RX OK>
+TX AT SH 7DF
+RX OK>
+TX 0100
+RX 7E8 06 41 00 BE 1F A8 13 >
+RANGE 0100 bitmap=BE1FA813 continuation=True ECU=7E8
+TX 0120
+RX 7E8 06 41 20 90 05 B0 15 >
+RANGE 0120 bitmap=9005B015 continuation=True ECU=7E8
+TX 0140
+RX 7E8 06 41 40 FA DC A0 01 >
+RANGE 0140 bitmap=FADCA001 continuation=True ECU=7E8
+TX 0160
+RX 7E8 06 41 60 08 00 00 00 >
+RANGE 0160 bitmap=08000000 continuation=False ECU=7E8
+APP ECU ROUTE: response=7E8, physical-request=7E0
+TX STPX H:7E0, D:220103, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 0103 (ECU odometer): Negative 7F 22 response
+TX STPX H:7E0, D:221002, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1002 (12V starter battery voltage): Negative 7F 22 response
+TX STPX H:7E0, D:221017, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1017 (Fuel injection volume): Negative 7F 22 response
+TX STPX H:7E0, D:221018, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1018 (Port injector pulse width): Negative 7F 22 response
+TX STPX H:7E0, D:22102A, R:2, T:250
+RX 7E8 03 7F 22 11 >
+DID 102A (Learned fuel trim high/idle/low/mid-1/mid-2, bank 1): Negative 7F 22 response
+TX STPX H:7E0, D:221041, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1041 (Coolant temperature at ignition / initial): Negative 7F 22 response
+TX STPX H:7E0, D:221046, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1046 (Cooling fan duty): Negative 7F 22 response
+TX STPX H:7E0, D:22105E, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 105E (Engine ECU internal temperature): Negative 7F 22 response
+TX STPX H:7E0, D:221062, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1062 (Exhaust VVT OCV duty): Negative 7F 22 response
+TX STPX H:7E0, D:22106F, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 106F (Intake VVT target, bank 1): Negative 7F 22 response
+TX STPX H:7E0, D:221071, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1071 (Exhaust VVT target, bank 1): Negative 7F 22 response
+TX STPX H:7E0, D:221087, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1087 (Intake VVT change, bank 1): Negative 7F 22 response
+TX STPX H:7E0, D:221088, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 1088 (Exhaust VVT change, bank 1): Negative 7F 22 response
+TX STPX H:7E0, D:2210A5, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 10A5 (Misfire count, all cylinders): Negative 7F 22 response
+TX STPX H:7E0, D:2210A7, R:1, T:250
+RX 7E8 03 7F 22 11 >
+DID 10A7 (Misfire count, cylinders 1-4): Negative 7F 22 response
+TX AT H0
+RX OK>
+TX AT SH 7DF
+RX OK>
+TX ATE1
+RX OK>
+CLOSE COM4
+RESULTS:
+0103 | ECU odometer | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1002 | 12V starter battery voltage | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1017 | Fuel injection volume | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1018 | Port injector pulse width | Negative 7F 22 response | 7E8 03 7F 22 11 >
+102A | Learned fuel trim high/idle/low/mid-1/mid-2, bank 1 | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1041 | Coolant temperature at ignition / initial | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1046 | Cooling fan duty | Negative 7F 22 response | 7E8 03 7F 22 11 >
+105E | Engine ECU internal temperature | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1062 | Exhaust VVT OCV duty | Negative 7F 22 response | 7E8 03 7F 22 11 >
+106F | Intake VVT target, bank 1 | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1071 | Exhaust VVT target, bank 1 | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1087 | Intake VVT change, bank 1 | Negative 7F 22 response | 7E8 03 7F 22 11 >
+1088 | Exhaust VVT change, bank 1 | Negative 7F 22 response | 7E8 03 7F 22 11 >
+10A5 | Misfire count, all cylinders | Negative 7F 22 response | 7E8 03 7F 22 11 >
+10A7 | Misfire count, cylinders 1-4 | Negative 7F 22 response | 7E8 03 7F 22 11 >

@@ -41,7 +41,7 @@
     <section>
       <h3>Scan, define, or send</h3>
       <p>Choose a CAN-ID range, Mode 01 support/PIDs, Mode 21 one-byte identifiers (<code>00–FF</code>), or Mode 22 two-byte DIDs (<code>0000–FFFF</code>). Set the ECU request/response route, range, pacing, and reply timeout; Stop cancels remaining requests. “Try CAN once” sends one Mode 01 PID 00 request on that route.</p>
-      <p>Add a field for an ID, then set its start bit, length, byte order, signedness, factor, offset, and unit. The field needs a CAN connection; its decoded samples use the shared graph and recording pipeline. Manual frame controls send the configured ID and bytes at the chosen pacing and repeat count, with TX/RX kept in the paired capture.</p>
+      <p>Add a field for an ID, then set its start bit, length, byte order, signedness, factor, offset, and unit. Save a field row as its own JSON definition file to reuse or share it independently. The field needs a CAN connection; its decoded samples use the shared graph and recording pipeline. Manual frame controls send the configured ID and bytes at the chosen pacing and repeat count, with TX/RX kept in the paired capture.</p>
     </section>
 
     <section>

@@ -314,3 +314,29 @@ pipeline and recording schema. Adding a second adapter requires recording to be
 stopped. `get_status` reports both sources; `disconnect_source` operates on one.
 
 User and agent operation instructions: [Discovery and diagnostics](../docs/DISCOVERY_DIAGNOSTICS.md).
+
+## OpenPort OPTA hardware follow-up — 2026-10-09
+
+The laptop owner confirmed standard Mode 01 Ford acquisition through the OPTA
+provider. The worker requests one J2534 message per read because the installed
+OPTA DLL can discard a collected response while waiting to fill a larger batch;
+on a transport timeout it can also leave NumMsgs and the caller buffer untouched.
+Only a fully untouched buffer on ERR_TIMEOUT is treated as no returned data.
+Valid partial messages and successful malformed records retain strict handling.
+
+Functional 7DF support discovery retains the full collection window and rejects
+multiple ECU responders in the core. After a unique standard responder is
+confirmed across support pages, live reads target that ECU's physical standard
+OBD address and complete on its matching response. ECU validation in the core
+is preserved; there are no caller-provided headers, services or bytes. The
+session clears its cached route on shutdown. The owner confirmed rates of about
+6.6–6.7 Hz each for two signals and 4.8–5.3 Hz each for four, with zero reported
+errors. The extra 100 ms OpenPort cycle delay is removed in the desktop adapter;
+serialized bounded J2534 exchanges pace polling. A throttle-only 24.7 s follow-up
+returned 822/822 samples without errors at about 33 Hz sustained and 35.8 Hz at
+the final summary. A later three-signal run reached 12.2 Hz per signal; the
+newest four-signal run reached 9.43 Hz per signal (about 37.7 samples/s
+aggregate) with zero reported errors.
+[The evidence report](../results/openport2-opta-read-batch-diagnosis-2026-10-09.md)
+records the earlier approximately 1 Hz per-signal baseline and the subsequent
+rate measurements.

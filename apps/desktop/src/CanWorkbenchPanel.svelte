@@ -424,6 +424,16 @@
       onFieldsChanged(next);
     });
   }
+
+  async function saveFieldDefinition(field: CanSignalDefinition) {
+    await runBusy(async () => {
+      const path = await commands.chooseSignalSavePath(field.id);
+      if (path) {
+        await commands.saveSignalDefinition(path, field);
+        captureAction = `Saved CAN field · ${path}`;
+      }
+    });
+  }
 </script>
 
 <section class="can-workbench" hidden={hidden} aria-label="CAN Workbench">
@@ -561,7 +571,7 @@
       <button class="button secondary" type="submit" disabled={!connected || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Save this field on the connected CAN workbench so matching frames publish samples." : undefined}>Add field</button>
     </form>
     {#each fields as field (field.id)}
-      <div class="can-field-row"><span>{field.name} · 0x{field.can_id.toString(16).toUpperCase()} · {field.bit_length} bit · {field.unit}</span><button class="button secondary" onclick={() => removeField(field.id)} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Remove this CAN field definition." : undefined}>Remove</button></div>
+      <div class="can-field-row"><span>{field.name} · 0x{field.can_id.toString(16).toUpperCase()} · {field.bit_length} bit · {field.unit}</span><div class="can-field-actions"><button class="button secondary" onclick={() => saveFieldDefinition(field)} disabled={busy || workspaceBusy} title="Save this CAN field as its own JSON definition file.">Save file</button><button class="button secondary" onclick={() => removeField(field.id)} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Remove this CAN field definition." : undefined}>Remove</button></div></div>
     {:else}
       <p class="can-muted">Fields are configured in Rust and publish timestamped samples to the common graph/recording pipeline.</p>
     {/each}
@@ -790,6 +800,7 @@
   .can-error { color:var(--danger,#ff7f86); font-size:9px; overflow-wrap:anywhere; }
   .can-field-row { display:flex; align-items:center; justify-content:space-between; gap:4px; min-width:0; margin-top:3px; padding:3px 4px; font-size:9px; }
   .can-field-row span { min-width:0; overflow-wrap:anywhere; }
+  .can-field-actions { display:flex; flex:0 0 auto; gap:4px; }
   .can-field-row .button { flex:0 0 auto; min-height:23px; padding:2px 4px; font-size:9px; }
   .can-send-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:end; gap:4px; margin-top:4px; min-width:0; }
   .can-send-form label { min-width:0; }

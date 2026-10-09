@@ -487,7 +487,9 @@ impl HardwareAdapter for OpenPort2Adapter {
     }
 
     fn sample_interval(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(100)
+        // Each bounded, serialized J2534 exchange already waits for the ECU.
+        // An extra cycle delay needlessly caps measured live response throughput.
+        std::time::Duration::ZERO
     }
 
     fn disconnect(&mut self) {
