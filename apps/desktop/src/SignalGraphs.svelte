@@ -10,12 +10,13 @@
     defaultGraphSignalPreference,
     formatDerivedExpression,
     holdLastPointAtRightEdge,
-    LIVE_GRAPH_WINDOW_NS,
     liveGraphTimeWindow,
     loadGraphPreferences,
     migrateDerivedGraphStyles,
     normalizeGraphPreferences,
     saveGraphPreferences,
+    MIN_LIVE_WINDOW_SECONDS,
+    MAX_LIVE_WINDOW_SECONDS,
     type GraphSignalPreference,
     type GraphView,
     type GraphLineStyle,
@@ -50,11 +51,7 @@
     return sample && (latest === undefined || sample.elapsed_ns > latest) ? sample.elapsed_ns : latest;
   }, undefined));
   let showDisconnectedSamples = $derived(!live && !timeWindow && traces.some((trace) => trace.samples.length > 0));
-  let liveWindowSpanNs = $derived.by(() => {
-    const times = traces.flatMap((trace) => trace.samples.map((sample) => sample.elapsed_ns));
-    if (times.length < 2) return 1_000_000_000;
-    return Math.min(LIVE_GRAPH_WINDOW_NS, Math.max(1_000_000_000, Math.max(...times) - Math.min(...times)));
-  });
+  let liveWindowSpanNs = $derived(graphPreferences.liveWindowSeconds * 1_000_000_000);
 
   $effect(() => {
     if (!live || latestLiveSampleNs === undefined) {
@@ -106,6 +103,14 @@
       ...graphPreferences,
       signals: { ...graphPreferences.signals, [signalId]: { ...signalPreference(signalId, isDerived), ...patch } },
     });
+    saveGraphPreferences(graphPreferences);
+  }
+
+  function updateLiveWindowSeconds(value: string) {
+    if (!value.trim()) return;
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds)) return;
+    graphPreferences = normalizeGraphPreferences({ ...graphPreferences, liveWindowSeconds: seconds });
     saveGraphPreferences(graphPreferences);
   }
 
@@ -249,8 +254,15 @@
 
 <div class="graph-control-row" class:has-reference={Boolean(graphPreferences.reference)}>
   <details class="graph-settings">
-    <summary>Graph settings · ranges, styles, and views</summary>
+    <summary>Graph settings · time/value scales, styles, and views</summary>
     <div class="graph-settings-list">
+      {#if !timeWindow}
+        <label class="live-time-scale">
+          <span>Live time scale (seconds)</span>
+          <input type="number" min={MIN_LIVE_WINDOW_SECONDS} max={MAX_LIVE_WINDOW_SECONDS} step="0.5" aria-label="Live graph time scale in seconds" value={graphPreferences.liveWindowSeconds} onchange={(event) => updateLiveWindowSeconds(event.currentTarget.value)} />
+          <small>0.5–600 seconds · saved with graph settings</small>
+        </label>
+      {/if}
       {#each traces as trace (trace.signalId)}
         {@render signalOptions(trace)}
       {/each}
@@ -321,6 +333,9 @@
   .graph-settings summary { overflow: hidden; padding: 7px 120px 7px 9px; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .graph-control-row.has-reference .graph-settings summary { padding-right: 340px; }
   .graph-settings-list { max-height: 180px; overflow: auto; border-top: 1px solid var(--border-soft); }
+  .live-time-scale { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; padding: 7px 9px; border-bottom: 1px solid var(--border-soft); color: var(--text-muted); font-size: 10px; }
+  .live-time-scale input { width: 76px; min-height: 25px; padding: 2px 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface-deep); color: var(--text); font-size: 10px; }
+  .live-time-scale small { font-size: 9px; }
   .signal-graph-options { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; padding: 7px 9px; border-bottom: 1px solid var(--border-soft); }
   .signal-graph-options > strong { min-width: 105px; font-size: 10px; }
   .derive-signal-button { min-width: 26px; height: 25px; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--accent); background: var(--surface-deep); font-size: 10px; font-weight: 700; cursor: pointer; }

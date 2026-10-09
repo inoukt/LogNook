@@ -18,6 +18,7 @@ export type GraphReferenceTrace = {
 export type GraphPreferences = {
   signals: Record<string, GraphSignalPreference>;
   reference: { capturedAt: number; traces: GraphReferenceTrace[] } | null;
+  liveWindowSeconds: number;
 };
 export type GraphPreferencesStorage = Pick<Storage, "getItem" | "setItem">;
 
@@ -26,6 +27,8 @@ export const MAX_GRAPH_SAMPLES = 180;
 export const SESSION_GRAPH_BUCKETS = 360;
 export const MAX_SESSION_GRAPH_SAMPLES = SESSION_GRAPH_BUCKETS * 4;
 export const LIVE_GRAPH_WINDOW_NS = 18_000_000_000;
+export const MIN_LIVE_WINDOW_SECONDS = 0.5;
+export const MAX_LIVE_WINDOW_SECONDS = 600;
 const MAX_REFERENCE_TRACES = 24;
 const DEFAULT_SIGNAL_PREFERENCE: GraphSignalPreference = {
   min: null,
@@ -68,7 +71,9 @@ export function graphRangeSamples(
 }
 
 export function normalizeGraphPreferences(value: unknown): GraphPreferences {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { signals: {}, reference: null };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { signals: {}, reference: null, liveWindowSeconds: LIVE_GRAPH_WINDOW_NS / 1_000_000_000 };
+  }
   const saved = value as Record<string, unknown>;
   const signals: Record<string, GraphSignalPreference> = {};
   if (saved.signals && typeof saved.signals === "object" && !Array.isArray(saved.signals)) {
@@ -91,7 +96,10 @@ export function normalizeGraphPreferences(value: unknown): GraphPreferences {
   }
 
   const reference = normalizeReference(saved.reference);
-  return { signals, reference };
+  const liveWindowSeconds = typeof saved.liveWindowSeconds === "number" && Number.isFinite(saved.liveWindowSeconds)
+    ? Math.round(Math.min(Math.max(saved.liveWindowSeconds, MIN_LIVE_WINDOW_SECONDS), MAX_LIVE_WINDOW_SECONDS) * 2) / 2
+    : LIVE_GRAPH_WINDOW_NS / 1_000_000_000;
+  return { signals, reference, liveWindowSeconds };
 }
 
 export function loadGraphPreferences(storage?: GraphPreferencesStorage): GraphPreferences {
