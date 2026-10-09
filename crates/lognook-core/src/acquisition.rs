@@ -17,7 +17,8 @@ use std::{
 
 const MAX_CONSECUTIVE_TRANSIENT_FAILURES: usize = 3;
 const RETRY_BACKOFF: Duration = Duration::from_millis(250);
-const OEM_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const OEM_POLL_TARGET_INTERVAL: Duration = Duration::from_millis(50);
+const OEM_POLL_MAX_BACKOFF: Duration = Duration::from_secs(1);
 
 enum WorkerCommand {
     Stop,
@@ -171,6 +172,7 @@ fn run(
     let mut next_poll = Instant::now();
     let mut oem_plan: Option<OemPollPlan> = None;
     let mut next_oem_poll = Instant::now();
+    let mut oem_poll_interval = OEM_POLL_TARGET_INTERVAL;
     let mut next_oem_group = 0;
     let mut last_oem_success = None;
     let mut pending = None;
@@ -219,6 +221,7 @@ fn run(
             oem_plan = plan;
             next_oem_group = 0;
             last_oem_success = None;
+            oem_poll_interval = OEM_POLL_TARGET_INTERVAL;
             next_oem_poll = Instant::now();
             let _ = reply.send(Ok(()));
             continue;
@@ -276,14 +279,15 @@ fn run(
                     break;
                 }
             }
-            next_poll = cycle + interval;
+            next_poll = Instant::now() + interval;
         }
         if let Some(plan) = oem_plan.as_ref()
             && Instant::now() >= next_oem_poll
             && !plan.groups.is_empty()
         {
             let group = &plan.groups[next_oem_group % plan.groups.len()];
-            if !poll_oem_group(
+            let request_started = Instant::now();
+            let Some(healthy) = poll_oem_group(
                 adapter,
                 group,
                 &output,
@@ -293,11 +297,12 @@ fn run(
                 acquisition_started,
                 &oem_status,
                 &mut last_oem_success,
-            ) {
+            ) else {
                 break;
-            }
+            };
+            oem_poll_interval = next_oem_poll_interval(oem_poll_interval, healthy);
             next_oem_group = (next_oem_group + 1) % plan.groups.len();
-            next_oem_poll = Instant::now() + OEM_POLL_INTERVAL;
+            next_oem_poll = request_started + oem_poll_interval;
             continue;
         }
         if let Some(command) = pending.take() {
@@ -348,9 +353,9 @@ fn poll_oem_group(
     acquisition_started: Instant,
     status: &Mutex<OemPollingStatus>,
     last_success: &mut Option<Instant>,
-) -> bool {
+) -> Option<bool> {
     let Some(first) = group.first() else {
-        return true;
+        return Some(true);
     };
     let signal_ids = group
         .iter()
@@ -373,6 +378,7 @@ fn poll_oem_group(
     let mut samples_published = 0;
     let mut failed_signals = 0;
     let mut last_error = None;
+    let mut out_of_range = false;
     let mut latency_ms = None;
     let mut transient = None;
     match result {
@@ -405,6 +411,7 @@ fn poll_oem_group(
                     failed_signals += 1;
                     continue;
                 };
+                out_of_range |= decoded.within_catalog_range == Some(false);
                 let wall_time_unix_ns = base
                     .started_at_unix_ms
                     .saturating_mul(1_000_000)
@@ -439,7 +446,7 @@ fn poll_oem_group(
                     raw_bytes: Some(candidate_result.response_payload.clone()),
                 };
                 if output.send_sample(sample).is_err() {
-                    return false;
+                    return None;
                 }
                 samples_published += 1;
                 request_succeeded = true;
@@ -467,6 +474,7 @@ fn poll_oem_group(
         }
     }
     let completed_at = Instant::now();
+    let healthy = request_succeeded && failed_signals == 0 && !out_of_range;
     {
         let mut snapshot = status
             .lock()
@@ -505,7 +513,15 @@ fn poll_oem_group(
         transient,
         consecutive_failures: None,
     });
-    true
+    Some(healthy)
+}
+
+fn next_oem_poll_interval(current: Duration, healthy: bool) -> Duration {
+    if healthy {
+        (current / 2).max(OEM_POLL_TARGET_INTERVAL)
+    } else {
+        current.saturating_mul(2).min(OEM_POLL_MAX_BACKOFF)
+    }
 }
 
 fn candidate_error(result: &crate::OemCandidateTryResult) -> String {
@@ -519,7 +535,9 @@ fn candidate_error(result: &crate::OemCandidateTryResult) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AcquisitionHandle, WorkerCommand};
+    use super::{
+        AcquisitionHandle, OEM_POLL_TARGET_INTERVAL, WorkerCommand, next_oem_poll_interval,
+    };
     use crate::{
         A30ReadOutcome, A30ReadTest, A30ReadTestResult, HardwareAdapter, OemCandidate,
         OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateTryResult, OemCandidateTrySpec,
@@ -663,6 +681,33 @@ mod tests {
     }
 
     #[test]
+    fn oem_poll_pacing_targets_twenty_hz_and_backs_off_then_recovers() {
+        let target = OEM_POLL_TARGET_INTERVAL;
+        assert_eq!(target, Duration::from_millis(50));
+        assert_eq!(next_oem_poll_interval(target, true), target);
+        assert_eq!(
+            next_oem_poll_interval(target, false),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            next_oem_poll_interval(Duration::from_millis(100), false),
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            next_oem_poll_interval(Duration::from_secs(1), false),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            next_oem_poll_interval(Duration::from_secs(1), true),
+            Duration::from_millis(500)
+        );
+        assert_eq!(
+            next_oem_poll_interval(Duration::from_millis(75), true),
+            target
+        );
+    }
+
+    #[test]
     fn raw_command_runs_on_the_existing_serialized_acquisition_owner() {
         let (events, _event_rx) = mpsc::channel();
         let pipeline = SamplePipeline::new(Arc::new(move |event| {
@@ -707,6 +752,7 @@ mod tests {
         requests: Arc<AtomicUsize>,
         polls: Arc<AtomicUsize>,
         fail_oem: bool,
+        poll_delay: Duration,
     }
 
     impl HardwareAdapter for OemPollingAdapter {
@@ -722,6 +768,7 @@ mod tests {
         }
 
         fn read_samples(&mut self, _: &[SignalDefinition]) -> Result<Vec<Sample>, LogNookError> {
+            thread::sleep(self.poll_delay);
             self.polls.fetch_add(1, Ordering::SeqCst);
             Ok(Vec::new())
         }
@@ -829,6 +876,7 @@ mod tests {
                 requests: requests.clone(),
                 polls: Arc::new(AtomicUsize::new(0)),
                 fail_oem: false,
+                poll_delay: Duration::ZERO,
             }),
             Vec::new(),
             pipeline.sender(),
@@ -874,6 +922,84 @@ mod tests {
     }
 
     #[test]
+    fn oem_polling_uses_the_capture_speed_instead_of_a_fixed_one_second_delay() {
+        let (events, _event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(OemPollingAdapter {
+                requests: requests.clone(),
+                polls: Arc::new(AtomicUsize::new(0)),
+                fail_oem: false,
+                poll_delay: Duration::ZERO,
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            Arc::new(AtomicBool::new(false)),
+            crate::diagnostics::noop_diagnostic_sink(),
+            Some("fixture-adapter".into()),
+        );
+        acquisition
+            .set_oem_poll_plan(Some(OemPollPlan {
+                vehicle_id: "scion-2014".into(),
+                groups: vec![vec![polling_candidate("scion-rpm", 0)]],
+            }))
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_millis(700);
+        while requests.load(Ordering::SeqCst) < 4 && std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(requests.load(Ordering::SeqCst) >= 4);
+        assert!(
+            acquisition
+                .oem_polling_status()
+                .observed_request_rate_hz
+                .is_some_and(|rate| rate >= 5.0)
+        );
+        acquisition.stop().unwrap();
+    }
+
+    #[test]
+    fn fast_oem_poll_runs_between_slow_live_sample_cycles() {
+        let (events, _event_rx) = mpsc::channel();
+        let pipeline = SamplePipeline::new(Arc::new(move |event| {
+            let _ = events.send(event);
+        }));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut acquisition = AcquisitionHandle::start(
+            Box::new(OemPollingAdapter {
+                requests: requests.clone(),
+                polls: Arc::new(AtomicUsize::new(0)),
+                fail_oem: false,
+                poll_delay: Duration::from_millis(120),
+            }),
+            Vec::new(),
+            pipeline.sender(),
+            Arc::new(AtomicBool::new(false)),
+            crate::diagnostics::noop_diagnostic_sink(),
+            Some("fixture-adapter".into()),
+        );
+        acquisition
+            .set_oem_poll_plan(Some(OemPollPlan {
+                vehicle_id: "scion-2014".into(),
+                groups: vec![vec![polling_candidate("scion-rpm", 0)]],
+            }))
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while requests.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(requests.load(Ordering::SeqCst) > 0);
+        acquisition.stop().unwrap();
+    }
+
+    #[test]
     fn continuous_oem_request_errors_do_not_stop_standard_polling() {
         let (events, event_rx) = mpsc::channel();
         let pipeline = SamplePipeline::new(Arc::new(move |event| {
@@ -886,6 +1012,7 @@ mod tests {
                 requests: requests.clone(),
                 polls: polls.clone(),
                 fail_oem: true,
+                poll_delay: Duration::ZERO,
             }),
             Vec::new(),
             pipeline.sender(),
@@ -908,10 +1035,10 @@ mod tests {
         }
         let polls_after_error = polls.load(Ordering::SeqCst);
         thread::sleep(Duration::from_millis(180));
-        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert!(requests.load(Ordering::SeqCst) >= 1);
         assert!(polls.load(Ordering::SeqCst) > polls_after_error);
         assert!(acquisition.is_running());
-        assert_eq!(acquisition.oem_polling_status().failed_requests, 1);
+        assert!(acquisition.oem_polling_status().failed_requests >= 1);
         assert!(
             event_rx
                 .try_iter()

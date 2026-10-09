@@ -363,9 +363,18 @@ impl A30Session {
         self.announced
     }
 
+    #[cfg(test)]
     pub(crate) fn read_mode01_pid(
         &mut self,
         pid: u8,
+    ) -> Result<crate::obdlink_sx_protocol::Mode01Response, LogNookError> {
+        self.read_mode01_pid_for_ecu(pid, None)
+    }
+
+    fn read_mode01_pid_for_ecu(
+        &mut self,
+        pid: u8,
+        expected_response_header: Option<&str>,
     ) -> Result<crate::obdlink_sx_protocol::Mode01Response, LogNookError> {
         let is_bitmap = matches!(pid, 0x00 | 0x20 | 0x40 | 0x60 | 0x80 | 0xA0 | 0xC0 | 0xE0);
         if !is_bitmap
@@ -377,7 +386,26 @@ impl A30Session {
                 "A30 Mode 01 PID {pid:02X} is outside the supported request set"
             )));
         }
-        let replies = self.request_record(0xDF, 0x02, &[0x01, pid], 0x01)?;
+        let (sequence, frames) = self.request_record_frames(
+            0xDF,
+            0x02,
+            &[0x01, pid],
+            0x01,
+            self.timing.read_wait,
+            expected_response_header,
+        )?;
+        let replies = frames
+            .iter()
+            .filter(|frame| frame.sequence == sequence)
+            .map(decode_can_replies)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .filter(|reply| {
+                expected_response_header
+                    .is_none_or(|header| reply.response_header.eq_ignore_ascii_case(header))
+            })
+            .collect::<Vec<_>>();
         let mut matching = replies.into_iter().filter(|reply| {
             (reply.payload.get(0) == Some(&0x41) && reply.payload.get(1) == Some(&pid))
                 || (reply.payload.as_slice().starts_with(&[0x7F, 0x01]))
@@ -432,22 +460,6 @@ impl A30Session {
         Ok(sequence)
     }
 
-    fn request_record(
-        &mut self,
-        object: u8,
-        slot: u8,
-        payload: &[u8],
-        trailer: u8,
-    ) -> Result<Vec<A30CanReply>, LogNookError> {
-        let (_, frames) =
-            self.request_record_frames(object, slot, payload, trailer, self.timing.read_wait)?;
-        frames
-            .iter()
-            .map(decode_can_replies)
-            .collect::<Result<Vec<_>, _>>()
-            .map(|replies| replies.into_iter().flatten().collect())
-    }
-
     fn request_record_frames(
         &mut self,
         object: u8,
@@ -455,6 +467,7 @@ impl A30Session {
         payload: &[u8],
         trailer: u8,
         wait: Duration,
+        expected_response_header: Option<&str>,
     ) -> Result<(u16, Vec<A30Frame>), LogNookError> {
         if !self.ready || !self.announced {
             return Err(LogNookError::new(if self.ready {
@@ -471,11 +484,22 @@ impl A30Session {
         record.resize(18, 0);
         record.push(trailer);
         let sequence = self.send(0xFFEC, &record)?;
-        let frames = self.pump(wait)?;
+        let frames = self.pump_until(
+            wait,
+            expected_response_header.map(|header| (sequence, header)),
+        )?;
         Ok((sequence, frames))
     }
 
     fn pump(&mut self, duration: Duration) -> Result<Vec<A30Frame>, LogNookError> {
+        self.pump_until(duration, None)
+    }
+
+    fn pump_until(
+        &mut self,
+        duration: Duration,
+        expected_response: Option<(u16, &str)>,
+    ) -> Result<Vec<A30Frame>, LogNookError> {
         let deadline = Instant::now() + duration;
         let exchange_started = self.last_exchange_started.unwrap_or_else(Instant::now);
         let mut first_read = true;
@@ -507,12 +531,21 @@ impl A30Session {
                         exchange_started,
                         "frame_bytes",
                     );
+                    let mut got_expected_response = false;
                     for frame in self.decoder.feed(&bytes[..count])? {
                         self.ready = true;
                         if !is_bare_ack(&frame) {
                             self.announced = true;
                         }
+                        if expected_response.is_some_and(|(sequence, header)| {
+                            frame.sequence == sequence && has_complete_reply_for(&frame, header)
+                        }) {
+                            got_expected_response = true;
+                        }
                         received.push(frame);
+                    }
+                    if got_expected_response {
+                        break;
                     }
                 }
                 Err(error)
@@ -692,7 +725,7 @@ impl A30Adapter {
                 let mut ecu_id: Option<String> = None;
                 let mut start = 0;
                 loop {
-                    let response = session.read_mode01_pid(start)?;
+                    let response = session.read_mode01_pid_for_ecu(start, ecu_id.as_deref())?;
                     let responder = response.ecu_id.clone().ok_or_else(|| {
                         LogNookError::new("A30 supported-PID response did not identify its ECU")
                     })?;
@@ -820,7 +853,8 @@ impl HardwareAdapter for A30Adapter {
                 "pid_read",
                 vec![signal.id.clone()],
                 || {
-                    let response = session.read_mode01_pid(signal.pid)?;
+                    let response =
+                        session.read_mode01_pid_for_ecu(signal.pid, self.ecu_id.as_deref())?;
                     if response.ecu_id.as_deref().is_some_and(|id| {
                         self.ecu_id
                             .as_deref()
@@ -887,8 +921,14 @@ fn read_a30_oem_candidate(
     let device = a30_device(address)?;
     let started_at_unix_ms = now_unix_ns().max(0) as u64 / 1_000_000;
     let request_started = Instant::now();
-    let (sequence, frames) =
-        session.request_record_frames(object, slot, &payload, 0xFF, session.timing.read_wait)?;
+    let (sequence, frames) = session.request_record_frames(
+        object,
+        slot,
+        &payload,
+        0xFF,
+        session.timing.read_wait,
+        Some(&spec.candidate.response_header),
+    )?;
     let latency_ms = request_started.elapsed().as_millis() as u64;
     let record = build_record_payload(object, slot, &payload, 0xFF);
     let request_frame = A30Frame {
@@ -907,6 +947,7 @@ fn read_a30_oem_candidate(
         .join("\n");
     let replies = frames
         .iter()
+        .filter(|frame| frame.sequence == sequence)
         .map(decode_can_replies)
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
@@ -985,7 +1026,7 @@ fn read_a30_test(
     let started_at_unix_ms = now_unix_ns().max(0) as u64 / 1_000_000;
     let request_started = Instant::now();
     let (sequence, frames) =
-        session.request_record_frames(object, slot, &payload, trailer, wait)?;
+        session.request_record_frames(object, slot, &payload, trailer, wait, expected_header)?;
     let latency_ms = request_started.elapsed().as_millis() as u64;
     let request_frame = A30Frame {
         sequence,
@@ -994,6 +1035,7 @@ fn read_a30_test(
     };
     let replies = frames
         .iter()
+        .filter(|frame| frame.sequence == sequence)
         .map(decode_can_replies)
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
@@ -1443,6 +1485,14 @@ pub(crate) fn decode_can_replies(frame: &A30Frame) -> Result<Vec<A30CanReply>, L
     }
 }
 
+fn has_complete_reply_for(frame: &A30Frame, expected_header: &str) -> bool {
+    decode_can_replies(frame).is_ok_and(|replies| {
+        replies.iter().any(|reply| {
+            !reply.truncated && reply.response_header.eq_ignore_ascii_case(expected_header)
+        })
+    })
+}
+
 fn decode_long_record_blocks(data: &[u8]) -> Result<Vec<A30CanReply>, LogNookError> {
     let count = data
         .first()
@@ -1626,7 +1676,10 @@ mod tests {
     use std::{
         collections::VecDeque,
         io::{self, Read, Write},
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::Duration,
     };
 
@@ -1634,6 +1687,8 @@ mod tests {
         incoming: VecDeque<u8>,
         outgoing: Vec<u8>,
         requests: Arc<Mutex<Vec<(u16, Vec<u8>)>>>,
+        empty_reads: Arc<AtomicUsize>,
+        response_sequence_offset: u16,
         multiple_ecu_rpm: bool,
         announce: bool,
     }
@@ -1767,6 +1822,8 @@ mod tests {
                     incoming: VecDeque::new(),
                     outgoing: Vec::new(),
                     requests: requests.clone(),
+                    empty_reads: Arc::new(AtomicUsize::new(0)),
+                    response_sequence_offset: 0,
                     multiple_ecu_rpm: false,
                     announce: true,
                 },
@@ -1877,7 +1934,12 @@ mod tests {
                     _ => (0xFFFA, vec![0, 0, 2, 0, 0]),
                 };
             let mut bytes = vec![0xAA, 0x55];
-            bytes.extend_from_slice(&request.sequence.to_be_bytes());
+            bytes.extend_from_slice(
+                &request
+                    .sequence
+                    .wrapping_add(self.response_sequence_offset)
+                    .to_be_bytes(),
+            );
             bytes.extend_from_slice(&(data.len() as u16).to_be_bytes());
             bytes.extend_from_slice(&command.to_be_bytes());
             bytes.extend_from_slice(&data);
@@ -1889,6 +1951,7 @@ mod tests {
     impl Read for ScriptedDongle {
         fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
             if self.incoming.is_empty() {
+                self.empty_reads.fetch_add(1, Ordering::Relaxed);
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "no scripted reply"));
             }
             let count = buffer.len().min(self.incoming.len()).min(3);
@@ -2395,6 +2458,78 @@ mod tests {
         assert_eq!(*command, 0xFFEC);
         assert_eq!(&record[9..13], &[0xE0, 0x02, 0x21, 0x01]);
         assert_eq!(record[18], 0xFF);
+    }
+
+    #[test]
+    fn a30_returns_a_matched_physical_oem_reply_without_waiting_for_timeout() {
+        let (dongle, _) = ScriptedDongle::new();
+        let empty_reads = dongle.empty_reads.clone();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::from_millis(400),
+        };
+        let session = A30Session::open_with_timing(Box::new(dongle), timing).unwrap();
+        let before = empty_reads.load(Ordering::Relaxed);
+
+        let result =
+            run_a30_oem_candidate(session, "AA:BB:CC:DD:EE:FF", &source_mode22_candidate())
+                .unwrap();
+
+        assert_eq!(result.outcome, OemCandidateOutcome::Positive);
+        assert_eq!(empty_reads.load(Ordering::Relaxed), before);
+    }
+
+    #[test]
+    fn connected_mode01_reads_return_on_the_identified_ecu_reply() {
+        let (dongle, _) = ScriptedDongle::new();
+        let empty_reads = dongle.empty_reads.clone();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::from_millis(400),
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        adapter.connect().unwrap();
+        let before = empty_reads.load(Ordering::Relaxed);
+        let rpm = crate::standard_obd_signals()
+            .into_iter()
+            .find(|signal| signal.id == "engine_rpm")
+            .unwrap();
+
+        let samples = adapter.read_samples(&[rpm]).unwrap();
+
+        assert_eq!(samples[0].value, 1726.0);
+        assert_eq!(empty_reads.load(Ordering::Relaxed), before);
+    }
+
+    #[test]
+    fn a30_does_not_decode_a_reply_with_the_wrong_outer_sequence() {
+        let (mut dongle, _) = ScriptedDongle::new();
+        dongle.response_sequence_offset = 1;
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::from_millis(10),
+        };
+        let session = A30Session::open_with_timing(Box::new(dongle), timing).unwrap();
+
+        let result =
+            run_a30_oem_candidate(session, "AA:BB:CC:DD:EE:FF", &source_mode22_candidate())
+                .unwrap();
+
+        assert_eq!(result.outcome, OemCandidateOutcome::NoResponse);
+        assert!(!result.raw_response.is_empty());
     }
 
     #[test]
