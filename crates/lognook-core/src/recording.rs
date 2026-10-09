@@ -63,9 +63,10 @@ impl RecordingWriter {
         if !sample.value.is_finite() {
             return Err(LogNookError::new("Sample value must be finite"));
         }
-        self.connection.execute(
+        self.connection.prepare_cached(
             "INSERT INTO samples(elapsed_ns, wall_time_unix_ns, source_id, ecu_id, signal_id,
              value, unit, quality, origin, raw_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        )?.execute(
             params![sample.elapsed_ns, sample.wall_time_unix_ns, sample.source_id, sample.ecu_id,
                 sample.signal_id, sample.value, sample.unit, sample.quality.as_db_str(),
                 sample.origin.as_db_str(), sample.raw_bytes.as_deref()],
@@ -74,6 +75,28 @@ impl RecordingWriter {
         self.duration_ns = self.duration_ns.max(sample.elapsed_ns);
         self.signals
             .insert((sample.signal_id.clone(), sample.unit.clone()));
+        Ok(())
+    }
+
+    pub(crate) fn append_batch<'a>(
+        &mut self,
+        samples: impl IntoIterator<Item = &'a Sample>,
+    ) -> Result<(), LogNookError> {
+        let previous = (self.sample_count, self.duration_ns, self.signals.clone());
+        self.connection.execute_batch("BEGIN IMMEDIATE")?;
+        let result = samples
+            .into_iter()
+            .try_for_each(|sample| self.append(sample))
+            .and_then(|_| self.connection.execute_batch("COMMIT").map_err(Into::into));
+        if let Err(error) = result {
+            (self.sample_count, self.duration_ns, self.signals) = previous;
+            self.connection
+                .execute_batch("ROLLBACK")
+                .map_err(|rollback| {
+                    LogNookError::new(format!("{error}; batch rollback failed: {rollback}"))
+                })?;
+            return Err(error);
+        }
         Ok(())
     }
 

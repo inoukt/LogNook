@@ -193,6 +193,19 @@ impl LogNookEngine {
     pub fn stop_replay(&mut self) {
         self.stop_playback();
     }
+
+    pub fn close_session(&mut self) {
+        self.stop_playback();
+        self.session_path = None;
+        self.session_id = self.session_id.wrapping_add(1).max(1);
+        self.playback_state = PlaybackState {
+            session_id: self.session_id,
+            position_ns: 0,
+            duration_ns: 0,
+            speed: 1.0,
+            playing: false,
+        };
+    }
 }
 
 fn validate_speed(speed: f64) -> Result<(), LogNookError> {

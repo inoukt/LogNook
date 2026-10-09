@@ -1,7 +1,7 @@
 use crate::derived::CompiledDerivedSignal;
 use crate::model::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, LogNookError, Marker,
-    PlaybackState, RecordingSummary, Sample,
+    PlaybackState, RecordingSummary, RetrospectiveRecordingStart, Sample,
 };
 use crate::pipeline_worker::process;
 use std::{
@@ -23,6 +23,10 @@ pub(crate) enum Message {
     TareDerivedSignal(String, mpsc::Sender<Result<f64, String>>),
     PlaybackSample(u64, Sample),
     StartRecording(PathBuf, mpsc::Sender<Result<(), String>>),
+    StartRecordingFromConnect(
+        PathBuf,
+        mpsc::Sender<Result<RetrospectiveRecordingStart, String>>,
+    ),
     ArmAutomaticTrigger(
         AutomaticTriggerConfig,
         PathBuf,
@@ -256,6 +260,21 @@ impl SamplePipeline {
         self.sender
             .0
             .send(Message::StartRecording(path, reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge recording start"))?
+            .map_err(LogNookError::new)
+    }
+
+    pub(crate) fn start_recording_from_connect(
+        &self,
+        path: PathBuf,
+    ) -> Result<RetrospectiveRecordingStart, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.sender
+            .0
+            .send(Message::StartRecordingFromConnect(path, reply))
             .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
         response
             .recv()

@@ -11,7 +11,10 @@ use self::{
     trigger::TriggerDetector,
 };
 use crate::{
-    model::{AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, Marker},
+    model::{
+        AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, Marker,
+        RetrospectiveRecordingStart,
+    },
     pipeline::Message,
     recording::RecordingWriter,
 };
@@ -23,6 +26,7 @@ use std::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         mpsc::Receiver,
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 pub(crate) fn process(
@@ -37,7 +41,9 @@ pub(crate) fn process(
     let mut automatic_trigger: Option<(TriggerDetector, AutomaticTriggerConfig, PathBuf)> = None;
     let mut derived = DerivedProcessor::default();
     let mut pre_trigger_samples = VecDeque::new();
+    let mut session_samples = VecDeque::new();
     let mut newest_elapsed_ns = 0;
+    let mut omitted_samples = 0;
     'messages: while let Ok(message) = rx.recv() {
         match message {
             Message::Sample(sample) => {
@@ -71,7 +77,9 @@ pub(crate) fn process(
                         &sink,
                         &mut automatic_trigger,
                         &mut pre_trigger_samples,
+                        &mut session_samples,
                         &mut newest_elapsed_ns,
+                        &mut omitted_samples,
                     ) {
                         continue 'messages;
                     }
@@ -98,7 +106,9 @@ pub(crate) fn process(
                             &sink,
                             &mut automatic_trigger,
                             &mut pre_trigger_samples,
+                            &mut session_samples,
                             &mut newest_elapsed_ns,
+                            &mut omitted_samples,
                         );
                         let _ = reply.send(if processed {
                             Ok(offset)
@@ -124,6 +134,54 @@ pub(crate) fn process(
                             recording_active.store(true, Ordering::Release);
                         })
                         .map_err(|error| error.to_string())
+                };
+                if result.is_ok() && automatic_trigger.take().is_some() {
+                    set_trigger_status(
+                        &automatic_trigger_status,
+                        AutomaticTriggerStatus::default(),
+                        &sink,
+                    );
+                }
+                let _ = reply.send(result);
+            }
+            Message::StartRecordingFromConnect(path, reply) => {
+                let result = if recorder.is_some() {
+                    Err("A recording is already active".to_owned())
+                } else {
+                    (|| {
+                        let mut writer =
+                            RecordingWriter::create(&path).map_err(|error| error.to_string())?;
+                        if let Err(error) = writer.append_batch(&session_samples) {
+                            let _ = writer.finish();
+                            return Err(error.to_string());
+                        }
+                        let latest_sample = session_samples.back();
+                        let marker = Marker {
+                            id: None,
+                            elapsed_ns: session_samples
+                                .back()
+                                .map_or(0, |sample| sample.elapsed_ns),
+                            wall_time_unix_ns: latest_sample
+                                .map_or_else(now_unix_ns, |sample| sample.wall_time_unix_ns),
+                            label: "Record From Connect".into(),
+                            note: format!(
+                                "Backfilled {} live samples from this connection. The in-memory history is capped at 100,000 samples; samples evicted before recording: {}. Capture is incomplete if samples were evicted.",
+                                session_samples.len(),
+                                omitted_samples
+                            ),
+                        };
+                        if let Err(error) = writer.add_marker(&marker) {
+                            let _ = writer.finish();
+                            return Err(error.to_string());
+                        }
+                        let count = session_samples.len();
+                        recorder = Some(writer);
+                        recording_active.store(true, Ordering::Release);
+                        Ok(RetrospectiveRecordingStart {
+                            backfilled_count: count,
+                            omitted_count: omitted_samples,
+                        })
+                    })()
                 };
                 if result.is_ok() && automatic_trigger.take().is_some() {
                     set_trigger_status(
@@ -225,7 +283,9 @@ pub(crate) fn process(
                 if last_source {
                     automatic_trigger = None;
                     pre_trigger_samples.clear();
+                    session_samples.clear();
                     newest_elapsed_ns = 0;
+                    omitted_samples = 0;
                     latest.store(0, Ordering::Release);
                     let trigger_status = get_trigger_status(&automatic_trigger_status);
                     if trigger_status.armed || trigger_status.recording {
@@ -263,6 +323,14 @@ pub(crate) fn process(
             }
         }
     }
+}
+
+fn now_unix_ns() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .min(i64::MAX as u128) as i64
 }
 
 #[cfg(test)]

@@ -25,7 +25,9 @@ pub(super) fn process_live_sample(
     sink: &Arc<dyn Fn(EngineEvent) + Send + Sync>,
     automatic_trigger: &mut Option<(TriggerDetector, AutomaticTriggerConfig, PathBuf)>,
     pre_trigger_samples: &mut VecDeque<Sample>,
+    session_samples: &mut VecDeque<Sample>,
     newest_elapsed_ns: &mut i64,
+    omitted_samples: &mut usize,
 ) -> bool {
     if sample.origin == SampleOrigin::Live {
         latest.fetch_max(sample.elapsed_ns, Ordering::AcqRel);
@@ -52,6 +54,11 @@ pub(super) fn process_live_sample(
             })
         {
             pre_trigger_samples.pop_front();
+        }
+        session_samples.push_back(sample.clone());
+        while session_samples.len() > MAX_BUFFERED_SAMPLES {
+            session_samples.pop_front();
+            *omitted_samples += 1;
         }
 
         let fired = automatic_trigger

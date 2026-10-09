@@ -206,6 +206,12 @@ pub struct RecordingSummary {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RetrospectiveRecordingStart {
+    pub backfilled_count: usize,
+    pub omitted_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RecordingSignal {
     pub id: String,
     pub unit: String,

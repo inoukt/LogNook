@@ -2,7 +2,11 @@
 
 LogNook is a Windows-first, read-only OBD acquisition and recording desktop app built with Rust, Tauri 2, Svelte, and TypeScript. The current build supports simulated Mode 01 acquisition, hot-plug OBDLink SX discovery, OpenPort 2 provider diagnostics, `.lognook` recording/replay, LogNook CSV import/export (including live-buffer snapshots) and numeric FORScan `time(ms)` log import, saved-session Share/Save As actions, multi-signal graphs with smooth live motion, derived signals, and a paged read-only OEM PID research catalog. The OEM catalog includes a constrained one-shot Scion xB 2014 Mode 21 PID 01 read and manual SX-only Try once actions for eligible catalog rows; it does not add research candidates to normal polling.
 
-Current named beta: **OBDLinkSX-Beta1** (`0.1.0-beta.1`).
+Current build label: **MultiAdaptCan-v1** (`0.1.0-beta.1`).
+
+Saved sessions support Rename, Delete (with confirmation), Open folder, Save As and Share. Share can upload a native session to [Catbox](https://catbox.moe/) for a short public link with no scheduled expiry, or save CSV locally. Anonymous uploads cannot be deleted through LogNook; service retention is not guaranteed.
+
+**Record** starts with new samples. **Rec From Connect** includes up to 100,000 decoded samples retained in memory from the current connection, then records subsequent live samples. Its persistent marker reports evicted history. It cannot recover unselected PIDs, earlier connections, raw CAN frames, or data lost at shutdown; use CAN Capture for raw bus traffic.
 
 ## Build and run
 

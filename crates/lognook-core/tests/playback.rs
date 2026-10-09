@@ -116,6 +116,56 @@ fn stop_does_not_report_natural_completion() {
     std::fs::remove_file(path).unwrap();
 }
 
+fn next_replay_sample_for(
+    rx: &mpsc::Receiver<EngineEvent>,
+    timeout: Duration,
+    expected_session_id: u64,
+) -> Sample {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if let Ok(EngineEvent::PlaybackSample { session_id, sample }) =
+            rx.recv_timeout(Duration::from_millis(20))
+            && session_id == expected_session_id
+        {
+            return sample;
+        }
+    }
+    panic!("timed out waiting for replay sample from session {expected_session_id}");
+}
+
+#[test]
+fn close_session_unloads_replay_without_deleting_recording() {
+    let path = fixture();
+    let (mut engine, rx) = engine_with(&path);
+    let old_session_id = engine.playback_state().unwrap().session_id;
+    engine.start_replay(1.0).unwrap();
+    next_replay_sample(&rx, Duration::from_secs(1));
+
+    engine.close_session();
+
+    assert!(engine.active_session_path().is_err());
+    let state = engine.playback_state().unwrap();
+    assert_ne!(state.session_id, old_session_id);
+    assert_eq!(state.position_ns, 0);
+    assert_eq!(state.duration_ns, 0);
+    assert!(!state.playing);
+    assert!(engine.start_replay(1.0).is_err());
+    assert!(
+        path.exists(),
+        "closing a session must not delete its recording"
+    );
+
+    engine.load_recording(&path).unwrap();
+    assert_eq!(engine.active_session_path().unwrap(), path);
+    let new_session_id = engine.playback_state().unwrap().session_id;
+    engine.start_replay(1.0).unwrap();
+    next_replay_sample_for(&rx, Duration::from_secs(1), new_session_id);
+    engine.stop_replay();
+    assert!(path.exists());
+    drop(engine);
+    std::fs::remove_file(path).unwrap();
+}
+
 #[test]
 fn seek_restarts_at_or_after_target() {
     let path = fixture();
@@ -252,7 +302,10 @@ fn fast_replay_coalesces_readouts_but_preserves_latest_values_and_markers() {
     assert!(samples < 100, "replay sent {samples} individual readouts");
     assert_eq!(latest.get("engine_rpm"), Some(&1_999.0));
     assert_eq!(latest.get("coolant_temp"), Some(&3_998.0));
-    assert!(progress_updates > 0, "replay did not report live position progress");
+    assert!(
+        progress_updates > 0,
+        "replay did not report live position progress"
+    );
     assert!(found_marker, "replay dropped the marker event");
     drop(engine);
     std::fs::remove_file(path).unwrap();

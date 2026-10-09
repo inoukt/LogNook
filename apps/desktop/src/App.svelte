@@ -7,6 +7,7 @@
   import DerivedSignalsPanel from "./DerivedSignalsPanel.svelte";
   import PlaybackPanel from "./PlaybackPanel.svelte";
   import SessionBrowser from "./SessionBrowser.svelte";
+  import SessionShare from "./SessionShare.svelte";
   import { openAndActivateRecording } from "./sessionBrowser";
   import { adapterLabel, connectionControlState, type AdapterKind } from "./connectionControls";
   import AutomaticTriggerPanel from "./AutomaticTriggerPanel.svelte";
@@ -690,6 +691,7 @@
   }
 
   async function clearSession() {
+    if (session) await invoke("close_session");
     readoutRequest++;
     graphRequest++;
     if (graphRefreshTimer !== undefined) clearTimeout(graphRefreshTimer);
@@ -929,6 +931,17 @@
     });
   }
 
+  function recordFromConnect() {
+    return run(async () => {
+      await clearSession();
+      const result = await invoke<{ path: string; backfilled_count: number; omitted_count: number }>("start_recording_from_connect");
+      recordingPath = result.path;
+      recording = true;
+      exportPath = "";
+      status = `Recording · ${result.backfilled_count.toLocaleString()} retained samples included${result.omitted_count ? ` · ${result.omitted_count.toLocaleString()} older samples unavailable` : ""}`;
+    });
+  }
+
   function stopRecording() {
     return run(async () => {
       const result = await invoke<{ path: string; sample_count: number }>("stop_recording");
@@ -962,14 +975,9 @@
     });
   }
 
+  let sharePath = "";
   function shareRecording(path: string) {
-    return run(async () => {
-      const destination = await invoke<string | null>("share_recording_csv", { path });
-      if (destination) {
-        exportPath = destination;
-        status = "Shareable CSV saved";
-      }
-    });
+    sharePath = path;
   }
 
   function saveRecordingAs(path: string) {
@@ -1448,8 +1456,10 @@
         <button class="button secondary open-csv-compact" title="Open CSV or LogNook session" aria-label="Open session file" onclick={openSessionFile} disabled={busy || connected || recording || researchRunView.running}>CSV</button>
       {/if}
     </div>
-    <span class="milestone">OBDLinkSX-Beta1</span>
+    <span class="milestone">MultiAdaptCan-v1</span>
   </header>
+
+  <SessionShare path={sharePath} onClose={() => sharePath = ""} onSaved={(message) => status = message} />
 
   <DiagnosticsPanel
     open={diagnosticsOpen}
@@ -1532,6 +1542,7 @@
             <button class="button danger" onclick={stopRecording} disabled={busy || researchRunView.running} title="Stop recording" aria-label="Stop recording">Stop</button>
           {:else}
             <button class="button record" onclick={startRecording} disabled={busy || !connected || replaying}>● Record</button>
+            <button class="button record" onclick={recordFromConnect} disabled={busy || !connected || replaying} title="Record available decoded samples since connection, then continue live. Memory holds at most 100,000 samples; earlier data may be unavailable. Raw CAN frames need Capture.">Rec From Connect</button>
           {/if}
         </div>
       </div>
