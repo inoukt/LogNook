@@ -48,8 +48,9 @@ groups. Opening or closing the dialog does not stop capture or send bus traffic.
 - **Green:** exact payload recurrence among known completed observations. Stronger
   green indicates greater recurrence. At least two known observations are
   needed before relation colors appear.
-- **Amber:** a different payload with the same DLC matches at least 90% of the
-  bits in the most common exact payload for that ID.
+- **Amber:** a different payload for the same CAN ID and standard/extended width,
+  with the same DLC, matches at least 90% of the bits in the most common exact
+  payload for that same ID and width.
 - **Neutral:** an observed payload is not an exact recurrence or does not meet
   the same-DLC similarity threshold.
 - **Absent:** the ID was not observed in a complete window whose ID list was not
