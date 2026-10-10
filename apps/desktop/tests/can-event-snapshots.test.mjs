@@ -22,7 +22,7 @@ function group(windows) {
 
 function rowsFor(windows) {
   assert.equal(typeof snapshots?.compareCanEventSnapshots, "function", "comparison helper is exported");
-  return snapshots.compareCanEventSnapshots(group(windows));
+  return snapshots.compareCanEventSnapshots(group(windows)).rows;
 }
 
 test("exact recurrence uses known complete observations as its denominator", () => {
@@ -106,7 +106,29 @@ test("snapshot comparison component exposes the accessible dialog contract", () 
   assert.match(dialogSource, /aria-label="Close snapshot comparison"/);
   assert.match(dialogSource, /oncancel=\{\(event\) => \{ event\.preventDefault\(\); close\(\); \}\}/);
   assert.match(dialogSource, /aria-label="Snapshot comparison color legend"/);
-  assert.match(dialogSource, /compareCanEventSnapshots\(group\)/);
+  assert.match(dialogSource, /compareCanEventSnapshots\(group, idFilter, 100\)/);
+});
+
+test("maximum-bound snapshots materialize cells only for the 100 returned rows", () => {
+  const windows = Array.from({ length: 256 }, (_, index) => window(index + 1, "complete",
+    Array.from({ length: 100 }, (_, id) => [index * 100 + id, false, [id & 0xff]])));
+  const result = snapshots.compareCanEventSnapshots(group(windows));
+  assert.equal(result.totalRows, 25_600);
+  assert.equal(result.matchingRows, 25_600);
+  assert.equal(result.rows.length, 100);
+  assert.ok(result.rows.every((row) => row.cells.length === 256));
+});
+
+test("filtering can select IDs beyond the default page and reports counts", () => {
+  const entries = Array.from({ length: 101 }, (_, id) => [id + 1, false, [0]]);
+  entries[100] = [5000, false, [0]];
+  const result = snapshots.compareCanEventSnapshots(group([window(1, "complete", entries)]));
+  assert.equal(result.rows.length, 100);
+  assert.equal(result.rows.some((row) => row.can_id === 5000), false);
+  const filtered = snapshots.compareCanEventSnapshots(group([window(1, "complete", entries)]), "0x1388");
+  assert.equal(filtered.matchingRows, 1);
+  assert.equal(filtered.totalRows, 101);
+  assert.equal(filtered.rows[0].can_id, 5000);
 });
 
 test("one known observation keeps payload visible but gates relation color and recurrence", () => {
@@ -121,11 +143,30 @@ test("one known observation keeps payload visible but gates relation color and r
   assert.deepEqual(rows[0].cells[0].payload, [0x2a]);
   assert.equal(rows[0].cells[0].frame_count, 3);
   assert.deepEqual(rows[0].cells.slice(1).map(({ state }) => state), ["pending", "incomplete", "unknown"]);
-  assert.match(dialogSource, /row\.known_observations >= 2 \? `cell-\$\{cell\.relation\}` : "cell-observed-uncertain"/);
+  assert.match(dialogSource, /cell\.relation === "exact" \? "cell-exact" : cell\.relation === "similar" \? "cell-similar" : "cell-different"/);
   assert.match(dialogSource, /Needs more observations/);
   assert.match(dialogSource, /relation needs more observations/);
-  assert.match(dialogSource, /knownObservations >= 2 \? exactRecurrencePercent : 0/);
+  assert.match(dialogSource, /--exact-strength:\$\{row\.exact_recurrence_percent\}%/);
   assert.match(dialogSource, /Payload relation needs at least two known observations/);
+});
+
+test("exact recurrence is graded, similar is amber, and different stays neutral", () => {
+  assert.match(dialogSource, /\.cell-exact \{ background:color-mix\(in srgb,#164a3d var\(--exact-strength,0%\),var\(--surface\)\)/);
+  assert.match(dialogSource, /\.legend-similar,\.cell-similar \{ background:#554318/);
+  assert.match(dialogSource, /\.legend-different \{ background:#26313b/);
+  assert.doesNotMatch(dialogSource, /\.cell-different\s*\{\s*background:\s*#(?:[45][0-9a-f])+/i);
+  assert.match(dialogSource, /row\.known_observations >= 2\} style=\{`--exact-strength:/);
+  assert.match(dialogSource, /row\.known_observations < 2 \? "cell-observed-uncertain"/);
+});
+
+test("event headers disclose omitted CAN IDs", () => {
+  assert.match(dialogSource, /\{window\.omitted_ids\} IDs omitted by 100-ID cap/);
+});
+
+test("ID-rate and ASCII help titles follow the help-bubble preference", () => {
+  assert.match(panelSource, /<th title=\{\$canHelpBubblesEnabled \? "Average received frame rate for this CAN ID" : undefined\}>ID Hz<\/th>/);
+  assert.match(panelSource, /<th title=\{\$canHelpBubblesEnabled \? "Printable characters are colored by category; dots represent nonprintable bytes" : undefined\}>ASCII<\/th>/);
+  assert.doesNotMatch(panelSource, /<th title="(?:Average received frame rate|Printable characters are colored)/);
 });
 
 test("selected comparison invalidates when the live capture disappears or changes", () => {

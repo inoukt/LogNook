@@ -272,11 +272,11 @@
             <tr>
               <td>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()}</td>
               <td>{row.last_data.length}</td>
-              <td><code class="can-hex-data">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class="can-hex-byte" style={`--byte-hue:${byteHue(byte)}deg`} title={`Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{byte.toString(16).padStart(2, "0").toUpperCase()}</span>{/each}</code> · {row.last_direction.toUpperCase()}</td>
+              <td><code class="can-hex-data">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class="can-hex-byte" style={`--byte-hue:${byteHue(byte)}deg`} title={$canHelpBubblesEnabled ? `Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}` : undefined}>{byte.toString(16).padStart(2, "0").toUpperCase()}</span>{/each}</code> · {row.last_direction.toUpperCase()}</td>
               <td>{#if row.period_ms === null}—{:else}<span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rate_hz, maxFrameRate)}%`}>{row.period_ms.toFixed(row.period_ms < 10 ? 2 : 1)} ms</span>{/if}</td>
               <td><span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rx_count + row.tx_count, maxFrameCount)}%`}>{row.rx_count.toLocaleString()} RX / {row.tx_count.toLocaleString()} TX</span></td>
               <td>{#if row.rate_hz === null}—{:else}<span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rate_hz, maxFrameRate)}%`}>{row.rate_hz.toFixed(1)} Hz</span>{/if}</td>
-              <td><code class="can-ascii">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class={`can-ascii-${asciiCategory(byte)}`} title={`Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{asciiCharacter(byte)}</span>{/each}</code></td>
+              <td><code class="can-ascii">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class={`can-ascii-${asciiCategory(byte)}`} title={$canHelpBubblesEnabled ? `Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}` : undefined}>{asciiCharacter(byte)}</span>{/each}</code></td>
               <td><button class="can-small-action" type="button" disabled={!latestRxFrame(row.can_id, row.extended)} onclick={() => openTrafficEditor(row.can_id, row.extended)} title={$canHelpBubblesEnabled ? "Open the signal editor from the latest received frame for this ID." : undefined}>{fields.some((field) => field.can_id === row.can_id && field.extended === row.extended) ? "Edit" : "＋ Field"}</button></td>
             </tr>
           {:else}
@@ -292,10 +292,10 @@
           <th title={$canHelpBubblesEnabled ? "Elapsed time for this frame." : undefined}>Time</th>
           <th title={$canHelpBubblesEnabled ? "Whether this frame was received (RX) or transmitted (TX)." : undefined}>Dir</th>
           <th title={$canHelpBubblesEnabled ? "CAN identifier and 11-bit or 29-bit frame format." : undefined}>ID</th>
-          <th title="Average received frame rate for this CAN ID">ID Hz</th>
+          <th title={$canHelpBubblesEnabled ? "Average received frame rate for this CAN ID" : undefined}>ID Hz</th>
           <th title={$canHelpBubblesEnabled ? "Payload byte count in this frame." : undefined}>DLC</th>
           <th title={$canHelpBubblesEnabled ? "Raw bytes in this frame; hue tracks byte value from low to high." : undefined}>Data</th>
-          <th title="Printable characters are colored by category; dots represent nonprintable bytes">ASCII</th>
+          <th title={$canHelpBubblesEnabled ? "Printable characters are colored by category; dots represent nonprintable bytes" : undefined}>ASCII</th>
           <th>Field</th>
         </tr></thead>
         <tbody>
