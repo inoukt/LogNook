@@ -13,7 +13,8 @@
   $: rows = compareCanEventSnapshots(group);
   $: matchingRows = rows.filter((row) => matchesId(row.can_id, row.extended, idFilter));
   $: sortedRows = [...matchingRows].sort((a, b) =>
-    b.exact_recurrence_percent - a.exact_recurrence_percent
+    recurrenceScore(b.known_observations, b.exact_recurrence_percent)
+    - recurrenceScore(a.known_observations, a.exact_recurrence_percent)
     || totalFrames(b.cells) - totalFrames(a.cells)
     || Number(a.extended) - Number(b.extended)
     || a.can_id - b.can_id).slice(0, 100);
@@ -38,6 +39,10 @@
     return cells.reduce((total, cell) => total + (cell.state === "observed" ? cell.frame_count : 0), 0);
   }
 
+  function recurrenceScore(knownObservations: number, exactRecurrencePercent: number): number {
+    return knownObservations >= 2 ? exactRecurrencePercent : 0;
+  }
+
   function canId(can_id: number, extended: boolean): string {
     return `0x${can_id.toString(16).toUpperCase().padStart(extended ? 8 : 3, "0")} · ${extended ? "29" : "11"}-bit`;
   }
@@ -46,8 +51,10 @@
     return payload.map((byte) => byte.toString(16).padStart(2, "0").toUpperCase()).join(" ") || "(empty payload)";
   }
 
-  function cellLabel(cell: CanEventSnapshotCell): string {
-    return cell.state === "observed" ? cell.relation : cell.state;
+  function cellLabel(cell: CanEventSnapshotCell, knownObservations: number): string {
+    return cell.state === "observed"
+      ? knownObservations >= 2 ? cell.relation : "relation needs more observations"
+      : cell.state;
   }
 </script>
 
@@ -73,9 +80,13 @@
   </div>
 
   <p class="snapshot-legend" aria-label="Snapshot comparison color legend">
-    <span class="legend-exact">Exact payload</span>
-    <span class="legend-similar">Similar payload</span>
-    <span class="legend-different">Different payload</span>
+    {#if rows.some((row) => row.known_observations >= 2)}
+      <span class="legend-exact">Exact payload</span>
+      <span class="legend-similar">Similar payload</span>
+      <span class="legend-different">Different payload</span>
+    {:else}
+      <span>Payload relation needs at least two known observations</span>
+    {/if}
     <span class="legend-absent">Absent</span>
     <span class="legend-unknown">Unknown: capped</span>
     <span>Pending / incomplete: no payload</span>
@@ -95,13 +106,13 @@
           <tr>
             <th scope="row">{canId(row.can_id, row.extended)}</th>
             <td class:recurrence-supported={row.known_observations >= 2}>
-              {row.exact_recurrence_percent.toFixed(0)}%<small>{row.known_observations} known</small>
+              {#if row.known_observations >= 2}{row.exact_recurrence_percent.toFixed(0)}%{:else}Needs more observations{/if}<small>{row.known_observations} known</small>
             </td>
             {#each row.cells as cell, index (`${row.extended}:${row.can_id}:${index}`)}
-              <td class={`snapshot-cell ${cell.state === "observed" ? `cell-${cell.relation}` : `cell-${cell.state}`}`} aria-label={`Mark ${windows[index]?.sequence ?? index + 1}: ${cellLabel(cell)}`}>
+              <td class={`snapshot-cell ${cell.state === "observed" ? row.known_observations >= 2 ? `cell-${cell.relation}` : "cell-observed-uncertain" : `cell-${cell.state}`}`} aria-label={`Mark ${windows[index]?.sequence ?? index + 1}: ${cellLabel(cell, row.known_observations)}`}>
                 {#if cell.state === "observed"}
                   <code>{payloadText(cell.payload)}</code>
-                  <small>{cell.frame_count} RX frame{cell.frame_count === 1 ? "" : "s"}{#if cell.bit_match_percent !== undefined} · {cell.bit_match_percent.toFixed(1)}% bits{/if}</small>
+                  <small>{cell.frame_count} RX frame{cell.frame_count === 1 ? "" : "s"}{#if row.known_observations < 2} · relation needs more observations{:else if cell.bit_match_percent !== undefined} · {cell.bit_match_percent.toFixed(1)}% bits{/if}</small>
                 {:else}
                   <span>{cell.state}</span>
                 {/if}
@@ -137,6 +148,7 @@
   .legend-different,.cell-different { background:#542b32; color:#ffc0c7; }
   .legend-absent,.cell-absent { background:#26313b; color:#bdc8d4; }
   .legend-unknown,.cell-unknown { background:repeating-linear-gradient(135deg,#28323d,#28323d 4px,#39434d 4px,#39434d 8px); color:#e0e6ec; }
+  .snapshot-cell.cell-observed-uncertain { color:var(--text-primary); background:var(--surface-deep); }
   .snapshot-table-wrap { flex:1 1 auto; min-height:0; min-width:0; overflow:auto; border:1px solid var(--border); border-radius:6px; }
   .snapshot-table-wrap table { width:max-content; min-width:100%; border-collapse:collapse; font-size:10px; font-variant-numeric:tabular-nums; }
   .snapshot-table-wrap th,.snapshot-table-wrap td { padding:5px 7px; border-right:1px solid var(--border-soft); border-bottom:1px solid var(--border-soft); text-align:left; white-space:nowrap; }

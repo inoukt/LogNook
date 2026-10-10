@@ -30,7 +30,9 @@
   let actionError = "";
   $: trafficFrameCount = trafficSummary.reduce((total, row) => total + row.rx_count + row.tx_count, 0);
   $: eventSnapshot = frozenEvents ?? liveEventAnalysis;
-  $: if (selectedSnapshotLabel && (!eventSnapshot
+  $: if (selectedSnapshotLabel && (!liveEventAnalysis
+    || liveEventAnalysis.capture_id !== selectedSnapshotCaptureId
+    || !eventSnapshot
     || eventSnapshot.capture_id !== selectedSnapshotCaptureId
     || !eventSnapshot.groups.some((group) => group.label === selectedSnapshotLabel))) {
     selectedSnapshotLabel = null;
@@ -329,7 +331,7 @@
           {@const candidates = matchingCandidates(group)}
           <details class="can-event-group" open>
             <summary>{group.label} · {group.completed_events} complete · {group.pending_events} pending · {group.incomplete_events} incomplete</summary>
-            <button class="can-small-action" type="button" onclick={() => openSnapshotComparison(group.label)}>Compare snapshots</button>
+            <button class="can-small-action" type="button" disabled={!liveEventAnalysis || liveEventAnalysis.capture_id !== eventSnapshot?.capture_id} onclick={() => openSnapshotComparison(group.label)}>Compare snapshots</button>
             {#if group.omitted_candidates}<p class="can-muted">{group.omitted_candidates} candidate observations omitted by the memory bound.</p>{/if}
             <div class="can-table-wrap can-candidate-wrap">
               <table aria-label={`CAN event candidates for ${group.label}`}>

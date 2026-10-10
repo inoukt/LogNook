@@ -108,3 +108,29 @@ test("snapshot comparison component exposes the accessible dialog contract", () 
   assert.match(dialogSource, /aria-label="Snapshot comparison color legend"/);
   assert.match(dialogSource, /compareCanEventSnapshots\(group\)/);
 });
+
+test("one known observation keeps payload visible but gates relation color and recurrence", () => {
+  const rows = rowsFor([
+    window(1, "complete", [[42, false, [0x2a], 3]]),
+    window(2, "pending"),
+    window(3, "incomplete"),
+    window(4, "complete", [], 1),
+  ]);
+  assert.equal(rows[0].known_observations, 1);
+  assert.equal(rows[0].cells[0].state, "observed");
+  assert.deepEqual(rows[0].cells[0].payload, [0x2a]);
+  assert.equal(rows[0].cells[0].frame_count, 3);
+  assert.deepEqual(rows[0].cells.slice(1).map(({ state }) => state), ["pending", "incomplete", "unknown"]);
+  assert.match(dialogSource, /row\.known_observations >= 2 \? `cell-\$\{cell\.relation\}` : "cell-observed-uncertain"/);
+  assert.match(dialogSource, /Needs more observations/);
+  assert.match(dialogSource, /relation needs more observations/);
+  assert.match(dialogSource, /knownObservations >= 2 \? exactRecurrencePercent : 0/);
+  assert.match(dialogSource, /Payload relation needs at least two known observations/);
+});
+
+test("selected comparison invalidates when the live capture disappears or changes", () => {
+  assert.match(panelSource, /selectedSnapshotLabel && \(!liveEventAnalysis/);
+  assert.match(panelSource, /liveEventAnalysis\.capture_id !== selectedSnapshotCaptureId/);
+  assert.match(panelSource, /!eventSnapshot\.groups\.some\(\(group\) => group\.label === selectedSnapshotLabel\)/);
+  assert.match(panelSource, /disabled=\{!liveEventAnalysis \|\| liveEventAnalysis\.capture_id !== eventSnapshot\?\.capture_id\}/);
+});
