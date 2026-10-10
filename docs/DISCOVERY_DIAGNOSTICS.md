@@ -35,6 +35,38 @@ Raw capture retains the full evidence. Ranking suggests where to investigate;
 it does not establish what the signal means. Counter/checksum hints are also
 observations, not proof.
 
+### Compare repeated-event snapshots
+
+In **Traffic monitor → Events**, mark the same labeled physical action more than
+once using the configured before/after windows. When a group has marks, choose
+**Compare snapshots** to open its resizable comparison. Each chronological
+column is one mark; each row is a CAN ID plus its standard/extended width. Cells
+show the latest RX payload and the number of frames seen for that ID in the
+window. Use the ID filter and horizontal/vertical scrolling to inspect larger
+groups. Opening or closing the dialog does not stop capture or send bus traffic.
+
+- **Green:** exact payload recurrence among known completed observations. Stronger
+  green indicates greater recurrence. At least two known observations are
+  needed before relation colors appear.
+- **Amber:** a different payload with the same DLC matches at least 90% of the
+  bits in the most common exact payload for that ID.
+- **Neutral:** an observed payload is not an exact recurrence or does not meet
+  the same-DLC similarity threshold.
+- **Absent:** the ID was not observed in a complete window whose ID list was not
+  capped.
+- **Unknown / not retained:** the window omitted IDs because its 100-ID limit
+  was reached, so absence cannot be concluded. Pending and incomplete marks
+  are separately labeled and do not count toward recurrence.
+
+The view compares only marks with the same label and keeps standard and extended
+IDs separate. The compact live summaries retain up to 100 IDs per completed
+window; the raw capture remains the complete frame evidence. Clearing live event
+analysis clears the summaries together with the live ranking but preserves the
+saved raw capture and event marks. Reopening a saved capture does not rebuild
+this comparison. Colors show byte-pattern correlation only; correlation does
+not decode signal meaning or identify counters, checksums, ECUs, or vehicle
+functions.
+
 ## Read vehicle diagnostics
 
 Open **Vehicle diagnostics** from the top bar after connecting OBDLink SX,
