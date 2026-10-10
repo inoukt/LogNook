@@ -14,6 +14,12 @@
   export let onClearEvents: () => unknown = () => {};
 
   let trafficView: "summary" | "frames" | "events" = "summary";
+  let idFilter = "";
+  let idFormatFilter: "all" | "11" | "29" = "all";
+  let directionFilter: "all" | "rx" | "tx" = "all";
+  let minimumRate = "";
+  let summarySort: "count" | "rx" | "tx" | "rate" | "period" | "id" = "count";
+  let framesSort: "rate" | "latest" = "rate";
   let eventFilter = "";
   let frozenEvents: CanLiveEventSnapshot | null = null;
   let pinnedId: { can_id: number; extended: boolean } | null = null;
@@ -23,9 +29,104 @@
   $: eventSnapshot = frozenEvents ?? liveEventAnalysis;
   $: latestElapsedNs = frames[frames.length - 1]?.elapsed_ns ?? 0;
   $: if (frozenEvents && liveEventAnalysis && frozenEvents.capture_id !== liveEventAnalysis.capture_id) frozenEvents = null;
+  $: filteredTrafficSummary = filterTrafficSummary(trafficSummary, idFilter, idFormatFilter, directionFilter, minimumRate, summarySort);
+  $: maxFrameCount = Math.max(1, ...filteredTrafficSummary.map((row) => row.rx_count + row.tx_count));
+  $: maxFrameRate = Math.max(1, ...filteredTrafficSummary.map((row) => row.rate_hz ?? 0));
+  $: rateById = new Map(trafficSummary.map((row) => [`${row.extended ? 1 : 0}:${row.can_id}`, row.rate_hz]));
+  $: filteredFrames = filterTrafficFrames(frames, rateById, idFilter, idFormatFilter, directionFilter, minimumRate, framesSort);
 
-  function bytesHex(data: number[]): string {
-    return data.map((byte) => byte.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+  function byteHue(byte: number): number {
+    return Math.round(220 - Math.min(Math.max(byte, 0), 255) / 255 * 220);
+  }
+
+  function gradePercent(value: number | null, maximum: number): number {
+    return value === null || value <= 0 ? 0 : Math.round((12 + Math.log1p(value) / Math.log1p(Math.max(maximum, 1)) * 40) * 10) / 10;
+  }
+
+  function asciiCategory(byte: number): "nonprintable" | "letter" | "digit" | "punctuation" {
+    if (byte < 0x20 || byte > 0x7e) return "nonprintable";
+    const char = String.fromCharCode(byte);
+    if (/[A-Za-z]/.test(char)) return "letter";
+    if (/[0-9]/.test(char)) return "digit";
+    return "punctuation";
+  }
+
+  function asciiCharacter(byte: number): string {
+    return byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : ".";
+  }
+
+  function matchesCanId(can_id: number, extended: boolean, query: string, format: "all" | "11" | "29"): boolean {
+    if ((format === "11" && extended) || (format === "29" && !extended)) return false;
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return true;
+    const hex = can_id.toString(16).toLowerCase();
+    const padded = hex.padStart(extended ? 8 : 3, "0");
+    return `0x${padded}`.includes(normalized)
+      || `0x${hex}`.includes(normalized)
+      || (extended ? "29-bit" : "11-bit").includes(normalized);
+  }
+
+  function filterTrafficSummary(
+    rows: CanTrafficSummary[],
+    query: string,
+    format: "all" | "11" | "29",
+    direction: "all" | "rx" | "tx",
+    minRateText: string,
+    sort: "count" | "rx" | "tx" | "rate" | "period" | "id",
+  ): CanTrafficSummary[] {
+    const minRate = Number(minRateText);
+    const threshold = minRateText.trim() && Number.isFinite(minRate) ? Math.max(0, minRate) : 0;
+    return rows.filter((row) => matchesCanId(row.can_id, row.extended, query, format)
+      && (direction === "all" || (direction === "rx" ? row.rx_count > 0 : row.tx_count > 0))
+      && (threshold === 0 || (row.rate_hz !== null && row.rate_hz >= threshold)))
+      .sort((left, right) => {
+        if (sort === "id") return Number(left.extended) - Number(right.extended) || left.can_id - right.can_id;
+        if (sort === "period") {
+          const a = left.period_ms ?? Infinity;
+          const b = right.period_ms ?? Infinity;
+          return a - b || Number(left.extended) - Number(right.extended) || left.can_id - right.can_id;
+        }
+        const value = (row: CanTrafficSummary) => sort === "count" ? row.rx_count + row.tx_count
+          : sort === "rx" ? row.rx_count
+            : sort === "tx" ? row.tx_count
+              : row.rate_hz ?? -Infinity;
+        const leftValue = value(left);
+        const rightValue = value(right);
+        if (leftValue === rightValue) return Number(left.extended) - Number(right.extended) || left.can_id - right.can_id;
+        if (leftValue === -Infinity) return 1;
+        if (rightValue === -Infinity) return -1;
+        return rightValue - leftValue || Number(left.extended) - Number(right.extended) || left.can_id - right.can_id;
+      });
+  }
+
+  function filterTrafficFrames(
+    input: CanFrame[],
+    rates: Map<string, number | null>,
+    query: string,
+    format: "all" | "11" | "29",
+    direction: "all" | "rx" | "tx",
+    minRateText: string,
+    sort: "rate" | "latest",
+  ): CanFrame[] {
+    const minRate = Number(minRateText);
+    const threshold = minRateText.trim() && Number.isFinite(minRate) ? Math.max(0, minRate) : 0;
+    return input.filter((frame) => {
+      if (!matchesCanId(frame.can_id, frame.extended, query, format)) return false;
+      if (direction !== "all" && frame.direction !== direction) return false;
+      if (threshold > 0) {
+        const rate = rates.get(`${frame.extended ? 1 : 0}:${frame.can_id}`);
+        if (rate === null || rate === undefined || rate < threshold) return false;
+      }
+      return true;
+    }).sort((left, right) => {
+      if (sort === "latest") return right.elapsed_ns - left.elapsed_ns;
+      const leftRate = rates.get(`${left.extended ? 1 : 0}:${left.can_id}`) ?? null;
+      const rightRate = rates.get(`${right.extended ? 1 : 0}:${right.can_id}`) ?? null;
+      if (leftRate === rightRate) return right.elapsed_ns - left.elapsed_ns;
+      if (leftRate === null) return 1;
+      if (rightRate === null) return -1;
+      return rightRate - leftRate || right.elapsed_ns - left.elapsed_ns;
+    });
   }
 
   function canId(can_id: number, extended: boolean): string {
@@ -109,7 +210,30 @@
       <button class="can-view-option" aria-pressed={trafficView === "events"} onclick={() => trafficView = "events"} title={$canHelpBubblesEnabled ? "Compare byte changes around marked actions; these correlations are not decoded signal meanings." : undefined}>Events</button>
     </div>
   </div>
-  <p class="can-monitor-hint">{#if trafficView === "summary"}Counts since connection · RX period and rate are averages across received frames.{:else if trafficView === "frames"}Latest {frames.length} frames retained for inspection (up to 400).{:else}Mark each physical action during a paired capture; recurring RX changes rise to the top.{/if}</p>
+  <p class="can-monitor-hint">{#if trafficView === "summary"}Counts since connection · RX period and rate are averages across received frames.{:else if trafficView === "frames"}Showing {Math.min(filteredFrames.length, 80)} of {filteredFrames.length} matching frames; sorted by ID rate or time.{:else}Mark each physical action during a paired capture; recurring RX changes rise to the top.{/if}</p>
+  {#if trafficView !== "events"}
+    <div class="can-traffic-filters" role="group" aria-label="Filter and order CAN traffic">
+      <input class="text-input" type="search" aria-label="Filter CAN IDs" placeholder="Filter ID (0x7E8)…" bind:value={idFilter} />
+      <select class="text-input" aria-label="Filter CAN ID format" value={idFormatFilter} onchange={(event) => idFormatFilter = event.currentTarget.value as typeof idFormatFilter}>
+        <option value="all">11 + 29-bit</option><option value="11">11-bit</option><option value="29">29-bit</option>
+      </select>
+      <select class="text-input" aria-label="Filter CAN direction" value={directionFilter} onchange={(event) => directionFilter = event.currentTarget.value as typeof directionFilter}>
+        <option value="all">RX + TX</option><option value="rx">RX only</option><option value="tx">TX only</option>
+      </select>
+      <label class="can-min-rate">Min Hz<input class="text-input" type="number" min="0" step="0.1" aria-label="Minimum CAN refresh rate in hertz" placeholder="Any" value={minimumRate} oninput={(event) => minimumRate = event.currentTarget.value} /></label>
+      {#if trafficView === "summary"}
+        <select class="text-input" aria-label="Sort CAN IDs" value={summarySort} onchange={(event) => summarySort = event.currentTarget.value as typeof summarySort}>
+          <option value="count">Frame count ↓</option><option value="rx">RX count ↓</option><option value="tx">TX count ↓</option>
+          <option value="rate">Rate (Hz) ↓</option><option value="period">Period (ms) ↑</option><option value="id">CAN ID ↑</option>
+        </select>
+      {:else}
+        <select class="text-input" aria-label="Order CAN frames" value={framesSort} onchange={(event) => framesSort = event.currentTarget.value as typeof framesSort}>
+          <option value="rate">ID rate (Hz) ↓</option><option value="latest">Newest frame ↓</option>
+        </select>
+      {/if}
+      <span class="can-color-guide"><span class="can-ascii-letter">A</span> letters · <span class="can-ascii-digit">1</span> digits · <span class="can-ascii-punctuation">!</span> symbols · <span class="can-ascii-nonprintable">·</span> nonprintable · hex hue low→high</span>
+    </div>
+  {/if}
   {#if trafficView === "summary"}
     <div class="can-table-wrap">
       <table aria-label="Live CAN ID counts">
@@ -124,19 +248,19 @@
           <th>Field</th>
         </tr></thead>
         <tbody>
-          {#each trafficSummary as row (`${row.can_id}:${row.extended}`)}
+          {#each filteredTrafficSummary as row (`${row.can_id}:${row.extended}`)}
             <tr>
               <td>{row.extended ? "29" : "11"}-bit 0x{row.can_id.toString(16).toUpperCase()}</td>
               <td>{row.last_data.length}</td>
-              <td><code>{bytesHex(row.last_data)}</code> · {row.last_direction.toUpperCase()}</td>
-              <td>{row.period_ms === null ? "—" : `${row.period_ms.toFixed(row.period_ms < 10 ? 2 : 1)} ms`}</td>
-              <td>{row.rx_count.toLocaleString()} RX / {row.tx_count.toLocaleString()} TX</td>
-              <td>{row.rate_hz === null ? "—" : `${row.rate_hz.toFixed(1)} Hz`}</td>
-              <td><code>{row.ascii || "—"}</code></td>
+              <td><code class="can-hex-data">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class="can-hex-byte" style={`--byte-hue:${byteHue(byte)}deg`} title={`Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{byte.toString(16).padStart(2, "0").toUpperCase()}</span>{/each}</code> · {row.last_direction.toUpperCase()}</td>
+              <td>{#if row.period_ms === null}—{:else}<span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rate_hz, maxFrameRate)}%`}>{row.period_ms.toFixed(row.period_ms < 10 ? 2 : 1)} ms</span>{/if}</td>
+              <td><span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rx_count + row.tx_count, maxFrameCount)}%`}>{row.rx_count.toLocaleString()} RX / {row.tx_count.toLocaleString()} TX</span></td>
+              <td>{#if row.rate_hz === null}—{:else}<span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rate_hz, maxFrameRate)}%`}>{row.rate_hz.toFixed(1)} Hz</span>{/if}</td>
+              <td><code class="can-ascii">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class={`can-ascii-${asciiCategory(byte)}`} title={`Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{asciiCharacter(byte)}</span>{/each}</code></td>
               <td><button class="can-small-action" type="button" disabled={!latestRxFrame(row.can_id, row.extended)} onclick={() => openTrafficEditor(row.can_id, row.extended)} title={$canHelpBubblesEnabled ? "Open the signal editor from the latest received frame for this ID." : undefined}>{fields.some((field) => field.can_id === row.can_id && field.extended === row.extended) ? "Edit" : "＋ Field"}</button></td>
             </tr>
           {:else}
-            <tr><td colspan="8" class="can-muted">Waiting for Candlelight frames</td></tr>
+            <tr><td colspan="8" class="can-muted">{trafficSummary.length ? "No CAN IDs match these filters" : "Waiting for Candlelight frames"}</td></tr>
           {/each}
         </tbody>
       </table>
@@ -148,20 +272,26 @@
           <th title={$canHelpBubblesEnabled ? "Elapsed time for this frame." : undefined}>Time</th>
           <th title={$canHelpBubblesEnabled ? "Whether this frame was received (RX) or transmitted (TX)." : undefined}>Dir</th>
           <th title={$canHelpBubblesEnabled ? "CAN identifier and 11-bit or 29-bit frame format." : undefined}>ID</th>
+          <th title="Average received frame rate for this CAN ID">ID Hz</th>
           <th title={$canHelpBubblesEnabled ? "Payload byte count in this frame." : undefined}>DLC</th>
-          <th title={$canHelpBubblesEnabled ? "Raw bytes in this frame; the table shows up to 80 recent frames while an active capture records the full traffic." : undefined}>Data</th>
+          <th title={$canHelpBubblesEnabled ? "Raw bytes in this frame; hue tracks byte value from low to high." : undefined}>Data</th>
+          <th title="Printable characters are colored by category; dots represent nonprintable bytes">ASCII</th>
           <th>Field</th>
         </tr></thead>
         <tbody>
-          {#each frames.slice(-80).reverse() as frame, index (`${frame.wall_time_unix_ns}:${frame.can_id}:${index}`)}
+          {#each filteredFrames.slice(0, 80) as frame, index (`${frame.wall_time_unix_ns}:${frame.can_id}:${index}`)}
+            {@const frameRate = rateById.get(`${frame.extended ? 1 : 0}:${frame.can_id}`) ?? null}
             <tr>
               <td>{(frame.elapsed_ns / 1e9).toFixed(3)}s</td><td>{frame.direction.toUpperCase()}</td>
               <td>{frame.extended ? "29" : "11"}-bit 0x{frame.can_id.toString(16).toUpperCase()}</td>
-              <td>{frame.data.length}</td><td><code>{bytesHex(frame.data)}</code></td>
+              <td>{#if frameRate === null}—{:else}<span class="can-metric-grade" style={`--metric-grade:${gradePercent(frameRate, maxFrameRate)}%`}>{frameRate.toFixed(1)} Hz</span>{/if}</td>
+              <td>{frame.data.length}</td>
+              <td><code class="can-hex-data">{#each frame.data as byte, byteIndex (`${byteIndex}:${byte}`)}<span class="can-hex-byte" style={`--byte-hue:${byteHue(byte)}deg`} title={`Byte ${byteIndex}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{byte.toString(16).padStart(2, "0").toUpperCase()}</span>{/each}</code></td>
+              <td><code class="can-ascii">{#each frame.data as byte, byteIndex (`${byteIndex}:${byte}`)}<span class={`can-ascii-${asciiCategory(byte)}`} title={`Byte ${byteIndex}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{asciiCharacter(byte)}</span>{/each}</code></td>
               <td><button class="can-small-action" type="button" disabled={frame.direction !== "rx"} onclick={() => openEditor(frame, fields.find((field) => field.can_id === frame.can_id && field.extended === frame.extended)?.id ?? null)} title={$canHelpBubblesEnabled ? "Open the signal editor from this received frame and select any saved field for its ID." : undefined}>＋ Field</button></td>
             </tr>
           {:else}
-            <tr><td colspan="6" class="can-muted">Waiting for Candlelight frames</td></tr>
+            <tr><td colspan="8" class="can-muted">{frames.length ? "No frames match these filters" : "Waiting for Candlelight frames"}</td></tr>
           {/each}
         </tbody>
       </table>
@@ -252,6 +382,20 @@
   .can-view-option[aria-pressed="true"] { border-color:var(--accent); background:var(--accent); color:var(--accent-text); }
   .can-small-action:disabled { opacity:.45; cursor:not-allowed; }
   .can-monitor-hint, .can-muted { margin:0; color:var(--text-muted); font-size:9px; }
+  .can-traffic-filters { display:flex; align-items:center; flex-wrap:wrap; gap:4px; min-width:0; }
+  .can-traffic-filters > .text-input { width:auto; min-width:70px; min-height:25px; padding:2px 5px; font-size:9px; }
+  .can-traffic-filters > input[type="search"] { flex:1 1 125px; }
+  .can-min-rate { display:flex; align-items:center; gap:4px; color:var(--text-muted); font-size:9px; }
+  .can-min-rate .text-input { width:60px; min-width:0; min-height:25px; padding:2px 4px; font-size:9px; }
+  .can-color-guide { color:var(--text-muted); font-size:9px; white-space:nowrap; }
+  .can-ascii-letter { color:#77d9be; }
+  .can-ascii-digit { color:#83b7ff; }
+  .can-ascii-punctuation { color:#f0cf83; }
+  .can-ascii-nonprintable { color:var(--text-muted); }
+  .can-ascii { letter-spacing:.04em; }
+  .can-hex-data { white-space:nowrap; }
+  .can-hex-byte { display:inline-block; margin-right:2px; padding:0 1px; border-radius:2px; background:hsl(var(--byte-hue) 65% 24%); color:var(--text-bright); }
+  .can-metric-grade { display:inline-block; padding:1px 3px; border-radius:3px; background:color-mix(in srgb, var(--accent) var(--metric-grade), transparent); }
   .can-table-wrap { flex:1 1 auto; min-width:0; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:6px; }
   table { width:100%; border-collapse:collapse; font-size:10px; font-variant-numeric:tabular-nums; }
   th,td { padding:3px 5px; border-bottom:1px solid var(--border-soft); text-align:left; white-space:nowrap; }

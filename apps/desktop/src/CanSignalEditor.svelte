@@ -69,6 +69,10 @@
     return id;
   }
 
+  function byteHue(value: number): number {
+    return Math.round(220 - Math.min(Math.max(value, 0), 255) / 255 * 220);
+  }
+
   function definition(): CanSignalDefinition {
     return {
       id: fieldId.trim(), name: name.trim(), can_id: frame.can_id, extended: frame.extended,
@@ -210,17 +214,19 @@
     <div class="can-bit-grid" aria-label="Select signal start bit; active cells show the extraction range" title={$canHelpBubblesEnabled ? "Bit numbers are LSB0 within each byte. Click a cell to choose the start bit; highlighted cells show the selected field range." : undefined}>
       {#each bytes as byte}
         <div class="can-bit-byte">
-          <strong>B{byte} {frame.data[byte] === undefined ? "—" : `0x${frame.data[byte].toString(16).padStart(2, "0").toUpperCase()}`}</strong>
+          <strong>B{byte} {#if frame.data[byte] === undefined}—{:else}<span class="can-hex-byte" style={`--byte-hue:${byteHue(frame.data[byte])}deg`}>0x{frame.data[byte].toString(16).padStart(2, "0").toUpperCase()}</span>{/if}</strong>
           {#each bitRows as bitRow}
             {@const bit = byte * 8 + bitRow}
-            <button type="button" class:in-range={selectedBits.includes(bit)} class:start-bit={startBit === bit} aria-pressed={selectedBits.includes(bit)} aria-label={`Byte ${byte}, bit ${bitRow}, ${frame.data[byte] === undefined ? "no data" : (frame.data[byte] >> bitRow) & 1}`} onclick={() => selectStart(bit)} title={$canHelpBubblesEnabled ? `Choose byte ${byte}, bit ${bitRow} (LSB0 position ${bit}) as the signal start.` : undefined}>
-              <small>{bitRow}</small><span>{frame.data[byte] === undefined ? "·" : (frame.data[byte] >> bitRow) & 1}</span>
+            {@const bitValue = frame.data[byte] === undefined ? null : (frame.data[byte] >> bitRow) & 1}
+            <button type="button" class:bit-zero={bitValue === 0} class:bit-one={bitValue === 1} class:in-range={selectedBits.includes(bit)} class:start-bit={startBit === bit} aria-pressed={selectedBits.includes(bit)} aria-label={`Byte ${byte}, bit ${bitRow}, ${bitValue === null ? "no data" : bitValue}`} onclick={() => selectStart(bit)} title={$canHelpBubblesEnabled ? `Choose byte ${byte}, bit ${bitRow} (LSB0 position ${bit}) as the signal start.` : undefined}>
+              <small>{bitRow}</small><span>{bitValue ?? "·"}</span>
             </button>
           {/each}
         </div>
       {/each}
     </div>
     <p class="can-editor-help">Bit numbers are LSB0 within each byte. Click a start bit; the highlighted range follows the selected Intel or Motorola order.</p>
+    <p class="can-editor-color-guide"><span class="bit-zero-key">0</span> bit clear · <span class="bit-one-key">1</span> bit set · hex shade follows byte value</p>
     {#if evidence}<p class="can-editor-help" title={$canHelpBubblesEnabled ? "Raw byte transitions from the marked event; they are correlation evidence, not a decoded signal." : undefined}>Event evidence: {evidence}</p>{/if}
     <label class="can-editor-check" title={$canHelpBubblesEnabled ? "Use the latest matching RX frame for the byte grid and decoded preview; off keeps the frame that opened this editor. The scope still shows recent samples." : undefined}><input type="checkbox" bind:checked={followLive} /> Follow live RX · {followLive ? "latest frame" : "event frame frozen"}</label>
     <svg class="can-mini-scope" viewBox="0 0 100 50" preserveAspectRatio="none" role="img" aria-label="Recent decoded CAN field values">{#if $canHelpBubblesEnabled}<title>Draft values from up to 120 recent RX frames for this ID that fit the selected field; this scope is independent of Follow live.</title>{/if}<path d={scopePath(scope)} fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke" /></svg>
@@ -265,9 +271,16 @@
   .can-bit-grid { display:grid; grid-template-columns:repeat(8, minmax(0, 1fr)); gap:4px; min-width:0; }
   .can-bit-byte { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:2px; padding:3px; border:1px solid var(--border); border-radius:5px; }
   .can-bit-byte > strong { grid-column:1/-1; color:var(--text-secondary); text-align:center; font:9px ui-monospace, Consolas, monospace; }
+  .can-hex-byte { display:inline-block; padding:0 2px; border-radius:2px; background:hsl(var(--byte-hue) 65% 24%); color:var(--text-bright); }
   .can-bit-byte button { display:flex; align-items:center; justify-content:space-between; gap:2px; min-width:0; min-height:20px; padding:1px 3px; border:1px solid var(--border); border-radius:3px; color:var(--text-muted); background:var(--surface-deep); font:9px ui-monospace, Consolas, monospace; cursor:pointer; }
+  .can-bit-byte button.bit-zero { color:#a9d9f2; background:color-mix(in srgb, #3f94ca 20%, var(--surface-deep)); }
+  .can-bit-byte button.bit-one { color:#f4d38a; background:color-mix(in srgb, #d99c37 22%, var(--surface-deep)); }
   .can-bit-byte button.in-range { border-color:var(--accent); color:var(--text-bright); background:color-mix(in srgb, var(--accent) 24%, var(--surface-deep)); }
   .can-bit-byte button.start-bit { outline:1px solid var(--accent); outline-offset:0; }
+  .can-editor-color-guide { margin:0; color:var(--text-muted); font-size:9px; }
+  .can-editor-color-guide span { display:inline-block; min-width:14px; padding:0 3px; border-radius:3px; text-align:center; }
+  .bit-zero-key { color:#a9d9f2; background:color-mix(in srgb, #3f94ca 20%, var(--surface-deep)); }
+  .bit-one-key { color:#f4d38a; background:color-mix(in srgb, #d99c37 22%, var(--surface-deep)); }
   .can-editor-form { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:6px; }
   .can-editor-check { align-self:end; display:flex !important; align-items:center; min-height:28px; }
   .can-editor-check input { accent-color:var(--accent); }
