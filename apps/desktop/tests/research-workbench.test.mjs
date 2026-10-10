@@ -143,7 +143,7 @@ test("numeric_result_updates_graph_while_recording", () => {
   const testDisabledProp = catalogProps.match(/disabled=\{([^}]*)\}/)?.[1] ?? "";
   excludes(testDisabledProp, /recording/, "recording does not block active-session research reads");
   includes(panel, /Number\.isFinite\(typedResult\.payload\.decoded_value\?\.value\)/, "only finite positive candidate values select a graph trace");
-  includes(app, /signal_id\]: \[\.\.\.\(series\[sample\.signal_id\] \?\? \[\]\), sample\]/, "graph values arrive through engine sample events");
+  includes(app, /series\s*=\s*\{[^\n]*\[sample\.signal_id\]:[^\n]*\bsample\b/, "graph values arrive through engine sample events");
   excludes(panel, /series\s*=|push\(\{[^}]*signal_id/, "the workbench does not synthesize sample data");
   includes(results, /within_catalog_range\s*===\s*false/, "out-of-range values keep their Suspect research diagnostic");
 });

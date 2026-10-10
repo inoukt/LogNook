@@ -27,7 +27,8 @@
     clearCanSessionSamples as withoutCanSamples, emptyCanSessionEvents,
   } from "./canWorkbench";
   import type { CanTrafficSummary } from "./canWorkbench";
-  import { SESSION_GRAPH_BUCKETS } from "./graphPreferences";
+  import { MAX_GRAPH_SAMPLES, SESSION_GRAPH_BUCKETS } from "./graphPreferences";
+  import { appendLiveGraphSample } from "./liveGraphHistory";
   import { reconcileSxPorts } from "./adapterDiscovery";
   import {
     defaultAutomaticTriggerConfig, disarmedAutomaticTriggerStatus, normalizeAutomaticTriggerConfig,
@@ -253,12 +254,12 @@
     && !automaticTriggerSignals.some((signal) => signal.id === automaticTriggerConfig.signal_id)) {
     updateAutomaticTriggerConfig(automaticTriggerConfig);
   }
-  $: liveGraphRange = sampleTimeRange(visibleSignals.flatMap((signal) => series[signal.id] ?? []));
+  $: liveGraphRange = sampleTimeRange(visibleSignals.flatMap((signal) => (series[signal.id] ?? []).slice(-MAX_GRAPH_SAMPLES)));
   $: signalAverages = session
     ? sessionAverages
     : Object.fromEntries(availableSignals.map((signal) => [
         signal.id,
-        averageInWindow(series[signal.id] ?? [], liveGraphRange),
+        averageInWindow((series[signal.id] ?? []).slice(-MAX_GRAPH_SAMPLES), liveGraphRange),
       ]));
   $: markers = orderMarkersForTimeline(session?.markers ?? []);
   $: traces = visibleSignals.map((signal): ChartTrace => {
@@ -591,7 +592,7 @@
           liveCsvBuffer.append(sample);
           liveCsvBufferVersion++;
           latest = { ...latest, [sample.signal_id]: sample };
-          series = { ...series, [sample.signal_id]: [...(series[sample.signal_id] ?? []), sample].slice(-180) };
+          series = { ...series, [sample.signal_id]: appendLiveGraphSample(series[sample.signal_id] ?? [], sample) };
         }
       }
     } else if (event.type === "playbackMarker") {

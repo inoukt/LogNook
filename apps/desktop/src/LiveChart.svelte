@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { ChartTrace, Marker } from "./types";
   import { formatDurationNs, sampleTimeRange } from "./workspace";
+  import { graphWindowSamples } from "./liveGraphHistory";
   import {
-    boundedGraphSamples,
     formatDerivedExpression,
     graphCoordinates,
     graphHeatmapRow,
@@ -50,13 +50,13 @@
   const defaultPreference: GraphSignalPreference = { min: null, max: null, view: "line", lineStyle: "solid", lineWidth: 2 };
 
   let timeBounds = $derived.by(() => {
-    const times = traces.flatMap((trace) => boundedGraphSamples(trace.samples).map((sample) => ({ elapsed_ns: sample.elapsed_ns })));
     if (timeWindow) return [timeWindow.startNs, timeWindow.endNs];
-    if (liveDisplayTimeNs !== undefined && times.length) {
-      const bounds = liveGraphTimeWindow(liveDisplayTimeNs, liveWindowSpanNs);
+    const times = traces.flatMap((trace) => trace.samples.length ? [trace.samples[0], trace.samples[trace.samples.length - 1]] : []);
+    const range = sampleTimeRange(times);
+    if (times.length && (liveDisplayTimeNs !== undefined || liveWindowSpanNs !== undefined)) {
+      const bounds = liveGraphTimeWindow(liveDisplayTimeNs ?? range.endNs, liveWindowSpanNs);
       return [bounds.startNs, bounds.endNs];
     }
-    const range = sampleTimeRange(times);
     return [range.startNs, range.endNs];
   });
   let markerPositions = $derived.by(() => markers.flatMap((marker) => {
@@ -76,19 +76,13 @@
     const sampleLimit = timeWindow ? MAX_SESSION_GRAPH_SAMPLES : MAX_GRAPH_SAMPLES;
     const preference = signalPreferences[trace.signalId] ?? defaultPreference;
     const reference = referenceTraces.find((candidate) => candidate.signalId === trace.signalId);
-    const samples = boundedGraphSamples(trace.samples, sampleLimit);
+    const samples = graphWindowSamples(trace.samples, timeBounds[0], timeBounds[1]);
     const stale = liveDisplayTimeNs !== undefined
       && isLiveTraceStale(trace.samples, liveDisplayTimeNs);
-    const firstVisibleIndex = liveDisplayTimeNs === undefined
-      ? 0
-      : samples.findIndex((sample) => sample.elapsed_ns >= timeBounds[0]);
-    const plotSamples = liveDisplayTimeNs === undefined
-      ? samples
-      : firstVisibleIndex < 0 ? [] : samples.slice(Math.max(0, firstVisibleIndex - 1));
     const referenceSamples = mapReferenceSamples(reference?.samples ?? [], timeBounds[0], timeBounds[1]);
-    const rangeSamples = graphRangeSamples(samples, trace.scaleSamples ?? [], Boolean(trace.scaleSamples?.length));
+    const rangeSamples = graphRangeSamples(samples, (trace.scaleSamples ?? []).filter((sample) => sample.elapsed_ns >= timeBounds[0] && sample.elapsed_ns <= timeBounds[1]), Boolean(trace.scaleSamples?.length));
     const range = graphValueRange(rangeSamples, referenceSamples, preference);
-    const measuredPoints = graphCoordinates(plotSamples, timeBounds[0], timeBounds[1], range, sampleLimit);
+    const measuredPoints = graphCoordinates(samples, timeBounds[0], timeBounds[1], range, sampleLimit);
     const points = liveDisplayTimeNs === undefined || preference.view !== "line" || stale
       ? measuredPoints
       : holdLastPointAtRightEdge(measuredPoints);
@@ -112,7 +106,7 @@
     name: item.trace.name,
     unit: item.trace.unit,
     formula: item.trace.formula,
-    sample: nearestGraphSample(item.samples, cursorTimeNs!, item.sampleLimit),
+    sample: nearestGraphSample(item.samples, cursorTimeNs!, item.samples.length),
   })));
 
   function moveCursor(event: PointerEvent) {

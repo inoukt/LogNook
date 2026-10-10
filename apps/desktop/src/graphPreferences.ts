@@ -142,10 +142,16 @@ export function graphValueRange(
   referenceSamples: GraphValueSample[],
   preference: Pick<GraphSignalPreference, "min" | "max"> = { min: null, max: null },
 ): { min: number; max: number } {
-  const values = [...samples, ...referenceSamples]
-    .filter((sample) => Number.isFinite(sample.elapsed_ns) && Number.isFinite(sample.value));
-  const low = values.length ? Math.min(...values.map((sample) => sample.value)) : 0;
-  const high = values.length ? Math.max(...values.map((sample) => sample.value)) : 1;
+  let low = Infinity;
+  let high = -Infinity;
+  for (const series of [samples, referenceSamples]) {
+    for (const sample of series) {
+      if (!Number.isFinite(sample.elapsed_ns) || !Number.isFinite(sample.value)) continue;
+      low = Math.min(low, sample.value);
+      high = Math.max(high, sample.value);
+    }
+  }
+  if (low === Infinity) { low = 0; high = 1; }
   const padding = Math.max((high - low) * 0.12, 1);
   const manualMin = finiteRange(preference.min);
   const manualMax = finiteRange(preference.max);
@@ -181,17 +187,21 @@ export function graphCoordinates(
 
 export function liveGraphTimeWindow(nowNs: number, spanNs = LIVE_GRAPH_WINDOW_NS): { startNs: number; endNs: number } {
   const span = Number.isFinite(spanNs) && spanNs > 0 ? spanNs : LIVE_GRAPH_WINDOW_NS;
-  return { startNs: nowNs - span, endNs: nowNs };
+  return { startNs: Math.max(0, nowNs - span), endNs: nowNs };
 }
 
 export function isLiveTraceStale(
   samples: readonly { elapsed_ns: number }[],
   nowNs: number,
 ): boolean {
-  const timestamps = samples.map(({ elapsed_ns }) => elapsed_ns).filter(Number.isFinite);
-  const last = timestamps.at(-1);
+  const recent: number[] = [];
+  for (let index = samples.length - 1; index >= 0 && recent.length < 9; index--) {
+    const timestamp = samples[index].elapsed_ns;
+    if (Number.isFinite(timestamp)) recent.push(timestamp);
+  }
+  recent.reverse();
+  const last = recent.at(-1);
   if (last === undefined || !Number.isFinite(nowNs)) return false;
-  const recent = timestamps.slice(-9);
   const intervals = recent.slice(1)
     .map((timestamp, index) => timestamp - recent[index])
     .filter((interval) => interval > 0)
@@ -251,7 +261,26 @@ export function graphHeatmapRow(index: number, count: number): { y: number; heig
 
 export function boundedGraphSamples(samples: GraphValueSample[], maxSamples = MAX_GRAPH_SAMPLES): GraphValueSample[] {
   const limit = Number.isFinite(maxSamples) ? Math.max(1, Math.floor(maxSamples)) : MAX_GRAPH_SAMPLES;
-  return samples.slice(-limit).filter((sample) => Number.isFinite(sample.elapsed_ns) && Number.isFinite(sample.value));
+  const valid = samples.filter((sample) => Number.isFinite(sample.elapsed_ns) && Number.isFinite(sample.value));
+  if (valid.length <= limit) return valid;
+  if (limit === 1) return valid.slice(-1);
+  if (limit < 4) return Array.from({ length: limit }, (_, index) => valid[Math.round(index * (valid.length - 1) / (limit - 1))]);
+
+  const selected = new Set([0, valid.length - 1]);
+  const buckets = Math.floor((limit - 2) / 2);
+  for (let bucket = 0; bucket < buckets; bucket++) {
+    const first = 1 + Math.floor(bucket * (valid.length - 2) / buckets);
+    const end = 1 + Math.floor((bucket + 1) * (valid.length - 2) / buckets);
+    let low = first;
+    let high = first;
+    for (let index = first + 1; index < end; index++) {
+      if (valid[index].value < valid[low].value) low = index;
+      if (valid[index].value >= valid[high].value) high = index;
+    }
+    selected.add(low);
+    selected.add(high);
+  }
+  return [...selected].sort((left, right) => left - right).map((index) => valid[index]);
 }
 
 function normalizeReference(value: unknown): GraphPreferences["reference"] {
