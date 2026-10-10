@@ -1,6 +1,6 @@
 # CAN event freeze-frame comparison
 
-**Status:** Draft for review  
+**Status:** Approved for implementation planning
 **Date:** 2026-10-09
 
 ## Goal
