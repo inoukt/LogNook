@@ -342,20 +342,22 @@ fn truncated_and_stopped_windows_are_incomplete() {
 #[test]
 fn mark_with_lost_receive_history_is_incomplete() {
     let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
-    for elapsed_ns in 1..=50_001 {
-        analyzer.feed(&frame(elapsed_ns, 0)).unwrap();
+    for _ in 0..=50_000 {
+        analyzer.feed(&frame(50_001, 0)).unwrap();
     }
     analyzer
         .mark(CanManualEventMark {
             label: "lost history".into(),
             elapsed_ns: 50_001,
-            pre_ns: 60_000_000_000,
-            post_ns: 0,
+            pre_ns: 0,
+            post_ns: 1,
         })
         .unwrap();
-    analyzer.advance(50_001).unwrap();
+    analyzer.feed(&frame(50_002, 0)).unwrap();
+    analyzer.advance(50_002).unwrap();
     let window = &analyzer.snapshot().groups[0].windows[0];
     assert_eq!(window.state, CanLiveEventWindowState::Incomplete);
+    assert_eq!(window.messages[0].frame_count, 1);
 }
 
 #[test]
