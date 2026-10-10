@@ -1,5 +1,6 @@
 <script lang="ts">
   import CanSignalEditor from "./CanSignalEditor.svelte";
+  import CanEventSnapshotsDialog from "./CanEventSnapshotsDialog.svelte";
   import { changedBits, discoverySeed } from "./canDiscovery";
   import { canHelpBubblesEnabled } from "./canHelp";
   import type { CanEventCandidate, CanFrame, CanLiveEventGroup, CanLiveEventSnapshot, CanSignalDefinition } from "./types";
@@ -22,11 +23,22 @@
   let framesSort: "rate" | "latest" = "rate";
   let eventFilter = "";
   let frozenEvents: CanLiveEventSnapshot | null = null;
+  let selectedSnapshotLabel: string | null = null;
+  let selectedSnapshotCaptureId: number | null = null;
   let pinnedId: { can_id: number; extended: boolean } | null = null;
   let editor: { frame: CanFrame; fieldId: string | null; seed?: ReturnType<typeof discoverySeed>; evidence?: string } | null = null;
   let actionError = "";
   $: trafficFrameCount = trafficSummary.reduce((total, row) => total + row.rx_count + row.tx_count, 0);
   $: eventSnapshot = frozenEvents ?? liveEventAnalysis;
+  $: if (selectedSnapshotLabel && (!eventSnapshot
+    || eventSnapshot.capture_id !== selectedSnapshotCaptureId
+    || !eventSnapshot.groups.some((group) => group.label === selectedSnapshotLabel))) {
+    selectedSnapshotLabel = null;
+    selectedSnapshotCaptureId = null;
+  }
+  $: selectedSnapshotGroup = selectedSnapshotLabel && eventSnapshot?.capture_id === selectedSnapshotCaptureId
+    ? eventSnapshot.groups.find((group) => group.label === selectedSnapshotLabel) ?? null
+    : null;
   $: latestElapsedNs = frames[frames.length - 1]?.elapsed_ns ?? 0;
   $: if (frozenEvents && liveEventAnalysis && frozenEvents.capture_id !== liveEventAnalysis.capture_id) frozenEvents = null;
   $: filteredTrafficSummary = filterTrafficSummary(trafficSummary, idFilter, idFormatFilter, directionFilter, minimumRate, summarySort);
@@ -195,6 +207,12 @@
   function freezeEvents() {
     frozenEvents = frozenEvents ? null : liveEventAnalysis;
   }
+
+  function openSnapshotComparison(label: string) {
+    if (!eventSnapshot?.groups.some((group) => group.label === label)) return;
+    selectedSnapshotLabel = label;
+    selectedSnapshotCaptureId = eventSnapshot.capture_id;
+  }
 </script>
 
 <section class="can-traffic-panel panel" aria-label="CAN bus traffic monitor">
@@ -311,6 +329,7 @@
           {@const candidates = matchingCandidates(group)}
           <details class="can-event-group" open>
             <summary>{group.label} · {group.completed_events} complete · {group.pending_events} pending · {group.incomplete_events} incomplete</summary>
+            <button class="can-small-action" type="button" onclick={() => openSnapshotComparison(group.label)}>Compare snapshots</button>
             {#if group.omitted_candidates}<p class="can-muted">{group.omitted_candidates} candidate observations omitted by the memory bound.</p>{/if}
             <div class="can-table-wrap can-candidate-wrap">
               <table aria-label={`CAN event candidates for ${group.label}`}>
@@ -350,6 +369,10 @@
     </div>
   {/if}
 </section>
+
+{#if selectedSnapshotGroup}
+  <CanEventSnapshotsDialog group={selectedSnapshotGroup} onClose={() => { selectedSnapshotLabel = null; selectedSnapshotCaptureId = null; }} />
+{/if}
 
 {#if editor}
   <CanSignalEditor

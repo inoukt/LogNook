@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const snapshots = await import("../src/canEventSnapshots.ts").catch(() => null);
+const dialogSource = await readFile(new URL("../src/CanEventSnapshotsDialog.svelte", import.meta.url), "utf8");
+const panelSource = await readFile(new URL("../src/CanTrafficPanel.svelte", import.meta.url), "utf8");
 
 function window(sequence, state, entries = [], omitted_ids = 0) {
   return {
@@ -94,4 +97,14 @@ test("standard and extended forms of the same numeric CAN ID stay separate", () 
     window(2, "complete", [[291, false, [1]], [291, true, [2]]]),
   ]);
   assert.deepEqual(rows.map(({ can_id, extended }) => [can_id, extended]), [[291, false], [291, true]]);
+});
+
+test("snapshot comparison component exposes the accessible dialog contract", () => {
+  assert.match(panelSource, /Compare snapshots/);
+  assert.match(panelSource, /<CanEventSnapshotsDialog\s+group=\{selectedSnapshotGroup\}/);
+  assert.match(dialogSource, /<dialog[\s\S]*aria-labelledby="can-snapshot-title"/);
+  assert.match(dialogSource, /aria-label="Close snapshot comparison"/);
+  assert.match(dialogSource, /oncancel=\{\(event\) => \{ event\.preventDefault\(\); close\(\); \}\}/);
+  assert.match(dialogSource, /aria-label="Snapshot comparison color legend"/);
+  assert.match(dialogSource, /compareCanEventSnapshots\(group\)/);
 });
