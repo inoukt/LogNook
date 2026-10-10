@@ -416,6 +416,22 @@ export type CanEventCandidate = {
   changed_bytes: CanEventByteChange[];
 };
 export type CanEventCorrelation = { label: string; event_count: number; candidates: CanEventCandidate[] };
+export type CanLiveEventWindowState = "pending" | "complete" | "incomplete";
+export type CanLiveEventMessageSnapshot = {
+  can_id: number;
+  extended: boolean;
+  frame_count: number;
+  latest_frame: CanFrame;
+};
+export type CanLiveEventWindowSnapshot = {
+  sequence: number;
+  elapsed_ns: number;
+  pre_ns: number;
+  post_ns: number;
+  state: CanLiveEventWindowState;
+  omitted_ids: number;
+  messages: CanLiveEventMessageSnapshot[];
+};
 export type CanLiveEventGroup = {
   label: string;
   completed_events: number;
@@ -423,6 +439,7 @@ export type CanLiveEventGroup = {
   incomplete_events: number;
   omitted_candidates: number;
   candidates: CanLiveEventCandidate[];
+  windows: CanLiveEventWindowSnapshot[];
 };
 export type CanLiveEventCandidate = {
   correlation: CanEventCandidate;
