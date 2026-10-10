@@ -30,6 +30,34 @@ pub struct CanLiveEventGroup {
     pub incomplete_events: usize,
     pub omitted_candidates: usize,
     pub candidates: Vec<CanLiveEventCandidate>,
+    pub windows: Vec<CanLiveEventWindowSnapshot>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanLiveEventWindowState {
+    Pending,
+    Complete,
+    Incomplete,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanLiveEventMessageSnapshot {
+    pub can_id: u32,
+    pub extended: bool,
+    pub frame_count: u64,
+    pub latest_frame: CanFrame,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanLiveEventWindowSnapshot {
+    pub sequence: u64,
+    pub elapsed_ns: i64,
+    pub pre_ns: i64,
+    pub post_ns: i64,
+    pub state: CanLiveEventWindowState,
+    pub omitted_ids: usize,
+    pub messages: Vec<CanLiveEventMessageSnapshot>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -61,9 +89,11 @@ struct GroupTotals {
     incomplete_events: usize,
     omitted_candidates: usize,
     candidates: BTreeMap<(u32, bool), CandidateTotals>,
+    windows: Vec<CanLiveEventWindowSnapshot>,
 }
 
 struct PendingEvent {
+    sequence: u64,
     mark: CanManualEventMark,
     frames: Vec<CanFrame>,
     truncated: bool,
@@ -80,6 +110,7 @@ pub struct LiveCanEventAnalyzer {
     pending: Vec<PendingEvent>,
     totals: BTreeMap<String, GroupTotals>,
     total_events: usize,
+    sequence: u64,
 }
 
 impl LiveCanEventAnalyzer {
@@ -94,6 +125,7 @@ impl LiveCanEventAnalyzer {
             pending: Vec::new(),
             totals: BTreeMap::new(),
             total_events: 0,
+            sequence: 0,
         }
     }
 
@@ -114,9 +146,24 @@ impl LiveCanEventAnalyzer {
             frames.drain(..frames.len() - MAX_FRAMES_PER_EVENT);
             truncated = true;
         }
+        let sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or_else(|| LogNookError::new("CAN event window sequence limit reached"))?;
+        self.sequence = sequence;
         self.total_events += 1;
-        self.totals.entry(mark.label.clone()).or_default();
+        let group = self.totals.entry(mark.label.clone()).or_default();
+        group.windows.push(CanLiveEventWindowSnapshot {
+            sequence,
+            elapsed_ns: mark.elapsed_ns,
+            pre_ns: mark.pre_ns,
+            post_ns: mark.post_ns,
+            state: CanLiveEventWindowState::Pending,
+            omitted_ids: 0,
+            messages: Vec::new(),
+        });
         self.pending.push(PendingEvent {
+            sequence,
             mark,
             frames,
             truncated,
@@ -204,6 +251,25 @@ impl LiveCanEventAnalyzer {
                 continue;
             }
             completed = true;
+            let messages = summarize_window(&event.frames);
+            let omitted_ids = messages.len().saturating_sub(MAX_VISIBLE_CANDIDATES);
+            let mut messages = messages;
+            messages.truncate(MAX_VISIBLE_CANDIDATES);
+            let state = if event.truncated {
+                CanLiveEventWindowState::Incomplete
+            } else {
+                CanLiveEventWindowState::Complete
+            };
+            if let Some(window) = self.totals.get_mut(&event.mark.label).and_then(|group| {
+                group
+                    .windows
+                    .iter_mut()
+                    .find(|window| window.sequence == event.sequence)
+            }) {
+                window.state = state;
+                window.omitted_ids = omitted_ids;
+                window.messages = messages;
+            }
             if event.truncated {
                 self.totals
                     .entry(event.mark.label)
@@ -268,10 +334,21 @@ impl LiveCanEventAnalyzer {
     /// Marks outstanding windows incomplete when their capture closes.
     pub fn finish(&mut self) -> CanLiveEventSnapshot {
         for event in self.pending.drain(..) {
-            self.totals
-                .entry(event.mark.label)
-                .or_default()
-                .incomplete_events += 1;
+            let messages = summarize_window(&event.frames);
+            let omitted_ids = messages.len().saturating_sub(MAX_VISIBLE_CANDIDATES);
+            let mut messages = messages;
+            messages.truncate(MAX_VISIBLE_CANDIDATES);
+            let group = self.totals.entry(event.mark.label.clone()).or_default();
+            group.incomplete_events += 1;
+            if let Some(window) = group
+                .windows
+                .iter_mut()
+                .find(|window| window.sequence == event.sequence)
+            {
+                window.state = CanLiveEventWindowState::Incomplete;
+                window.omitted_ids = omitted_ids;
+                window.messages = messages;
+            }
         }
         self.active = false;
         self.snapshot()
@@ -379,6 +456,7 @@ impl LiveCanEventAnalyzer {
                     incomplete_events: totals.incomplete_events,
                     omitted_candidates,
                     candidates,
+                    windows: totals.windows.clone(),
                 }
             })
             .collect();
@@ -389,6 +467,36 @@ impl LiveCanEventAnalyzer {
             groups,
         }
     }
+}
+
+fn summarize_window(frames: &[CanFrame]) -> Vec<CanLiveEventMessageSnapshot> {
+    let mut by_id = BTreeMap::<(u32, bool), (u64, CanFrame)>::new();
+    for frame in frames {
+        let entry = by_id
+            .entry((frame.can_id, frame.extended))
+            .or_insert_with(|| (0, frame.clone()));
+        entry.0 += 1;
+        entry.1 = frame.clone();
+    }
+    let mut messages = by_id
+        .into_iter()
+        .map(
+            |((can_id, extended), (frame_count, latest_frame))| CanLiveEventMessageSnapshot {
+                can_id,
+                extended,
+                frame_count,
+                latest_frame,
+            },
+        )
+        .collect::<Vec<_>>();
+    messages.sort_by(|left, right| {
+        right
+            .frame_count
+            .cmp(&left.frame_count)
+            .then_with(|| left.extended.cmp(&right.extended))
+            .then_with(|| left.can_id.cmp(&right.can_id))
+    });
+    messages
 }
 
 fn event_noise_hints(frames: &[&CanFrame]) -> (BTreeSet<u8>, BTreeSet<u8>) {

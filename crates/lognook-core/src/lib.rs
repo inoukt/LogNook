@@ -51,7 +51,8 @@ pub use can_analysis::{
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
 pub use can_live_events::{
-    CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventSnapshot, LiveCanEventAnalyzer,
+    CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventMessageSnapshot, CanLiveEventSnapshot,
+    CanLiveEventWindowSnapshot, CanLiveEventWindowState, LiveCanEventAnalyzer,
 };
 pub use can_workbench::{
     CanDeviceCandidate, CanDeviceSelection, CanEvidenceRecord, CanEvidenceScanConfig,
