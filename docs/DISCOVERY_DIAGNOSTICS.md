@@ -1,5 +1,25 @@
 # CAN discovery and vehicle diagnostics
 
+## Normal Candlelight OBD logging
+
+Choose **Candlelight OBD (GS-USB)** in the main adapter selector, select the USB
+device and interface/channel, then press **Identify**. Identify checks the USB
+device descriptors and GS_USB identity only; it does not start CAN or send a
+vehicle request. Select the generic OBD signals to log, then press **Connect**.
+
+Connect starts 11-bit CAN at 500 kbit/s, requests the standard Mode 01 support
+bitmap, follows advertised bitmap continuation pages, and requires one unique
+standard OBD responder. It exposes only signals with existing generic Mode 01
+decoders in the ordinary PID picker. The selected channels use the same live
+graphs, Record, CSV, session and replay pipeline as other OBD adapters. OEM
+Mode 21/22 scans and VIN/profile recognition are not part of this adapter.
+
+One LogNook process owns each physical USB interface/channel. If CAN Workbench
+already owns the selected channel, Identify or Connect returns an ownership
+error; disconnect that source before switching. All-empty cycles wait briefly
+before retrying so unsupported or absent replies do not become a tight poll
+loop. Successful and partial cycles remain paced by ECU response time.
+
 ## CAN Help and control explanations
 
 Open the **CAN** tab and select the small **?** beside **CAN bus fields**.

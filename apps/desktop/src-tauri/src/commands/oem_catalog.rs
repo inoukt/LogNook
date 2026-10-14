@@ -679,6 +679,7 @@ mod tests {
     fn app_state(directory: &std::path::Path, catalog: std::path::PathBuf) -> crate::AppState {
         crate::AppState {
             engine: std::sync::Mutex::new(lognook_core::LogNookEngine::new(|_| {})),
+            can_obd_operations: crate::commands::can_obd::CanObdOperationRegistry::default(),
             diagnostics: crate::diagnostics::DiagnosticsService::start(
                 directory.join("diagnostics/operations.jsonl"),
                 |_| {},

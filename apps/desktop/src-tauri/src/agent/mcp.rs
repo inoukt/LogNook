@@ -82,6 +82,19 @@ impl LogNookAgent {
         self.request(AgentRequest::ListAdapters).await
     }
 
+    #[tool(
+        description = "Operate normal Candlelight GS-USB OBD logging. discover lists USB candidates without vehicle traffic; identify checks the selected USB interface/channel only; connect discovers generic SAE Mode 01 support and starts selected signals in the ordinary acquisition/recording pipeline; select updates log/graph channels; status reports the active OBD connection; disconnect stops only this OBD source; cancel cancels an in-progress connect. First release uses 11-bit CAN at 500 kbit/s, read-only Mode 01, and one unique standard ECU responder. It does not scan OEM identifiers or run VIN/profile recognition. The same physical USB interface/channel cannot be owned simultaneously by CAN Workbench and OBD logging."
+    )]
+    async fn can_obd(
+        &self,
+        Parameters(args): Parameters<AgentCanObdArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::CanObd {
+            operation: args.operation,
+        })
+        .await
+    }
+
     #[tool(description = "Search standard OBD PIDs by name, ID, unit, or description.")]
     async fn list_signals(
         &self,
@@ -125,7 +138,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Connect an explicitly selected source through its existing adapter owner. Set profile_standby=true for an OBD connection that discovers support and waits for vehicle recognition and explicit Resume; no old selections poll in standby. One OBD and one Candlelight source can run together. Connecting never starts a CAN scan or replay."
+        description = "Connect an explicitly selected source through its existing adapter owner. Set profile_standby=true for supported OBD connections that discover support and wait for vehicle recognition and explicit Resume. For Candlelight GS-USB OBD use can_obd so connect cancellation and status share its owner. The same physical USB interface/channel cannot be owned simultaneously by OBD logging and CAN Workbench. Connecting never starts a CAN scan or replay."
     )]
     async fn connect_adapter(
         &self,
@@ -382,10 +395,16 @@ mod tests {
                 .unwrap()
                 .contains("replay_can_id")
         );
+        let can_obd = tools.iter().find(|tool| tool.name == "can_obd").unwrap();
+        assert!(can_obd.description.as_deref().unwrap().contains("Mode 01"));
+        let can_obd_schema = serde_json::to_string(can_obd.input_schema.as_ref()).unwrap();
+        assert!(can_obd_schema.contains("identify"));
+        assert!(can_obd_schema.contains("cancel"));
         let names = tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>();
         assert_eq!(
             names,
             [
+                "can_obd",
                 "connect_adapter",
                 "disconnect_adapter",
                 "disconnect_source",

@@ -6,6 +6,7 @@ mod can;
 mod can_analysis;
 mod can_capture;
 mod can_live_events;
+mod can_obd;
 mod can_replay;
 mod can_workbench;
 pub mod candlelight;
@@ -57,6 +58,7 @@ pub use can_live_events::{
     CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventMessageSnapshot, CanLiveEventSnapshot,
     CanLiveEventWindowSnapshot, CanLiveEventWindowState, LiveCanEventAnalyzer,
 };
+pub use can_obd::{CanObdAdapter, identify_can_obd, identify_can_obd_with_sinks};
 pub use can_replay::{
     CanReplayFrame, CanReplayPlan, CanReplaySource, PreparedSavedCanReplay,
     SavedCanReplaySelection, SavedCanReplaySummary, prepare_saved_can_replay,

@@ -21,7 +21,7 @@ use std::{
 const COMMAND_CAPACITY: usize = 32;
 const TRANSMIT_TIMEOUT: Duration = Duration::from_millis(500);
 /// A candidate is a USB-ID hint. Interface/GS_USB evidence is verified on open.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct CanDeviceCandidate {
     pub id: String,
     pub bus_id: String,
@@ -32,7 +32,7 @@ pub struct CanDeviceCandidate {
     pub serial_number: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct CanDeviceSelection {
     pub id: String,
     pub interface_number: u8,
@@ -430,6 +430,7 @@ impl CanTransportError {
             CandlelightError::ListenOnlyUnavailable
             | CandlelightError::NotStarted
             | CandlelightError::PassiveTransmit
+            | CandlelightError::ChannelBusy
             | CandlelightError::FrameError { .. } => CanTransportErrorKind::Other,
         };
         Self {

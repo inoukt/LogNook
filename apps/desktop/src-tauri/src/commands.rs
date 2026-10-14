@@ -22,6 +22,9 @@ pub use openport2::*;
 pub(crate) use openport2::{discover_providers, worker_path};
 mod can;
 pub use can::*;
+pub(crate) mod can_obd;
+pub(crate) use can_obd::connect_shared as connect_can_obd_shared;
+pub(crate) use can_obd::identify_shared as identify_can_obd_shared;
 pub(crate) mod saved_can_replay;
 pub use saved_can_replay::*;
 pub(crate) mod profile_connection;
@@ -352,6 +355,7 @@ mod diagnostics_tests {
                 engine: std::sync::Mutex::new(lognook_core::LogNookEngine::new(move |event| {
                     observer.observe_engine(&event)
                 })),
+                can_obd_operations: can_obd::CanObdOperationRegistry::default(),
                 diagnostics,
                 diagnostics_path: path.join("operations.jsonl"),
                 recordings_dir: path.clone(),

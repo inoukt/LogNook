@@ -12,7 +12,7 @@
 
   export let selectedPort = "";
   export let selectedBluetoothAddress = "";
-  export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx";
+  export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" | "candlelight_obd" = "obdlink_sx";
   export let activeAdapter: DeviceDescriptor | null = null;
   export let disabled = false;
   export let canConnected = false;

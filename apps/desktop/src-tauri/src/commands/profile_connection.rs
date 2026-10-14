@@ -29,6 +29,7 @@ pub(crate) fn connect_profile_adapter_shared(
             Box::new(OpenPort2Adapter::new(super::worker_path()?, provider_id)),
         ),
         AgentAdapterChoice::Candlelight { .. } => return Err("Vehicle recognition uses an OBD connection; choose a manual CAN profile for CAN-only work".into()),
+        AgentAdapterChoice::CandlelightObd { .. } => return Err("Candlelight OBD currently supports generic Mode 01 logging but not VIN or vehicle profile recognition; connect with the selected signals instead".into()),
     };
     super::connect_with_diagnostics(state, identity, vec![], move |engine, _| {
         engine

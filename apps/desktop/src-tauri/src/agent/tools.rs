@@ -109,6 +109,7 @@ fn stop_active_operations_state(
     reason: CanScanStopReason,
 ) -> Result<Option<PathBuf>, String> {
     // Cancellation does not need the acquisition lock held by a pending exchange.
+    let _ = state.can_obd_operations.cancel();
     let replay_preparation_error =
         crate::commands::discard_saved_can_replay_with_state(state, None).err();
     state.vehicle_profiles.cancel_pending_work();
@@ -288,6 +289,14 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
             log_signal_ids,
             graph_signal_ids,
         } => set_signal_selection(app, log_signal_ids, graph_signal_ids),
+        AgentRequest::CanObd { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || can_obd_operation(&app, operation)).await {
+                Ok(Ok(result)) => AgentResponse::CanObd { result },
+                Ok(Err((code, error))) => AgentResponse::error(code, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
         AgentRequest::ConnectAdapter {
             choice,
             log_signal_ids,
@@ -1592,18 +1601,20 @@ fn a30_outcome_name(outcome: &A30ReadOutcome) -> &'static str {
 
 fn authorize_action(app: &AppHandle) -> Result<(), AgentError> {
     let state = app.state::<AppState>();
-    state
-        .agent_access
-        .lock()
-        .map_err(|_| AgentError {
-            code: AgentErrorCode::Internal,
-            message: "Agent Access state is unavailable".into(),
-        })?
-        .authorize_action()
-        .map_err(|message| AgentError {
-            code: AgentErrorCode::Locked,
-            message,
-        })
+    let mut access = state.agent_access.lock().map_err(|_| AgentError {
+        code: AgentErrorCode::Internal,
+        message: "Agent Access state is unavailable".into(),
+    })?;
+    authorize_access_manager(&mut access)
+}
+
+fn authorize_access_manager(
+    access: &mut crate::agent::access::AgentAccessManager,
+) -> Result<(), AgentError> {
+    access.authorize_action().map_err(|message| AgentError {
+        code: AgentErrorCode::Locked,
+        message,
+    })
 }
 
 fn get_status(app: &AppHandle) -> AgentResponse {
@@ -1625,6 +1636,12 @@ fn get_status(app: &AppHandle) -> AgentResponse {
             );
         }
     };
+    let active_operation = active_operation.or_else(|| {
+        state
+            .can_obd_operations
+            .is_connecting()
+            .then(|| "Candlelight OBD connection".into())
+    });
     let engine = match state.engine.lock() {
         Ok(engine) => engine,
         Err(_) => {
@@ -1794,19 +1811,29 @@ fn list_adapters(app: &AppHandle) -> (Vec<AgentAdapterInfo>, Vec<String>) {
         Err(error) => errors.push(format!("OpenPort 2 discovery: {error}")),
     }
     match available_can_adapters() {
-        Ok(devices) => adapters.extend(devices.into_iter().map(|device| AgentAdapterInfo {
-            label: format!(
-                "Candlelight · {}",
-                device.product.as_deref().unwrap_or("USB CAN")
-            ),
-            choice: AgentAdapterChoice::Candlelight {
-                id: device.id,
-                interface_number: 0,
-                channel: 0,
-                bitrate: 500_000,
-                listen_only: true,
-            },
-        })),
+        Ok(devices) => {
+            for device in devices {
+                let product = device.product.as_deref().unwrap_or("USB CAN");
+                adapters.push(AgentAdapterInfo {
+                    label: format!("Candlelight · {product}"),
+                    choice: AgentAdapterChoice::Candlelight {
+                        id: device.id.clone(),
+                        interface_number: 0,
+                        channel: 0,
+                        bitrate: 500_000,
+                        listen_only: true,
+                    },
+                });
+                adapters.push(AgentAdapterInfo {
+                    label: format!("Candlelight OBD · {product}"),
+                    choice: AgentAdapterChoice::CandlelightObd {
+                        id: device.id,
+                        interface_number: 0,
+                        channel: 0,
+                    },
+                });
+            }
+        }
         Err(error) => errors.push(format!("Candlelight discovery: {error}")),
     }
     (adapters, errors)
@@ -1870,6 +1897,33 @@ fn same_ids(left: &[String], right: &[String]) -> bool {
     left == right
 }
 
+fn proposed_signal_selection(
+    engine: &lognook_core::LogNookEngine,
+    current_log_signal_ids: &[String],
+    log_signal_ids: Vec<String>,
+    graph_signal_ids: Vec<String>,
+) -> Result<AgentSignalSelection, String> {
+    validate_signal_selection(
+        engine,
+        current_log_signal_ids,
+        &log_signal_ids,
+        &graph_signal_ids,
+    )?;
+    Ok(AgentSignalSelection {
+        log_signal_ids,
+        graph_signal_ids,
+    })
+}
+
+fn is_can_obd_connection(engine: &lognook_core::LogNookEngine) -> bool {
+    engine
+        .connection_capabilities()
+        .is_some_and(|capabilities| {
+            engine.is_obd_connected()
+                && capabilities.device.hardware_family == "Candlelight GS-USB OBD-II"
+        })
+}
+
 fn set_signal_selection(
     app: &AppHandle,
     log_signal_ids: Vec<String>,
@@ -1913,6 +1967,162 @@ fn set_signal_selection(
     AgentResponse::SelectionUpdated { selection }
 }
 
+fn can_obd_operation(
+    app: &AppHandle,
+    operation: AgentCanObdOperation,
+) -> Result<AgentCanObdResult, (AgentErrorCode, String)> {
+    let state = app.state::<AppState>();
+    match operation {
+        AgentCanObdOperation::Discover => available_can_adapters()
+            .map(|devices| AgentCanObdResult::Devices { devices })
+            .map_err(|error| (AgentErrorCode::Internal, error.to_string())),
+        AgentCanObdOperation::Identify { selection } => {
+            crate::commands::identify_can_obd_shared(&state, selection)
+                .map(|device| AgentCanObdResult::Identified { device })
+                .map_err(|error| (AgentErrorCode::UnsupportedAdapter, error))
+        }
+        AgentCanObdOperation::Connect {
+            selection,
+            log_signal_ids,
+            graph_signal_ids,
+        } => {
+            let choice = AgentAdapterChoice::CandlelightObd {
+                id: selection.id,
+                interface_number: selection.interface_number,
+                channel: selection.channel,
+            };
+            let (adapter_id, supported_signal_ids) =
+                connect_adapter_with_selection(app, choice, log_signal_ids, graph_signal_ids)
+                    .map_err(|error| (AgentErrorCode::InvalidSelection, error))?;
+            Ok(AgentCanObdResult::Connected {
+                adapter_id,
+                supported_signal_ids,
+            })
+        }
+        AgentCanObdOperation::Select {
+            log_signal_ids,
+            graph_signal_ids,
+        } => update_can_obd_selection(app, log_signal_ids, graph_signal_ids)
+            .map(|selection| AgentCanObdResult::SelectionUpdated { selection }),
+        AgentCanObdOperation::Status => {
+            can_obd_status(&state, state.can_obd_operations.is_connecting())
+        }
+        AgentCanObdOperation::Disconnect => {
+            let engine = state.engine.lock().map_err(|_| {
+                (
+                    AgentErrorCode::Internal,
+                    "Acquisition engine is unavailable".to_owned(),
+                )
+            })?;
+            let is_can_obd = is_can_obd_connection(&engine);
+            drop(engine);
+            if !is_can_obd {
+                return Err((
+                    AgentErrorCode::UnsupportedAdapter,
+                    "No Candlelight OBD source is connected".into(),
+                ));
+            }
+            disconnect_source_state(&state, AgentConnectionSource::Obd)
+                .map_err(|error| (AgentErrorCode::Internal, error))?;
+            Ok(AgentCanObdResult::Disconnected)
+        }
+        AgentCanObdOperation::Cancel => Ok(AgentCanObdResult::Cancelled {
+            requested: state.can_obd_operations.cancel(),
+        }),
+    }
+}
+
+fn can_obd_status(
+    state: &AppState,
+    connecting: bool,
+) -> Result<AgentCanObdResult, (AgentErrorCode, String)> {
+    let selection = state
+        .agent_selection
+        .lock()
+        .map_err(|_| {
+            (
+                AgentErrorCode::Internal,
+                "Agent selection is unavailable".to_owned(),
+            )
+        })?
+        .clone();
+    if connecting {
+        return Ok(AgentCanObdResult::Status {
+            connecting: true,
+            connected: false,
+            device: None,
+            supported_signal_ids: vec![],
+            selection,
+        });
+    }
+    let engine = state.engine.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Acquisition engine is unavailable".to_owned(),
+        )
+    })?;
+    let device = engine
+        .connection_capabilities()
+        .filter(|_| is_can_obd_connection(&engine))
+        .map(|capabilities| capabilities.device.clone());
+    let supported_signal_ids = engine
+        .connection_capabilities()
+        .filter(|_| device.is_some())
+        .map(|capabilities| {
+            capabilities
+                .supported_signals
+                .iter()
+                .map(|signal| signal.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(AgentCanObdResult::Status {
+        connecting: false,
+        connected: device.is_some(),
+        device,
+        supported_signal_ids,
+        selection,
+    })
+}
+
+fn update_can_obd_selection(
+    app: &AppHandle,
+    log_signal_ids: Vec<String>,
+    graph_signal_ids: Vec<String>,
+) -> Result<AgentSignalSelection, (AgentErrorCode, String)> {
+    let state = app.state::<AppState>();
+    let engine = state.engine.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Acquisition engine is unavailable".to_owned(),
+        )
+    })?;
+    if !is_can_obd_connection(&engine) {
+        return Err((
+            AgentErrorCode::UnsupportedAdapter,
+            "Connect Candlelight OBD before changing its signal selection".into(),
+        ));
+    }
+    let mut current = state.agent_selection.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Agent selection is unavailable".to_owned(),
+        )
+    })?;
+    let selection = proposed_signal_selection(
+        &engine,
+        &current.log_signal_ids,
+        log_signal_ids,
+        graph_signal_ids,
+    )
+    .map_err(|error| (AgentErrorCode::InvalidSelection, error))?;
+    *current = selection.clone();
+    drop(current);
+    drop(engine);
+    let _ = app.emit("agent-signal-selection", &selection);
+    Ok(selection)
+}
+
 fn connect_adapter(
     app: &AppHandle,
     choice: AgentAdapterChoice,
@@ -1953,10 +2163,6 @@ fn connect_adapter(
         let status = result?;
         return Ok((status.source_id, vec![]));
     }
-    let engine = state
-        .engine
-        .lock()
-        .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
     let selection = state
         .agent_selection
         .lock()
@@ -1967,30 +2173,62 @@ fn connect_adapter(
         .filter(|id| log_signal_ids.contains(id))
         .cloned()
         .collect::<Vec<_>>();
-    validate_signal_selection(
-        &engine,
-        &selection.log_signal_ids,
-        &log_signal_ids,
-        &graph_signal_ids,
-    )?;
     drop(selection);
+    connect_adapter_with_selection(app, choice, log_signal_ids, graph_signal_ids)
+}
+
+fn connect_adapter_with_selection(
+    app: &AppHandle,
+    choice: AgentAdapterChoice,
+    log_signal_ids: Vec<String>,
+    graph_signal_ids: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    let state = app.state::<AppState>();
+    let engine = state
+        .engine
+        .lock()
+        .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
+    let current_selection = state
+        .agent_selection
+        .lock()
+        .map_err(|_| "Agent selection is unavailable".to_owned())?;
+    let proposed = proposed_signal_selection(
+        &engine,
+        &current_selection.log_signal_ids,
+        log_signal_ids.clone(),
+        graph_signal_ids.clone(),
+    )?;
+    drop(current_selection);
     drop(engine);
     let adapter_id = adapter_id(&choice);
-    let capabilities = crate::commands::connect_with_diagnostics(
-        &state,
-        adapter_id.clone(),
-        log_signal_ids.clone(),
-        |engine, ids| connect_adapter_in_engine(engine, choice, ids),
-    )?;
+    let capabilities = if let AgentAdapterChoice::CandlelightObd {
+        id,
+        interface_number,
+        channel,
+    } = choice.clone()
+    {
+        crate::commands::connect_can_obd_shared(
+            &state,
+            CanDeviceSelection {
+                id,
+                interface_number,
+                channel,
+            },
+            log_signal_ids.clone(),
+        )?
+    } else {
+        crate::commands::connect_with_diagnostics(
+            &state,
+            adapter_id.clone(),
+            log_signal_ids.clone(),
+            |engine, ids| connect_adapter_in_engine(engine, choice, ids),
+        )?
+    };
     let mut selection = state
         .agent_selection
         .lock()
         .map_err(|_| "Agent selection is unavailable".to_owned())?;
-    selection.log_signal_ids = log_signal_ids;
-    let selected_log_ids = selection.log_signal_ids.clone();
-    selection
-        .graph_signal_ids
-        .retain(|id| selected_log_ids.contains(id));
+    *selection = proposed;
     let updated_selection = selection.clone();
     drop(selection);
     let _ = app.emit("agent-signal-selection", &updated_selection);
@@ -2025,6 +2263,15 @@ fn connect_adapter_in_engine(
         AgentAdapterChoice::Candlelight { .. } => {
             return Err("Use the explicit CAN adapter connection option for Candlelight".into());
         }
+        AgentAdapterChoice::CandlelightObd {
+            id,
+            interface_number,
+            channel,
+        } => Box::new(lognook_core::CanObdAdapter::new(CanDeviceSelection {
+            id,
+            interface_number,
+            channel,
+        })),
     };
     engine
         .connect_adapter(adapter, signal_ids)
@@ -2039,6 +2286,7 @@ fn adapter_id(choice: &AgentAdapterChoice) -> String {
         AgentAdapterChoice::A30 { address } => format!("a30:{address}"),
         AgentAdapterChoice::OpenPort2 { provider_id } => provider_id.clone(),
         AgentAdapterChoice::Candlelight { id, .. } => format!("candlelight:{id}"),
+        AgentAdapterChoice::CandlelightObd { id, .. } => format!("candlelight-obd:{id}"),
     }
 }
 
@@ -2070,20 +2318,22 @@ fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
-        decode_hex_payload, disconnect_source_state, ensure_mode06_supported,
-        redact_generic_diagnostic_vin, replay_time_range_ns, search_oem_candidates,
-        start_agent_scan, summarize_oem_try, supported_mode06_tests, to_a30_test,
-        update_agent_replay_state, update_agent_scan_state, validate_signal_selection,
+        AgentWorkbenchState, authorize_access_manager, build_agent_status, can_obd_status,
+        connect_adapter_in_engine, convert_scan_config, decode_hex_payload,
+        disconnect_source_state, ensure_mode06_supported, is_can_obd_connection,
+        proposed_signal_selection, redact_generic_diagnostic_vin, replay_time_range_ns,
+        search_oem_candidates, start_agent_scan, summarize_oem_try, supported_mode06_tests,
+        to_a30_test, update_agent_replay_state, update_agent_scan_state, validate_signal_selection,
     };
     use crate::agent::protocol::{
-        AgentAccessSnapshot, AgentAdapterChoice, AgentCanScanConfig, AgentCanScanMode,
-        AgentConnectionSource, AgentSignalSelection,
+        AgentAccessSnapshot, AgentAdapterChoice, AgentCanObdResult, AgentCanScanConfig,
+        AgentCanScanMode, AgentConnectionSource, AgentErrorCode, AgentSignalSelection,
     };
     use lognook_core::{
         CanDirection, CanEvidenceRecord, CanFrame, CanScanConfig, CanScanMode, CanTransport,
-        CanTransportError, CanTransportEvent, CanWorkbenchConfig, DeviceDescriptor, LogNookEngine,
-        OemCandidateOutcome, OemCandidateTryResult, OemCatalog,
+        CanTransportError, CanTransportEvent, CanWorkbenchConfig, ConnectionCapabilities,
+        DeviceDescriptor, HardwareAdapter, LogNookEngine, LogNookError, OemCandidateOutcome,
+        OemCandidateTryResult, OemCatalog, Sample, SignalDefinition, standard_obd_signals,
     };
     use std::{
         path::PathBuf,
@@ -2249,6 +2499,7 @@ mod tests {
         });
         let state = crate::AppState {
             engine: std::sync::Mutex::new(engine),
+            can_obd_operations: crate::commands::can_obd::CanObdOperationRegistry::default(),
             diagnostics,
             diagnostics_path: root.join("operations.jsonl"),
             recordings_dir: root.join("recordings"),
@@ -2376,6 +2627,105 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn invalid_connect_selection_does_not_replace_the_existing_agent_selection() {
+        let engine = engine();
+        let original = AgentSignalSelection {
+            log_signal_ids: vec!["engine_rpm".into()],
+            graph_signal_ids: vec!["engine_rpm".into()],
+        };
+
+        assert!(
+            proposed_signal_selection(
+                &engine,
+                &original.log_signal_ids,
+                vec!["not_a_signal".into()],
+                vec!["not_a_signal".into()],
+            )
+            .is_err()
+        );
+        assert_eq!(original.log_signal_ids, ["engine_rpm"]);
+        assert_eq!(original.graph_signal_ids, ["engine_rpm"]);
+    }
+
+    struct CandlelightObdGuardAdapter;
+
+    impl HardwareAdapter for CandlelightObdGuardAdapter {
+        fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+            Ok(ConnectionCapabilities {
+                device: DeviceDescriptor {
+                    stable_id: "candlelight-obd:fixture".into(),
+                    hardware_family: "Candlelight GS-USB OBD-II".into(),
+                    firmware: None,
+                    path: None,
+                },
+                protocol: "SAE J1979 Mode 01 over 11-bit CAN".into(),
+                read_only: true,
+                supported_signals: standard_obd_signals()
+                    .into_iter()
+                    .filter(|signal| signal.id == "engine_rpm")
+                    .collect(),
+            })
+        }
+
+        fn read_samples(
+            &mut self,
+            _signals: &[SignalDefinition],
+        ) -> Result<Vec<Sample>, LogNookError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn can_obd_selection_guard_only_accepts_its_own_connection_family() {
+        let mut engine = engine();
+        assert!(!is_can_obd_connection(&engine));
+        engine
+            .connect_adapter(Box::new(CandlelightObdGuardAdapter), &["engine_rpm".into()])
+            .unwrap();
+        assert!(is_can_obd_connection(&engine));
+    }
+
+    #[test]
+    fn can_obd_agent_action_is_denied_locked_and_allowed_after_unlock() {
+        let (state, root) = test_app_state();
+        let mut access = state.agent_access.lock().unwrap();
+        assert!(matches!(
+            authorize_access_manager(&mut access),
+            Err(crate::agent::protocol::AgentError {
+                code: AgentErrorCode::Locked,
+                ..
+            })
+        ));
+        access.configure_pin("135790").unwrap();
+        access.unlock("135790").unwrap();
+        assert!(authorize_access_manager(&mut access).is_ok());
+        drop(access);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn can_obd_status_reports_connecting_without_waiting_for_the_engine_lock() {
+        let (state, root) = test_app_state();
+        let engine = state.engine.lock().unwrap();
+
+        let status = can_obd_status(&state, true).unwrap();
+
+        assert!(matches!(
+            status,
+            AgentCanObdResult::Status {
+                connecting: true,
+                connected: false,
+                device: None,
+                ..
+            }
+        ));
+        drop(engine);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

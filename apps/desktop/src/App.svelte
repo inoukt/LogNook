@@ -51,7 +51,7 @@
   import type { ShortcutAction } from "./shortcuts";
   import type {
     A30GraphValue, AgentAccessStatus, AgentSignalSelection, BluetoothSppDevice, CanFrame, CanIdReplayStatus, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
-    CanTriggerCaptureResult, CanTxStatus,
+    CanDeviceCandidate, CanDeviceSelection, CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, RecordingInfo, ResearchRunViewState,
     Sample, SignalDefinition,
@@ -96,6 +96,14 @@
   let openPortProviderDiagnostics: string[] = [];
   let selectedOpenPortProvider = "";
   let openPortIdentity: DeviceDescriptor | undefined;
+  let canObdAdapters: CanDeviceCandidate[] = [];
+  let selectedCanObdDeviceId = "";
+  let canObdInterfaceNumber = 0;
+  let canObdChannel = 0;
+  let canObdIdentity: { selectionKey: string; device: DeviceDescriptor } | undefined;
+  let canObdConnecting = false;
+  let canObdCancelRequested = false;
+  let canObdDiscoveryError = "";
   let selectedAdapter: AdapterKind = "simulator";
   let activeAdapterDescriptor: DeviceDescriptor | null = null;
   let logSignalIds = [...defaultWorkspacePreferences.logSignalIds];
@@ -222,6 +230,8 @@
     && (selectedAdapter === "elm327"
       ? bluetoothIdentity?.hardware_family.includes("ELM327")
       : selectedAdapter === "a30" && bluetoothIdentity?.hardware_family.includes("A30")));
+  $: canObdSelectionKey = `${selectedCanObdDeviceId}:${canObdInterfaceNumber}:${canObdChannel}`;
+  $: canObdIdentityMatches = canObdIdentity?.selectionKey === canObdSelectionKey;
   let graphRequest = 0;
   let readoutRequest = 0;
   let graphRefreshTimer: number | undefined;
@@ -245,13 +255,15 @@
     recording,
     replaying,
     hasSignals: logSignalIds.length > 0 && requestedAdapterSignals().length > 0,
-    profileStandby: vehicleProfileMode,
+    profileStandby: vehicleProfileMode && selectedAdapter !== "candlelight_obd",
     sxPort: selectedSxPort,
     sxIdentityMatches: sxIdentity?.path === selectedSxPort,
     openPortProvider: selectedOpenPortProvider,
     openPortIdentityMatches: openPortIdentity?.stable_id === selectedOpenPortProvider,
     bluetoothAddress: selectedBluetoothAddress,
     bluetoothIdentityMatches,
+    canObdDevice: selectedCanObdDeviceId,
+    canObdIdentityMatches,
   });
 
   $: derivedOptions = derivedSignalOptions(derivedSignalDefinitions);
@@ -718,6 +730,16 @@
       } else if (family.includes("elm")) {
         selectedAdapter = "elm327";
         selectedBluetoothAddress = event.payload.device.path ?? selectedBluetoothAddress;
+      } else if (family.includes("candlelight gs-usb obd")) {
+        selectedAdapter = "candlelight_obd";
+        const parts = event.payload.device.path?.split(" · ") ?? [];
+        const id = parts[0] ?? selectedCanObdDeviceId;
+        const interfaceNumber = Number(parts[1]?.replace("interface ", "")) || 0;
+        const channel = Number(parts[2]?.replace("channel ", "")) || 0;
+        selectedCanObdDeviceId = id;
+        canObdInterfaceNumber = interfaceNumber;
+        canObdChannel = channel;
+        canObdIdentity = { selectionKey: `${id}:${interfaceNumber}:${channel}`, device: event.payload.device };
       }
       pidPickerView = "signals";
       const obdStatus = event.payload.device.hardware_family === "simulator"
@@ -936,7 +958,59 @@
     });
   }
 
+  function canObdSelection(): CanDeviceSelection {
+    if (!selectedCanObdDeviceId) throw new Error("Choose a Candlelight GS-USB adapter first");
+    if (!Number.isInteger(canObdInterfaceNumber) || canObdInterfaceNumber < 0 || canObdInterfaceNumber > 255
+      || !Number.isInteger(canObdChannel) || canObdChannel < 0 || canObdChannel > 255) {
+      throw new Error("USB interface and channel must be byte-sized integers");
+    }
+    return {
+      id: selectedCanObdDeviceId,
+      interface_number: canObdInterfaceNumber,
+      channel: canObdChannel,
+    };
+  }
+
+  function connectCanObd() {
+    canObdConnecting = true;
+    canObdCancelRequested = false;
+    return run(async () => {
+      const requested = requestedAdapterSignals();
+      if (!requested.length) throw new Error("Select at least one generic OBD signal first");
+      const selection = canObdSelection();
+      if (!canObdIdentityMatches) throw new Error("Identify this USB interface and channel before connecting");
+      await invoke("configure_derived_signals", {
+        definitions: derivedSignalDefinitions,
+        activeIds: derivedSignalDefinitions.filter((definition) => requested.includes(definition.id)).map(({ id }) => id),
+      });
+      const capabilities = await invoke<ConnectionCapabilities>("connect_can_obd", {
+        selection,
+        signalIds: requested,
+      });
+      activeAdapterDescriptor = capabilities.device;
+      const availableIds = new Set([
+        ...capabilities.supported_signals.map(({ id }) => id),
+        ...derivedSignalDefinitions.map(({ id }) => id),
+      ]);
+      logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
+      graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
+    }).finally(() => {
+      canObdConnecting = false;
+      canObdCancelRequested = false;
+    });
+  }
+
+  async function cancelCanObdConnect() {
+    if (!canObdConnecting || canObdCancelRequested) return;
+    try {
+      canObdCancelRequested = await invoke<boolean>("cancel_can_obd_connect");
+    } catch (reason) {
+      showError(reason);
+    }
+  }
+
   function connectSelectedAdapter() {
+    if (selectedAdapter === "candlelight_obd") return connectCanObd();
     if (vehicleProfileMode) return connectSelectedProfileAdapter();
     if (selectedAdapter === "obdlink_sx") return connectSx();
     if (selectedAdapter === "openport2") return connectOpenPort();
@@ -949,6 +1023,10 @@
     if (selectedAdapter === "openport2") return { kind: "open_port2", provider_id: selectedOpenPortProvider };
     if (selectedAdapter === "a30") return { kind: "a30", address: selectedBluetoothAddress };
     if (selectedAdapter === "elm327") return { kind: "elm327", address: selectedBluetoothAddress };
+    if (selectedAdapter === "candlelight_obd") {
+      const selection = canObdSelection();
+      return { kind: "candlelight_obd", ...selection };
+    }
     return { kind: "simulator" };
   }
 
@@ -1094,6 +1172,33 @@
     if (adapter === "obdlink_sx") void refreshSxPorts();
     if (adapter === "openport2") void refreshOpenPortProviders();
     if (adapter === "elm327" || adapter === "a30") void refreshBluetoothDevices();
+    if (adapter === "candlelight_obd") void refreshCanObdAdapters();
+  }
+
+  async function refreshCanObdAdapters() {
+    canObdDiscoveryError = "";
+    try {
+      const adapters = await invoke<CanDeviceCandidate[]>("available_can_obd_adapters");
+      canObdAdapters = adapters;
+      if (!adapters.some(({ id }) => id === selectedCanObdDeviceId)) {
+        selectedCanObdDeviceId = adapters[0]?.id ?? "";
+        canObdIdentity = undefined;
+      }
+    } catch (reason) {
+      canObdAdapters = [];
+      selectedCanObdDeviceId = "";
+      canObdIdentity = undefined;
+      canObdDiscoveryError = String(reason);
+    }
+  }
+
+  function identifyCanObd() {
+    return run(async () => {
+      const selection = canObdSelection();
+      canObdIdentity = undefined;
+      const device = await invoke<DeviceDescriptor>("identify_can_obd", { selection });
+      canObdIdentity = { selectionKey: canObdSelectionKey, device };
+    });
   }
 
   function identifyBluetooth() {
@@ -1867,6 +1972,7 @@
               <option value="elm327">Bluetooth ELM327</option>
               <option value="a30">Xtool A30/A30M</option>
               <option value="openport2">OpenPort 2</option>
+              <option value="candlelight_obd">Candlelight OBD (GS-USB)</option>
             </select>
             {#if selectedAdapter === "obdlink_sx"}
               <select class="text-input port-select" bind:value={selectedSxPort} onchange={() => sxIdentity = undefined} aria-label="OBDLink SX serial port" disabled={busy || recording || sxPorts.length === 0 || replaying || researchRunView.running}>
@@ -1885,12 +1991,23 @@
                 {#each bluetoothDevices as device (device.address)}<option value={device.address}>{device.name} · {device.address}</option>{/each}
               </select>
               <button class="button secondary adapter-refresh" onclick={refreshBluetoothDevices} disabled={busy || recording || replaying || refreshingBluetoothDevices || researchRunView.running} title="Refresh paired Bluetooth devices" aria-label="Refresh Bluetooth devices">↻</button>
+            {:else if selectedAdapter === "candlelight_obd"}
+              <select class="text-input can-obd-device-select" bind:value={selectedCanObdDeviceId} onchange={() => canObdIdentity = undefined} aria-label="Candlelight USB adapter" disabled={busy || recording || canObdAdapters.length === 0 || replaying || researchRunView.running}>
+                {#if canObdAdapters.length === 0}<option value="">No Candlelight GS-USB adapter</option>{/if}
+                {#each canObdAdapters as device (device.id)}<option value={device.id}>{device.product ?? "USB CAN"}{device.serial_number ? ` · ${device.serial_number}` : ` · ${device.bus_id}`}</option>{/each}
+              </select>
+              <label class="adapter-number">Interface <input class="text-input" type="number" min="0" max="255" bind:value={canObdInterfaceNumber} aria-label="USB interface number" disabled={busy || recording || replaying || researchRunView.running} /></label>
+              <label class="adapter-number">Channel <input class="text-input" type="number" min="0" max="255" bind:value={canObdChannel} aria-label="CAN channel number" disabled={busy || recording || replaying || researchRunView.running} /></label>
+              <button class="button secondary adapter-refresh" onclick={refreshCanObdAdapters} disabled={busy || recording || replaying || researchRunView.running} title="Refresh detected GS-USB devices" aria-label="Refresh Candlelight devices">↻</button>
             {/if}
             {#if selectedAdapter !== "simulator"}
-              <button class="button secondary" onclick={selectedAdapter === "openport2" ? identifyOpenPort : selectedAdapter === "obdlink_sx" ? identifySx : identifyBluetooth} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
-              {#if (selectedAdapter === "obdlink_sx" && sxIdentity?.path === selectedSxPort) || (selectedAdapter === "openport2" && openPortIdentity?.stable_id === selectedOpenPortProvider) || ((selectedAdapter === "elm327" || selectedAdapter === "a30") && bluetoothIdentityMatches)}
-                <span class="adapter-identified" title={selectedAdapter === "openport2" ? openPortIdentity?.firmware : selectedAdapter === "obdlink_sx" ? sxIdentity?.firmware : bluetoothIdentity?.hardware_family}>Ready</span>
+              <button class="button secondary" onclick={selectedAdapter === "candlelight_obd" ? identifyCanObd : selectedAdapter === "openport2" ? identifyOpenPort : selectedAdapter === "obdlink_sx" ? identifySx : identifyBluetooth} disabled={connectionControls.identifyDisabled} title={`Identify ${adapterLabel(selectedAdapter)}`} aria-label={`Identify ${adapterLabel(selectedAdapter)}`}>Identify</button>
+              {#if (selectedAdapter === "obdlink_sx" && sxIdentity?.path === selectedSxPort) || (selectedAdapter === "openport2" && openPortIdentity?.stable_id === selectedOpenPortProvider) || ((selectedAdapter === "elm327" || selectedAdapter === "a30") && bluetoothIdentityMatches) || (selectedAdapter === "candlelight_obd" && canObdIdentityMatches)}
+                <span class="adapter-identified" title={selectedAdapter === "openport2" ? openPortIdentity?.firmware : selectedAdapter === "obdlink_sx" ? sxIdentity?.firmware : selectedAdapter === "candlelight_obd" ? canObdIdentity?.device.hardware_family : bluetoothIdentity?.hardware_family}>Ready</span>
               {/if}
+            {/if}
+            {#if canObdConnecting}
+              <button class="button danger" type="button" onclick={cancelCanObdConnect} disabled={canObdCancelRequested}>{canObdCancelRequested ? "Cancelling…" : "Cancel Connect"}</button>
             {/if}
             <button class="button primary" onclick={connectSelectedAdapter} disabled={connectionControls.connectDisabled} title={connectionControls.connectLabel} aria-label={connectionControls.connectLabel}>Connect</button>
           {/if}
@@ -2085,6 +2202,12 @@
       {#if selectedAdapter === "openport2"}
         {#if openPortProviders.length}<span class="status-info">{openPortProviders.length} eligible 32-bit J2534 provider(s) registered; Identify checks adapter availability.</span>{/if}
         {#each openPortProviderDiagnostics as diagnostic}<span class={openPortProviders.length ? "status-info" : "status-error"} role={openPortProviders.length ? undefined : "alert"}>{diagnostic}</span>{/each}
+      {/if}
+      {#if selectedAdapter === "candlelight_obd"}
+        {#if canObdDiscoveryError}<span class="status-error" role="alert">Candlelight discovery failed: {canObdDiscoveryError}</span>{/if}
+        <span class="status-info">Identify checks USB identity only and sends no CAN frame. Connect discovers generic Mode 01 support over 11-bit CAN at 500 kbit/s.</span>
+        {#if vehicleProfileMode}<span class="status-info">Candlelight OBD does not provide vehicle/VIN recognition yet. Connect uses the selected generic signals through normal live logging.</span>{/if}
+        {#if canObdIdentityMatches}<span class="status-success">Identified {canObdIdentity?.device.hardware_family} · channel {canObdChannel}</span>{/if}
       {/if}
       {#if sxIdentity}<span class="status-success">Identified {sxIdentity.hardware_family} · {sxIdentity.firmware} · serial {sxIdentity.stable_id}</span>{/if}
       {#if automaticTriggerStatus.armed}<span class="status-success">Automatic trigger armed · {automaticTriggerStatus.config?.signal_id} {automaticTriggerStatus.config?.direction} {automaticTriggerStatus.config?.threshold}</span>{/if}

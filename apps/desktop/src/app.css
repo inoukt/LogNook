@@ -126,6 +126,9 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .adapter-select { width: clamp(94px, 7.5vw, 118px); min-width: 88px; }
 .port-select { width: clamp(104px, 8vw, 124px); min-width: 104px; }
 .provider-select { width: clamp(128px, 10vw, 156px); min-width: 112px; }
+.can-obd-device-select { width: clamp(150px, 12vw, 210px); min-width: 140px; }
+.adapter-number { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 0.75rem; }
+.adapter-number input { width: 48px; min-width: 48px; padding-inline: 5px; text-align: center; }
 .bluetooth-select { width: clamp(112px, 11vw, 158px); min-width: 104px; }
 .bluetooth-select { width: clamp(112px, 11vw, 158px); min-width: 104px; }
 .adapter-refresh { min-width: 28px; padding-inline: 6px; }

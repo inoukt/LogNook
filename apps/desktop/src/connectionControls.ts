@@ -1,4 +1,4 @@
-export type AdapterKind = "simulator" | "obdlink_sx" | "openport2" | "elm327" | "a30";
+export type AdapterKind = "simulator" | "obdlink_sx" | "openport2" | "elm327" | "a30" | "candlelight_obd";
 
 export type ConnectionControlInput = {
   busy: boolean;
@@ -12,6 +12,8 @@ export type ConnectionControlInput = {
   openPortIdentityMatches: boolean;
   bluetoothAddress: string;
   bluetoothIdentityMatches: boolean;
+  canObdDevice?: string;
+  canObdIdentityMatches?: boolean;
 };
 
 export function adapterLabel(adapter: AdapterKind): string {
@@ -19,6 +21,7 @@ export function adapterLabel(adapter: AdapterKind): string {
   if (adapter === "openport2") return "OpenPort 2";
   if (adapter === "elm327") return "Bluetooth ELM327";
   if (adapter === "a30") return "Xtool A30/A30M";
+  if (adapter === "candlelight_obd") return "Candlelight OBD (GS-USB)";
   return "Simulator";
 }
 
@@ -27,14 +30,17 @@ export function connectionControlState(adapter: AdapterKind, state: ConnectionCo
   const hasAdapter = adapter === "simulator"
     || (adapter === "obdlink_sx" ? Boolean(state.sxPort)
       : adapter === "openport2" ? Boolean(state.openPortProvider)
-        : Boolean(state.bluetoothAddress));
+        : adapter === "candlelight_obd" ? Boolean(state.canObdDevice)
+          : Boolean(state.bluetoothAddress));
   const identified = adapter === "simulator"
     || (adapter === "obdlink_sx" ? state.sxIdentityMatches
       : adapter === "openport2" ? state.openPortIdentityMatches
-        : state.bluetoothIdentityMatches);
+        : adapter === "candlelight_obd" ? state.canObdIdentityMatches
+          : state.bluetoothIdentityMatches);
+  const profileStandby = adapter !== "candlelight_obd" && state.profileStandby;
   return {
     identifyDisabled: !ready || adapter === "simulator" || !hasAdapter,
-    connectDisabled: !ready || (!state.hasSignals && !state.profileStandby) || !hasAdapter || !identified,
+    connectDisabled: !ready || (!state.hasSignals && !profileStandby) || !hasAdapter || !identified,
     connectLabel: `Connect ${adapterLabel(adapter)}`,
   };
 }

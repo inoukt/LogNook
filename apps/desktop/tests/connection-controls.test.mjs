@@ -22,6 +22,36 @@ test("adapter labels stay short for the one-row toolbar", () => {
   assert.equal(controls.adapterLabel("openport2"), "OpenPort 2");
   assert.equal(controls.adapterLabel("elm327"), "Bluetooth ELM327");
   assert.equal(controls.adapterLabel("a30"), "Xtool A30/A30M");
+  assert.equal(controls.adapterLabel("candlelight_obd"), "Candlelight OBD (GS-USB)");
+});
+
+test("Candlelight OBD needs a discovered USB device, matching Identify, and selected signals", () => {
+  assert.ok(controls, "connection controls helper is available");
+  const state = {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: true,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "",
+    openPortIdentityMatches: false,
+    bluetoothAddress: "",
+    bluetoothIdentityMatches: false,
+    canObdDevice: "",
+    canObdIdentityMatches: false,
+  };
+  assert.equal(controls.connectionControlState("candlelight_obd", state).identifyDisabled, true);
+  assert.equal(controls.connectionControlState("candlelight_obd", state).connectDisabled, true);
+
+  const selected = { ...state, canObdDevice: "1:4" };
+  assert.equal(controls.connectionControlState("candlelight_obd", selected).identifyDisabled, false);
+  assert.equal(controls.connectionControlState("candlelight_obd", selected).connectDisabled, true);
+
+  const identified = { ...selected, canObdIdentityMatches: true };
+  assert.equal(controls.connectionControlState("candlelight_obd", identified).connectDisabled, false);
+  assert.equal(controls.connectionControlState("candlelight_obd", { ...identified, hasSignals: false }).connectDisabled, true);
+  assert.equal(controls.connectionControlState("candlelight_obd", { ...identified, profileStandby: true, hasSignals: false }).connectDisabled, true);
 });
 
 test("Bluetooth adapters need a paired address and matching identity before connect", () => {

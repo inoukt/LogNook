@@ -14,6 +14,7 @@ use tauri::{Emitter, Manager};
 
 pub(crate) struct AppState {
     pub engine: Mutex<LogNookEngine>,
+    pub can_obd_operations: commands::can_obd::CanObdOperationRegistry,
     pub diagnostics: diagnostics::DiagnosticsService,
     pub diagnostics_path: PathBuf,
     pub recordings_dir: PathBuf,
@@ -98,6 +99,7 @@ pub fn run() {
             engine.set_communication_sink(trace_store.sink());
             app.manage(AppState {
                 engine: Mutex::new(engine),
+                can_obd_operations: commands::can_obd::CanObdOperationRegistry::default(),
                 diagnostics,
                 diagnostics_path,
                 recordings_dir,
@@ -172,6 +174,10 @@ pub fn run() {
             commands::save_can_signal_definition,
             commands::choose_can_trigger_save_path,
             commands::connect_candlelight,
+            commands::can_obd::available_can_obd_adapters,
+            commands::can_obd::identify_can_obd,
+            commands::can_obd::connect_can_obd,
+            commands::can_obd::cancel_can_obd_connect,
             commands::configure_can_signals,
             commands::preview_can_signal,
             commands::start_can_capture,

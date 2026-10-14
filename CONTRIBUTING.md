@@ -13,7 +13,7 @@ Thanks for helping improve LogNook. This guide is the human contributor entry po
 
 - `apps/desktop/src`: Svelte and TypeScript user interface.
 - `apps/desktop/src-tauri`: Tauri commands, Agent Access/MCP, and the Windows application shell.
-- `crates/lognook-core`: shared hardware contracts, acquisition, CAN workbench, decoding, recording, and replay.
+- `crates/lognook-core`: shared hardware contracts, acquisition, CAN Workbench and normal read-only Mode 01 adapters, decoding, recording, and replay.
 - `workers`: isolated architecture-specific hardware helpers, including the x86 J2534 worker.
 - `PIDs/LogNook_PID_Master_v0_3`: authoritative OEM research database and its importer/query tools; its source provenance and licensing rules are separate from the app code.
 - `docs`: operating guides, hardware evidence, and deferred feature candidates.
@@ -50,6 +50,7 @@ Tauri bundling is disabled in `apps/desktop/src-tauri/tauri.conf.json`; expect a
 ## Feature and safety expectations
 
 - Use the existing shared core/service and typed Tauri/IPC boundaries. Do not create a second hardware owner or a parallel recording pipeline.
+- Normal Candlelight OBD and CAN Workbench share an RAII owner for each physical USB interface/channel. Identify may inspect USB identity only; normal OBD discovery uses generic Mode 01 and one responding standard ECU, while numeric OEM scans remain explicit Workbench actions.
 - **MCP parity is required** for every capability with meaningful data or operations. Expose it in the same change through typed Agent Access/MCP, reuse the same core owner and safety gates, update tool schemas and descriptions, and test discoverability, invocation, results/status, and cancellation/evidence where applicable. For a truly presentation-only feature, record why it has no meaningful MCP equivalent in `PROJECT_STATUS.md`.
 - Normal OBD acquisition and polling are read-oriented. CAN Workbench operations that transmit are explicit, local, operator-started actions. Never add automatic bus transmission or run an on-vehicle test without its documented test conditions and authorization.
 - OEM definitions need source provenance and remain inert until their exact applicability is validated. Never invent or universalize manufacturer-specific identifiers.

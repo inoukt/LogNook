@@ -21,6 +21,9 @@ pub enum AgentRequest {
         log_signal_ids: Vec<String>,
         graph_signal_ids: Vec<String>,
     },
+    CanObd {
+        operation: AgentCanObdOperation,
+    },
     ConnectAdapter {
         choice: AgentAdapterChoice,
         log_signal_ids: Vec<String>,
@@ -328,6 +331,66 @@ pub enum AgentAdapterChoice {
         channel: u8,
         bitrate: u32,
         listen_only: bool,
+    },
+    CandlelightObd {
+        id: String,
+        interface_number: u8,
+        channel: u8,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentCanObdOperation {
+    Discover,
+    Identify {
+        selection: lognook_core::CanDeviceSelection,
+    },
+    Connect {
+        selection: lognook_core::CanDeviceSelection,
+        log_signal_ids: Vec<String>,
+        graph_signal_ids: Vec<String>,
+    },
+    Select {
+        log_signal_ids: Vec<String>,
+        graph_signal_ids: Vec<String>,
+    },
+    Status,
+    Disconnect,
+    Cancel,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentCanObdArgs {
+    pub operation: AgentCanObdOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentCanObdResult {
+    Devices {
+        devices: Vec<lognook_core::CanDeviceCandidate>,
+    },
+    Identified {
+        device: lognook_core::DeviceDescriptor,
+    },
+    Connected {
+        adapter_id: String,
+        supported_signal_ids: Vec<String>,
+    },
+    SelectionUpdated {
+        selection: AgentSignalSelection,
+    },
+    Status {
+        connecting: bool,
+        connected: bool,
+        device: Option<lognook_core::DeviceDescriptor>,
+        supported_signal_ids: Vec<String>,
+        selection: AgentSignalSelection,
+    },
+    Disconnected,
+    Cancelled {
+        requested: bool,
     },
 }
 
@@ -723,6 +786,9 @@ pub enum AgentResponse {
     SelectionUpdated {
         selection: AgentSignalSelection,
     },
+    CanObd {
+        result: AgentCanObdResult,
+    },
     Connected {
         adapter_id: String,
         supported_signal_ids: Vec<String>,
@@ -998,5 +1064,32 @@ mod tests {
             decode_request(br#"{"action":"stop_operation"}"#).unwrap(),
             AgentRequest::StopOperation
         ));
+    }
+
+    #[test]
+    fn candlelight_obd_operations_are_typed_for_the_full_normal_logging_flow() {
+        for payload in [
+            br#"{"action":"can_obd","operation":{"kind":"discover"}}"#.as_slice(),
+            br#"{"action":"can_obd","operation":{"kind":"identify","selection":{"id":"1:2","interface_number":0,"channel":0}}}"#.as_slice(),
+            br#"{"action":"can_obd","operation":{"kind":"connect","selection":{"id":"1:2","interface_number":0,"channel":0},"log_signal_ids":["engine_rpm"],"graph_signal_ids":["engine_rpm"]}}"#.as_slice(),
+            br#"{"action":"can_obd","operation":{"kind":"select","log_signal_ids":["engine_rpm"],"graph_signal_ids":["engine_rpm"]}}"#.as_slice(),
+            br#"{"action":"can_obd","operation":{"kind":"status"}}"#.as_slice(),
+            br#"{"action":"can_obd","operation":{"kind":"disconnect"}}"#.as_slice(),
+            br#"{"action":"can_obd","operation":{"kind":"cancel"}}"#.as_slice(),
+        ] {
+            assert!(matches!(decode_request(payload), Ok(AgentRequest::CanObd { .. })));
+        }
+        assert!(decode_request(br#"{"action":"can_obd","operation":{"kind":"connect","selection":{"id":"1:2","interface_number":0,"channel":0},"log_signal_ids":["engine_rpm"],"graph_signal_ids":[],"auto_request":true}}"#).is_err());
+        let schema = serde_json::to_string(&schemars::schema_for!(AgentCanObdArgs)).unwrap();
+        assert!(schema.contains("discover"));
+        assert!(schema.contains("identify"));
+        assert!(schema.contains("connect"));
+        assert!(schema.contains("select"));
+        assert!(schema.contains("status"));
+        assert!(schema.contains("disconnect"));
+        assert!(schema.contains("cancel"));
+        let choice_schema =
+            serde_json::to_string(&schemars::schema_for!(AgentAdapterChoice)).unwrap();
+        assert!(choice_schema.contains("candlelight_obd"));
     }
 }

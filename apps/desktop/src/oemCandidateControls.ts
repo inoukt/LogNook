@@ -13,8 +13,11 @@ export function oemCandidateTryState(
   candidate: TryCandidate,
   device: string,
   blocked: boolean,
-  adapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx",
+  adapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" | "candlelight_obd" = "obdlink_sx",
 ) {
+  if (adapter === "candlelight_obd") {
+    return { disabled: true, reason: "Candlelight OBD supports generic Mode 01 only; OEM profile reads are unavailable" };
+  }
   if (adapter !== "obdlink_sx" && adapter !== "a30" && adapter !== "elm327") {
     return { disabled: true, reason: "OEM reads require OBDLink SX or Bluetooth ELM327/A30" };
   }
