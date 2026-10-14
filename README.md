@@ -8,7 +8,7 @@ Saved sessions support Rename, Delete (with confirmation), Open folder, Save As 
 
 **Record** starts with new samples. **Rec From Connect** includes up to 100,000 decoded samples retained in memory from the current connection, then records subsequent live samples. Its persistent marker reports evicted history. It cannot recover unselected PIDs, earlier connections, raw CAN frames, or data lost at shutdown; use CAN Capture for raw bus traffic.
 
-This checkout currently has no repository-wide `LICENSE` file. GitHub's [licensing guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) explains that a public repository without a license remains subject to default copyright rules. Choose and add a project license before describing the code as legally open source. The OEM PID database has separate source and licensing requirements documented in [its project guide](PIDs/LogNook_PID_Master_v0_3/docs/03_SOURCES_LICENSING.md).
+This checkout currently has no repository-wide `LICENSE` file. GitHub's [licensing guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) explains that a public repository without a license remains subject to default copyright rules. The owner wants free redistribution and modification while preventing paid resale; that policy is source-available, not legally open source under the standard definition. See the [licensing policy proposal](docs/licensing-policy-proposal.md). The OEM PID database has separate source and licensing requirements documented in [its project guide](PIDs/LogNook_PID_Master_v0_3/docs/03_SOURCES_LICENSING.md).
 
 ## Build and run
 

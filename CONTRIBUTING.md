@@ -61,4 +61,4 @@ Run the tests relevant to the code and finish with `git diff --check`. For app c
 
 ## License status
 
-This checkout has no repository-wide `LICENSE` file. A project license has not yet been selected, so contributors should not assume the app code is licensed for reuse or redistribution. The OEM PID catalog and any bundled third-party material have separate provenance and license terms; see [the catalog licensing guide](PIDs/LogNook_PID_Master_v0_3/docs/03_SOURCES_LICENSING.md). Ask the project owner to choose the repository license before publishing reuse or redistribution terms.
+This checkout has no repository-wide `LICENSE` file. The owner wants free redistribution and modification while preventing paid resale; the current [licensing policy proposal](docs/licensing-policy-proposal.md) records those goals but is not an operative license. Contributors must not assume the app code is licensed for reuse or redistribution yet. The OEM PID catalog and other bundled material have separate provenance and license terms; see [the catalog licensing guide](PIDs/LogNook_PID_Master_v0_3/docs/03_SOURCES_LICENSING.md).

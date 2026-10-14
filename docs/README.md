@@ -11,6 +11,7 @@ Use this page to find the current instructions and distinguish active guidance f
 - [Agent Access / MCP](AGENT_ACCESS.md): setup, authorization, available tools, and current MCP behavior.
 - [CAN discovery and diagnostics](DISCOVERY_DIAGNOSTICS.md): user-facing CAN and diagnostic workflows.
 - [Feature backlog](FEATURE_BACKLOG.md): deferred ideas only; not an active work assignment.
+- [Licensing policy proposal](licensing-policy-proposal.md): the owner's no-paid-resale goals and the distinction between source-available and open-source licensing; this is not an active license.
 
 ## Architecture and research
 
