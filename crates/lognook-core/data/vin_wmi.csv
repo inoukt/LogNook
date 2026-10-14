@@ -1,0 +1,80 @@
+key,manufacturer,manufacturer_assignment_country,vehicle_type,class_scope,check_digit_scope,source_id,source_revision
+1C3,FCA US LLC,UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_fca_us,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1C4,FCA US LLC,UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_fca_us,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1C6,FCA US LLC,UNITED STATES (USA),Truck,,us_49_cfr_565,nhtsa_getwmis_fca_us,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1FA,FORD MOTOR COMPANY,UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1F9407,FORD STEEL,UNITED STATES (USA),Trailer,,us_49_cfr_565,nhtsa_getwmis_ford_steel,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1FM,FORD MOTOR COMPANY,UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1FT,FORD MOTOR COMPANY,UNITED STATES (USA),Truck,,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1G1,GENERAL MOTORS LLC,UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1G4,GENERAL MOTORS LLC,UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1GC,GENERAL MOTORS LLC,UNITED STATES (USA),Truck,,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1GK,GENERAL MOTORS LLC,UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1GY,GENERAL MOTORS LLC,UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1HG,"AMERICAN HONDA MOTOR CO., INC.",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+19U,"AMERICAN HONDA MOTOR CO., INC.",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1N4,"NISSAN NORTH AMERICA, INC.",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_nissan_north_america,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1N6,"NISSAN NORTH AMERICA, INC.",UNITED STATES (USA),Truck,,us_49_cfr_565,nhtsa_getwmis_nissan_north_america,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1V2,"VOLKSWAGEN GROUP OF AMERICA, INC.",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_volkswagen,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+1VW,"VOLKSWAGEN GROUP OF AMERICA, INC.",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_volkswagen,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2C3,FCA CANADA INC.,CANADA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_fca_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2C4,FCA CANADA INC.,CANADA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_fca_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2FA,"FORD MOTOR COMPANY OF CANADA, LTD.",CANADA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2FM,"FORD MOTOR COMPANY OF CANADA, LTD.",CANADA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2FT,"FORD MOTOR COMPANY OF CANADA, LTD.",CANADA,Truck,,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2G1,GENERAL MOTORS LLC,CANADA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2GN,GENERAL MOTORS LLC,CANADA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2HG,"HONDA OF CANADA MFG., A DIVISION OF HONDA CANADA INC.",CANADA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_honda_of_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2HK,"HONDA OF CANADA MFG., A DIVISION OF HONDA CANADA INC.",CANADA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_honda_of_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2T1,TOYOTA MOTOR MANUFACTURING CANADA,CANADA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_toyota_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2T2,TOYOTA MOTOR MANUFACTURING CANADA,CANADA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_toyota_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+2T3,TOYOTA MOTOR MANUFACTURING CANADA,CANADA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_toyota_canada,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3C3,CHRYSLER DE MEXICO TOLUCA,MEXICO,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_chrysler,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3C4,CHRYSLER DE MEXICO TOLUCA,MEXICO,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_chrysler,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3FA,"FORD MOTOR COMPANY, MEXICO",MEXICO,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3FM,"FORD MOTOR COMPANY, MEXICO",MEXICO,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3FT,"FORD MOTOR COMPANY, MEXICO",MEXICO,Truck,,us_49_cfr_565,nhtsa_getwmis_ford_motor_company,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3G1,GENERAL MOTORS LLC,MEXICO,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_general_motors,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3MZ,MAZDA MOTOR MANUFACTURING DE MEXICO S.A. DE C.V.,MEXICO,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_mazda,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3MV,MAZDA MOTOR MANUFACTURING DE MEXICO S.A. DE C.V.,MEXICO,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_mazda,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3VW,VOLKSWAGEN DE MEXICO SA DE CV,MEXICO,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_volkswagen,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3VV,VOLKSWAGEN DE MEXICO SA DE CV,MEXICO,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_volkswagen,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+3N1,"NISSAN MEXICANA, S.A. DE C.V.",MEXICO,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_nissan_mexicana,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+4A3,MITSUBISHI MOTORS NORTH AMERICA,UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_mitsubishi,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+4A4,MITSUBISHI MOTORS NORTH AMERICA,UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_mitsubishi,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+4S3,"SUBARU OF AMERICA, INC",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_subaru_of_america,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+4S4,"SUBARU OF AMERICA, INC",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_subaru_of_america,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+4T1,"TOYOTA MOTOR MANUFACTURING, KENTUCKY, INC.",,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_decodewmi_4t1,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+4T3,"TOYOTA MOTOR MANUFACTURING, KENTUCKY, INC.",,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_decodewmi_4t3,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5J6,"AMERICAN HONDA MOTOR CO., INC.",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5J8,"AMERICAN HONDA MOTOR CO., INC.",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5FR,"AMERICAN HONDA MOTOR CO., INC.",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5N1,"NISSAN NORTH AMERICA, INC.",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_nissan_north_america,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5NM,"HYUNDAI MOTOR MANUFACTURING ALABAMA LLC (HMMA)",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_hyundai_alabama,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5NP,"HYUNDAI-KIA AMERICA TECHNICAL CENTER INC (HATCI)",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_hyundai_hatci,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5TD,"TOYOTA MOTOR MANUFACTURING, INDIANA, INC.",,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_decodewmi_5td,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5TF,"TOYOTA MOTOR MANUFACTURING, TEXAS, INC.",,Truck,,us_49_cfr_565,nhtsa_decodewmi_5tf,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5XX,"KIA GEORGIA, INC",UNITED STATES (USA),Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_kia_georgia,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+5XY,"KIA GEORGIA, INC",UNITED STATES (USA),Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_kia_georgia,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+KNA,KIA CORPORATION,SOUTH KOREA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_kia_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+KND,KIA CORPORATION,SOUTH KOREA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_kia_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+KM8,HYUNDAI MOTOR CO,SOUTH KOREA,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_hyundai_motor,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+KMH,HYUNDAI MOTOR CO,SOUTH KOREA,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_hyundai_motor,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JA3,MITSUBISHI MOTORS CORPORATION (MMC),JAPAN,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_mitsubishi,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JA4,MITSUBISHI MOTORS CORPORATION (MMC),JAPAN,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_mitsubishi,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JF1,SUBARU CORPORATION,JAPAN,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_subaru_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JF2,SUBARU CORPORATION,JAPAN,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_subaru_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JHM,"HONDA MOTOR CO., LTD.",,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JHL,"HONDA MOTOR CO., LTD.",,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_honda_motor_co,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JN1,"NISSAN MOTOR COMPANY, LTD",JAPAN,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_nissan_motor,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JN8,"NISSAN MOTOR COMPANY, LTD",JAPAN,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_nissan_motor,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JT2,TOYOTA MOTOR CORPORATION,JAPAN,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_toyota_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JT3,TOYOTA MOTOR CORPORATION,JAPAN,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_toyota_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JTD,TOYOTA MOTOR CORPORATION,JAPAN,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_toyota_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JTE,TOYOTA MOTOR CORPORATION,JAPAN,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_toyota_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JTH,TOYOTA MOTOR CORPORATION,JAPAN,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_toyota_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+JTJ,TOYOTA MOTOR CORPORATION,JAPAN,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_toyota_corporation,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+WVW,VOLKSWAGEN AG,GERMANY,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_volkswagen,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+WVG,VOLKSWAGEN AG,GERMANY,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_volkswagen,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+WAU,AUDI AG,GERMANY,Passenger Car,passenger_car,us_49_cfr_565,nhtsa_getwmis_audi,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14
+WA1,AUDI AG,GERMANY,Multipurpose Passenger Vehicle (MPV),,us_49_cfr_565,nhtsa_getwmis_audi,nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14

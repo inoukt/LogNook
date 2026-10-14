@@ -1,8 +1,8 @@
 #[cfg(windows)]
 use crate::j2534::J2534Failure;
-use lognook_j2534_protocol::{J2534Provider, J2534ProviderDiscovery};
 #[cfg(windows)]
 use lognook_j2534_protocol::WorkerErrorKind;
+use lognook_j2534_protocol::{J2534Provider, J2534ProviderDiscovery};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,12 +173,9 @@ fn enumerate_registered_providers() -> Result<J2534ProviderDiscovery, J2534Failu
             ));
             continue;
         };
-        if let Some(provider) = make_registered_provider(
-            id,
-            name.clone(),
-            &path,
-            |variable| std::env::var(variable).ok(),
-        ) {
+        if let Some(provider) = make_registered_provider(id, name.clone(), &path, |variable| {
+            std::env::var(variable).ok()
+        }) {
             providers.push(provider.provider);
         } else {
             diagnostics.push(format!(
@@ -187,9 +184,8 @@ fn enumerate_registered_providers() -> Result<J2534ProviderDiscovery, J2534Failu
         }
     }
     if providers.is_empty() && diagnostics.is_empty() {
-        diagnostics.push(
-            "No registered J2534 provider is eligible for OpenPort 2 connection.".into(),
-        );
+        diagnostics
+            .push("No registered J2534 provider is eligible for OpenPort 2 connection.".into());
     }
     Ok(J2534ProviderDiscovery {
         providers,

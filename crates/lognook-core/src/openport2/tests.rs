@@ -1,8 +1,12 @@
 use super::unexpected_worker_response;
 use super::{OpenPort2Adapter, WorkerSession, available_from_session, identify_from_session};
-use crate::{EngineEvent, HardwareAdapter, LogNookEngine, SignalDefinition, standard_obd_signals};
+use crate::{
+    DiagnosticOutcome, DiagnosticReadKind, DiagnosticRequest, EngineEvent, HardwareAdapter,
+    LogNookEngine, ResearchTestRequest, ResearchTestResult, SignalDefinition, standard_obd_signals,
+};
 use lognook_j2534_protocol::{
-    J2534Identity, J2534Provider, Mode01Payload, WorkerErrorKind, WorkerRequest, WorkerResponse,
+    J2534Identity, J2534Provider, Mode01Payload, Mode09Failure, Mode09MalformedFrame,
+    Mode09Payload, Mode09Response, WorkerErrorKind, WorkerRequest, WorkerResponse,
 };
 use std::{
     collections::VecDeque,
@@ -74,6 +78,14 @@ fn payload(ecu_id: &str, bytes: &[u8]) -> Mode01Payload {
         bytes: bytes.to_vec(),
         latency_us: 12_500,
     }
+}
+
+fn mode09_payload(ecu_id: &str, bytes: &[u8]) -> Mode09Response {
+    Mode09Response::Payload(Mode09Payload {
+        ecu_id: ecu_id.into(),
+        bytes: bytes.to_vec(),
+        latency_us: 12_500,
+    })
 }
 
 fn discovery() -> WorkerResponse {
@@ -305,7 +317,10 @@ fn read_rejects_multiple_ecu_responses_and_malformed_payloads() {
         ]);
         adapter.connect().unwrap();
         assert!(adapter.read_samples(&[rpm()]).unwrap().is_empty());
-        assert!(adapter.connected, "a signal-level failure keeps the J2534 session open");
+        assert!(
+            adapter.connected,
+            "a signal-level failure keeps the J2534 session open"
+        );
     }
 }
 
@@ -443,6 +458,7 @@ impl WorkerSession for ProgressSession {
             WorkerRequest::Connect { .. } => "filter_setup",
             WorkerRequest::DiscoverMode01 => "mode01_discovery",
             WorkerRequest::ReadMode01 { .. } => "pid_read",
+            WorkerRequest::ReadMode09 { .. } => "mode09_identity_read",
             WorkerRequest::Disconnect => "disconnect",
         };
         sink(crate::DiagnosticProgress {
@@ -718,4 +734,322 @@ fn discovery_result_observations_are_bounded_without_changing_returned_inventory
             .as_ref()
             .is_some_and(|s| s.contains("36 entries omitted"))
     }));
+}
+
+#[test]
+fn openport_identity_read_keeps_responder_route_raw_bytes_and_latency() {
+    let vin = b"1HGCM82633A004352";
+    let mut payload = vec![0x49, 0x02, 0x01];
+    payload.extend_from_slice(vin);
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode09Responses {
+            responses: vec![
+                mode09_payload("7E8", &payload),
+                mode09_payload("7E9", &payload),
+            ],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+    let query = DiagnosticRequest::identity_queries().pop_front().unwrap();
+
+    let ResearchTestResult::Diagnostic(report) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(query))
+        .unwrap()
+    else {
+        panic!("OpenPort identity request returned a non-diagnostic result");
+    };
+
+    assert_eq!(report.reads.len(), 2);
+    assert_eq!(report.reads[0].kind, DiagnosticReadKind::Vin);
+    assert_eq!(report.reads[0].outcome, DiagnosticOutcome::Positive);
+    assert_eq!(report.reads[0].ecu_id.as_deref(), Some("7E8"));
+    assert_eq!(report.reads[0].route, "7DF (functional)");
+    assert_eq!(report.reads[0].response_payload, payload);
+    assert_eq!(report.reads[0].latency_ms, 12);
+    assert!(report.reads[0].exact_adapter_command.contains("7DF 09 02"));
+    assert_eq!(report.reads[1].ecu_id.as_deref(), Some("7E9"));
+    assert_eq!(report.reads[1].response_payload, payload);
+    assert_eq!(
+        state
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| matches!(request, WorkerRequest::ReadMode09 { pid: 0x02 }))
+            .count(),
+        1
+    );
+    adapter.disconnect();
+}
+
+#[test]
+fn stale_or_wrong_mode_response_is_malformed_and_keeps_its_raw_bytes_separate() {
+    let mut vin = vec![0x49, 0x02, 0x01];
+    vin.extend_from_slice(b"1HGCM82633A004352");
+    let stale = vec![0x41, 0x0C, 0x1A, 0xF8];
+    let (mut adapter, _) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode09Responses {
+            responses: vec![mode09_payload("7E8", &stale), mode09_payload("7E8", &vin)],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+    let query = DiagnosticRequest::identity_queries().pop_front().unwrap();
+
+    let ResearchTestResult::Diagnostic(report) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(query))
+        .unwrap()
+    else {
+        panic!("OpenPort identity request returned a non-diagnostic result");
+    };
+
+    assert_eq!(
+        report.reads[0].outcome,
+        DiagnosticOutcome::MalformedResponse
+    );
+    assert_eq!(report.reads[0].response_payload, stale);
+    assert_eq!(report.reads[1].outcome, DiagnosticOutcome::Positive);
+    assert_eq!(report.reads[1].response_payload, vin);
+    adapter.disconnect();
+}
+
+#[test]
+fn malformed_j2534_peer_keeps_full_frame_between_positive_vin_responders() {
+    let mut vin_payload = vec![0x49, 0x02, 0x01];
+    vin_payload.extend_from_slice(b"1HGCM82633A004352");
+    let mut raw_frame = vec![0x00, 0x00, 0x07, 0xE9];
+    raw_frame.extend_from_slice(&[0x49; 28]);
+    let declared_data_size = raw_frame.len() as u32;
+    let malformed = Mode09Response::MalformedFrame(Mode09MalformedFrame {
+        ecu_id: None,
+        raw_bytes: raw_frame.clone(),
+        latency_us: 8_000,
+        protocol_id: 0x05,
+        rx_status: 0,
+        declared_data_size,
+        detail: "Malformed J2534 Mode 09 frame: message is not ISO15765 (ProtocolID=0x00000005, RxStatus=0x00000000, DataSize=32)".into(),
+    });
+    let (mut adapter, _) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode09Responses {
+            responses: vec![
+                mode09_payload("7E8", &vin_payload),
+                malformed,
+                mode09_payload("7EA", &vin_payload),
+                Mode09Response::Failure(Mode09Failure {
+                    kind: WorkerErrorKind::PassThruFailed,
+                    message: "PassThruReadMsgs returned 0x00000001 after partial replies".into(),
+                    latency_us: 18_000,
+                }),
+            ],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+    let query = DiagnosticRequest::identity_queries().pop_front().unwrap();
+
+    let ResearchTestResult::Diagnostic(report) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(query))
+        .unwrap()
+    else {
+        panic!("OpenPort identity request returned a non-diagnostic result");
+    };
+
+    assert_eq!(report.reads.len(), 4);
+    assert_eq!(report.reads[0].outcome, DiagnosticOutcome::Positive);
+    assert_eq!(report.reads[0].ecu_id.as_deref(), Some("7E8"));
+    assert_eq!(report.reads[0].response_payload, vin_payload);
+    assert_eq!(
+        report.reads[1].outcome,
+        DiagnosticOutcome::MalformedResponse
+    );
+    assert_eq!(
+        report.reads[1].ecu_id, None,
+        "invalid protocol must not invent a responder"
+    );
+    assert_eq!(report.reads[1].response_payload, raw_frame);
+    assert!(report.reads[1].response_payload.len() > 16);
+    assert!(
+        report.reads[1].values.is_empty(),
+        "malformed data cannot decode as a VIN"
+    );
+    assert!(
+        report.reads[1]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("ProtocolID=0x00000005")
+    );
+    assert!(
+        report.reads[1]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("7DF (functional)")
+    );
+    assert_eq!(report.reads[2].outcome, DiagnosticOutcome::Positive);
+    assert_eq!(report.reads[2].ecu_id.as_deref(), Some("7EA"));
+    assert_eq!(report.reads[2].response_payload, vin_payload);
+    assert_eq!(report.reads[3].outcome, DiagnosticOutcome::TransportError);
+    assert!(
+        report.reads[3]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("partial replies")
+    );
+    adapter.disconnect();
+}
+
+#[test]
+fn unavailable_identity_pid_does_not_hide_later_identity_read() {
+    let mut queries = DiagnosticRequest::identity_queries();
+    let vin = queries.pop_front().unwrap();
+    let calibration = queries.pop_front().unwrap();
+    let mut calibration_payload = vec![0x49, 0x04, 0x01];
+    calibration_payload.extend_from_slice(b"CALIBRATIONID123");
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Error {
+            kind: WorkerErrorKind::NoResponse,
+            message: "No response for standard Mode 09 PID 02 after 1500 ms".into(),
+        }),
+        Ok(WorkerResponse::Mode09Responses {
+            responses: vec![mode09_payload("7E8", &calibration_payload)],
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+
+    let ResearchTestResult::Diagnostic(vin_report) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(vin))
+        .unwrap()
+    else {
+        panic!("OpenPort VIN request returned a non-diagnostic result");
+    };
+    let ResearchTestResult::Diagnostic(calibration_report) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(calibration))
+        .unwrap()
+    else {
+        panic!("OpenPort calibration request returned a non-diagnostic result");
+    };
+
+    assert_eq!(vin_report.reads[0].outcome, DiagnosticOutcome::NoResponse);
+    assert_eq!(
+        calibration_report.reads[0].outcome,
+        DiagnosticOutcome::Positive
+    );
+    assert_eq!(
+        calibration_report.reads[0].response_payload,
+        calibration_payload
+    );
+    assert_eq!(
+        state
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| matches!(request, WorkerRequest::ReadMode09 { .. }))
+            .count(),
+        2
+    );
+    adapter.disconnect();
+}
+
+#[test]
+fn negative_and_malformed_mode09_outcomes_keep_their_typed_results() {
+    let mut queries = DiagnosticRequest::identity_queries();
+    let vin = queries.pop_front().unwrap();
+    let calibration = queries.pop_front().unwrap();
+    let (mut adapter, _) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Mode09Responses {
+            responses: vec![mode09_payload("7E8", &[0x7F, 0x09, 0x12])],
+        }),
+        Ok(WorkerResponse::Error {
+            kind: WorkerErrorKind::MalformedResponse,
+            message: "J2534 returned an invalid ISO15765 Mode 09 response".into(),
+        }),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+
+    let ResearchTestResult::Diagnostic(negative) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(vin))
+        .unwrap()
+    else {
+        panic!("OpenPort VIN request returned a non-diagnostic result");
+    };
+    let ResearchTestResult::Diagnostic(malformed) = adapter
+        .execute_research_test(ResearchTestRequest::Diagnostic(calibration))
+        .unwrap()
+    else {
+        panic!("OpenPort calibration request returned a non-diagnostic result");
+    };
+
+    assert_eq!(
+        negative.reads[0].outcome,
+        DiagnosticOutcome::NegativeResponse
+    );
+    assert_eq!(negative.reads[0].negative_response_code, Some(0x12));
+    assert_eq!(negative.reads[0].response_payload, [0x7F, 0x09, 0x12]);
+    assert_eq!(
+        malformed.reads[0].outcome,
+        DiagnosticOutcome::MalformedResponse
+    );
+    assert!(
+        malformed.reads[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("invalid ISO15765")
+    );
+    adapter.disconnect();
+}
+
+#[test]
+fn openport_rejects_dtc_and_mode06_diagnostic_queries_before_worker_io() {
+    let queries = DiagnosticRequest::default().queries().unwrap();
+    let stored_dtcs = queries
+        .iter()
+        .find(|query| query.kind == DiagnosticReadKind::StoredDtcs)
+        .unwrap()
+        .clone();
+    let mode06 = queries
+        .iter()
+        .find(|query| query.kind == DiagnosticReadKind::Mode06Bitmap)
+        .unwrap()
+        .clone();
+    let (mut adapter, state) = adapter([
+        Ok(connected()),
+        Ok(discovery()),
+        Ok(WorkerResponse::Disconnected),
+    ]);
+    adapter.connect().unwrap();
+
+    for query in [stored_dtcs, mode06] {
+        assert!(
+            adapter
+                .execute_research_test(ResearchTestRequest::Diagnostic(query))
+                .is_err()
+        );
+    }
+    assert_eq!(
+        *state.requests.lock().unwrap(),
+        [
+            WorkerRequest::Connect {
+                provider_id: "opta".into()
+            },
+            WorkerRequest::DiscoverMode01,
+        ]
+    );
+    adapter.disconnect();
 }

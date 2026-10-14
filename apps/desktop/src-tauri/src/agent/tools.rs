@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, async_runtime};
 
@@ -19,21 +19,29 @@ use tauri::{AppHandle, Emitter, Manager, async_runtime};
 pub(crate) struct AgentWorkbenchState {
     capture_path: Option<PathBuf>,
     send_until: Option<Instant>,
-    replay_until: Option<Instant>,
+    replay_id: Option<u64>,
 }
 
 impl AgentWorkbenchState {
-    pub(crate) fn active_operation(&mut self, scan_active: bool) -> Option<String> {
+    pub(crate) fn active_operation(
+        &mut self,
+        scan_active: bool,
+        replay_status: Option<&lognook_core::CanIdReplayStatus>,
+    ) -> Option<String> {
         let now = Instant::now();
-        if self.replay_until.is_some_and(|deadline| now >= deadline) {
-            self.replay_until = None;
+        if self.replay_id.is_some_and(|id| {
+            replay_status.is_some_and(|status| {
+                status.replay_id == id && status.state != lognook_core::CanIdReplayState::Running
+            })
+        }) {
+            self.replay_id = None;
         }
         if self.send_until.is_some_and(|deadline| now >= deadline) {
             self.send_until = None;
         }
         if scan_active {
             Some("CAN scan".into())
-        } else if self.replay_until.is_some_and(|deadline| now < deadline) {
+        } else if self.replay_id.is_some() {
             Some("CAN ID replay".into())
         } else if self.send_until.is_some_and(|deadline| now < deadline) {
             Some("CAN frame send".into())
@@ -51,6 +59,22 @@ pub(crate) fn update_agent_scan_state(scan_active: &AtomicBool, event: &lognook_
         lognook_core::EngineEvent::CanScanCompleted(_) | lognook_core::EngineEvent::CanScanStopped
     ) {
         scan_active.store(false, Ordering::Release);
+    }
+}
+
+/// Keep actual replay completion independent of the Workbench lock held while starting TX.
+pub(crate) fn update_agent_replay_state(
+    tracked: &std::sync::Mutex<Option<lognook_core::CanIdReplayStatus>>,
+    event: &lognook_core::EngineEvent,
+) {
+    if let Ok(mut current) = tracked.lock() {
+        match event {
+            lognook_core::EngineEvent::CanIdReplayStatus(status) => {
+                *current = Some(status.clone());
+            }
+            lognook_core::EngineEvent::CanWorkbenchStatus(_) => *current = None,
+            _ => {}
+        }
     }
 }
 
@@ -84,11 +108,31 @@ fn stop_active_operations_state(
     state: &AppState,
     reason: CanScanStopReason,
 ) -> Result<Option<PathBuf>, String> {
+    // Cancellation does not need the acquisition lock held by a pending exchange.
+    let replay_preparation_error =
+        crate::commands::discard_saved_can_replay_with_state(state, None).err();
+    state.vehicle_profiles.cancel_pending_work();
+    let history_cancel_error = state.vehicle_profiles.cancel_history_import().err();
+    let preparation_error = match (replay_preparation_error, history_cancel_error) {
+        (Some(replay), Some(history)) => Some(format!(
+            "{replay}; history import cancellation failed: {history}"
+        )),
+        (Some(error), None) => Some(error),
+        (None, Some(error)) => Some(format!("History import cancellation failed: {error}")),
+        (None, None) => None,
+    };
     let mut operation = state
         .agent_workbench
         .lock()
         .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
-    stop_active_operations_locked(state, reason, &mut operation)
+    let stopped = stop_active_operations_locked(state, reason, &mut operation);
+    match (stopped, preparation_error) {
+        (Ok(_), Some(error)) => Err(format!("Replay preparation cancellation failed: {error}")),
+        (Err(error), Some(preparation)) => Err(format!(
+            "{error}; replay preparation cancellation failed: {preparation}"
+        )),
+        (result, None) => result,
+    }
 }
 
 fn stop_active_operations_locked(
@@ -99,12 +143,10 @@ fn stop_active_operations_locked(
     let send_active = operation
         .send_until
         .is_some_and(|until| Instant::now() < until);
-    let replay_active = operation
-        .replay_until
-        .is_some_and(|until| Instant::now() < until);
+    let replay_active = operation.replay_id.is_some();
     let capture_path = operation.capture_path.take();
     operation.send_until = None;
-    operation.replay_until = None;
+    operation.replay_id = None;
     let scan_active = state.agent_scan_active.swap(false, Ordering::AcqRel);
     let mut errors = Vec::new();
     if capture_path.is_some() || scan_active || send_active || replay_active {
@@ -153,9 +195,7 @@ fn agent_can_operation_active(operation: &AgentWorkbenchState, scan_active: bool
         || operation
             .send_until
             .is_some_and(|until| Instant::now() < until)
-        || operation
-            .replay_until
-            .is_some_and(|until| Instant::now() < until)
+        || operation.replay_id.is_some()
         || scan_active
 }
 
@@ -251,10 +291,26 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
         AgentRequest::ConnectAdapter {
             choice,
             log_signal_ids,
+            profile_standby,
         } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || {
-                connect_adapter(&app, choice, log_signal_ids)
+                if profile_standby {
+                    let capabilities = crate::commands::connect_profile_adapter_shared(
+                        &app.state::<AppState>(),
+                        choice,
+                    )?;
+                    Ok((
+                        capabilities.device.stable_id,
+                        capabilities
+                            .supported_signals
+                            .into_iter()
+                            .map(|signal| signal.id)
+                            .collect(),
+                    ))
+                } else {
+                    connect_adapter(&app, choice, log_signal_ids)
+                }
             })
             .await
             {
@@ -335,7 +391,7 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                     &state,
                     lognook_core::DiagnosticRequest { mode06_test_ids },
                 )
-                .and_then(|report| serde_json::to_value(report).map_err(|error| error.to_string()))
+                .and_then(redact_generic_diagnostic_vin)
             })
             .await
             {
@@ -422,6 +478,12 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
             }
         }
         AgentRequest::Workbench { operation } => {
+            if is_saved_replay_operation(&operation) {
+                return match saved_replay_workbench(app, operation).await {
+                    Ok(result) => AgentResponse::Workbench { result },
+                    Err(error) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                };
+            }
             let app = app.clone();
             match async_runtime::spawn_blocking(move || workbench(&app, operation)).await {
                 Ok(Ok(result)) => AgentResponse::Workbench { result },
@@ -429,6 +491,454 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
         }
+        AgentRequest::VehicleProfiles { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || vehicle_profiles_operation(&app, operation))
+                .await
+            {
+                Ok(Ok(result)) => AgentResponse::VehicleProfiles { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+    }
+}
+
+fn redact_generic_diagnostic_vin(
+    mut report: lognook_core::DiagnosticReport,
+) -> Result<serde_json::Value, String> {
+    let masked_vin = report
+        .vehicle_context
+        .as_ref()
+        .and_then(|context| context.masked_vin.clone())
+        .or_else(|| {
+            report.reads.iter().find_map(|read| {
+                read.values.iter().find_map(|value| match value {
+                    lognook_core::DiagnosticValue::Identity {
+                        pid: 0x02, value, ..
+                    } => lognook_core::canonical_vin_identity(value)
+                        .ok()
+                        .map(|(_, masked)| masked),
+                    _ => None,
+                })
+            })
+        })
+        .unwrap_or_else(|| "VIN redacted".into());
+    if let Some(context) = report.vehicle_context.as_mut() {
+        context.full_vin = None;
+        context.decoded_snapshot = None;
+        context.owner_details.clear();
+    }
+    for read in &mut report.reads {
+        if read.kind == lognook_core::DiagnosticReadKind::Vin
+            && read.service == 0x09
+            && read.identifier == Some(0x02)
+        {
+            for value in &mut read.values {
+                if let lognook_core::DiagnosticValue::Identity {
+                    pid: 0x02, value, ..
+                } = value
+                {
+                    *value = masked_vin.clone();
+                }
+            }
+            read.response_payload.clear();
+            if !read.raw_response.is_empty() {
+                read.raw_response =
+                    "[VIN bytes redacted; raw evidence remains in local history]".into();
+            }
+        }
+    }
+    serde_json::to_value(report).map_err(|error| error.to_string())
+}
+
+fn vehicle_profiles_operation(
+    app: &AppHandle,
+    operation: AgentVehicleProfileOperation,
+) -> Result<AgentVehicleProfileResult, String> {
+    use crate::commands::vehicle_profiles as profiles;
+    use AgentVehicleProfileOperation as Operation;
+    use AgentVehicleProfileResult as ResultView;
+    let state = app.state::<AppState>();
+    if !is_agent_access_unlocked(&state) {
+        return Err("Agent Access is locked; unlock it in LogNook Settings".into());
+    }
+    match operation {
+        Operation::List => Ok(ResultView::Profiles {
+            profiles: profiles::list_vehicle_profiles_shared(&state)?,
+        }),
+        Operation::Get { profile_id } => Ok(ResultView::Profile {
+            profile: profiles::get_vehicle_profile_shared(&state, &profile_id)?,
+        }),
+        Operation::Save { args } => Ok(ResultView::Profile {
+            profile: profiles::save_vehicle_profile_shared(&state, args)?,
+        }),
+        Operation::Status => Ok(ResultView::Status {
+            status: profiles::vehicle_profiles_status_shared(&state)?,
+        }),
+        Operation::Recognize {
+            obd_connection_generation,
+        } => {
+            let observation =
+                profiles::recognize_vehicle_shared(&state, obd_connection_generation)?;
+            if !is_agent_access_unlocked(&state) {
+                state.vehicle_profiles.cancel_pending_work();
+                return Err("Agent Access was locked during profile recognition".into());
+            }
+            Ok(ResultView::Recognized {
+                observation,
+                status: profiles::vehicle_profiles_status_shared(&state)?,
+            })
+        }
+        Operation::ReadIdentity {
+            obd_connection_generation,
+        } => {
+            let report = profiles::read_vehicle_identity_shared(&state, obd_connection_generation)?;
+            if !is_agent_access_unlocked(&state) {
+                state.vehicle_profiles.cancel_pending_work();
+                return Err("Agent Access was locked during the vehicle identity read".into());
+            }
+            Ok(ResultView::IdentityReport {
+                report: serde_json::to_value(report).map_err(|error| error.to_string())?,
+            })
+        }
+        Operation::GetIdentity { scope, vin_digest } => Ok(ResultView::IdentityRecord {
+            record: state
+                .vehicle_profiles
+                .get_vehicle_identity(scope, &vin_digest)?,
+        }),
+        Operation::DecodeVinOffline { scope, vin_digest } => {
+            let record = state
+                .vehicle_profiles
+                .decode_vehicle_identity(scope, &vin_digest)?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::SetManualVehicleDetail {
+            scope,
+            vin_digest,
+            field,
+            value,
+            note,
+        } => {
+            let record = state.vehicle_profiles.set_manual_vehicle_detail(
+                scope,
+                &vin_digest,
+                field,
+                value,
+                lognook_core::ManualDetailActor::AgentAccess,
+                note,
+            )?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::LinkLegacyVin {
+            profile_id,
+            expected_revision,
+            full_vin,
+        } => {
+            let record = state.vehicle_profiles.link_legacy_vehicle_vin(
+                &profile_id,
+                expected_revision,
+                &full_vin,
+                lognook_core::ManualDetailActor::AgentAccess,
+            )?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::AssignProfileVin {
+            profile_id,
+            expected_revision,
+            full_vin,
+        } => {
+            let record = state.vehicle_profiles.assign_manual_profile_vin(
+                &profile_id,
+                expected_revision,
+                &full_vin,
+                lognook_core::ManualDetailActor::AgentAccess,
+            )?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::ListHistory { filter } => Ok(ResultView::History {
+            page: state.vehicle_profiles.list_diagnostic_history(filter)?,
+        }),
+        Operation::GetHistoryReport { report_id } => Ok(ResultView::HistoryReport {
+            detail: serde_json::to_value(crate::vehicle_reads::read_report_detail(
+                &state.vehicle_profiles,
+                &crate::vehicle_reads::vehicle_reads_path(&state),
+                &report_id,
+            )?)
+            .map_err(|error| error.to_string())?,
+        }),
+        Operation::AssociateHistoryReport {
+            report_id,
+            scope,
+            vin_digest,
+            note,
+        } => Ok(ResultView::HistoryAssociation {
+            association: state.vehicle_profiles.append_manual_report_association(
+                report_id,
+                scope,
+                vin_digest,
+                lognook_core::ManualDetailActor::AgentAccess,
+                note,
+            )?,
+        }),
+        Operation::HistoryImportStatus => Ok(ResultView::HistoryImport {
+            status: state
+                .vehicle_profiles
+                .get_history_import_checkpoint()?
+                .status,
+        }),
+        Operation::StartHistoryImport => {
+            let mut checkpoint = state.vehicle_profiles.get_history_import_checkpoint()?;
+            let cancel = state.vehicle_profiles.begin_history_import()?;
+            checkpoint.status.state = lognook_core::HistoryIndexState::Indexing;
+            checkpoint.status.error = None;
+            if let Err(error) = state
+                .vehicle_profiles
+                .save_history_import_checkpoint(checkpoint)
+            {
+                state.vehicle_profiles.finish_history_import(&cancel);
+                return Err(error);
+            }
+            let worker_app = app.clone();
+            async_runtime::spawn_blocking(move || {
+                let worker_state = worker_app.state::<AppState>();
+                let result = crate::vehicle_reads::import_vehicle_history(&worker_state, &cancel);
+                if let Err(error) = result {
+                    if let Ok(mut checkpoint) = worker_state
+                        .vehicle_profiles
+                        .get_history_import_checkpoint()
+                    {
+                        checkpoint.status.state = lognook_core::HistoryIndexState::Failed;
+                        checkpoint.status.error = Some(error);
+                        let _ = worker_state
+                            .vehicle_profiles
+                            .save_history_import_checkpoint(checkpoint);
+                    }
+                }
+                worker_state.vehicle_profiles.finish_history_import(&cancel);
+            });
+            Ok(ResultView::HistoryImport {
+                status: state
+                    .vehicle_profiles
+                    .get_history_import_checkpoint()?
+                    .status,
+            })
+        }
+        Operation::CancelHistoryImport => {
+            state.vehicle_profiles.cancel_history_import()?;
+            Ok(ResultView::HistoryImport {
+                status: state
+                    .vehicle_profiles
+                    .get_history_import_checkpoint()?
+                    .status,
+            })
+        }
+        Operation::PrepareResume {
+            profile_id,
+            obd_connection_generation,
+        } => Ok(ResultView::Preview {
+            preview: profiles::prepare_profile_resume_shared(
+                &state,
+                &profile_id,
+                obd_connection_generation,
+            )?,
+        }),
+        Operation::ApplyResume {
+            preview_id,
+            profile_revision,
+            obd_connection_generation,
+        } => {
+            let result = profiles::apply_profile_resume_shared(
+                &state,
+                &preview_id,
+                profile_revision,
+                obd_connection_generation,
+            )?;
+            sync_profile_agent_selection(&state, &result)?;
+            let _ = app.emit("vehicle-profile-resumed", &result);
+            Ok(ResultView::Resumed { result })
+        }
+        Operation::DiscardResume { preview_id } => {
+            profiles::discard_profile_resume_shared(&state, &preview_id)?;
+            Ok(ResultView::Discarded)
+        }
+        Operation::ContinueSelection {
+            log_signal_ids,
+            graph_signal_ids,
+            derived_definitions,
+            obd_connection_generation,
+        } => {
+            let selection = crate::commands::continue_profile_selection_shared(
+                &state,
+                log_signal_ids,
+                graph_signal_ids,
+                derived_definitions,
+                obd_connection_generation,
+            )?;
+            let _ = app.emit("agent-signal-selection", &selection);
+            Ok(ResultView::SelectionContinued { selection })
+        }
+        Operation::Cancel => {
+            state.vehicle_profiles.cancel_pending_work();
+            Ok(ResultView::Cancelled)
+        }
+    }
+}
+
+pub(crate) fn sync_profile_agent_selection(
+    state: &AppState,
+    result: &crate::vehicle_profiles::ProfileResumeApplyResult,
+) -> Result<(), String> {
+    *state
+        .agent_selection
+        .lock()
+        .map_err(|_| "Agent selection is unavailable")? = AgentSignalSelection {
+        log_signal_ids: result.selection.log_signal_ids.clone(),
+        graph_signal_ids: result.selection.graph_signal_ids.clone(),
+    };
+    Ok(())
+}
+
+fn is_saved_replay_operation(operation: &AgentWorkbenchOperation) -> bool {
+    matches!(
+        operation,
+        AgentWorkbenchOperation::PrepareSavedCanReplay { .. }
+            | AgentWorkbenchOperation::InspectSavedCanReplay { .. }
+            | AgentWorkbenchOperation::DiscardSavedCanReplay { .. }
+            | AgentWorkbenchOperation::StartSavedCanReplay { .. }
+    )
+}
+
+async fn saved_replay_workbench(
+    app: &AppHandle,
+    operation: AgentWorkbenchOperation,
+) -> Result<AgentWorkbenchResult, String> {
+    use crate::commands::saved_can_replay as saved;
+    let state = app.state::<AppState>();
+    if !is_agent_access_unlocked(&state) {
+        return Err("Agent Access is locked; unlock it in LogNook Settings".into());
+    }
+    match operation {
+        AgentWorkbenchOperation::PrepareSavedCanReplay {
+            source_id,
+            can_id,
+            extended,
+            start_elapsed_ms,
+            end_elapsed_ms,
+        } => {
+            let (start_elapsed_ns, end_elapsed_ns) =
+                replay_time_range_ns(start_elapsed_ms, end_elapsed_ms)?;
+            let preview = saved::prepare_saved_can_replay_with_state(
+                &state,
+                source_id,
+                lognook_core::SavedCanReplaySelection {
+                    can_id,
+                    extended,
+                    start_elapsed_ns,
+                    end_elapsed_ns,
+                },
+            )
+            .await?;
+            if !is_agent_access_unlocked(&state) {
+                let _ =
+                    saved::discard_saved_can_replay_with_state(&state, Some(&preview.preview_id));
+                return Err("Agent Access was locked while preparing the replay".into());
+            }
+            Ok(AgentWorkbenchResult {
+                operation: "saved_can_replay_prepared".into(),
+                detail: None,
+                evidence_path: None,
+                saved_replay_preview: Some(preview),
+                replay_status: None,
+            })
+        }
+        AgentWorkbenchOperation::InspectSavedCanReplay { preview_id } => {
+            let preview = saved::inspect_saved_can_replay_with_state(&state, &preview_id)?;
+            Ok(AgentWorkbenchResult {
+                operation: "saved_can_replay_preview".into(),
+                detail: None,
+                evidence_path: None,
+                saved_replay_preview: Some(preview),
+                replay_status: None,
+            })
+        }
+        AgentWorkbenchOperation::DiscardSavedCanReplay { preview_id } => {
+            saved::discard_saved_can_replay_with_state(&state, preview_id.as_deref())?;
+            Ok(workbench_result("saved_can_replay_discarded", None))
+        }
+        AgentWorkbenchOperation::StartSavedCanReplay {
+            preview_id,
+            expected_can_generation,
+            expected_output_capture_id,
+        } => {
+            saved::inspect_saved_can_replay_with_state(&state, &preview_id)?;
+            let mut active = state
+                .agent_workbench
+                .lock()
+                .map_err(|_| "Agent Workbench state is unavailable")?;
+            {
+                let engine = state
+                    .engine
+                    .lock()
+                    .map_err(|_| "Acquisition engine is unavailable")?;
+                ensure_can_transmit(&engine)?;
+                if engine.can_connection_generation() != expected_can_generation {
+                    return Err(
+                        "The CAN connection changed; inspect the target again before replay".into(),
+                    );
+                }
+                ensure_agent_capture(&state, &mut active, &engine)?;
+            }
+            let preview = saved::inspect_saved_can_replay_with_state(&state, &preview_id)?;
+            if !is_agent_access_unlocked(&state) {
+                return Err("Agent Access is locked; unlock it in LogNook Settings".into());
+            }
+            if !state.trace_store.capture_status().capturing {
+                super::trace::start_capture(&state)?;
+            }
+            let replay = saved::start_saved_can_replay_with_state(
+                &state,
+                &preview_id,
+                expected_can_generation,
+                expected_output_capture_id,
+            )?;
+            active.replay_id = Some(replay.replay_id);
+            Ok(AgentWorkbenchResult {
+                operation: "saved_can_replay_started".into(),
+                detail: None,
+                evidence_path: active
+                    .capture_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+                saved_replay_preview: Some(preview),
+                replay_status: Some(replay),
+            })
+        }
+        _ => Err("Expected a saved CAN replay operation".into()),
     }
 }
 
@@ -465,7 +975,7 @@ fn workbench(
         }
         Operation::StopCapture => {
             let path = active.capture_path.clone();
-            active.replay_until = None;
+            active.replay_id = None;
             engine
                 .stop_can_capture_with_reason(CanScanStopReason::AgentRequested)
                 .map_err(|error| error.to_string())?;
@@ -484,6 +994,8 @@ fn workbench(
                 .map_err(|error| error.to_string())?;
             Ok(AgentWorkbenchResult {
                 operation: "event_marked".into(),
+                saved_replay_preview: None,
+                replay_status: None,
                 detail: Some(label),
                 evidence_path: active
                     .capture_path
@@ -565,9 +1077,14 @@ fn workbench(
                 || active
                     .send_until
                     .is_some_and(|until| Instant::now() < until)
-                || active
-                    .replay_until
-                    .is_some_and(|until| Instant::now() < until)
+                || active.replay_id.is_some_and(|id| {
+                    state.agent_can_replay_status.lock().is_ok_and(|status| {
+                        status.as_ref().is_none_or(|status| {
+                            status.replay_id == id
+                                && status.state == lognook_core::CanIdReplayState::Running
+                        })
+                    })
+                })
             {
                 return Err("A CAN send, scan, or replay is already active".into());
             }
@@ -594,13 +1111,14 @@ fn workbench(
             if !state.trace_store.capture_status().capturing {
                 super::trace::start_capture(&state)?;
             }
-            let duration = replay_status_duration(&selection.frames);
             let replay = engine
                 .start_can_id_replay(selection.frames.clone())
                 .map_err(|error| error.to_string())?;
-            active.replay_until = Some(Instant::now() + duration);
+            active.replay_id = Some(replay.replay_id);
             Ok(AgentWorkbenchResult {
                 operation: "can_id_replay_started".into(),
+                saved_replay_preview: None,
+                replay_status: Some(replay.clone()),
                 detail: Some(format!(
                     "Replay {} for {} CAN ID 0x{can_id:X}, elapsed {start_elapsed_ms}-{end_elapsed_ms} ms, started with {} of {} matching RX frames ({} omitted by the 400-frame limit)",
                     replay.replay_id,
@@ -615,15 +1133,13 @@ fn workbench(
                     .map(|path| path.to_string_lossy().into_owned()),
             })
         }
+        Operation::PrepareSavedCanReplay { .. }
+        | Operation::InspectSavedCanReplay { .. }
+        | Operation::DiscardSavedCanReplay { .. }
+        | Operation::StartSavedCanReplay { .. } => {
+            Err("Saved replay uses the preparation service".into())
+        }
     }
-}
-
-fn replay_status_duration(frames: &[CanFrame]) -> Duration {
-    let scheduled_ns = frames
-        .windows(2)
-        .map(|pair| (pair[1].elapsed_ns - pair[0].elapsed_ns).max(1_000_000) as u64)
-        .sum::<u64>();
-    Duration::from_nanos(scheduled_ns).saturating_add(Duration::from_secs(2))
 }
 
 fn replay_time_range_ns(start_ms: u64, end_ms: u64) -> Result<(i64, i64), String> {
@@ -685,6 +1201,8 @@ fn workbench_result(operation: &str, path: Option<PathBuf>) -> AgentWorkbenchRes
     AgentWorkbenchResult {
         operation: operation.into(),
         detail: None,
+        saved_replay_preview: None,
+        replay_status: None,
         evidence_path: path.map(|path| path.to_string_lossy().into_owned()),
     }
 }
@@ -1090,10 +1608,16 @@ fn authorize_action(app: &AppHandle) -> Result<(), AgentError> {
 
 fn get_status(app: &AppHandle) -> AgentResponse {
     let state = app.state::<AppState>();
+    let replay_status = state
+        .agent_can_replay_status
+        .lock()
+        .ok()
+        .and_then(|status| status.clone());
     let active_operation = match state.agent_workbench.lock() {
-        Ok(mut operation) => {
-            operation.active_operation(state.agent_scan_active.load(Ordering::Acquire))
-        }
+        Ok(mut operation) => operation.active_operation(
+            state.agent_scan_active.load(Ordering::Acquire),
+            replay_status.as_ref(),
+        ),
         Err(_) => {
             return AgentResponse::error(
                 AgentErrorCode::Internal,
@@ -1128,19 +1652,23 @@ fn get_status(app: &AppHandle) -> AgentResponse {
             );
         }
     };
-    AgentResponse::Status {
-        status: build_agent_status(
-            &engine,
-            AgentAccessSnapshot {
-                configured: access.configured,
-                unlocked: access.unlocked,
-                expires_at_unix_ms: access.expires_at_unix_ms,
-                host_connected: state.agent_ipc.connected(),
-            },
-            selection,
-            active_operation,
-        ),
+    let mut status = build_agent_status(
+        &engine,
+        AgentAccessSnapshot {
+            configured: access.configured,
+            unlocked: access.unlocked,
+            expires_at_unix_ms: access.expires_at_unix_ms,
+            host_connected: state.agent_ipc.connected(),
+        },
+        selection,
+        active_operation,
+    );
+    drop(engine);
+    match crate::commands::vehicle_profiles_status_shared(&state) {
+        Ok(profile_status) => status.vehicle_profile_status = Some(profile_status),
+        Err(error) => status.vehicle_profile_error = Some(error),
     }
+    AgentResponse::Status { status }
 }
 
 fn build_agent_status(
@@ -1165,8 +1693,15 @@ fn build_agent_status(
         obd_connected: engine.is_obd_connected(),
         can_connected: can.as_ref().is_some_and(|status| status.connected),
         can_adapter_id: can
+            .as_ref()
             .filter(|status| status.connected)
-            .map(|status| status.source_id),
+            .map(|status| status.source_id.clone()),
+        can_connection_generation: can
+            .as_ref()
+            .filter(|status| status.connected)
+            .map(|_| engine.can_connection_generation()),
+        vehicle_profile_status: None,
+        vehicle_profile_error: None,
         recording: engine.is_recording(),
         active_operation,
         supported_signal_ids: capabilities
@@ -1537,9 +2072,9 @@ mod tests {
     use super::{
         AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
         decode_hex_payload, disconnect_source_state, ensure_mode06_supported,
-        replay_status_duration, replay_time_range_ns, search_oem_candidates, start_agent_scan,
-        summarize_oem_try, supported_mode06_tests, to_a30_test, update_agent_scan_state,
-        validate_signal_selection,
+        redact_generic_diagnostic_vin, replay_time_range_ns, search_oem_candidates,
+        start_agent_scan, summarize_oem_try, supported_mode06_tests, to_a30_test,
+        update_agent_replay_state, update_agent_scan_state, validate_signal_selection,
     };
     use crate::agent::protocol::{
         AgentAccessSnapshot, AgentAdapterChoice, AgentCanScanConfig, AgentCanScanMode,
@@ -1558,6 +2093,99 @@ mod tests {
 
     fn engine() -> LogNookEngine {
         LogNookEngine::new(|_| {})
+    }
+
+    #[test]
+    fn generic_mcp_diagnostics_redact_full_vin_but_keep_masked_vehicle_context() {
+        let vin = "1FAHP2E89BG123456";
+        let (digest, masked_vin) = lognook_core::canonical_vin_identity(vin).unwrap();
+        let query = lognook_core::DiagnosticRequest::identity_queries()
+            .pop_front()
+            .unwrap();
+        let mut payload = vec![0x49, 0x02, 0x01];
+        payload.extend_from_slice(vin.as_bytes());
+        let read = query.report(
+            Some("7E8".into()),
+            payload,
+            format!("7E8 49 02 01 {vin}"),
+            "0902".into(),
+            1,
+            2,
+            false,
+        );
+        let report = lognook_core::DiagnosticReport {
+            report_id: Some("report".into()),
+            connection_generation: Some(5),
+            vehicle_context: Some(lognook_core::VehicleIdentitySnapshot {
+                scope: lognook_core::ProfileScope::Live,
+                connection_generation: Some(5),
+                profile_id: None,
+                profile_revision: None,
+                full_vin: Some(vin.into()),
+                vin_digest: Some(digest),
+                masked_vin: Some(masked_vin.clone()),
+                origin: Some(lognook_core::VinOrigin::EcuReport),
+                identity_source: lognook_core::VehicleIdentitySource::ReportEcu,
+                vin_conflict: false,
+                observed_ecus: Vec::new(),
+                decoded_snapshot: Some(lognook_core::VinDecodeResult {
+                    normalized_vin: vin.into(),
+                    check_digit_status: lognook_core::VinCheckDigitStatus::UnknownScope,
+                    check_digit_scheme: None,
+                    year_code: 'B',
+                    candidate_model_years: vec![1981, 2011],
+                    class_backed_model_year: None,
+                    wmi_assignment: None,
+                    decoder_revision: "fixture".into(),
+                    wmi_dataset_sha256: "fixture".into(),
+                }),
+                owner_details: vec![lognook_core::ManualVehicleDetail {
+                    field: lognook_core::ManualVehicleField::Make,
+                    value: vin.into(),
+                    actor: lognook_core::ManualDetailActor::OwnerUi,
+                    entered_at_unix_ms: 1,
+                    note: None,
+                }],
+            }),
+            adapter: DeviceDescriptor {
+                stable_id: "test".into(),
+                hardware_family: "OBDLink SX".into(),
+                firmware: None,
+                path: None,
+            },
+            protocol: "fixture".into(),
+            started_at_unix_ms: 1,
+            request: lognook_core::DiagnosticRequest::default(),
+            reads: vec![read],
+            route_restore_error: None,
+            evidence_saved: true,
+            evidence_save_error: None,
+        };
+        let locally_saved_report = report.clone();
+        let agent_value = redact_generic_diagnostic_vin(report).unwrap();
+        let serialized = agent_value.to_string();
+
+        assert!(!serialized.contains(vin));
+        assert!(serialized.contains(&masked_vin));
+        assert_eq!(
+            agent_value["reads"][0]["response_payload"],
+            serde_json::json!([])
+        );
+        assert!(
+            agent_value["reads"][0]["raw_response"]
+                .as_str()
+                .unwrap()
+                .contains("redacted")
+        );
+        assert_eq!(locally_saved_report.reads[0].response_payload.len(), 20);
+        assert_eq!(
+            locally_saved_report
+                .vehicle_context
+                .unwrap()
+                .full_vin
+                .as_deref(),
+            Some(vin)
+        );
     }
 
     struct QuietCanTransport;
@@ -1610,7 +2238,10 @@ mod tests {
             crate::agent::log_data::AgentLogBuffer::default(),
         ));
         let engine_log_buffer = std::sync::Arc::clone(&log_buffer);
+        let agent_can_replay_status = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let engine_replay_status = std::sync::Arc::clone(&agent_can_replay_status);
         let engine = LogNookEngine::new(move |event| {
+            update_agent_replay_state(&engine_replay_status, &event);
             observer.observe_engine(&event);
             if let Ok(mut buffer) = engine_log_buffer.lock() {
                 buffer.record_engine_event(&event);
@@ -1637,6 +2268,11 @@ mod tests {
             agent_scan_active: std::sync::Arc::new(AtomicBool::new(false)),
             agent_workbench: std::sync::Mutex::new(AgentWorkbenchState::default()),
             agent_log_buffer: log_buffer,
+            agent_can_replay_status,
+            can_replay_previews: crate::can_replay_previews::CanReplayPreviewRegistry::default(),
+            vehicle_profiles: crate::vehicle_profiles::VehicleProfileService::open(
+                &root.join("profiles.sqlite"),
+            ),
             trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
         };
         (state, root)
@@ -1660,6 +2296,53 @@ mod tests {
         )
         .unwrap();
         assert!(engine.is_connected());
+    }
+
+    #[test]
+    fn registered_saved_can_source_is_discoverable_and_queryable_offline() {
+        let (state, root) = test_app_state();
+        let path = root.join("external-source.candump.csv");
+        let mut writer = lognook_core::CanCaptureWriter::create_new(&path).unwrap();
+        writer
+            .write_frame(&CanFrame {
+                elapsed_ns: 1_000_000,
+                wall_time_unix_ns: 10_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![0x11, 0x22],
+                flags: 0,
+            })
+            .unwrap();
+        writer.finish().unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let registered = state.can_replay_previews.register_source(&path).unwrap();
+        let sources = crate::agent::log_data::list_log_sources(&state).unwrap();
+        let source = sources
+            .iter()
+            .find(|source| source.source_id == registered.source_id)
+            .unwrap();
+        assert!(source.recorded);
+        assert_eq!(source.item_count, Some(1));
+        let page = crate::agent::log_data::query_log_range(
+            &state,
+            crate::agent::protocol::AgentLogQueryArgs {
+                source_id: registered.source_id,
+                kind: crate::agent::protocol::AgentLogKind::Can,
+                start_elapsed_ms: 0,
+                end_elapsed_ms: 2,
+                signal_ids: vec![],
+                can_ids: vec![0x321],
+                limit: 10,
+            },
+        )
+        .unwrap();
+        assert_eq!(page.can_frames.len(), 1);
+        assert_eq!(page.can_frames[0].data, [0x11, 0x22]);
+        assert!(!state.engine.lock().unwrap().is_connected());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1823,16 +2506,33 @@ mod tests {
     #[test]
     fn agent_status_tracks_owned_workbench_operation() {
         let mut state = AgentWorkbenchState::default();
-        assert_eq!(state.active_operation(true).as_deref(), Some("CAN scan"));
-        assert_eq!(state.active_operation(false), None);
-        state.replay_until = Some(Instant::now() + std::time::Duration::from_secs(1));
         assert_eq!(
-            state.active_operation(false).as_deref(),
+            state.active_operation(true, None).as_deref(),
+            Some("CAN scan")
+        );
+        assert_eq!(state.active_operation(false, None), None);
+        state.replay_id = Some(7);
+        let mut replay = lognook_core::CanIdReplayStatus {
+            replay_id: 7,
+            can_id: 0x321,
+            extended: false,
+            total_frames: 10_000,
+            sent_frames: 1,
+            state: lognook_core::CanIdReplayState::Running,
+            error: None,
+        };
+        assert_eq!(
+            state.active_operation(false, Some(&replay)).as_deref(),
             Some("CAN ID replay")
         );
-        state.replay_until = Some(Instant::now());
-        assert_eq!(state.active_operation(false), None);
-        assert!(state.replay_until.is_none());
+        replay.sent_frames = 9_999;
+        assert_eq!(
+            state.active_operation(false, Some(&replay)).as_deref(),
+            Some("CAN ID replay")
+        );
+        replay.state = lognook_core::CanIdReplayState::Completed;
+        assert_eq!(state.active_operation(false, Some(&replay)), None);
+        assert!(state.replay_id.is_none());
     }
 
     #[test]
@@ -1840,31 +2540,6 @@ mod tests {
         assert_eq!(replay_time_range_ns(1, 2).unwrap(), (1_000_000, 2_000_000));
         assert!(replay_time_range_ns(2, 1).is_err());
         assert!(replay_time_range_ns(0, (i64::MAX as u64 / 1_000_000) + 1).is_err());
-
-        let frames = [
-            CanFrame {
-                elapsed_ns: 10,
-                wall_time_unix_ns: 10,
-                can_id: 0x321,
-                extended: false,
-                direction: CanDirection::Rx,
-                data: vec![1],
-                flags: 0,
-            },
-            CanFrame {
-                elapsed_ns: 1_000_010,
-                wall_time_unix_ns: 1_000_010,
-                can_id: 0x321,
-                extended: false,
-                direction: CanDirection::Rx,
-                data: vec![2],
-                flags: 0,
-            },
-        ];
-        assert_eq!(
-            replay_status_duration(&frames),
-            Duration::from_millis(2_001)
-        );
     }
 
     #[test]
@@ -1911,17 +2586,27 @@ mod tests {
         {
             let mut operation = state.agent_workbench.lock().unwrap();
             operation.capture_path = Some(capture_path.clone());
-            operation.replay_until = Some(Instant::now() + Duration::from_secs(120));
+            operation.replay_id = state
+                .agent_can_replay_status
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|status| status.replay_id);
             assert_eq!(
-                operation.active_operation(false).as_deref(),
+                operation
+                    .active_operation(
+                        false,
+                        state.agent_can_replay_status.lock().unwrap().as_ref()
+                    )
+                    .as_deref(),
                 Some("CAN ID replay")
             );
         }
 
         disconnect_source_state(&state, AgentConnectionSource::Can).unwrap();
         let mut operation = state.agent_workbench.lock().unwrap();
-        assert_eq!(operation.active_operation(false), None);
-        assert!(operation.replay_until.is_none());
+        assert_eq!(operation.active_operation(false, None), None);
+        assert!(operation.replay_id.is_none());
         assert!(!state.trace_store.capture_status().capturing);
         drop(operation);
 

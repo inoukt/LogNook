@@ -1,5 +1,6 @@
 import type { AutomaticTriggerStatus } from "./automaticTrigger";
 import type { A30ReadTestId } from "./a30ReadTests";
+import type { VehicleIdentitySnapshot } from "./vehicleProfiles";
 
 export type SignalDefinition = {
   id: string;
@@ -233,7 +234,7 @@ export type CanDeviceCandidate = {
 };
 export type CanDeviceSelection = { id: string; interface_number: number; channel: number };
 export type CanWorkbenchConfig = { bitrate: number; listen_only: boolean };
-export type CanWorkbenchStatus = CanWorkbenchConfig & { connected: boolean; source_id: string };
+export type CanWorkbenchStatus = CanWorkbenchConfig & { connected: boolean; source_id: string; target_channel: number | null };
 export type AgentAccessStatus = { configured: boolean; unlocked: boolean; host_connected: boolean; expires_at_unix_ms: number | null; active_operation: string | null; trace_gaps: number };
 export type AgentSignalSelection = { log_signal_ids: string[]; graph_signal_ids: string[] };
 export type CanFrame = {
@@ -515,11 +516,18 @@ export type Marker = {
 
 export type RecordingSignal = { id: string; unit: string };
 
+export type RecordingVehicleContext = {
+  snapshot: VehicleIdentitySnapshot;
+  context_from_elapsed_ns: number;
+  context_from_sample_index: number;
+};
+
 export type RecordingInfo = {
   sample_count: number;
   duration_ns: number;
   signals: RecordingSignal[];
   markers: Marker[];
+  vehicle_context?: RecordingVehicleContext | null;
 };
 
 export type PlaybackState = {

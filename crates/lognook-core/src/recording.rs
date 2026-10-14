@@ -1,5 +1,6 @@
 use crate::model::{
-    LogNookError, Marker, Recording, RecordingSummary, Sample, SampleOrigin, SampleQuality,
+    LogNookError, Marker, Recording, RecordingSummary, RecordingVehicleContextV1, Sample,
+    SampleOrigin, SampleQuality,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{
@@ -18,6 +19,19 @@ pub struct RecordingWriter {
 
 impl RecordingWriter {
     pub fn create(path: &Path) -> Result<Self, LogNookError> {
+        Self::create_with_vehicle_context(path, None)
+    }
+
+    pub fn create_with_vehicle_context(
+        path: &Path,
+        vehicle_context: Option<RecordingVehicleContextV1>,
+    ) -> Result<Self, LogNookError> {
+        let vehicle_context = vehicle_context
+            .map(|context| {
+                serde_json::to_string(&context)
+                    .map_err(|error| LogNookError::new(error.to_string()))
+            })
+            .transpose()?;
         OpenOptions::new().write(true).create_new(true).open(path)?;
         let connection = match Connection::open(path) {
             Ok(connection) => connection,
@@ -45,6 +59,16 @@ impl RecordingWriter {
              );
              CREATE INDEX markers_by_time ON markers(elapsed_ns DESC);",
         )?;
+        if let Some(context) = vehicle_context {
+            if let Err(error) = connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('vehicle_context_v1', ?1)",
+                [context],
+            ) {
+                drop(connection);
+                let _ = std::fs::remove_file(path);
+                return Err(error.into());
+            }
+        }
         Ok(Self {
             connection,
             path: path.to_path_buf(),
@@ -320,4 +344,140 @@ pub fn read_recording(path: &Path) -> Result<Recording, LogNookError> {
         Ok(true)
     })?;
     Ok(recording)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ProfileScope, RecordingWriter, Sample, SampleOrigin, SampleQuality,
+        VehicleIdentitySnapshot, VehicleIdentitySource, VinOrigin,
+        model::RecordingVehicleContextV1,
+    };
+    use rusqlite::Connection;
+    use std::{path::PathBuf, time::SystemTime};
+
+    fn temp_path(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("lognook-{label}-{nonce}.lognook"))
+    }
+
+    fn vehicle_snapshot(vin: &str, generation: u64) -> VehicleIdentitySnapshot {
+        VehicleIdentitySnapshot {
+            scope: ProfileScope::Live,
+            connection_generation: Some(generation),
+            profile_id: Some("profile-1".into()),
+            profile_revision: Some(3),
+            full_vin: Some(vin.into()),
+            vin_digest: Some(format!("digest-{generation}")),
+            masked_vin: Some("•••••••••••••4352".into()),
+            origin: Some(VinOrigin::EcuRecognition),
+            identity_source: VehicleIdentitySource::SameGenerationRecognition,
+            vin_conflict: false,
+            observed_ecus: Vec::new(),
+            decoded_snapshot: None,
+            owner_details: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn recording_context_round_trips_without_changing_raw_sample_bytes() {
+        let path = temp_path("context");
+        let context = RecordingVehicleContextV1 {
+            snapshot: vehicle_snapshot("1HGCM82633A004352", 7),
+            context_from_elapsed_ns: 200,
+            context_from_sample_index: 2,
+        };
+        let mut writer =
+            RecordingWriter::create_with_vehicle_context(&path, Some(context.clone())).unwrap();
+        for (index, elapsed_ns, raw_bytes) in [
+            (0, 100, vec![0x01]),
+            (1, 200, vec![0x12, 0x34]),
+            (2, 200, vec![0x56, 0x78]),
+        ] {
+            writer
+                .append(&Sample {
+                    elapsed_ns,
+                    wall_time_unix_ns: 1_800_000_000_000_000_000 + elapsed_ns,
+                    source_id: "test".into(),
+                    ecu_id: Some("engine".into()),
+                    signal_id: format!("signal-{index}"),
+                    value: index as f64,
+                    unit: "raw".into(),
+                    quality: SampleQuality::Valid,
+                    origin: SampleOrigin::Live,
+                    raw_bytes: Some(raw_bytes),
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let info = crate::inspect_recording(&path).unwrap();
+        let recording = crate::read_recording(&path).unwrap();
+
+        assert_eq!(info.vehicle_context, Some(context.clone()));
+        assert_eq!(recording.samples[0].raw_bytes, Some(vec![0x01]));
+        assert_eq!(recording.samples[1].raw_bytes, Some(vec![0x12, 0x34]));
+        assert_eq!(recording.samples[2].raw_bytes, Some(vec![0x56, 0x78]));
+        assert!(!context.applies_to_sample(0, 200));
+        assert!(!context.applies_to_sample(2, 199));
+        assert!(context.applies_to_sample(2, 200));
+
+        let connection = Connection::open(&path).unwrap();
+        let schema_version: String = connection
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(schema_version, "1");
+        drop(connection);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn missing_or_unknown_optional_context_does_not_block_legacy_playback() {
+        let path = temp_path("legacy");
+        let mut writer = RecordingWriter::create(&path).unwrap();
+        writer
+            .append(&Sample {
+                elapsed_ns: 42,
+                wall_time_unix_ns: 84,
+                source_id: "legacy".into(),
+                ecu_id: None,
+                signal_id: "engine_rpm".into(),
+                value: 700.0,
+                unit: "rpm".into(),
+                quality: SampleQuality::Valid,
+                origin: SampleOrigin::Live,
+                raw_bytes: Some(vec![0xaa, 0xbb]),
+            })
+            .unwrap();
+        writer.finish().unwrap();
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "INSERT INTO metadata(key, value) VALUES ('vehicle_context_v2', '{\"version\":2}')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO metadata(key, value) VALUES ('vehicle_context_v1', 'not-json')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let info = crate::inspect_recording(&path).unwrap();
+        let recording = crate::read_recording(&path).unwrap();
+
+        assert_eq!(info.vehicle_context, None);
+        assert_eq!(recording.samples.len(), 1);
+        assert_eq!(recording.samples[0].raw_bytes, Some(vec![0xaa, 0xbb]));
+        std::fs::remove_file(path).unwrap();
+    }
 }

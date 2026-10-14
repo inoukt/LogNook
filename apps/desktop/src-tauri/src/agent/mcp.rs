@@ -91,14 +91,14 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "List bounded live PID/CAN buffers and saved LogNook or agent CAN capture sources. CAN ID replay can use only the current live:can buffer; saved captures are read-only."
+        description = "List bounded live PID/CAN buffers and saved or session-registered LogNook CAN capture sources. Inspect a listed saved CAN source, then prepare_saved_can_replay for an explicit one-ID/time-range transmission preview. Listing never transmits."
     )]
     async fn list_log_sources(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::ListLogSources).await
     }
 
     #[tool(
-        description = "Read a bounded time range from a live or saved PID/CAN source. Use list_log_sources first; inspect live:can with kind=can, elapsed milliseconds, and the CAN-ID filter before replay_can_id. Replay itself uses only matching frames retained from the current CAN connection."
+        description = "Read a bounded time range from a listed live or saved PID/CAN source. Inspect live:can before replay_can_id; inspect a recorded CAN source before prepare_saved_can_replay. Time ranges are source elapsed milliseconds; RX/TX and standard/extended formats remain distinct."
     )]
     async fn query_log_range(
         &self,
@@ -125,18 +125,20 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Connect an explicitly selected source using its existing adapter owner. One OBD adapter and one Candlelight adapter can run together. No bench scan starts on connection; OBD initialization performs normal identity/PID discovery."
+        description = "Connect an explicitly selected source through its existing adapter owner. Set profile_standby=true for an OBD connection that discovers support and waits for vehicle recognition and explicit Resume; no old selections poll in standby. One OBD and one Candlelight source can run together. Connecting never starts a CAN scan or replay."
     )]
     async fn connect_adapter(
         &self,
         Parameters(AgentConnectArgs {
             choice,
             log_signal_ids,
+            profile_standby,
         }): Parameters<AgentConnectArgs>,
     ) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::ConnectAdapter {
             choice,
             log_signal_ids,
+            profile_standby,
         })
         .await
     }
@@ -203,7 +205,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Read DTC categories, VIN/ECU identity and Mode 06 support from the connected SX, ELM327 or A30. Optional byte-sized monitor IDs add result reads. Returns per-ECU timestamped outcomes, raw replies and decoded values; unmapped values remain raw counts. Does not clear codes."
+        description = "Read DTC categories, VIN/ECU identity and Mode 06 support from the connected SX, ELM327 or A30. Optional byte-sized monitor IDs add result reads. Returns per-ECU timestamped outcomes and decoded values; VIN values/raw bytes are masked here and remain in local history. Use the explicit vehicle_profiles read_identity or get_history_report operation when full VIN detail is needed. Unmapped Mode 06 values remain raw counts. Does not clear codes."
     )]
     async fn read_vehicle_diagnostics(
         &self,
@@ -253,7 +255,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Cancel the active agent CAN scan, frame send, or selected-ID replay and finalize paired CAN/trace evidence. Use this to interrupt replay."
+        description = "Cancel pending replay preparation/profile recognition and the active agent CAN scan, frame send, or live/saved selected-ID replay. Finalize owned paired CAN/trace evidence. Stop uses actual replay state rather than an estimated end time."
     )]
     async fn stop_operation(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::StopOperation).await
@@ -267,13 +269,24 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Operate the connected CAN Workbench: capture, mark an event, scan, send a bounded frame pattern, or replay captured RX frames once for one exact CAN ID/format and live elapsed-time range. For replay, use get_status -> list_log_sources -> query_log_range(live:can, kind=can with CAN-ID/time) to inspect frames, then pass that ID, standard/extended format, and range as replay_can_id. Replay uses only the current connection's retained unflagged classic RX frames (up to 400); saved files and caller-supplied frame data cannot be replayed. TX requires an active-mode Candlelight connection and is recorded to paired app-data evidence. stop_operation cancels replay and closes its paired capture."
+        description = "Operate the CAN Workbench: capture, mark, scan, send, or replay captured RX frames once. Live replay_can_id uses the current retained buffer (up to 400). Saved replay: list_log_sources -> query_log_range -> prepare_saved_can_replay -> inspect_saved_can_replay -> explicitly start_saved_can_replay with preview_id, expected_can_generation and the reviewed expected_output_capture_id. Clips contain 1-10000 valid unflagged classic RX frames and at most 600 seconds of source/paced time; limits reject rather than truncate. Source files remain unchanged. TX requires active-mode Candlelight and a separate paired output capture; known source bitrate must match. Submitted frames/adapter echoes do not prove ECU acceptance. Use stop_operation to cancel and finalize evidence. Caller-supplied replay payload arrays are unavailable."
     )]
     async fn workbench(
         &self,
         Parameters(AgentWorkbenchArgs { operation }): Parameters<AgentWorkbenchArgs>,
     ) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::Workbench { operation }).await
+    }
+
+    #[tool(
+        description = "Manage local Vehicle/ECU profiles and diagnostic history through the same service as the UI. Read VIN/calibration/ECU identity with read_identity; decode stored VINs offline; add clearly marked Agent Access vehicle details; browse paginated history and verify report evidence; append manual report associations; import older reports with status/cancel. Connect with profile_standby=true, inspect status/generation, recognize identity, then prepare_resume and explicitly apply_resume with the preview revision and connection generation. Resume rechecks fresh supported generic signals; unverified OEM never becomes automatic polling. These operations never clear DTCs or write to the vehicle."
+    )]
+    async fn vehicle_profiles(
+        &self,
+        Parameters(AgentVehicleProfileArgs { operation }): Parameters<AgentVehicleProfileArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::VehicleProfiles { operation })
+            .await
     }
 
     #[tool(
@@ -312,7 +325,7 @@ impl LogNookAgent {
 impl ServerHandler for LogNookAgent {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
-        info.instructions = Some("Use get_status first. For captured CAN ID replay, follow get_status -> list_log_sources -> query_log_range(live:can, kind=can with a CAN-ID/time range) to inspect current-connection RX frames, then workbench replay_can_id with the same ID, 11/29-bit format, and elapsed-ms range. Replay is one pass from retained unflagged classic frames; saved captures and agent-supplied frame data are not replay sources. Use stop_operation to interrupt replay and finalize paired evidence. LogNook owns adapter I/O. Raw responses are research evidence, not validation. Lock Agent Access in LogNook Settings to revoke access.".into());
+        info.instructions = Some("Use get_status first. Live CAN replay uses list_log_sources -> query_log_range(live:can) -> workbench replay_can_id. Saved CAN replay uses a listed recorded source -> query_log_range -> prepare_saved_can_replay -> inspect_saved_can_replay -> explicit start_saved_can_replay with the preview token and current target generation. Replay transmits one exact ID/format once from backend-frozen RX frames through the existing owner; caller payloads are not a replay source. Vehicle identity and history use the typed vehicle_profiles tool: read_identity performs only Mode 09 VIN/calibration/ECU-name reads; decode_vin_offline is local; report details verify stored bytes and hashes; history associations are append-only. Generic read_vehicle_diagnostics masks Mode 09 PID 02 values and payload bytes; use explicit identity/history detail to request the full VIN. Full VIN and manually entered details are personal local data. Profile Resume uses fresh support/identity and a connection/revision-bound preview; saved selections never enable unverified OEM polling. Use cancel_history_import to stop an import, cancel/stop_operation for profile and CAN operations. Raw responses are research evidence, not validation. Lock Agent Access in Settings to revoke access.".into());
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
@@ -393,6 +406,7 @@ mod tests {
                 "stop_trace_capture",
                 "try_mode06_test",
                 "try_oem_candidate",
+                "vehicle_profiles",
                 "workbench",
             ]
         );

@@ -1,3 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { ProfileScope, VehicleIdentitySnapshot, VehicleIdentitySource } from "./vehicleProfiles";
+
 export const VEHICLE_DIAGNOSTICS_ADAPTERS = [
   "Xtool A30/A30M Bluetooth SPP",
   "ELM327 Bluetooth SPP",
@@ -61,6 +64,9 @@ export type DiagnosticRead = {
 };
 
 export type DiagnosticReport = {
+  report_id?: string | null;
+  connection_generation?: number | null;
+  vehicle_context?: VehicleIdentitySnapshot | null;
   adapter: {
     stable_id: string;
     hardware_family: string;
@@ -76,11 +82,102 @@ export type DiagnosticReport = {
   evidence_save_error: string | null;
 };
 
+export type DiagnosticDtcCounts = { stored: number | null; pending: number | null; permanent: number | null };
+export type DiagnosticHistoryFilter = {
+  scope?: ProfileScope | null;
+  vin_digest?: string | null;
+  ecu_id?: string | null;
+  from_unix_ms?: number | null;
+  to_unix_ms?: number | null;
+  page_size?: number | null;
+  cursor?: string | null;
+};
+export type DiagnosticHistoryRow = {
+  report_id: string;
+  started_at_unix_ms: number;
+  scope: ProfileScope;
+  vin_digest: string | null;
+  masked_vin: string | null;
+  identity_source: VehicleIdentitySource;
+  vin_conflict: boolean;
+  ecu_ids: string[];
+  dtc_counts: DiagnosticDtcCounts;
+  mode06_read_count: number;
+  evidence_status: HistoryEvidenceStatus;
+};
+export type DiagnosticHistoryPage = { rows: DiagnosticHistoryRow[]; next_cursor: string | null };
+export type HistoryIndexState = "idle" | "indexing" | "complete" | "cancelled" | "failed";
+export type HistoryIndexStatus = {
+  state: HistoryIndexState;
+  indexed_reports: number;
+  scanned_bytes: number;
+  total_bytes: number;
+  malformed_lines: number;
+  oversized_lines: number;
+  error: string | null;
+};
+export type HistoryEvidenceStatus = "available" | "missing" | "changed" | "malformed";
+export type ManualReportAssociation = {
+  report_id: string;
+  scope: ProfileScope;
+  vin_digest: string;
+  actor: "owner_ui" | "agent_access";
+  associated_at_unix_ms: number;
+  note: string | null;
+};
+export type DiagnosticReportDetail = {
+  index: DiagnosticHistoryRow;
+  evidence_status: HistoryEvidenceStatus;
+  report: DiagnosticReport | null;
+  context_snapshot?: VehicleIdentitySnapshot | null;
+  manual_associations?: ManualReportAssociation[];
+};
+
 const MODE06_BITMAP_PAGES = new Set([0x00, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0]);
 
 export function supportsVehicleDiagnostics(adapterFamily: string | null): boolean {
   return VEHICLE_DIAGNOSTICS_ADAPTERS.includes(adapterFamily as (typeof VEHICLE_DIAGNOSTICS_ADAPTERS)[number]);
 }
+
+export function supportsProfileIdentity(adapterFamily: string | null): boolean {
+  return supportsVehicleDiagnostics(adapterFamily) || adapterFamily === "OpenPort 2.0" || adapterFamily === "OpenPort 2 J2534";
+}
+
+export function historyDtcCountLabel(count: number | null | undefined): string {
+  return count === null || count === undefined ? "Unknown" : count.toLocaleString();
+}
+
+export function historyPageFilter(filter: DiagnosticHistoryFilter, cursor: string | null): DiagnosticHistoryFilter {
+  return { ...filter, cursor };
+}
+
+export function mergeHistoryRows(previous: DiagnosticHistoryRow[], next: DiagnosticHistoryRow[]): DiagnosticHistoryRow[] {
+  const rows = new Map(previous.map((row) => [row.report_id, row]));
+  for (const row of next) rows.set(row.report_id, row);
+  return [...rows.values()];
+}
+
+export function identitySourceLabel(source: VehicleIdentitySource): string {
+  return {
+    report_ecu: "VIN read from this report",
+    same_generation_recognition: "Same-connection recognition",
+    manual_profile: "Manual profile context",
+    conflict: "Conflicting VINs",
+    unassigned: "Unassigned vehicle",
+  }[source];
+}
+
+export const readVehicleIdentity = (obdConnectionGeneration: number) =>
+  invoke<DiagnosticReport>("read_vehicle_identity", { obdConnectionGeneration });
+export const listVehicleDiagnosticHistory = (filter: DiagnosticHistoryFilter) =>
+  invoke<DiagnosticHistoryPage>("list_vehicle_diagnostic_history", { filter });
+export const getVehicleDiagnosticReport = (reportId: string) =>
+  invoke<DiagnosticReportDetail>("get_vehicle_diagnostic_report", { reportId });
+export const associateVehicleDiagnosticReport = (reportId: string, scope: ProfileScope, vinDigest: string, note: string | null) =>
+  invoke<ManualReportAssociation>("associate_vehicle_diagnostic_report", { reportId, scope, vinDigest, note });
+export const vehicleHistoryImportStatus = () => invoke<HistoryIndexStatus>("vehicle_history_import_status");
+export const startVehicleHistoryImport = () => invoke<HistoryIndexStatus>("start_vehicle_history_import");
+export const cancelVehicleHistoryImport = () => invoke<HistoryIndexStatus>("cancel_vehicle_history_import");
 
 export function parseMode06TestIds(text: string): { ids: number[]; error: string | null } {
   const parts = text.split(/[\s,;]+/).filter(Boolean);

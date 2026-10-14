@@ -5,6 +5,7 @@ export type ConnectionControlInput = {
   recording: boolean;
   replaying: boolean;
   hasSignals: boolean;
+  profileStandby?: boolean;
   sxPort: string;
   sxIdentityMatches: boolean;
   openPortProvider: string;
@@ -33,7 +34,7 @@ export function connectionControlState(adapter: AdapterKind, state: ConnectionCo
         : state.bluetoothIdentityMatches);
   return {
     identifyDisabled: !ready || adapter === "simulator" || !hasAdapter,
-    connectDisabled: !ready || !state.hasSignals || !hasAdapter || !identified,
+    connectDisabled: !ready || (!state.hasSignals && !state.profileStandby) || !hasAdapter || !identified,
     connectLabel: `Connect ${adapterLabel(adapter)}`,
   };
 }

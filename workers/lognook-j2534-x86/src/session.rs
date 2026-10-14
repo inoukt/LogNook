@@ -1,5 +1,7 @@
 use crate::j2534::{J2534Failure, PassThruApi};
-use lognook_j2534_protocol::{J2534Identity, Mode01Payload, WorkerErrorKind};
+use lognook_j2534_protocol::{
+    J2534Identity, Mode01Payload, Mode09Response, WorkerErrorKind, is_supported_mode09_pid,
+};
 
 pub(crate) struct J2534Session {
     api: Box<dyn PassThruApi>,
@@ -99,6 +101,22 @@ impl J2534Session {
         self.api.read_mode01(channel, pid, 250, self.expected_ecu)
     }
 
+    pub(crate) fn read_mode09(&mut self, pid: u8) -> Result<Vec<Mode09Response>, J2534Failure> {
+        if !is_supported_mode09_pid(pid) {
+            return Err(J2534Failure::new(
+                WorkerErrorKind::MalformedResponse,
+                format!("Mode 09 PID {pid:02X} is not an identity PID"),
+            ));
+        }
+        let channel = self.channel.ok_or_else(|| {
+            J2534Failure::new(
+                WorkerErrorKind::ChannelFailed,
+                "J2534 channel is not connected",
+            )
+        })?;
+        self.api.read_mode09(channel, pid, 1_500)
+    }
+
     pub(crate) fn shutdown(&mut self) {
         self.expected_ecu = None;
         if let Some(channel) = self.channel.take()
@@ -124,13 +142,17 @@ impl Drop for J2534Session {
 mod tests {
     use super::{J2534Session, PassThruApi};
     use crate::j2534::J2534Failure;
-    use lognook_j2534_protocol::{J2534Identity, Mode01Payload, WorkerErrorKind};
+    use lognook_j2534_protocol::{
+        J2534Identity, Mode01Payload, Mode09Payload, Mode09Response, WorkerErrorKind,
+    };
     use std::sync::{Arc, Mutex};
 
     struct FakeApi {
         calls: Arc<Mutex<Vec<String>>>,
         fail_at: Option<&'static str>,
         multiple_page_zero_responders: bool,
+        fail_mode09_once: bool,
+        mode09_responders: Vec<String>,
     }
 
     impl FakeApi {
@@ -207,6 +229,40 @@ mod tests {
             Ok(vec![Self::response(pid, pid == 0x00, "7E8")])
         }
 
+        fn read_mode09(
+            &mut self,
+            _channel: u32,
+            pid: u8,
+            timeout_ms: u32,
+        ) -> Result<Vec<Mode09Response>, J2534Failure> {
+            self.record(format!("read09:{pid:02X}:7DF:{timeout_ms}"));
+            if self.fail_mode09_once {
+                self.fail_mode09_once = false;
+                return Err(J2534Failure::new(
+                    WorkerErrorKind::NoResponse,
+                    "fixture Mode 09 timeout",
+                ));
+            }
+            self.fail("read_mode09")?;
+            let bytes = match pid {
+                0x02 => vec![0x49, 0x02, 0x01, b'1'],
+                0x04 => [vec![0x49, 0x04, 0x01], b"CALIBRATIONID123".to_vec()].concat(),
+                0x0A => [vec![0x49, 0x0A, 0x01], b"ECU NAME".to_vec()].concat(),
+                _ => unreachable!("session validates Mode 09 PIDs"),
+            };
+            Ok(self
+                .mode09_responders
+                .iter()
+                .map(|ecu_id| {
+                    Mode09Response::Payload(Mode09Payload {
+                        ecu_id: ecu_id.clone(),
+                        bytes: bytes.clone(),
+                        latency_us: 12_500,
+                    })
+                })
+                .collect())
+        }
+
         fn disconnect(&mut self, _channel: u32) -> Result<(), J2534Failure> {
             self.record("disconnect");
             Ok(())
@@ -225,6 +281,8 @@ mod tests {
                 calls: calls.clone(),
                 fail_at,
                 multiple_page_zero_responders: false,
+                fail_mode09_once: false,
+                mode09_responders: vec!["7E8".into()],
             },
             calls,
         )
@@ -322,6 +380,92 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn mode09_uses_the_functional_standard_route_and_keeps_all_responders() {
+        let (mut api, calls) = fake_api(None);
+        api.mode09_responders = vec!["7E8".into(), "7E9".into()];
+        let mut session = J2534Session::open(Box::new(api)).unwrap();
+        session.connect().unwrap();
+
+        for (pid, expected_len) in [(0x02, 4), (0x04, 19), (0x0A, 11)] {
+            let responses = session.read_mode09(pid).unwrap();
+            assert_eq!(
+                responses
+                    .iter()
+                    .map(|response| match response {
+                        Mode09Response::Payload(payload) => payload.ecu_id.as_str(),
+                        _ => panic!("fixture returned an unexpected Mode 09 response"),
+                    })
+                    .collect::<Vec<_>>(),
+                ["7E8", "7E9"]
+            );
+            assert!(responses.iter().all(|response| match response {
+                Mode09Response::Payload(payload) => {
+                    payload.bytes[0..2] == [0x49, pid]
+                        && payload.bytes.len() == expected_len
+                        && payload.latency_us == 12_500
+                }
+                _ => false,
+            }));
+        }
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|call| call.starts_with("read09:"))
+                .cloned()
+                .collect::<Vec<_>>(),
+            [
+                "read09:02:7DF:1500",
+                "read09:04:7DF:1500",
+                "read09:0A:7DF:1500"
+            ]
+        );
+    }
+
+    #[test]
+    fn mode09_failure_does_not_block_the_next_identity_query_or_send_other_pids() {
+        let (mut api, calls) = fake_api(None);
+        api.fail_mode09_once = true;
+        let mut session = J2534Session::open(Box::new(api)).unwrap();
+        session.connect().unwrap();
+
+        assert_eq!(
+            session.read_mode09(0x02).unwrap_err().kind,
+            WorkerErrorKind::NoResponse
+        );
+        let calibration = session.read_mode09(0x04).unwrap();
+        assert!(matches!(
+            &calibration[0],
+            Mode09Response::Payload(payload) if payload.bytes[1] == 0x04
+        ));
+        assert!(session.read_mode09(0x03).is_err());
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|call| call.starts_with("read09:"))
+                .cloned()
+                .collect::<Vec<_>>(),
+            ["read09:02:7DF:1500", "read09:04:7DF:1500"]
+        );
+    }
+
+    #[test]
+    fn functional_mode09_read_does_not_change_the_discovered_mode01_route() {
+        let (api, calls) = fake_api(None);
+        let mut session = J2534Session::open(Box::new(api)).unwrap();
+        session.connect().unwrap();
+        session.discover_mode01().unwrap();
+
+        session.read_mode09(0x02).unwrap();
+        session.read_mode01(0x0C).unwrap();
+
+        assert_eq!(calls.lock().unwrap().last().unwrap(), "read:0C:ecu=7E8");
     }
     #[test]
     fn connect_progress_tracks_actual_calls_and_stops_at_failure() {

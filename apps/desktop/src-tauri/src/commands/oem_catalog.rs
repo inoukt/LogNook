@@ -715,6 +715,11 @@ mod tests {
                 crate::agent::log_data::AgentLogBuffer::default(),
             )),
             trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
+            can_replay_previews: crate::can_replay_previews::CanReplayPreviewRegistry::default(),
+            agent_can_replay_status: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            vehicle_profiles: crate::vehicle_profiles::VehicleProfileService::open(
+                &directory.join("profiles.sqlite"),
+            ),
         }
     }
 
@@ -821,6 +826,7 @@ mod tests {
         state.engine.lock().unwrap().stop_recording().unwrap();
         state.engine.lock().unwrap().disconnect().unwrap();
         drop(connection);
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -897,6 +903,7 @@ mod tests {
             serde_json::json!([[0x7F, 0x06, 0x12]])
         );
         state.engine.lock().unwrap().disconnect().unwrap();
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -982,6 +989,7 @@ mod tests {
             recording.samples[0].raw_bytes.as_deref(),
             Some(&[0x41, 0x0C, 0x1F, 0x40][..])
         );
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1039,6 +1047,7 @@ mod tests {
         );
         assert_eq!(*reads.lock().unwrap(), [A30ReadTest::Mode06TidA2]);
         state.engine.lock().unwrap().disconnect().unwrap();
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
@@ -1251,6 +1260,7 @@ mod tests {
             recording.samples[2].raw_bytes.as_deref(),
             Some(&tid_a5_payload[..])
         );
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

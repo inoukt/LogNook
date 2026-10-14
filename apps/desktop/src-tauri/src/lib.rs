@@ -1,6 +1,9 @@
 mod agent;
+mod can_replay_previews;
 pub(crate) mod commands;
 mod diagnostics;
+pub(crate) mod vehicle_profiles;
+mod vehicle_reads;
 
 use lognook_core::LogNookEngine;
 use std::{
@@ -25,6 +28,9 @@ pub(crate) struct AppState {
     pub agent_scan_active: Arc<AtomicBool>,
     pub agent_workbench: Mutex<agent::tools::AgentWorkbenchState>,
     pub agent_log_buffer: Arc<Mutex<agent::log_data::AgentLogBuffer>>,
+    pub agent_can_replay_status: Arc<Mutex<Option<lognook_core::CanIdReplayStatus>>>,
+    pub can_replay_previews: can_replay_previews::CanReplayPreviewRegistry,
+    pub vehicle_profiles: vehicle_profiles::VehicleProfileService,
     pub trace_store: lognook_core::communication_trace::CommunicationTraceStore,
 }
 
@@ -34,6 +40,9 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            let vehicle_profiles = vehicle_profiles::VehicleProfileService::open(
+                &app_data_dir.join("profiles.sqlite"),
+            );
             let recordings_dir = app.path().app_data_dir()?.join("recordings");
             std::fs::create_dir_all(&recordings_dir)?;
             let oem_validation_dir = app.path().app_data_dir()?.join("oem-validation");
@@ -75,8 +84,11 @@ pub fn run() {
             let engine_agent_scan_active = Arc::clone(&agent_scan_active);
             let agent_log_buffer = Arc::new(Mutex::new(agent::log_data::AgentLogBuffer::default()));
             let engine_agent_log_buffer = Arc::clone(&agent_log_buffer);
+            let agent_can_replay_status = Arc::new(Mutex::new(None));
+            let engine_can_replay_status = Arc::clone(&agent_can_replay_status);
             let mut engine = LogNookEngine::new(move |event| {
                 agent::tools::update_agent_scan_state(&engine_agent_scan_active, &event);
+                agent::tools::update_agent_replay_state(&engine_can_replay_status, &event);
                 if let Ok(mut buffer) = engine_agent_log_buffer.lock() {
                     buffer.record_engine_event(&event);
                 }
@@ -111,6 +123,9 @@ pub fn run() {
                 }),
                 agent_workbench: Mutex::new(agent::tools::AgentWorkbenchState::default()),
                 agent_log_buffer,
+                agent_can_replay_status,
+                can_replay_previews: can_replay_previews::CanReplayPreviewRegistry::default(),
+                vehicle_profiles,
                 trace_store,
             });
             Ok(())
@@ -166,6 +181,12 @@ pub fn run() {
             commands::send_can_frame,
             commands::start_can_id_replay,
             commands::stop_can_id_replay,
+            commands::register_saved_can_replay_source,
+            commands::list_saved_can_replay_sources,
+            commands::prepare_saved_can_replay,
+            commands::get_saved_can_replay_preview,
+            commands::discard_saved_can_replay_preview,
+            commands::start_saved_can_replay,
             commands::start_can_scan,
             commands::stop_can_scan,
             commands::arm_can_trigger,
@@ -177,6 +198,29 @@ pub fn run() {
             commands::compare_can_captures,
             commands::export_can_dbc_skeleton,
             commands::connect_simulator,
+            commands::connect_profile_adapter,
+            commands::continue_profile_selection,
+            commands::cancel_vehicle_profile_operations,
+            commands::list_vehicle_profiles,
+            commands::get_vehicle_profile,
+            commands::save_vehicle_profile,
+            commands::recognize_vehicle,
+            commands::read_vehicle_identity,
+            commands::get_vehicle_identity,
+            commands::decode_vehicle_vin_offline,
+            commands::set_manual_vehicle_detail,
+            commands::link_legacy_vehicle_vin,
+            commands::assign_manual_profile_vin,
+            commands::list_vehicle_diagnostic_history,
+            commands::get_vehicle_diagnostic_report,
+            commands::associate_vehicle_diagnostic_report,
+            commands::vehicle_history_import_status,
+            commands::start_vehicle_history_import,
+            commands::cancel_vehicle_history_import,
+            commands::prepare_profile_resume,
+            commands::apply_profile_resume,
+            commands::discard_profile_resume,
+            commands::vehicle_profiles_status,
             commands::connect_obdlink_sx,
             commands::disconnect,
             commands::disconnect_obd,

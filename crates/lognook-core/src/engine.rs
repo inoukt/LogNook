@@ -14,6 +14,7 @@ use crate::{
     oem_catalog::OemPollPlan,
     pipeline::SamplePipeline,
     playback::PlaybackHandle,
+    vehicle_profiles::{ProfileScope, VehicleIdentitySnapshot},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -35,7 +36,11 @@ pub struct LogNookEngine {
     derived_signal_definitions: Vec<DerivedSignalDefinition>,
     active_derived_signal_ids: HashSet<String>,
     can_workbench: Option<CanWorkbench>,
+    can_connection_generation: u64,
     connection_capabilities: Option<ConnectionCapabilities>,
+    obd_connection_generation: u64,
+    vehicle_recording_context: Option<VehicleIdentitySnapshot>,
+    profile_standby: bool,
     session_origin: Option<Instant>,
     session_origin_wall_unix_ns: Option<i64>,
     communication_sink: Option<crate::communication_trace::CommunicationSink>,
@@ -63,7 +68,11 @@ impl LogNookEngine {
             derived_signal_definitions: Vec::new(),
             active_derived_signal_ids: HashSet::new(),
             can_workbench: None,
+            can_connection_generation: 0,
             connection_capabilities: None,
+            obd_connection_generation: 0,
+            vehicle_recording_context: None,
+            profile_standby: false,
             session_origin: None,
             session_origin_wall_unix_ns: None,
             communication_sink: None,
@@ -79,6 +88,45 @@ impl LogNookEngine {
         self.communication_sink = Some(sink);
     }
 
+    /// Update the vehicle identity attached to recordings created from the
+    /// current session. A stale OBD generation is ignored so an async profile
+    /// operation cannot label samples from a newer connection.
+    pub fn set_vehicle_recording_context(
+        &mut self,
+        snapshot: Option<VehicleIdentitySnapshot>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        let snapshot_is_current = snapshot
+            .as_ref()
+            .is_none_or(|snapshot| match snapshot.scope {
+                ProfileScope::Live | ProfileScope::Simulator => {
+                    snapshot.connection_generation == Some(expected_generation)
+                        && expected_generation == self.obd_connection_generation
+                        && self.is_obd_connected()
+                }
+                ProfileScope::CanOnly => {
+                    (snapshot.connection_generation.is_none()
+                        || snapshot.connection_generation == Some(expected_generation))
+                        && expected_generation == self.can_connection_generation
+                        && self.is_can_connected()
+                }
+            });
+        if !snapshot_is_current {
+            return Ok(());
+        }
+        self.pipeline
+            .update_vehicle_recording_context(snapshot.clone(), expected_generation)?;
+        self.vehicle_recording_context = snapshot;
+        Ok(())
+    }
+
+    fn clear_vehicle_recording_context(&mut self) -> Result<(), LogNookError> {
+        self.pipeline
+            .update_vehicle_recording_context(None, self.obd_connection_generation)?;
+        self.vehicle_recording_context = None;
+        Ok(())
+    }
+
     pub fn connect_simulated(
         &mut self,
         signal_ids: &[String],
@@ -88,8 +136,25 @@ impl LogNookEngine {
 
     pub fn connect_adapter(
         &mut self,
+        adapter: Box<dyn HardwareAdapter>,
+        signal_ids: &[String],
+    ) -> Result<ConnectionCapabilities, LogNookError> {
+        self.connect_adapter_mode(adapter, signal_ids, false)
+    }
+
+    /// Connect with fresh support discovery while keeping the single acquisition owner idle.
+    pub fn connect_for_profile(
+        &mut self,
+        adapter: Box<dyn HardwareAdapter>,
+    ) -> Result<ConnectionCapabilities, LogNookError> {
+        self.connect_adapter_mode(adapter, &[], true)
+    }
+
+    fn connect_adapter_mode(
+        &mut self,
         mut adapter: Box<dyn HardwareAdapter>,
         signal_ids: &[String],
+        profile_standby: bool,
     ) -> Result<ConnectionCapabilities, LogNookError> {
         if self.pipeline.is_recording() {
             return Err(LogNookError::new(
@@ -107,9 +172,18 @@ impl LogNookEngine {
         if let Some(mut old) = self.acquisition.take() {
             old.stop()?;
         }
-        if signal_ids.is_empty() {
+        if signal_ids.is_empty() && !profile_standby {
             return Err(LogNookError::new("Select at least one signal"));
         }
+        if profile_standby && !signal_ids.is_empty() {
+            return Err(LogNookError::new(
+                "Profile standby connection must not start with saved selections",
+            ));
+        }
+        let next_obd_connection_generation = self
+            .obd_connection_generation
+            .checked_add(1)
+            .ok_or_else(|| LogNookError::new("OBD connection generation space is exhausted"))?;
         let compiled = compile_derived_signals(
             &self.derived_signal_definitions,
             &crate::standard_obd_signals(),
@@ -172,11 +246,15 @@ impl LogNookEngine {
                 }
             }
         }
-        let signals = match select_signals(&capabilities, &requested_source_ids) {
-            Ok(signals) => signals,
-            Err(error) => {
-                adapter.disconnect();
-                return Err(error);
+        let signals = if profile_standby {
+            Vec::new()
+        } else {
+            match select_signals(&capabilities, &requested_source_ids) {
+                Ok(signals) => signals,
+                Err(error) => {
+                    adapter.disconnect();
+                    return Err(error);
+                }
             }
         };
         self.pipeline.set_derived_signals(
@@ -197,6 +275,12 @@ impl LogNookEngine {
             .saturating_duration_since(session_origin)
             .as_nanos()
             .min(i64::MAX as u128) as i64;
+        if let Err(error) = self.clear_vehicle_recording_context() {
+            adapter.disconnect();
+            return Err(error);
+        }
+        self.obd_connection_generation = next_obd_connection_generation;
+        self.profile_standby = profile_standby;
         (self.event_sink)(EngineEvent::Connected(capabilities.clone()));
         self.selected_signal_ids = signals
             .iter()
@@ -213,6 +297,7 @@ impl LogNookEngine {
             session_origin,
             session_origin_wall_unix_ns,
             adapter_offset_ns,
+            profile_standby,
         ));
         self.connection_capabilities = Some(capabilities.clone());
         Ok(capabilities)
@@ -242,6 +327,17 @@ impl LogNookEngine {
         if let Some(sink) = &self.communication_sink {
             transport.set_communication_sink(sink.clone());
         }
+        let next_generation = self
+            .can_connection_generation
+            .checked_add(1)
+            .ok_or_else(|| LogNookError::new("CAN connection generation space is exhausted"))?;
+        if self
+            .vehicle_recording_context
+            .as_ref()
+            .is_some_and(|context| context.scope == ProfileScope::CanOnly)
+        {
+            self.clear_vehicle_recording_context()?;
+        }
         let session_origin = *self.session_origin.get_or_insert_with(Instant::now);
         self.session_origin_wall_unix_ns
             .get_or_insert_with(now_unix_ns);
@@ -254,6 +350,7 @@ impl LogNookEngine {
         )?;
         let status = workbench.status();
         self.can_workbench = Some(workbench);
+        self.can_connection_generation = next_generation;
         (self.event_sink)(EngineEvent::CanWorkbenchStatus(status.clone()));
         Ok(status)
     }
@@ -365,6 +462,35 @@ impl LogNookEngine {
             .start_can_id_replay(frames)
     }
 
+    pub fn start_prepared_can_replay(
+        &self,
+        plan: crate::CanReplayPlan,
+    ) -> Result<crate::CanIdReplayStatus, LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before replaying CAN frames"))?
+            .start_prepared_can_replay(plan)
+    }
+
+    /// Verify the preview's target generation and enqueue through the same adapter owner.
+    pub fn start_prepared_can_replay_for_generation(
+        &self,
+        plan: crate::CanReplayPlan,
+        expected_generation: u64,
+    ) -> Result<crate::CanIdReplayStatus, LogNookError> {
+        if self.can_connection_generation != expected_generation {
+            return Err(LogNookError::new(
+                "CAN connection changed since replay preview; inspect the target and retry",
+            ));
+        }
+        if !self.is_can_connected() {
+            return Err(LogNookError::new(
+                "Connect Candlelight before replaying CAN frames",
+            ));
+        }
+        self.start_prepared_can_replay(plan)
+    }
+
     pub fn stop_can_id_replay(&self) -> Result<(), LogNookError> {
         self.can_workbench
             .as_ref()
@@ -410,6 +536,14 @@ impl LogNookEngine {
             .is_some_and(AcquisitionHandle::is_running)
     }
 
+    pub fn obd_connection_generation(&self) -> u64 {
+        self.obd_connection_generation
+    }
+
+    pub fn is_obd_profile_standby(&self) -> bool {
+        self.profile_standby && self.is_obd_connected()
+    }
+
     pub fn is_can_connected(&self) -> bool {
         self.can_workbench
             .as_ref()
@@ -426,6 +560,42 @@ impl LogNookEngine {
         self.can_workbench.as_ref().map(CanWorkbench::status)
     }
 
+    pub fn configured_can_fields(&self) -> Vec<CanSignalDefinition> {
+        self.can_workbench
+            .as_ref()
+            .map(CanWorkbench::configured_fields)
+            .unwrap_or_default()
+    }
+
+    pub fn can_connection_generation(&self) -> u64 {
+        self.can_connection_generation
+    }
+
+    pub fn can_target_channel(&self) -> Option<u8> {
+        self.can_workbench
+            .as_ref()
+            .and_then(CanWorkbench::target_channel)
+    }
+
+    pub fn active_can_capture_path(&self) -> Option<PathBuf> {
+        self.can_workbench
+            .as_ref()
+            .and_then(CanWorkbench::active_capture_path)
+    }
+
+    pub fn active_can_capture_id(&self) -> Option<u64> {
+        self.can_workbench
+            .as_ref()
+            .and_then(CanWorkbench::active_capture_id)
+    }
+
+    pub fn can_workbench_busy(&self) -> Result<bool, LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .filter(|workbench| workbench.is_running())
+            .map_or(Ok(false), CanWorkbench::has_active_operations)
+    }
+
     pub fn selected_signal_ids(&self) -> Vec<String> {
         if !self.is_obd_connected() {
             return Vec::new();
@@ -439,10 +609,282 @@ impl LogNookEngine {
         self.pipeline.is_recording()
     }
 
+    pub fn is_playback_active(&self) -> bool {
+        self.playback.is_some() || self.playback_state.playing
+    }
+
+    pub fn queue_profile_identity_reads(
+        &self,
+        expected_generation: u64,
+    ) -> Result<
+        std::sync::mpsc::Receiver<Result<Vec<crate::DiagnosticRead>, LogNookError>>,
+        LogNookError,
+    > {
+        self.queue_profile_identity_reads_with_cancel(
+            expected_generation,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+    }
+
+    pub fn queue_profile_identity_reads_with_cancel(
+        &self,
+        expected_generation: u64,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<
+        std::sync::mpsc::Receiver<Result<Vec<crate::DiagnosticRead>, LogNookError>>,
+        LogNookError,
+    > {
+        if expected_generation != self.obd_connection_generation {
+            return Err(LogNookError::new(
+                "OBD connection changed before profile identity could be read",
+            ));
+        }
+        if !self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Connect with profile recognition enabled before reading profile identity",
+            ));
+        }
+        if self.pipeline.is_recording() || self.playback_state.playing {
+            return Err(LogNookError::new(
+                "Stop recording and playback before profile recognition",
+            ));
+        }
+        let capabilities = self
+            .connection_capabilities
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?;
+        if !crate::vehicle_diagnostics::supports_profile_identity(Some(
+            &capabilities.device.hardware_family,
+        )) {
+            let (reply, response) = std::sync::mpsc::channel();
+            let _ = reply.send(Ok(Vec::new()));
+            return Ok(response);
+        }
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?
+            .queue_profile_identity_reads(cancelled)
+    }
+
+    pub fn queue_profile_identity_query(
+        &self,
+        expected_generation: u64,
+        query: crate::DiagnosticQueryRequest,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<
+        std::sync::mpsc::Receiver<Result<Vec<crate::DiagnosticRead>, LogNookError>>,
+        LogNookError,
+    > {
+        if expected_generation != self.obd_connection_generation {
+            return Err(LogNookError::new(
+                "OBD connection changed before profile identity could be read",
+            ));
+        }
+        if !self.is_obd_connected() {
+            return Err(LogNookError::new("No OBD adapter is connected"));
+        }
+        if self.pipeline.is_recording() || self.playback_state.playing || self.playback.is_some() {
+            return Err(LogNookError::new(
+                "Stop recording and playback before profile recognition",
+            ));
+        }
+        let capabilities = self
+            .connection_capabilities
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?;
+        if !crate::vehicle_diagnostics::supports_profile_identity(Some(
+            &capabilities.device.hardware_family,
+        )) {
+            let (reply, response) = std::sync::mpsc::channel();
+            let _ = reply.send(Ok(Vec::new()));
+            return Ok(response);
+        }
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?
+            .queue_profile_identity_query(query, cancelled)
+    }
+
+    /// Replace a staged profile selection through the current serialized adapter owner.
+    pub fn replace_profile_signals(
+        &mut self,
+        signal_ids: Vec<String>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        let definitions = self.derived_signal_definitions.clone();
+        let active = self.active_derived_signal_ids.iter().cloned().collect();
+        self.replace_profile_selection(signal_ids, definitions, active, expected_generation)
+    }
+
+    pub fn replace_profile_selection(
+        &mut self,
+        signal_ids: Vec<String>,
+        derived_definitions: Vec<DerivedSignalDefinition>,
+        active_derived_ids: Vec<String>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        self.replace_profile_selection_with_oem(
+            signal_ids,
+            derived_definitions,
+            active_derived_ids,
+            None,
+            expected_generation,
+        )
+    }
+
+    pub fn replace_profile_selection_with_oem(
+        &mut self,
+        signal_ids: Vec<String>,
+        derived_definitions: Vec<DerivedSignalDefinition>,
+        active_derived_ids: Vec<String>,
+        oem_plan: Option<OemPollPlan>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        if expected_generation != self.obd_connection_generation {
+            return Err(LogNookError::new(
+                "OBD connection changed before the profile selection was applied",
+            ));
+        }
+        if !self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Profile selections can only replace a staged standby connection",
+            ));
+        }
+        if signal_ids.is_empty() && oem_plan.as_ref().is_none_or(|plan| plan.groups.is_empty()) {
+            return Err(LogNookError::new(
+                "No eligible logging signals are available to resume",
+            ));
+        }
+        if self.pipeline.is_recording() || self.playback_state.playing || self.playback.is_some() {
+            return Err(LogNookError::new(
+                "Stop recording and playback before applying a profile",
+            ));
+        }
+        if self.oem_polling_status().active {
+            return Err(LogNookError::new(
+                "Stop OEM polling before applying a profile",
+            ));
+        }
+        let capabilities = self
+            .connection_capabilities
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?;
+        let compiled =
+            compile_derived_signals(&derived_definitions, &crate::standard_obd_signals())?;
+        let derived_by_id = compiled
+            .iter()
+            .map(|derived| (derived.definition.id.as_str(), derived))
+            .collect::<HashMap<_, _>>();
+        let known_derived = derived_definitions
+            .iter()
+            .map(|definition| definition.id.as_str())
+            .collect::<HashSet<_>>();
+        let mut active_derived = HashSet::new();
+        for id in active_derived_ids {
+            if !known_derived.contains(id.as_str()) {
+                return Err(LogNookError::new(format!(
+                    "Cannot activate missing derived signal '{id}'"
+                )));
+            }
+            active_derived.insert(id);
+        }
+        let mut source_ids = Vec::new();
+        let mut selected_derived = HashSet::new();
+        for id in &signal_ids {
+            if let Some(derived) = derived_by_id.get(id.as_str()) {
+                if !active_derived.contains(id) {
+                    return Err(LogNookError::new(format!(
+                        "Derived signal '{id}' is not active"
+                    )));
+                }
+                selected_derived.insert(id.clone());
+                source_ids.extend(derived.dependencies().iter().cloned());
+            } else if known_derived.contains(id.as_str()) {
+                return Err(LogNookError::new(format!(
+                    "Derived signal '{id}' is not active"
+                )));
+            } else if capabilities
+                .supported_signals
+                .iter()
+                .any(|signal| signal.id == *id)
+            {
+                source_ids.push(id.clone());
+            } else {
+                return Err(LogNookError::new(format!(
+                    "Saved signal '{id}' is not supported on this connection"
+                )));
+            }
+        }
+        for id in &selected_derived {
+            let derived = derived_by_id[id.as_str()];
+            if let Some(missing) = derived.dependencies().iter().find(|dependency| {
+                !capabilities
+                    .supported_signals
+                    .iter()
+                    .any(|signal| &signal.id == *dependency)
+            }) {
+                return Err(LogNookError::new(format!(
+                    "Derived signal '{id}' requires unsupported input '{missing}'"
+                )));
+            }
+        }
+        let signals = if source_ids.is_empty() {
+            Vec::new()
+        } else {
+            select_signals(capabilities, &source_ids)?
+        };
+        let prior_compiled = compile_derived_signals(
+            &self.derived_signal_definitions,
+            &crate::standard_obd_signals(),
+        )?;
+        let prior_active = prior_compiled
+            .into_iter()
+            .filter(|signal| {
+                self.active_derived_signal_ids
+                    .contains(&signal.definition.id)
+            })
+            .collect();
+        let next_active = compiled
+            .into_iter()
+            .filter(|signal| active_derived.contains(&signal.definition.id))
+            .collect();
+        self.pipeline.set_derived_signals(next_active)?;
+        if let Err(error) = self
+            .acquisition
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?
+            .replace_signals(signals.clone(), oem_plan)
+        {
+            let rollback = self.pipeline.set_derived_signals(prior_active);
+            return match rollback {
+                Ok(()) => Err(error),
+                Err(rollback) => Err(LogNookError::new(format!(
+                    "{error}; previous derived pipeline could not be restored: {rollback}"
+                ))),
+            };
+        }
+        self.derived_signal_definitions = derived_definitions;
+        self.active_derived_signal_ids = active_derived;
+        self.selected_signal_ids = signals
+            .iter()
+            .map(|signal| signal.id.clone())
+            .chain(selected_derived)
+            .collect();
+        self.profile_standby = false;
+        Ok(())
+    }
+
     pub fn execute_research_test(
         &self,
         request: ResearchTestRequest,
     ) -> Result<ResearchTestResult, LogNookError> {
+        if self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Research tests are unavailable while profile recognition is staged",
+            ));
+        }
         self.acquisition
             .as_ref()
             .filter(|acquisition| acquisition.is_running())
@@ -455,6 +897,11 @@ impl LogNookEngine {
         request: ResearchTestRequest,
     ) -> Result<std::sync::mpsc::Receiver<Result<ResearchTestResult, LogNookError>>, LogNookError>
     {
+        if self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Research tests are unavailable while profile recognition is staged",
+            ));
+        }
         self.acquisition
             .as_ref()
             .filter(|acquisition| acquisition.is_running())
@@ -466,6 +913,11 @@ impl LogNookEngine {
         &self,
         command: RawAdapterCommand,
     ) -> Result<RawAdapterCommandResult, LogNookError> {
+        if self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Raw commands are unavailable while profile recognition is staged",
+            ));
+        }
         self.acquisition
             .as_ref()
             .filter(|acquisition| acquisition.is_running())
@@ -474,6 +926,11 @@ impl LogNookEngine {
     }
 
     pub fn set_oem_poll_plan(&self, plan: Option<OemPollPlan>) -> Result<(), LogNookError> {
+        if plan.is_some() && self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "OEM polling is unavailable while profile recognition is staged",
+            ));
+        }
         if plan.as_ref().is_some_and(|plan| plan.groups.is_empty()) {
             return Err(LogNookError::new("Select at least one verified OEM signal"));
         }
@@ -572,6 +1029,7 @@ impl LogNookEngine {
     }
 
     pub fn disconnect(&mut self) -> Result<(), LogNookError> {
+        self.clear_vehicle_recording_context()?;
         if let Some(workbench) = self.can_workbench.take() {
             let mut status = workbench.status();
             drop(workbench);
@@ -583,6 +1041,7 @@ impl LogNookEngine {
         }
         self.selected_signal_ids.clear();
         self.connection_capabilities = None;
+        self.profile_standby = false;
         self.session_origin = None;
         self.session_origin_wall_unix_ns = None;
         self.stop_playback();
@@ -595,17 +1054,34 @@ impl LogNookEngine {
     }
 
     pub fn disconnect_obd(&mut self) -> Result<(), LogNookError> {
+        if self
+            .vehicle_recording_context
+            .as_ref()
+            .is_some_and(|context| {
+                matches!(context.scope, ProfileScope::Live | ProfileScope::Simulator)
+            })
+        {
+            self.clear_vehicle_recording_context()?;
+        }
         if let Some(mut acquisition) = self.acquisition.take() {
             acquisition.stop()?;
         }
         self.selected_signal_ids.clear();
         self.connection_capabilities = None;
+        self.profile_standby = false;
         self.stop_playback();
         (self.event_sink)(EngineEvent::Disconnected);
         self.finish_source_session_if_idle()
     }
 
     pub fn disconnect_can(&mut self) -> Result<(), LogNookError> {
+        if self
+            .vehicle_recording_context
+            .as_ref()
+            .is_some_and(|context| context.scope == ProfileScope::CanOnly)
+        {
+            self.clear_vehicle_recording_context()?;
+        }
         if let Some(workbench) = self.can_workbench.take() {
             let mut status = workbench.status();
             drop(workbench);
@@ -617,6 +1093,7 @@ impl LogNookEngine {
 
     fn finish_source_session_if_idle(&mut self) -> Result<(), LogNookError> {
         if !self.is_connected() {
+            self.clear_vehicle_recording_context()?;
             self.session_origin = None;
             self.session_origin_wall_unix_ns = None;
             if self.pipeline.is_recording() {
@@ -628,6 +1105,11 @@ impl LogNookEngine {
     }
 
     pub fn start_recording(&mut self, path: &Path) -> Result<(), LogNookError> {
+        if self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Resume a supported signal selection before recording",
+            ));
+        }
         if !self.is_connected() {
             return Err(LogNookError::new("Connect an adapter before recording"));
         }
@@ -642,6 +1124,11 @@ impl LogNookEngine {
         &mut self,
         path: &Path,
     ) -> Result<RetrospectiveRecordingStart, LogNookError> {
+        if self.is_obd_profile_standby() {
+            return Err(LogNookError::new(
+                "Resume a supported signal selection before recording",
+            ));
+        }
         if !self.is_connected() {
             return Err(LogNookError::new("Connect an adapter before recording"));
         }
@@ -773,8 +1260,10 @@ fn now_unix_ns() -> i64 {
 mod tests {
     use super::{LogNookEngine, select_signals};
     use crate::{
-        ConnectionCapabilities, DeviceDescriptor, EngineEvent, HardwareAdapter, LogNookError,
-        Sample, SampleOrigin, SampleQuality, SignalDefinition, standard_obd_signals,
+        ConnectionCapabilities, DeviceDescriptor, DiagnosticOutcome, DiagnosticReport,
+        DiagnosticRequest, EngineEvent, HardwareAdapter, LogNookError, ResearchTestRequest,
+        ResearchTestResult, Sample, SampleOrigin, SampleQuality, SignalDefinition,
+        standard_obd_signals,
     };
     use std::sync::{
         Arc, Mutex,
@@ -813,6 +1302,101 @@ mod tests {
         fn disconnect(&mut self) {
             self.disconnected.store(true, Ordering::Release);
         }
+    }
+
+    struct IdentityOpenPortAdapter {
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl HardwareAdapter for IdentityOpenPortAdapter {
+        fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+            Ok(ConnectionCapabilities {
+                device: DeviceDescriptor {
+                    stable_id: "fixture-openport".into(),
+                    hardware_family: "OpenPort 2.0".into(),
+                    firmware: None,
+                    path: None,
+                },
+                protocol: "SAE J1979 Mode 01".into(),
+                read_only: true,
+                supported_signals: standard_obd_signals().into_iter().take(1).collect(),
+            })
+        }
+
+        fn read_samples(
+            &mut self,
+            _signals: &[SignalDefinition],
+        ) -> Result<Vec<Sample>, LogNookError> {
+            Ok(Vec::new())
+        }
+
+        fn execute_research_test(
+            &mut self,
+            request: ResearchTestRequest,
+        ) -> Result<ResearchTestResult, LogNookError> {
+            let ResearchTestRequest::Diagnostic(query) = request else {
+                return Err(LogNookError::new("Expected an identity query"));
+            };
+            self.reads.fetch_add(1, Ordering::AcqRel);
+            let pid = query.request_payload()[1];
+            let mut payload = vec![0x49, pid, 1];
+            payload.extend_from_slice(match pid {
+                0x02 => b"1HGCM82633A004352",
+                0x04 => b"CALIBRATIONID123",
+                0x0A => b"PCM",
+                _ => return Err(LogNookError::new("Unexpected identity PID")),
+            });
+            let read = query.report(
+                Some("7E8".into()),
+                payload,
+                "fixture response".into(),
+                "7DF functional identity query".into(),
+                10,
+                2,
+                false,
+            );
+            Ok(ResearchTestResult::Diagnostic(DiagnosticReport {
+                adapter: self.connect()?.device,
+                protocol: "SAE J1979 Mode 09".into(),
+                started_at_unix_ms: 10,
+                request: DiagnosticRequest::default(),
+                reads: vec![read],
+                report_id: None,
+                connection_generation: None,
+                vehicle_context: None,
+                route_restore_error: None,
+                evidence_saved: false,
+                evidence_save_error: None,
+            }))
+        }
+    }
+
+    #[test]
+    fn openport_profile_standby_runs_identity_reads_through_the_serialized_owner() {
+        let identity_reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut engine = LogNookEngine::new(|_| {});
+        engine
+            .connect_for_profile(Box::new(IdentityOpenPortAdapter {
+                reads: identity_reads.clone(),
+            }))
+            .unwrap();
+        let generation = engine.obd_connection_generation();
+
+        let reads = engine
+            .queue_profile_identity_reads(generation)
+            .unwrap()
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(reads.len(), 3);
+        assert!(
+            reads
+                .iter()
+                .all(|read| read.outcome == DiagnosticOutcome::Positive)
+        );
+        assert_eq!(identity_reads.load(Ordering::Acquire), 3);
+        engine.disconnect().unwrap();
     }
 
     #[test]

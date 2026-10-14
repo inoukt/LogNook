@@ -54,7 +54,8 @@ impl ReplayClock {
 
     fn position_at(&self, now: Instant, speed: f64) -> i64 {
         let elapsed_ns = now.saturating_duration_since(self.started).as_nanos() as f64 * speed;
-        self.position_ns.saturating_add(elapsed_ns.min(i64::MAX as f64) as i64)
+        self.position_ns
+            .saturating_add(elapsed_ns.min(i64::MAX as f64) as i64)
     }
 }
 
@@ -275,7 +276,12 @@ fn wait_until(
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             if let Ok(command) = commands.try_recv() {
-                set_position(state, clock.position_at(Instant::now(), current.speed).min(target_ns));
+                set_position(
+                    state,
+                    clock
+                        .position_at(Instant::now(), current.speed)
+                        .min(target_ns),
+                );
                 let (reply, _) = apply(command, state, cursor);
                 clock.reset(snapshot(state).position_ns);
                 *pending_reply = reply;
@@ -288,14 +294,24 @@ fn wait_until(
         let timeout = remaining.min(Duration::from_millis(50));
         match commands.recv_timeout(timeout) {
             Ok(command) => {
-                set_position(state, clock.position_at(Instant::now(), current.speed).min(target_ns));
+                set_position(
+                    state,
+                    clock
+                        .position_at(Instant::now(), current.speed)
+                        .min(target_ns),
+                );
                 let (reply, _) = apply(command, state, cursor);
                 clock.reset(snapshot(state).position_ns);
                 *pending_reply = reply;
                 return false;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                set_position(state, clock.position_at(Instant::now(), current.speed).min(target_ns));
+                set_position(
+                    state,
+                    clock
+                        .position_at(Instant::now(), current.speed)
+                        .min(target_ns),
+                );
                 emit_playback_state_if_due(state, last_state_emit, output);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => return false,

@@ -1220,6 +1220,9 @@ fn read_a30_vehicle_diagnostic(
         )),
     }
     Ok(crate::DiagnosticReport {
+        report_id: None,
+        connection_generation: None,
+        vehicle_context: None,
         adapter,
         protocol: "Xtool A30/A30M Bluetooth SPP · SAE J1979 functional CAN".into(),
         started_at_unix_ms,

@@ -54,8 +54,7 @@ fn raw_terminal_and_diagnostic_commands_use_the_serial_command_owner() {
     assert!(terminal.response.contains("OBDLink SX"));
     assert_eq!(&*terminal_written.lock().unwrap(), b"STI\r");
 
-    let (mut diagnostic_adapter, diagnostic_written) =
-        adapter_for("010C\r41 0C 1A F8\r>".into());
+    let (mut diagnostic_adapter, diagnostic_written) = adapter_for("010C\r41 0C 1A F8\r>".into());
     let diagnostic = diagnostic_adapter
         .execute_raw_command(RawAdapterCommand::DiagnosticPayload(vec![0x01, 0x0c]))
         .unwrap();
@@ -66,29 +65,116 @@ fn raw_terminal_and_diagnostic_commands_use_the_serial_command_owner() {
 
 fn scion_probe_spec() -> ScionMode21ProbeSpec {
     let definitions = [
-        ("Intake air temperature", "celsius", 48, 8, 1.0, 1.0, -40.0, "(raw*(1)/(1))+(-40)", Some(-40.0), Some(215.0)),
-        ("Coolant temperature", "celsius", 64, 8, 1.0, 1.0, -40.0, "(raw*(1)/(1))+(-40)", Some(-40.0), Some(215.0)),
-        ("Engine speed", "rpm", 72, 16, 1.0, 4.0, 0.0, "(raw*(1)/(4))+(0)", None, Some(16383.75)),
-        ("Vehicle speed", "kilometersPerHour", 88, 8, 1.0, 1.0, 0.0, "(raw*(1)/(1))+(0)", None, Some(255.0)),
-        ("Throttle sensor position", "percent", 112, 8, 100.0, 255.0, 0.0, "(raw*(100)/(255))+(0)", None, Some(100.0)),
+        (
+            "Intake air temperature",
+            "celsius",
+            48,
+            8,
+            1.0,
+            1.0,
+            -40.0,
+            "(raw*(1)/(1))+(-40)",
+            Some(-40.0),
+            Some(215.0),
+        ),
+        (
+            "Coolant temperature",
+            "celsius",
+            64,
+            8,
+            1.0,
+            1.0,
+            -40.0,
+            "(raw*(1)/(1))+(-40)",
+            Some(-40.0),
+            Some(215.0),
+        ),
+        (
+            "Engine speed",
+            "rpm",
+            72,
+            16,
+            1.0,
+            4.0,
+            0.0,
+            "(raw*(1)/(4))+(0)",
+            None,
+            Some(16383.75),
+        ),
+        (
+            "Vehicle speed",
+            "kilometersPerHour",
+            88,
+            8,
+            1.0,
+            1.0,
+            0.0,
+            "(raw*(1)/(1))+(0)",
+            None,
+            Some(255.0),
+        ),
+        (
+            "Throttle sensor position",
+            "percent",
+            112,
+            8,
+            100.0,
+            255.0,
+            0.0,
+            "(raw*(100)/(255))+(0)",
+            None,
+            Some(100.0),
+        ),
     ];
     ScionMode21ProbeSpec {
         source_id: crate::oem_catalog::SCION_XB_SOURCE_ID.into(),
         source_blob_sha: crate::oem_catalog::SCION_XB_BLOB_SHA.into(),
-        source_url: "https://source.test/scion".into(), license: "CC BY-SA 4.0".into(),
-        license_url: "https://source.test/license".into(), service: 0x21, identifier: 0x01,
-        request_header: "7E0".into(), response_header: "7E8".into(),
-        channels: definitions.into_iter().map(|(name, unit, bit_offset, bit_length, multiplier, divisor, addend, formula, minimum, maximum)| ScionProbeChannel {
-            candidate_id: format!("candidate-{name}"), name: name.into(), unit: unit.into(), bit_offset,
-            bit_length, multiplier, divisor, addend, formula: formula.into(), minimum, maximum,
-        }).collect(),
+        source_url: "https://source.test/scion".into(),
+        license: "CC BY-SA 4.0".into(),
+        license_url: "https://source.test/license".into(),
+        service: 0x21,
+        identifier: 0x01,
+        request_header: "7E0".into(),
+        response_header: "7E8".into(),
+        channels: definitions
+            .into_iter()
+            .map(
+                |(
+                    name,
+                    unit,
+                    bit_offset,
+                    bit_length,
+                    multiplier,
+                    divisor,
+                    addend,
+                    formula,
+                    minimum,
+                    maximum,
+                )| ScionProbeChannel {
+                    candidate_id: format!("candidate-{name}"),
+                    name: name.into(),
+                    unit: unit.into(),
+                    bit_offset,
+                    bit_length,
+                    multiplier,
+                    divisor,
+                    addend,
+                    formula: formula.into(),
+                    minimum,
+                    maximum,
+                },
+            )
+            .collect(),
     }
 }
 
 fn iso_tp_response(ecu: &str, payload: &[u8]) -> String {
     let mut frames = Vec::new();
     let first_len = payload.len().min(6);
-    let mut first = vec![0x10 | ((payload.len() >> 8) as u8 & 0x0F), payload.len() as u8];
+    let mut first = vec![
+        0x10 | ((payload.len() >> 8) as u8 & 0x0F),
+        payload.len() as u8,
+    ];
     first.extend_from_slice(&payload[..first_len]);
     frames.push(first);
     let mut offset = first_len;
@@ -101,13 +187,29 @@ fn iso_tp_response(ecu: &str, payload: &[u8]) -> String {
         offset = end;
         sequence = (sequence + 1) & 0x0F;
     }
-    frames.into_iter().map(|frame| format!("{ecu} {}", frame.iter().map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(" "))).collect::<Vec<_>>().join("\r")
+    frames
+        .into_iter()
+        .map(|frame| {
+            format!(
+                "{ecu} {}",
+                frame
+                    .iter()
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\r")
 }
 
 #[test]
 fn scion_one_shot_command_and_response_are_source_scoped() {
     let spec = scion_probe_spec();
-    assert_eq!(super::build_scion_probe_command(&spec).unwrap(), "STPX H:7E0, D:2101, T:250");
+    assert_eq!(
+        super::build_scion_probe_command(&spec).unwrap(),
+        "STPX H:7E0, D:2101, T:250"
+    );
 
     let mut data = vec![0_u8; 27];
     data[6] = 20;
@@ -137,11 +239,13 @@ fn scion_probe_accepts_the_captured_28_byte_mode21_response() {
     );
 
     assert_eq!(parsed.outcome, "positive");
-    assert_eq!(parsed.payload, vec![
-        0x61, 0x01, 0x00, 0x00, 0x00, 0x00, 0x25, 0x47, 0x65, 0x85, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-        0x00, 0x30, 0x82, 0x29, 0x52, 0x28, 0x20, 0x01, 0x38, 0x02, 0x33, 0x2f, 0xc2,
-    ]);
+    assert_eq!(
+        parsed.payload,
+        vec![
+            0x61, 0x01, 0x00, 0x00, 0x00, 0x00, 0x25, 0x47, 0x65, 0x85, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x30, 0x82, 0x29, 0x52, 0x28, 0x20, 0x01, 0x38, 0x02, 0x33, 0x2f, 0xc2,
+        ]
+    );
     assert_eq!(parsed.decoded.len(), 5);
 
     let unobserved_payload = [vec![0x61, 0x01], vec![0; 28]].concat();
@@ -187,9 +291,18 @@ fn scion_probe_uses_one_exact_request_after_sx_identity_and_can_check() {
 #[test]
 fn scion_one_shot_reports_negative_truncated_and_wrong_ecu_responses() {
     let spec = scion_probe_spec();
-    assert_eq!(super::decode_scion_mode21_response(&spec, "7E8 03 7F 21 11\r>").outcome, "negative_response");
-    assert_eq!(super::decode_scion_mode21_response(&spec, "7E8 10 1D 61 01 00 00\r7E8 21 00\r>").outcome, "malformed_response");
-    assert_eq!(super::decode_scion_mode21_response(&spec, "7E9 03 61 01 00\r>").outcome, "wrong_responder");
+    assert_eq!(
+        super::decode_scion_mode21_response(&spec, "7E8 03 7F 21 11\r>").outcome,
+        "negative_response"
+    );
+    assert_eq!(
+        super::decode_scion_mode21_response(&spec, "7E8 10 1D 61 01 00 00\r7E8 21 00\r>").outcome,
+        "malformed_response"
+    );
+    assert_eq!(
+        super::decode_scion_mode21_response(&spec, "7E9 03 61 01 00\r>").outcome,
+        "wrong_responder"
+    );
 }
 
 #[test]

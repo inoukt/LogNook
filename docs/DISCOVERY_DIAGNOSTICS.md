@@ -82,11 +82,45 @@ establish that retransmission is harmless or that an ECU accepted it. Keep the
 vehicle stationary and use the persistent **Stop replay** control if the
 sequence should end early. Disconnecting the CAN adapter also stops replay.
 
-Agent MCP exposes the same operation after Agent Access is unlocked. It takes
+Agent MCP exposes live replay after Agent Access is unlocked. It takes
 the CAN ID, frame format and live elapsed-time range, then resolves the frames
 inside LogNook from the current CAN connection; saved captures and MCP-supplied
-payloads are not replay sources. The MCP steps and schema are documented in
+payloads are not inputs to that live operation. The MCP steps and schema are documented in
 [Agent Access](AGENT_ACCESS.md).
+
+### Transmit a selected ID from a saved capture
+
+Open a LogNook `.candump.csv` in saved-capture analysis. In its TX replay panel,
+choose one exact ID/11- or 29-bit format and an inclusive source elapsed-time
+range in milliseconds, then **Prepare TX replay**. Review the immutable preview,
+source SHA-256, source row/time range, RX count, excluded TX/flagged rows and
+effective duration. Preparation sends no frames.
+
+Connect the intended Candlelight target in active mode and start a different
+paired output capture. **Start TX replay · once** uses the freshly inspected
+target generation and the backend-frozen source. Known source/target bitrate
+mismatches block Start. Use the persistent Stop control; disconnect/capture
+closure/failure cancels remaining frames. Original source files remain unchanged;
+source frames/provenance and new TX results are journaled separately.
+
+Saved sources are limited to 256 MiB and clips to 1–10,000 valid unflagged classic
+RX frames, with source and paced durations each at most 600 seconds. Gaps over
+60 seconds, malformed source rows and out-of-order matching timestamps reject
+preparation. Over-limit clips must be narrowed; they are never silently truncated.
+The existing 1 ms interval minimum/no catch-up and one-pass behavior apply.
+
+MCP uses a listed or UI-registered saved CAN source, then Workbench operations
+`prepare_saved_can_replay`, `inspect_saved_can_replay` and explicit
+`start_saved_can_replay` with its preview ID and expected CAN generation.
+`discard_saved_can_replay`/`stop_operation` cancel preparation; Agent lock revokes
+pending work. Preview tokens expire after 10 minutes or replacement. Numeric CSV
+or `.lognook` measurement replay remains a separate on-screen workflow.
+
+### Resume vehicle selections
+
+The top-bar **Profiles** workflow recognizes the vehicle/ECU and offers an explicit
+eligible-selection preview. See [Vehicle/ECU profiles](VEHICLE_PROFILES.md) for
+first Save, subsequent Connect/Resume, fallback, storage and MCP operations.
 
 ## Read vehicle diagnostics
 

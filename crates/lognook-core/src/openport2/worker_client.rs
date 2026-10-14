@@ -22,6 +22,7 @@ use std::{
 const SHORT_TIMEOUT: Duration = Duration::from_secs(1);
 const SETUP_TIMEOUT: Duration = Duration::from_secs(3);
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
+const IDENTITY_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) struct WorkerClient {
     child: Option<Child>,
@@ -103,6 +104,7 @@ fn worker_timeout_message(request: &WorkerRequest, timeout: Duration) -> String 
         WorkerRequest::Connect { .. } => "J2534 channel setup".to_owned(),
         WorkerRequest::DiscoverMode01 => "Mode 01 PID discovery".to_owned(),
         WorkerRequest::ReadMode01 { pid } => format!("Mode 01 PID {pid:02X} read"),
+        WorkerRequest::ReadMode09 { pid } => format!("Mode 09 PID {pid:02X} identity read"),
         WorkerRequest::Disconnect => "adapter disconnect".to_owned(),
     };
     format!(
@@ -123,6 +125,7 @@ impl WorkerSession for WorkerClient {
         let timeout = match &request {
             WorkerRequest::DiscoverMode01 => DISCOVERY_TIMEOUT,
             WorkerRequest::Identify { .. } | WorkerRequest::Connect { .. } => SETUP_TIMEOUT,
+            WorkerRequest::ReadMode09 { .. } => IDENTITY_TIMEOUT,
             _ => SHORT_TIMEOUT,
         };
         self.request_with_timeout_and_progress(request, timeout, sink)
@@ -353,6 +356,7 @@ fn worker_adapter_id(request: &WorkerRequest) -> String {
         WorkerRequest::ListProviders => "openport2:provider-discovery".into(),
         WorkerRequest::DiscoverMode01
         | WorkerRequest::ReadMode01 { .. }
+        | WorkerRequest::ReadMode09 { .. }
         | WorkerRequest::Disconnect => "openport2".into(),
     }
 }
@@ -360,6 +364,9 @@ fn worker_adapter_id(request: &WorkerRequest) -> String {
 fn worker_route(request: &WorkerRequest) -> String {
     match request {
         WorkerRequest::ReadMode01 { pid } => format!("Mode 01 PID {pid:02X}"),
+        WorkerRequest::ReadMode09 { pid } => {
+            format!("7DF functional Mode 09 PID {pid:02X}")
+        }
         WorkerRequest::Identify { provider_id } | WorkerRequest::Connect { provider_id } => {
             provider_id.clone()
         }
@@ -442,7 +449,7 @@ fn discard_line<R: BufRead>(reader: &mut R) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkerClient, read_bounded_line, worker_timeout_message};
+    use super::{WorkerClient, read_bounded_line, worker_route, worker_timeout_message};
     use lognook_j2534_protocol::{
         MAX_MESSAGE_BYTES, ProtocolError, WorkerRequest, decode_request_line,
     };
@@ -482,6 +489,14 @@ mod tests {
 
         assert!(message.contains("timed out after 1000 ms"));
         assert!(message.contains("Mode 01 PID 00 read"));
+    }
+
+    #[test]
+    fn mode09_trace_route_records_the_functional_standard_header() {
+        assert_eq!(
+            worker_route(&WorkerRequest::ReadMode09 { pid: 0x02 }),
+            "7DF functional Mode 09 PID 02"
+        );
     }
 
     #[cfg(windows)]

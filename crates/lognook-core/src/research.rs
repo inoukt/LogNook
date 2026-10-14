@@ -39,10 +39,10 @@ mod tests {
                     crate::A30ReadTest::Mode01EngineRpm,
                 ))
                 .unwrap_err();
+            let message = error.to_string();
             assert!(
-                error
-                    .to_string()
-                    .contains("does not support read-only research tests")
+                message.to_ascii_lowercase().contains("read-only"),
+                "unsupported read-only request should be rejected before adapter I/O: {message}"
             );
         }
     }

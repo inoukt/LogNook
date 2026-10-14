@@ -8,7 +8,11 @@ test("vehicle diagnostics are enabled only for the implemented CAN adapters", ()
   assert.equal(diagnostics.supportsVehicleDiagnostics("ELM327 Bluetooth SPP"), true);
   assert.equal(diagnostics.supportsVehicleDiagnostics("OBDLink SX"), true);
   assert.equal(diagnostics.supportsVehicleDiagnostics("OpenPort 2 J2534"), false);
+  assert.equal(diagnostics.supportsVehicleDiagnostics("OpenPort 2.0"), false);
   assert.equal(diagnostics.supportsVehicleDiagnostics(null), false);
+  assert.equal(diagnostics.supportsProfileIdentity("OpenPort 2.0"), true);
+  assert.equal(diagnostics.supportsProfileIdentity("OpenPort 2 J2534"), true);
+  assert.equal(diagnostics.supportsProfileIdentity(null), false);
 });
 
 test("Mode 06 selections parse hex IDs, deduplicate, and reject bitmap pages", () => {
@@ -35,4 +39,20 @@ test("diagnostic results remain grouped by responding ECU", () => {
     { ecu_id: null, kind: "vin" },
   ];
   assert.deepEqual(diagnostics.groupDiagnosticReadsByEcu(reads).map(([ecu]) => ecu), ["7E8", "7E9", "No ECU response"]);
+});
+
+test("missing DTC summaries stay unknown while a positive zero remains zero", () => {
+  assert.equal(diagnostics.historyDtcCountLabel(null), "Unknown");
+  assert.equal(diagnostics.historyDtcCountLabel(undefined), "Unknown");
+  assert.equal(diagnostics.historyDtcCountLabel(0), "0");
+  assert.equal(diagnostics.historyDtcCountLabel(3), "3");
+});
+
+test("history pagination carries the supplied cursor and merges rows without duplicates", () => {
+  const filter = { scope: "live", vin_digest: "digest", ecu_id: "7E8", from_unix_ms: 1, to_unix_ms: 9, page_size: 50, cursor: null };
+  assert.deepEqual(diagnostics.historyPageFilter(filter, "next-page"), { ...filter, cursor: "next-page" });
+  assert.deepEqual(diagnostics.mergeHistoryRows(
+    [{ report_id: "a" }, { report_id: "b" }],
+    [{ report_id: "b" }, { report_id: "c" }],
+  ).map(({ report_id }) => report_id), ["a", "b", "c"]);
 });

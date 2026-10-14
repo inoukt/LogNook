@@ -22,6 +22,12 @@ pub use openport2::*;
 pub(crate) use openport2::{discover_providers, worker_path};
 mod can;
 pub use can::*;
+pub(crate) mod saved_can_replay;
+pub use saved_can_replay::*;
+pub(crate) mod profile_connection;
+pub use profile_connection::*;
+pub(crate) mod vehicle_profiles;
+pub use vehicle_profiles::*;
 
 use crate::AppState;
 use lognook_core::{
@@ -380,6 +386,12 @@ mod diagnostics_tests {
                     crate::agent::log_data::AgentLogBuffer::default(),
                 )),
                 trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
+                can_replay_previews: crate::can_replay_previews::CanReplayPreviewRegistry::default(
+                ),
+                agent_can_replay_status: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                vehicle_profiles: crate::vehicle_profiles::VehicleProfileService::open(
+                    &path.join("profiles.sqlite"),
+                ),
             },
             rx,
         )

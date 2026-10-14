@@ -1,7 +1,8 @@
 mod worker_client;
 
 use crate::{
-    DiagnosticSink, HardwareAdapter,
+    DiagnosticQueryRequest, DiagnosticRead, DiagnosticReadKind, DiagnosticReport,
+    DiagnosticRequest, DiagnosticSink, HardwareAdapter, ResearchTestRequest, ResearchTestResult,
     adapter::collect_samples_independently,
     communication_trace::CommunicationSink,
     diagnostics::{diagnostic_stage, noop_diagnostic_sink},
@@ -13,10 +14,11 @@ use crate::{
         SupportedPidRange, decode_signal, parse_mode01_payload, parse_supported_pid_payload,
     },
     simulator::standard_obd_signals,
+    vehicle_diagnostics::{malformed_response, now_unix_ms},
 };
 use lognook_j2534_protocol::{
-    J2534Identity, J2534ProviderDiscovery, Mode01Payload, WorkerErrorKind, WorkerRequest,
-    WorkerResponse,
+    J2534Identity, J2534ProviderDiscovery, Mode01Payload, Mode09Failure, Mode09MalformedFrame,
+    Mode09Payload, Mode09Response, WorkerErrorKind, WorkerRequest, WorkerResponse,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -283,6 +285,7 @@ pub struct OpenPort2Adapter {
     provider_id: String,
     session: Option<Box<dyn WorkerSession>>,
     connected: bool,
+    device: Option<DeviceDescriptor>,
     started: Option<Instant>,
     ecu_id: Option<String>,
     supported_pids: HashSet<u8>,
@@ -297,6 +300,7 @@ impl OpenPort2Adapter {
             provider_id,
             session: None,
             connected: false,
+            device: None,
             started: None,
             ecu_id: None,
             supported_pids: HashSet::new(),
@@ -331,6 +335,8 @@ impl OpenPort2Adapter {
             response => return Err(unexpected_worker_response("connect", response)),
         };
         self.connected = true;
+        let device = device_descriptor(&self.provider_id, identity);
+        self.device = Some(device.clone());
 
         let responses = match session.request_with_progress(WorkerRequest::DiscoverMode01, &sink)? {
             WorkerResponse::Mode01Responses { responses } => responses,
@@ -356,7 +362,7 @@ impl OpenPort2Adapter {
         }
         self.started = Some(Instant::now());
         Ok(ConnectionCapabilities {
-            device: device_descriptor(&self.provider_id, identity),
+            device,
             protocol: "SAE J1979 Mode 01 over ISO 15765 (11-bit, 500 kbit/s)".into(),
             read_only: true,
             supported_signals,
@@ -383,6 +389,102 @@ impl OpenPort2Adapter {
             )),
             response => Err(unexpected_worker_response("Mode 01 PID read", response)),
         }
+    }
+
+    fn read_identity_query(
+        &mut self,
+        query: DiagnosticQueryRequest,
+    ) -> Result<DiagnosticReport, LogNookError> {
+        query.validate().map_err(LogNookError::new)?;
+        if !matches!(
+            query.kind,
+            DiagnosticReadKind::Vin
+                | DiagnosticReadKind::CalibrationId
+                | DiagnosticReadKind::EcuName
+        ) {
+            return Err(LogNookError::new(
+                "OpenPort supports only Mode 09 VIN, calibration ID, and ECU name reads",
+            ));
+        }
+        if !self.connected {
+            return Err(LogNookError::new("OpenPort adapter is not connected"));
+        }
+        let adapter = self
+            .device
+            .clone()
+            .ok_or_else(|| LogNookError::new("OpenPort adapter identity is unavailable"))?;
+        let pid = query
+            .identifier
+            .expect("validated identity query has a PID");
+        let started_at_unix_ms = now_unix_ms();
+        let started = Instant::now();
+        let command = format!(
+            "J2534 ISO15765 CAN 11/500 7DF {}",
+            hex_bytes(query.request_payload())
+        );
+        let sink = contextual_sink(&self.diagnostic_sink, &self.provider_id, "profile_identity");
+        let response = self
+            .session
+            .as_deref_mut()
+            .expect("connected OpenPort adapter has a worker session")
+            .request_with_progress(WorkerRequest::ReadMode09 { pid }, &sink);
+        let reads = match response {
+            Ok(WorkerResponse::Mode09Responses { responses }) if !responses.is_empty() => responses
+                .into_iter()
+                .map(|response| {
+                    mode09_response_read(
+                        &query,
+                        response,
+                        command.clone(),
+                        started_at_unix_ms,
+                        elapsed_ms(started),
+                    )
+                })
+                .collect(),
+            Ok(WorkerResponse::Mode09Responses { .. }) => vec![query.no_response(
+                String::new(),
+                command.clone(),
+                started_at_unix_ms,
+                elapsed_ms(started),
+                Some("OpenPort returned no Mode 09 responders".into()),
+            )],
+            Ok(WorkerResponse::Error { kind, message }) => vec![mode09_worker_error_read(
+                &query,
+                command.clone(),
+                started_at_unix_ms,
+                elapsed_ms(started),
+                kind,
+                message,
+            )],
+            Ok(response) => vec![query.transport_error(
+                format!("Unexpected worker response: {response:?}"),
+                command.clone(),
+                started_at_unix_ms,
+                elapsed_ms(started),
+                format!("OpenPort returned an unexpected response for Mode 09 PID {pid:02X}"),
+            )],
+            Err(error) => vec![query.transport_error(
+                error.to_string(),
+                command.clone(),
+                started_at_unix_ms,
+                elapsed_ms(started),
+                error.to_string(),
+            )],
+        };
+        Ok(DiagnosticReport {
+            report_id: None,
+            connection_generation: None,
+            vehicle_context: None,
+            adapter,
+            protocol: "SAE J1979 Mode 09 over ISO 15765 (11-bit, 500 kbit/s) via OpenPort 2.0"
+                .into(),
+            started_at_unix_ms,
+            request: DiagnosticRequest::default(),
+            reads,
+            route_restore_error: None,
+            evidence_saved: false,
+            evidence_save_error: None,
+        })
     }
 }
 
@@ -486,6 +588,20 @@ impl HardwareAdapter for OpenPort2Adapter {
         })
     }
 
+    fn execute_research_test(
+        &mut self,
+        request: ResearchTestRequest,
+    ) -> Result<ResearchTestResult, LogNookError> {
+        match request {
+            ResearchTestRequest::Diagnostic(query) => self
+                .read_identity_query(query)
+                .map(ResearchTestResult::Diagnostic),
+            ResearchTestRequest::OemCandidate(_) | ResearchTestRequest::A30ReadTest(_) => Err(
+                LogNookError::new("OpenPort supports only read-only Mode 09 identity reads"),
+            ),
+        }
+    }
+
     fn sample_interval(&self) -> std::time::Duration {
         // Each bounded, serialized J2534 exchange already waits for the ECU.
         // An extra cycle delay needlessly caps measured live response throughput.
@@ -500,10 +616,159 @@ impl HardwareAdapter for OpenPort2Adapter {
             session.shutdown();
         }
         self.connected = false;
+        self.device = None;
         self.started = None;
         self.ecu_id = None;
         self.supported_pids.clear();
     }
+}
+
+fn mode09_report_read(
+    query: &DiagnosticQueryRequest,
+    response: Mode09Payload,
+    command: String,
+    started_at_unix_ms: u64,
+    latency_ms: u64,
+) -> DiagnosticRead {
+    let raw = format!("{} {}", response.ecu_id, hex_bytes(&response.bytes));
+    query.report(
+        Some(response.ecu_id),
+        response.bytes,
+        raw,
+        command,
+        started_at_unix_ms,
+        latency_ms,
+        false,
+    )
+}
+
+fn mode09_response_read(
+    query: &DiagnosticQueryRequest,
+    response: Mode09Response,
+    command: String,
+    started_at_unix_ms: u64,
+    fallback_latency_ms: u64,
+) -> DiagnosticRead {
+    match response {
+        Mode09Response::Payload(response) => {
+            let latency_ms = response.latency_us / 1_000;
+            mode09_report_read(query, response, command, started_at_unix_ms, latency_ms)
+        }
+        Mode09Response::MalformedFrame(frame) => mode09_malformed_read(
+            query,
+            frame,
+            command,
+            started_at_unix_ms,
+            fallback_latency_ms,
+        ),
+        Mode09Response::Failure(failure) => mode09_worker_failure_read(
+            query,
+            failure,
+            command,
+            started_at_unix_ms,
+            fallback_latency_ms,
+        ),
+    }
+}
+
+fn mode09_malformed_read(
+    query: &DiagnosticQueryRequest,
+    frame: Mode09MalformedFrame,
+    command: String,
+    started_at_unix_ms: u64,
+    fallback_latency_ms: u64,
+) -> DiagnosticRead {
+    let bytes_hex = hex_bytes(&frame.raw_bytes);
+    let detail = format!(
+        "{}; retained {} raw J2534 data byte(s) (declared {}); request route {}",
+        frame.detail,
+        frame.raw_bytes.len(),
+        frame.declared_data_size,
+        query.route()
+    );
+    let mut read = malformed_response(
+        query,
+        format!("J2534 malformed frame data: {bytes_hex}"),
+        command,
+        started_at_unix_ms,
+        if frame.latency_us == 0 {
+            fallback_latency_ms
+        } else {
+            frame.latency_us / 1_000
+        },
+        detail.clone(),
+    );
+    read.ecu_id = frame.ecu_id;
+    read.response_payload = frame.raw_bytes;
+    read.detail = Some(detail);
+    read
+}
+
+fn mode09_worker_failure_read(
+    query: &DiagnosticQueryRequest,
+    failure: Mode09Failure,
+    command: String,
+    started_at_unix_ms: u64,
+    fallback_latency_ms: u64,
+) -> DiagnosticRead {
+    mode09_worker_error_read(
+        query,
+        command,
+        started_at_unix_ms,
+        if failure.latency_us == 0 {
+            fallback_latency_ms
+        } else {
+            failure.latency_us / 1_000
+        },
+        failure.kind,
+        failure.message,
+    )
+}
+
+fn mode09_worker_error_read(
+    query: &DiagnosticQueryRequest,
+    command: String,
+    started_at_unix_ms: u64,
+    latency_ms: u64,
+    kind: WorkerErrorKind,
+    message: String,
+) -> DiagnosticRead {
+    match kind {
+        WorkerErrorKind::NoResponse | WorkerErrorKind::Timeout => query.no_response(
+            message.clone(),
+            command,
+            started_at_unix_ms,
+            latency_ms,
+            Some(message),
+        ),
+        WorkerErrorKind::MalformedResponse => malformed_response(
+            query,
+            message.clone(),
+            command,
+            started_at_unix_ms,
+            latency_ms,
+            message,
+        ),
+        _ => query.transport_error(
+            message.clone(),
+            command,
+            started_at_unix_ms,
+            latency_ms,
+            format!("OpenPort {kind:?}: {message}"),
+        ),
+    }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
 
 fn contextual_sink(sink: &DiagnosticSink, provider_id: &str, operation: &str) -> DiagnosticSink {

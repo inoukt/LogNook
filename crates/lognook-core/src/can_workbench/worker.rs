@@ -1,10 +1,10 @@
 use super::scan::{self, ScanTask, accept_scan_response, task_finished, tick_scan};
 use super::{
     CAN_ID_REPLAY_MAX_INTERVAL_MS, CAN_ID_REPLAY_MIN_INTERVAL_MS, CanEvidenceRecord,
-    CanIdReplayState, CanIdReplayStatus, CanManualEventMark, CanScanConfig, CanScanStopReason,
-    CanSignalDefinition, CanTransport, CanTransportError, CanTransportEvent,
-    CanTriggerCaptureResult, CanTriggerConfig, CanTriggerEndReason, CanTriggerRecorder,
-    CanWorkbenchStatus, OemCandidateTrySpec,
+    CanIdReplayState, CanIdReplayStatus, CanManualEventMark, CanReplayFrame, CanReplayPlan,
+    CanReplaySource, CanScanConfig, CanScanStopReason, CanSignalDefinition, CanTransport,
+    CanTransportError, CanTransportEvent, CanTriggerCaptureResult, CanTriggerConfig,
+    CanTriggerEndReason, CanTriggerRecorder, CanWorkbenchStatus, OemCandidateTrySpec,
 };
 use crate::{
     CanCaptureWriter, CanDirection, CanFrame, EngineEvent, LiveCanEventAnalyzer, SamplePublisher,
@@ -16,7 +16,7 @@ use std::{
     io::{BufWriter, Write},
     path::Path,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver},
     },
@@ -33,7 +33,8 @@ pub(super) enum Command {
     SendFrame(CanFrame, u64, u32, mpsc::Sender<Result<(), String>>),
     StartCanIdReplay(
         u64,
-        Vec<CanFrame>,
+        CanReplayPlan,
+        Option<u8>,
         mpsc::Sender<Result<CanIdReplayStatus, String>>,
     ),
     StopCanIdReplay(mpsc::Sender<Result<(), String>>),
@@ -52,6 +53,7 @@ pub(super) enum Command {
         reply: mpsc::Sender<Result<CanManualEventMark, String>>,
     },
     ClearEventResults(mpsc::Sender<Result<(), String>>),
+    GetActiveOperations(mpsc::Sender<Result<bool, String>>),
     DisarmTrigger(mpsc::Sender<Result<(), String>>),
     Shutdown,
 }
@@ -65,7 +67,7 @@ struct SendTask {
 
 struct CanIdReplayTask {
     status: CanIdReplayStatus,
-    source_frames: VecDeque<CanFrame>,
+    source_frames: VecDeque<CanReplayFrame>,
     next_at: Instant,
 }
 
@@ -213,6 +215,8 @@ pub(super) fn run_worker(
     bitrate: u32,
     listen_only: bool,
     started: Instant,
+    active_capture_path: Arc<Mutex<Option<std::path::PathBuf>>>,
+    active_capture_id: Arc<std::sync::atomic::AtomicU64>,
 ) {
     let mut fields = Vec::<CanSignalDefinition>::new();
     let mut capture: Option<CanCaptureSession> = None;
@@ -237,6 +241,8 @@ pub(super) fn run_worker(
                 command,
                 &mut fields,
                 &mut capture,
+                &active_capture_path,
+                &active_capture_id,
                 &mut send_task,
                 &mut replay_task,
                 &mut scan_task,
@@ -250,6 +256,10 @@ pub(super) fn run_worker(
                 &started,
             ),
             Err(mpsc::TryRecvError::Empty) => {}
+        }
+        if capture.is_none() {
+            clear_active_capture_path(&active_capture_path);
+            active_capture_id.store(0, Ordering::Release);
         }
         if capture.as_ref().is_none_or(CanCaptureSession::failed) {
             send_task = None;
@@ -585,6 +595,8 @@ pub(super) fn run_worker(
             )));
         }
     }
+    clear_active_capture_path(&active_capture_path);
+    active_capture_id.store(0, Ordering::Release);
     if running.swap(false, Ordering::AcqRel) {
         if let Err(error) = transport.stop() {
             (event_sink)(EngineEvent::CanTransportError(error.clone()));
@@ -601,6 +613,8 @@ fn handle_command(
     command: Command,
     fields: &mut Vec<CanSignalDefinition>,
     capture: &mut Option<CanCaptureSession>,
+    active_capture_path: &Arc<Mutex<Option<std::path::PathBuf>>>,
+    active_capture_id: &Arc<std::sync::atomic::AtomicU64>,
     send_task: &mut Option<SendTask>,
     replay_task: &mut Option<CanIdReplayTask>,
     scan_task: &mut Option<ScanTask>,
@@ -619,17 +633,37 @@ fn handle_command(
             let _ = reply.send(Ok(()));
         }
         Command::StartCapture(path, reply) => {
-            let result = if capture.is_some() {
+            let mut capture_id = None;
+            let mut result = if capture.is_some() {
                 Err("A raw CAN capture is already active".to_owned())
             } else {
-                let capture_id = *next_capture_id;
-                CanCaptureSession::create_new(path, capture_id, source_id, bitrate, listen_only)
-                    .map(|session| {
+                let next_id = *next_capture_id;
+                CanCaptureSession::create_new(&path, next_id, source_id, bitrate, listen_only).map(
+                    |session| {
                         *capture = Some(session);
                         *next_capture_id = next_capture_id.saturating_add(1);
-                        *live_events = Some(LiveCanEventAnalyzer::new(capture_id, source_id));
-                    })
+                        capture_id = Some(next_id);
+                        *live_events = Some(LiveCanEventAnalyzer::new(next_id, source_id));
+                    },
+                )
             };
+            if result.is_ok() {
+                let canonical_path = path.canonicalize().unwrap_or(path);
+                match active_capture_path.lock() {
+                    Ok(mut active_path) => {
+                        *active_path = Some(canonical_path);
+                        if let Some(capture_id) = capture_id {
+                            active_capture_id.store(capture_id, Ordering::Release);
+                        }
+                    }
+                    Err(_) => {
+                        if let Some(session) = capture.take() {
+                            let _ = session.finish();
+                        }
+                        result = Err("CAN capture path state is unavailable".into());
+                    }
+                }
+            }
             if result.is_ok()
                 && let Some(live_events) = live_events.as_ref()
             {
@@ -691,6 +725,8 @@ fn handle_command(
             let finish_result = capture.take().map_or(Ok(()), |writer| {
                 writer.finish().map_err(|error| error.to_string())
             });
+            clear_active_capture_path(active_capture_path);
+            active_capture_id.store(0, Ordering::Release);
             if let Some(mut live_events) = live_events.take() {
                 (event_sink)(EngineEvent::CanLiveEventAnalysis(live_events.finish()));
             }
@@ -724,7 +760,7 @@ fn handle_command(
             };
             let _ = reply.send(result);
         }
-        Command::StartCanIdReplay(replay_id, frames, reply) => {
+        Command::StartCanIdReplay(replay_id, plan, target_channel, reply) => {
             let result = if capture.as_ref().is_none_or(CanCaptureSession::failed) {
                 Err("Start a raw CAN capture before replaying; TX requires a paired evidence journal".into())
             } else if transport_mode_conflicts(
@@ -734,33 +770,30 @@ fn handle_command(
             ) {
                 Err("A CAN send, scan, or replay is already active".into())
             } else {
-                let capture_id = capture.as_ref().unwrap().capture_id();
-                let first = &frames[0];
+                let first = &plan.frames()[0].frame;
                 let status = CanIdReplayStatus {
                     replay_id,
                     can_id: first.can_id,
                     extended: first.extended,
-                    total_frames: frames.len(),
+                    total_frames: plan.frames().len(),
                     sent_frames: 0,
                     state: CanIdReplayState::Running,
                     error: None,
                 };
-                let start_record = CanEvidenceRecord::CanIdReplayStarted {
-                    format_version: 1,
-                    capture_id,
+                let session = capture.as_mut().unwrap();
+                let journal_result = record_can_replay_source(
+                    session,
+                    &plan,
                     replay_id,
-                    can_id: first.can_id,
-                    extended: first.extended,
-                    source_frames: frames.clone(),
-                    minimum_interval_ms: CAN_ID_REPLAY_MIN_INTERVAL_MS,
-                    maximum_interval_ms: CAN_ID_REPLAY_MAX_INTERVAL_MS,
-                    no_catch_up: true,
-                };
-                match capture.as_mut().unwrap().record(&start_record) {
+                    source_id,
+                    bitrate,
+                    target_channel,
+                );
+                match journal_result {
                     Ok(()) => {
                         *replay_task = Some(CanIdReplayTask {
                             status: status.clone(),
-                            source_frames: frames.into(),
+                            source_frames: plan.frames().to_vec().into(),
                             next_at: Instant::now(),
                         });
                         (event_sink)(EngineEvent::CanIdReplayStatus(status.clone()));
@@ -932,6 +965,14 @@ fn handle_command(
                 });
             let _ = reply.send(result);
         }
+        Command::GetActiveOperations(reply) => {
+            let active = capture.is_some()
+                || send_task.is_some()
+                || replay_task.is_some()
+                || scan_task.is_some()
+                || trigger.is_some();
+            let _ = reply.send(Ok(active));
+        }
         Command::DisarmTrigger(reply) => {
             let result = if let Some((mut recorder, capture_id, _)) = trigger.take()
                 && let Some(window) = recorder.take_capture()
@@ -960,6 +1001,63 @@ fn handle_command(
     }
 }
 
+fn clear_active_capture_path(path: &Arc<Mutex<Option<std::path::PathBuf>>>) {
+    if let Ok(mut path) = path.lock() {
+        *path = None;
+    }
+}
+
+fn record_can_replay_source<W: Write>(
+    session: &mut CanCaptureSession<W>,
+    plan: &CanReplayPlan,
+    replay_id: u64,
+    target_source_id: &str,
+    target_bitrate: u32,
+    target_channel: Option<u8>,
+) -> Result<(), String> {
+    let capture_id = session.capture_id();
+    match plan.source() {
+        CanReplaySource::LiveSnapshot => session.record(&CanEvidenceRecord::CanIdReplayStarted {
+            format_version: 1,
+            capture_id,
+            replay_id,
+            can_id: plan.frames()[0].frame.can_id,
+            extended: plan.frames()[0].frame.extended,
+            source_frames: plan
+                .frames()
+                .iter()
+                .map(|item| item.frame.clone())
+                .collect(),
+            minimum_interval_ms: CAN_ID_REPLAY_MIN_INTERVAL_MS,
+            maximum_interval_ms: CAN_ID_REPLAY_MAX_INTERVAL_MS,
+            no_catch_up: true,
+        }),
+        CanReplaySource::SavedCapture { summary } => {
+            session.record(&CanEvidenceRecord::SavedCanIdReplayStarted {
+                format_version: 1,
+                capture_id,
+                replay_id,
+                summary: summary.clone(),
+                target_source_id: target_source_id.to_owned(),
+                target_channel,
+                target_bitrate,
+                minimum_interval_ms: CAN_ID_REPLAY_MIN_INTERVAL_MS,
+                maximum_interval_ms: CAN_ID_REPLAY_MAX_INTERVAL_MS,
+                no_catch_up: true,
+            })?;
+            for (chunk_index, frames) in plan.frames().chunks(400).enumerate() {
+                session.record(&CanEvidenceRecord::SavedCanIdReplaySourceFrames {
+                    capture_id,
+                    replay_id,
+                    chunk_index,
+                    frames: frames.to_vec(),
+                })?;
+            }
+            Ok(())
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn tick_can_id_replay<W: Write>(
     replay_task: &mut Option<CanIdReplayTask>,
@@ -981,7 +1079,7 @@ fn tick_can_id_replay<W: Write>(
         return None;
     }
     let mut task = replay_task.take()?;
-    let source_frame = task.source_frames.pop_front()?;
+    let source_frame = task.source_frames.pop_front()?.frame;
     let source_elapsed_ns = source_frame.elapsed_ns;
     let mut tx_frame = source_frame;
     tx_frame.elapsed_ns = 0;
@@ -1006,7 +1104,7 @@ fn tick_can_id_replay<W: Write>(
         Ok(_) => {
             task.status.sent_frames += 1;
             if let Some(next_source_frame) = task.source_frames.front() {
-                let source_interval_ns = next_source_frame.elapsed_ns - source_elapsed_ns;
+                let source_interval_ns = next_source_frame.frame.elapsed_ns - source_elapsed_ns;
                 let effective_interval_ns = source_interval_ns
                     .max((CAN_ID_REPLAY_MIN_INTERVAL_MS as i64) * 1_000_000)
                     as u64;
@@ -1262,6 +1360,7 @@ fn disconnect_transport(
         bitrate,
         listen_only,
         source_id,
+        target_channel: None,
     }));
     if let Err(error) = transport.stop() {
         report_transport_error(event_sink, capture, error, None);
@@ -1471,7 +1570,10 @@ pub(super) fn stamp_tx(frame: &mut CanFrame, started: &Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CanScanMode, CanTransportErrorKind, LogNookEngine};
+    use crate::{
+        CanCaptureWriter, CanScanMode, CanTransportErrorKind, LogNookEngine,
+        SavedCanReplaySelection, prepare_saved_can_replay,
+    };
     use std::io;
     use std::sync::Mutex;
     use std::thread;
@@ -1609,12 +1711,20 @@ mod tests {
                 flags: 0,
             },
         ]);
+        let total_frames = source_frames.len();
+        let source_frames = source_frames
+            .into_iter()
+            .map(|frame| CanReplayFrame {
+                source_row: None,
+                frame,
+            })
+            .collect();
         let mut replay_task = Some(CanIdReplayTask {
             status: CanIdReplayStatus {
                 replay_id: 3,
                 can_id: 0x321,
                 extended: false,
-                total_frames: source_frames.len(),
+                total_frames,
                 sent_frames: 0,
                 state: CanIdReplayState::Running,
                 error: None,
@@ -1678,6 +1788,89 @@ mod tests {
         assert!(capture.finish().is_err());
         let _ = fs::remove_file(&path);
         let _ = fs::remove_file(super::super::can_evidence_path(&path));
+    }
+
+    #[test]
+    fn saved_replay_source_evidence_failure_prevents_any_tx() {
+        let engine = LogNookEngine::new(|_| {});
+        let publisher = engine.sample_publisher();
+        let source_path = temp_capture_path();
+        let mut source_writer = CanCaptureWriter::create_new(&source_path).unwrap();
+        source_writer
+            .write_frame(&CanFrame {
+                elapsed_ns: 0,
+                wall_time_unix_ns: 1_700_000_000_000_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![0x55],
+                flags: 0,
+            })
+            .unwrap();
+        source_writer.finish().unwrap();
+        let prepared = prepare_saved_can_replay(
+            &source_path,
+            SavedCanReplaySelection {
+                can_id: 0x321,
+                extended: false,
+                start_elapsed_ns: 0,
+                end_elapsed_ns: 0,
+            },
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        let output_path = temp_capture_path();
+        let raw_capture = CanCaptureWriter::create_new(&output_path).unwrap();
+        let mut capture = Some(CanCaptureSession::<FailSecondFlush> {
+            capture_id: 7,
+            frames: Some(raw_capture),
+            journal: BufWriter::new(FailSecondFlush::default()),
+            failed: false,
+        });
+        let mut fields = Vec::new();
+        let mut replay_task = None;
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync> =
+            Arc::new(move |event| event_log.lock().unwrap().push(event));
+        let started = Instant::now();
+        let error = record_can_replay_source(
+            capture.as_mut().unwrap(),
+            &prepared.plan,
+            4,
+            "can:test-adapter",
+            500_000,
+            Some(2),
+        )
+        .unwrap_err();
+        assert!(error.contains("injected TxSubmitted journal failure"));
+        assert!(replay_task.is_none());
+
+        let (sent, transmitted) = mpsc::channel();
+        let mut transport: Box<dyn CanTransport> = Box::new(TransmitOnce { sent });
+        let mut batch = Vec::new();
+        let mut pending_tx = HashMap::new();
+        let mut next_tx_sequence = 1;
+        assert!(
+            tick_can_id_replay(
+                &mut replay_task,
+                &mut transport,
+                &mut capture,
+                &mut fields,
+                &publisher,
+                &event_sink,
+                &mut batch,
+                "can:test-adapter",
+                &started,
+                &mut pending_tx,
+                &mut next_tx_sequence,
+            )
+            .is_none()
+        );
+        assert!(transmitted.try_recv().is_err());
+        drop(capture);
+        let _ = fs::remove_file(source_path);
+        let _ = fs::remove_file(output_path);
     }
 
     #[test]
@@ -1749,10 +1942,14 @@ mod tests {
         let started = Instant::now();
         let event_sink: Arc<dyn Fn(EngineEvent) + Send + Sync> = Arc::new(|_| {});
         let (reply, response) = mpsc::channel();
+        let active_capture_path = Arc::new(Mutex::new(None));
+        let active_capture_id = Arc::new(std::sync::atomic::AtomicU64::new(0));
         handle_command(
             Command::StopScan(CanScanStopReason::UserRequested, reply),
             &mut fields,
             &mut capture,
+            &active_capture_path,
+            &active_capture_id,
             &mut send_task,
             &mut replay_task,
             &mut scan_task,
@@ -1797,6 +1994,8 @@ mod tests {
                 500_000,
                 false,
                 Instant::now(),
+                Arc::new(Mutex::new(None)),
+                Arc::new(std::sync::atomic::AtomicU64::new(0)),
             );
         });
         entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();

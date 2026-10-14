@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "dataset_file": "vin_wmi.csv",
+  "dataset_sha256": "37ca3405f71591e19ee4b1f45a9cbd83457e6b5e5648e70d70368229303cadab",
+  "record_count": 79,
+  "decoder_revision": "vin-decode-offline-v1",
+  "source_revision": "nhtsa-vpic-api-4.06-2026-06-13-retrieved-2026-10-14",
+  "retrieved_at_utc": "2026-10-14",
+  "attribution": "National Highway Traffic Safety Administration (NHTSA), Product Information Catalog and Vehicle Listing (vPIC).",
+  "license": {
+    "statement": "NHTSA's vPIC API FAQ describes the API as free for public use as part of its Open Data initiatives. The API documentation does not identify a separate SPDX license identifier.",
+    "identifier": null,
+    "url": "https://vpic.nhtsa.dot.gov/api/Home/Index/FAQ"
+  },
+  "response_hash_basis": "SHA-256 of the UTF-8 encoding of the decoded JSON response body, trimming a leading U+FEFF BOM if present.",
+  "sources": [
+    {
+      "id": "nhtsa_getwmis_fca_us",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/FCA%20US%20LLC?format=json",
+      "retrieved_response_sha256": "efda2b74361455411c8c6c2d8b0911205fd48f5ce5152c1dc9b574b5cb21fb7d"
+    },
+    {
+      "id": "nhtsa_getwmis_ford_motor_company",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Ford%20Motor%20Company?format=json",
+      "retrieved_response_sha256": "589cae508f041d0f00cd4758fb030529ac488650afe0c6fc5058be0a12b8e071"
+    },
+    {
+      "id": "nhtsa_getwmis_ford_steel",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Ford%20Steel?format=json",
+      "retrieved_response_sha256": "74089214d402430c7f16110b011da90458f1727c1edf79c693f01d6aca6676f5"
+    },
+    {
+      "id": "nhtsa_getwmis_general_motors",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/General%20Motors?format=json",
+      "retrieved_response_sha256": "a4ed84c3f230b29ac413c0115dc461acb144ae709d6b544da95a633acbe07510"
+    },
+    {
+      "id": "nhtsa_getwmis_honda_motor_co",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Honda%20Motor%20Co?format=json",
+      "retrieved_response_sha256": "cbace13c8aaca5121c6a4dff098d7b4d6767e3b91d2d391d81d18e5b5310f953"
+    },
+    {
+      "id": "nhtsa_getwmis_honda_of_canada",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Honda%20of%20Canada%20Mfg?format=json",
+      "retrieved_response_sha256": "6a5bc98371c1fb72e2d077c57726950a799df471ae7b1b62409937fa8beec14b"
+    },
+    {
+      "id": "nhtsa_getwmis_hyundai_alabama",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Hyundai%20Motor%20Manufacturing%20Alabama?format=json",
+      "retrieved_response_sha256": "e73be4cbc5d657c147e074467e8cd8bcc027735b20e464c586ed51a233410a7f"
+    },
+    {
+      "id": "nhtsa_getwmis_hyundai_hatci",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Hyundai-Kia%20America%20Technical%20Center?format=json",
+      "retrieved_response_sha256": "03db0e866e154a7b12f14a293e6483aef6f6c31f9feb95a0538b62679429d922"
+    },
+    {
+      "id": "nhtsa_getwmis_hyundai_motor",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Hyundai%20Motor?format=json",
+      "retrieved_response_sha256": "156f6bc7d12888d4d80520d32db323d21289cc6999c23a5ac1ed1f1a817c4224"
+    },
+    {
+      "id": "nhtsa_getwmis_kia_corporation",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Kia%20Corporation?format=json",
+      "retrieved_response_sha256": "c8610069c6e14b06a0f6a0bc143f7cce0f3a25eb573ed000d80311b6b0c3090c"
+    },
+    {
+      "id": "nhtsa_getwmis_kia_georgia",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Kia%20Georgia%2C%20Inc?format=json",
+      "retrieved_response_sha256": "68aecc93a2bce1f8b1023d6852891d1df4765e54f14c66867e60276816a8bb6e"
+    },
+    {
+      "id": "nhtsa_getwmis_nissan_mexicana",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Nissan%20Mexicana?format=json",
+      "retrieved_response_sha256": "f287c30db05a5b05ac608fd5e4e431c9bacf1bf9920cb201cd92a51731bd4ea0"
+    },
+    {
+      "id": "nhtsa_getwmis_nissan_motor",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Nissan%20Motor?format=json",
+      "retrieved_response_sha256": "00f3c8bdabbe8382779209115014de886aaeb8efb6c254f5bdcb6f93f90bbab4"
+    },
+    {
+      "id": "nhtsa_getwmis_nissan_north_america",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Nissan%20North%20America?format=json",
+      "retrieved_response_sha256": "d1467429669212d7bc9ed4af86c7475b454c6acf40d50904e6c1cd75312b9e4d"
+    },
+    {
+      "id": "nhtsa_getwmis_mazda",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Mazda%20Motor?format=json",
+      "retrieved_response_sha256": "4cf8958af91f57b2c6ac0c446d2c2132b3bb96f7387f356c9ca40916af8f04f4"
+    },
+    {
+      "id": "nhtsa_getwmis_volkswagen",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Volkswagen?format=json",
+      "retrieved_response_sha256": "a5b51588afe052d5c22bab1b860a4a244ea40d797716b0e307ce9bc70c7d9fca"
+    },
+    {
+      "id": "nhtsa_getwmis_audi",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Audi?format=json",
+      "retrieved_response_sha256": "64d8aca28d5ececa7e3550c5fbe2d10c64cd0a5259297e748d62a6c2db1f7e61"
+    },
+    {
+      "id": "nhtsa_getwmis_chrysler",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Chrysler?format=json",
+      "retrieved_response_sha256": "b5dc435caa0bb74b16bfc3777cc3e38f178c0cd062e4621ecbddbc447ad458d7"
+    },
+    {
+      "id": "nhtsa_getwmis_fca_canada",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/FCA%20Canada?format=json",
+      "retrieved_response_sha256": "6e22f365c754e8a3b49b3fc3d6dd9015ce5dac6bcf32148739a55ca0e0829f10"
+    },
+    {
+      "id": "nhtsa_getwmis_mitsubishi",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Mitsubishi%20Motors?format=json",
+      "retrieved_response_sha256": "c55e6f81f97d49a98e7b053a83546e84e5a7614b67c26ba517f2925151c858aa"
+    },
+    {
+      "id": "nhtsa_getwmis_subaru_corporation",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Subaru%20Corporation?format=json",
+      "retrieved_response_sha256": "a20a3966b3f1ea1bd44bc1ee97bd75c6c2b0fe8177c1de639cf49495ae5c3a12"
+    },
+    {
+      "id": "nhtsa_getwmis_subaru_of_america",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Subaru%20of%20America%2C%20Inc?format=json",
+      "retrieved_response_sha256": "f148fa2d40cfe76275feff1010d8326adbd97a5e7957bbbadd3fdc5255cfda04"
+    },
+    {
+      "id": "nhtsa_getwmis_toyota_canada",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Toyota%20Motor%20Manufacturing%20Canada?format=json",
+      "retrieved_response_sha256": "16dacc703a141b0184121a1ef514ae0d44de50a487329c57f98b395d78a3fcdf"
+    },
+    {
+      "id": "nhtsa_getwmis_toyota_corporation",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/GetWMIsForManufacturer/Toyota%20Motor%20Corporation?format=json",
+      "retrieved_response_sha256": "a67f97b18866aeebc2280e821de3a2a8ce15644faefe5952de377b63f48aeb74"
+    },
+    {
+      "id": "nhtsa_decodewmi_4t1",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeWMI/4T1?format=json",
+      "retrieved_response_sha256": "e4680cee76eaba9f84cb76b12ca68b2f694f4e887c4d2fbb7ae50dce04898dfb"
+    },
+    {
+      "id": "nhtsa_decodewmi_4t3",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeWMI/4T3?format=json",
+      "retrieved_response_sha256": "979b9d8126209975e907253d17dd684bf6b0e78cd6989b063a528812990b28de"
+    },
+    {
+      "id": "nhtsa_decodewmi_5td",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeWMI/5TD?format=json",
+      "retrieved_response_sha256": "df76378f0d72259a6d2340f49bccc40fbfec07ff8a96aec054627a995f6241de"
+    },
+    {
+      "id": "nhtsa_decodewmi_5tf",
+      "url": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeWMI/5TF?format=json",
+      "retrieved_response_sha256": "ccda5fe2f1777f7348a81c433b8a2a44a1745f416ef494611a96fcbed6849629"
+    }
+  ],
+  "rule_sources": [
+    {
+      "id": "nhtsa_vpic_api_documentation",
+      "url": "https://vpic.nhtsa.dot.gov/api/",
+      "revision": "API 4.06; last code change 2026-06-13",
+      "retrieved_at_utc": "2026-10-14",
+      "used_for": "GetWMIsForManufacturer and DecodeWMI behavior, plus the NHTSA vPIC source revision."
+    },
+    {
+      "id": "nhtsa_vpic_about",
+      "url": "https://vpic.nhtsa.dot.gov/About",
+      "retrieved_at_utc": "2026-10-14",
+      "used_for": "vPIC data source, manufacturer-submission context, and US sale/import scope."
+    },
+    {
+      "id": "us_49_cfr_565_15",
+      "url": "https://www.ecfr.gov/current/title-49/subtitle-B/chapter-V/part-565/subpart-B/section-565.15",
+      "revision": "eCFR as of 2026-10-09",
+      "retrieved_at_utc": "2026-10-14",
+      "used_for": "VIN character validation, check-digit transliteration and weights, model-year codes, low-volume six-character WMI handling, and the passenger-car position-7 year-cycle rule."
+    }
+  ],
+  "interpretation": {
+    "country": "manufacturer_assignment_country is copied from vPIC when supplied; it is not vehicle assembly country and is never inferred from the WMI prefix.",
+    "manufacturer": "The manufacturer name is the vPIC assignment name; it is not a model, trim, engine, or automatic vehicle-model inference.",
+    "vehicle_type": "vehicle_type is copied from vPIC. Only Passenger Car maps to the included class_scope passenger_car rule; MPV and truck remain year-cycle unresolved because vPIC WMI type alone does not establish the applicable GVWR class.",
+    "check_digit": "Only a WMI present in the NHTSA vPIC Part 565 assignment subset enables a §565.15 check-digit comparison. A mismatch is a warning and never rejects a structurally valid VIN; an unknown WMI has unknown checksum scope.",
+    "low_volume_wmi": "Six-character keys are copied only when explicitly returned by vPIC. A VIN with 9 in position 3 is looked up by positions 1-3 plus 12-14 and never falls back to a three-character key.",
+    "runtime": "The decoder reads only this bundled CSV and does not issue network requests."
+  }
+}

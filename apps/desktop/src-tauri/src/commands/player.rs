@@ -1,5 +1,5 @@
-use super::{engine, session_path};
 use super::sessions::open_selected_recording;
+use super::{engine, session_path};
 use crate::AppState;
 use lognook_core::{
     Marker, PlaybackState, RecordingInfo, Sample, import_csv_to_recording,
@@ -224,7 +224,11 @@ mod tests {
         writer.finish().unwrap();
         let mut engine = LogNookEngine::new(|_| {});
         engine.load_recording(&path).unwrap();
-        assert!(import_selected_csv(None, &mut engine, &directory).unwrap().is_none());
+        assert!(
+            import_selected_csv(None, &mut engine, &directory)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(engine.active_session_path().unwrap(), path);
         drop(engine);
         std::fs::remove_dir_all(directory).unwrap();

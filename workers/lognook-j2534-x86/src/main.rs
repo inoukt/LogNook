@@ -172,6 +172,20 @@ fn handle_request(
                 }
             }
         }
+        WorkerRequest::ReadMode09 { pid } => {
+            let Some(connected) = session.as_mut() else {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "Connect a J2534 provider before reading an identity PID".into(),
+                };
+            };
+            progress("mode09_identity_read");
+            match connected.read_mode09(pid) {
+                Ok(responses) => WorkerResponse::Mode09Responses { responses },
+                // Keep the serialized channel open so one unavailable identity PID cannot hide later reads.
+                Err(error) => failed(error),
+            }
+        }
         WorkerRequest::Disconnect => {
             drop(session.take());
             WorkerResponse::Disconnected

@@ -265,6 +265,21 @@ pub(crate) fn list_log_sources(state: &AppState) -> Result<Vec<AgentLogSource>, 
             });
         }
     }
+    for source in state.can_replay_previews.registered_sources()? {
+        let bounds = state
+            .can_replay_previews
+            .registered_path(&source.source_id)?
+            .and_then(|path| can_capture_bounds(&path).ok());
+        sources.push(AgentLogSource {
+            source_id: source.source_id,
+            name: source.name,
+            kind: AgentLogKind::Can,
+            recorded: true,
+            start_elapsed_ms: bounds.map(|(start, _, _)| ns_to_ms(start)),
+            end_elapsed_ms: bounds.map(|(_, end, _)| ns_to_ms(end)),
+            item_count: bounds.map(|(_, _, count)| count),
+        });
+    }
     Ok(sources)
 }
 
@@ -337,7 +352,13 @@ pub(crate) fn query_log_range(
             )
         }
         (AgentLogKind::Can, _) => {
-            let path = recorded_path(&query.source_id, AgentLogKind::Can)?;
+            let path = match state
+                .can_replay_previews
+                .registered_path(&query.source_id)?
+            {
+                Some(path) => path,
+                None => recorded_path(&query.source_id, AgentLogKind::Can)?,
+            };
             let page = query_can_capture(&path, start_ns, end_ns, &query.can_ids, limit)?;
             (
                 Vec::new(),
@@ -591,6 +612,7 @@ mod tests {
                 bitrate: 500_000,
                 listen_only: true,
                 source_id: "can:test".into(),
+                target_channel: None,
             })
         };
         buffer.record_engine_event(&EngineEvent::Connected(caps.clone()));
@@ -661,6 +683,7 @@ mod tests {
                 bitrate: 500_000,
                 listen_only: true,
                 source_id: source_id.into(),
+                target_channel: None,
             })
         };
         buffer.record_engine_event(&can_status(true, "can:first"));

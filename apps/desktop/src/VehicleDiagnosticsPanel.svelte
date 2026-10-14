@@ -6,6 +6,7 @@
     supportsVehicleDiagnostics,
     type DiagnosticRead, type DiagnosticReport, type DiagnosticValue,
   } from "./vehicleDiagnostics";
+  import { copyFullVin, vinDecodeLabels } from "./vehicleProfiles";
 
   let { open = false, adapterFamily = null, adapterId = null, onClose }: {
     open?: boolean;
@@ -21,6 +22,7 @@
   let mode06Input = $state("");
   let running = $state(false);
   let error = $state("");
+  let copyMessage = $state("");
   let dialog: HTMLDialogElement;
 
   const tabs: [Tab, string][] = [["dtcs", "DTCs"], ["identity", "Identity"], ["mode06", "Mode 06"], ["raw", "Raw"]];
@@ -29,6 +31,7 @@
     report !== null && (adapterId !== report.adapter.stable_id || adapterFamily !== report.adapter.hardware_family),
   );
   let bitmapIds = $derived(report ? availableMode06TestIds(report.reads) : []);
+  let identityContext = $derived(report?.vehicle_context ?? null);
   let tabReads = $derived((report?.reads ?? []).filter((read) => {
     if (activeTab === "dtcs") return read.kind.endsWith("dtcs");
     if (activeTab === "identity") return ["vin", "calibration_id", "ecu_name"].includes(read.kind);
@@ -50,11 +53,18 @@
       report = await invoke<DiagnosticReport>("run_vehicle_diagnostics", {
         request: { mode06_test_ids: mode06TestIds },
       });
+      copyMessage = "";
     } catch (reason) {
       error = String(reason);
     } finally {
       running = false;
     }
+  }
+
+  async function copyVin(vin: string) {
+    copyMessage = await copyFullVin(vin, (value) => navigator.clipboard.writeText(value))
+      ? "Full VIN copied."
+      : "Clipboard unavailable. The VIN remains visible above.";
   }
 
   function addMode06Ids() {
@@ -153,6 +163,28 @@
       </nav>
 
       <div class="diagnostic-content">
+        {#if activeTab === "identity" && identityContext}
+          <section class="diagnostic-vehicle-context" aria-label="Captured vehicle identity">
+            <strong>Captured vehicle context · {identityContext.identity_source.replaceAll("_", " ")}</strong>
+            {#if identityContext.full_vin}
+              <div><span>Full VIN <code>{identityContext.full_vin}</code></span><button class="button secondary" type="button" onclick={() => void copyVin(identityContext?.full_vin ?? "")}>Copy VIN</button></div>
+            {:else if identityContext.masked_vin}
+              <p>Masked VIN {identityContext.masked_vin} · full VIN unavailable in this report.</p>
+            {:else if identityContext.vin_conflict}
+              <p>Multiple ECU VINs conflict; this report is not assigned to one vehicle.</p>
+            {:else}
+              <p>No valid VIN was captured in this report or same-connection recognition.</p>
+            {/if}
+            {#if identityContext.decoded_snapshot}
+              {@const labels = vinDecodeLabels(identityContext.decoded_snapshot)}
+              <p>Offline VIN decode · {labels.manufacturer} · {labels.year} · {labels.checkDigit}</p>
+              {#if identityContext.decoded_snapshot.wmi_assignment}
+                <small>WMI source {identityContext.decoded_snapshot.wmi_assignment.source_id} · revision {identityContext.decoded_snapshot.wmi_assignment.source_revision} · decoder {identityContext.decoded_snapshot.decoder_revision}</small>
+              {/if}
+            {/if}
+            {#if copyMessage}<small role="status">{copyMessage}</small>{/if}
+          </section>
+        {/if}
         {#if activeTab === "mode06"}
           <section class="mode06-selection" aria-label="Select Mode 06 monitors">
             <div>
@@ -257,6 +289,10 @@
   .diagnostic-tabs button { padding: 7px 11px; border: 0; border-bottom: 2px solid transparent; color: var(--text-muted); background: transparent; cursor: pointer; font: inherit; font-size: 11px; }
   .diagnostic-tabs button:hover, .diagnostic-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
   .diagnostic-content { flex: 1 1 auto; min-height: 140px; overflow: auto; padding: 10px 18px 18px; }
+  .diagnostic-vehicle-context { display: grid; gap: 6px; margin-bottom: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); font-size: 10px; }
+  .diagnostic-vehicle-context > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
+  .diagnostic-vehicle-context p, .diagnostic-vehicle-context small { margin: 0; color: var(--text-muted); }
+  .diagnostic-vehicle-context code { color: var(--text-primary); font: 600 11px ui-monospace, monospace; overflow-wrap: anywhere; }
   .diagnostic-ecu { margin: 0 0 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .diagnostic-ecu > header { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 7px 10px; background: var(--surface-top); }
   .diagnostic-ecu > header h3 { margin: 0; font-size: 11px; }

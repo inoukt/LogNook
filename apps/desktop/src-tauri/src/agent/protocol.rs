@@ -24,6 +24,8 @@ pub enum AgentRequest {
     ConnectAdapter {
         choice: AgentAdapterChoice,
         log_signal_ids: Vec<String>,
+        #[serde(default)]
+        profile_standby: bool,
     },
     DisconnectAdapter,
     DisconnectSource {
@@ -59,6 +61,142 @@ pub enum AgentRequest {
     Workbench {
         operation: AgentWorkbenchOperation,
     },
+    VehicleProfiles {
+        operation: AgentVehicleProfileOperation,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentVehicleProfileOperation {
+    List,
+    Get {
+        profile_id: String,
+    },
+    Save {
+        args: crate::vehicle_profiles::SaveVehicleProfileArgs,
+    },
+    Status,
+    Recognize {
+        obd_connection_generation: u64,
+    },
+    ReadIdentity {
+        obd_connection_generation: u64,
+    },
+    GetIdentity {
+        scope: lognook_core::ProfileScope,
+        vin_digest: String,
+    },
+    DecodeVinOffline {
+        scope: lognook_core::ProfileScope,
+        vin_digest: String,
+    },
+    SetManualVehicleDetail {
+        scope: lognook_core::ProfileScope,
+        vin_digest: String,
+        field: lognook_core::ManualVehicleField,
+        value: String,
+        note: Option<String>,
+    },
+    LinkLegacyVin {
+        profile_id: String,
+        expected_revision: u64,
+        full_vin: String,
+    },
+    AssignProfileVin {
+        profile_id: String,
+        expected_revision: u64,
+        full_vin: String,
+    },
+    ListHistory {
+        filter: lognook_core::DiagnosticHistoryFilter,
+    },
+    GetHistoryReport {
+        report_id: String,
+    },
+    AssociateHistoryReport {
+        report_id: String,
+        scope: lognook_core::ProfileScope,
+        vin_digest: String,
+        note: Option<String>,
+    },
+    HistoryImportStatus,
+    StartHistoryImport,
+    CancelHistoryImport,
+    PrepareResume {
+        profile_id: String,
+        obd_connection_generation: u64,
+    },
+    ApplyResume {
+        preview_id: String,
+        profile_revision: u64,
+        obd_connection_generation: u64,
+    },
+    DiscardResume {
+        preview_id: String,
+    },
+    ContinueSelection {
+        log_signal_ids: Vec<String>,
+        graph_signal_ids: Vec<String>,
+        derived_definitions: Vec<lognook_core::DerivedSignalDefinition>,
+        obd_connection_generation: u64,
+    },
+    Cancel,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentVehicleProfileArgs {
+    pub operation: AgentVehicleProfileOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentVehicleProfileResult {
+    Profiles {
+        profiles: Vec<lognook_core::VehicleProfile>,
+    },
+    Profile {
+        profile: lognook_core::VehicleProfile,
+    },
+    Status {
+        status: crate::vehicle_profiles::VehicleProfileStatus,
+    },
+    Recognized {
+        observation: lognook_core::VehicleIdentityObservation,
+        status: crate::vehicle_profiles::VehicleProfileStatus,
+    },
+    IdentityReport {
+        report: serde_json::Value,
+    },
+    IdentityRecord {
+        record: Option<lognook_core::VehicleIdentityRecord>,
+    },
+    IdentityUpdated {
+        record: lognook_core::VehicleIdentityRecord,
+    },
+    History {
+        page: lognook_core::DiagnosticHistoryPage,
+    },
+    HistoryReport {
+        detail: serde_json::Value,
+    },
+    HistoryAssociation {
+        association: lognook_core::ManualReportAssociation,
+    },
+    HistoryImport {
+        status: lognook_core::HistoryIndexStatus,
+    },
+    Preview {
+        preview: crate::vehicle_profiles::ProfileResumePreview,
+    },
+    Resumed {
+        result: crate::vehicle_profiles::ProfileResumeApplyResult,
+    },
+    SelectionContinued {
+        selection: AgentSignalSelection,
+    },
+    Discarded,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -87,6 +225,24 @@ pub enum AgentWorkbenchOperation {
         extended: bool,
         start_elapsed_ms: u64,
         end_elapsed_ms: u64,
+    },
+    PrepareSavedCanReplay {
+        source_id: String,
+        can_id: u32,
+        extended: bool,
+        start_elapsed_ms: u64,
+        end_elapsed_ms: u64,
+    },
+    InspectSavedCanReplay {
+        preview_id: String,
+    },
+    DiscardSavedCanReplay {
+        preview_id: Option<String>,
+    },
+    StartSavedCanReplay {
+        preview_id: String,
+        expected_can_generation: u64,
+        expected_output_capture_id: u64,
     },
 }
 
@@ -139,6 +295,10 @@ pub struct AgentWorkbenchResult {
     pub operation: String,
     pub detail: Option<String>,
     pub evidence_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_replay_preview: Option<crate::can_replay_previews::SavedCanReplayPreviewView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_status: Option<lognook_core::CanIdReplayStatus>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -299,6 +459,8 @@ pub struct AgentSelectionArgs {
 pub struct AgentConnectArgs {
     pub choice: AgentAdapterChoice,
     pub log_signal_ids: Vec<String>,
+    #[serde(default)]
+    pub profile_standby: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -504,6 +666,12 @@ pub struct AgentStatus {
     pub can_connected: bool,
     #[serde(default)]
     pub can_adapter_id: Option<String>,
+    #[serde(default)]
+    pub can_connection_generation: Option<u64>,
+    #[serde(default)]
+    pub vehicle_profile_status: Option<crate::vehicle_profiles::VehicleProfileStatus>,
+    #[serde(default)]
+    pub vehicle_profile_error: Option<String>,
     pub recording: bool,
     pub active_operation: Option<String>,
     pub supported_signal_ids: Vec<String>,
@@ -583,6 +751,9 @@ pub enum AgentResponse {
     },
     Workbench {
         result: AgentWorkbenchResult,
+    },
+    VehicleProfiles {
+        result: AgentVehicleProfileResult,
     },
     EvidenceExported {
         path: String,
@@ -745,6 +916,80 @@ mod tests {
         assert!(schema.to_string().contains("replay_can_id"));
         assert!(schema.to_string().contains("start_elapsed_ms"));
         assert!(schema.to_string().contains("end_elapsed_ms"));
+    }
+
+    #[test]
+    fn saved_replay_requires_a_source_preview_and_connection_generation() {
+        let request = decode_request(br#"{"action":"workbench","operation":{"kind":"prepare_saved_can_replay","source_id":"saved-can-source-1","can_id":801,"extended":true,"start_elapsed_ms":250,"end_elapsed_ms":900}}"#).unwrap();
+        assert!(matches!(
+            request,
+            AgentRequest::Workbench {
+                operation: AgentWorkbenchOperation::PrepareSavedCanReplay {
+                    can_id: 801,
+                    extended: true,
+                    start_elapsed_ms: 250,
+                    end_elapsed_ms: 900,
+                    ..
+                }
+            }
+        ));
+        assert!(decode_request(br#"{"action":"workbench","operation":{"kind":"prepare_saved_can_replay","source_id":"saved-can-source-1","can_id":801,"extended":true,"start_elapsed_ms":250,"end_elapsed_ms":900,"frames":[{"data":[1,2]}]}}"#).is_err());
+        assert!(decode_request(br#"{"action":"workbench","operation":{"kind":"start_saved_can_replay","preview_id":"old-preview"}}"#).is_err());
+        assert!(matches!(decode_request(br#"{"action":"workbench","operation":{"kind":"start_saved_can_replay","preview_id":"p","expected_can_generation":4,"expected_output_capture_id":9}}"#).unwrap(), AgentRequest::Workbench {
+            operation: AgentWorkbenchOperation::StartSavedCanReplay { expected_can_generation: 4, .. }
+        }));
+        let schema = serde_json::to_string(&schemars::schema_for!(AgentWorkbenchArgs)).unwrap();
+        assert!(schema.contains("prepare_saved_can_replay"));
+        assert!(schema.contains("expected_can_generation"));
+        assert!(schema.contains("expected_output_capture_id"));
+    }
+
+    #[test]
+    fn profile_resume_is_typed_and_bound_to_revision_and_connection() {
+        let request = decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"apply_resume","preview_id":"profile-p","profile_revision":3,"obd_connection_generation":5}}"#).unwrap();
+        assert!(matches!(
+            request,
+            AgentRequest::VehicleProfiles {
+                operation: AgentVehicleProfileOperation::ApplyResume {
+                    profile_revision: 3,
+                    obd_connection_generation: 5,
+                    ..
+                }
+            }
+        ));
+        assert!(decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"apply_resume","preview_id":"profile-p","profile_revision":3,"obd_connection_generation":5,"auto_request":true}}"#).is_err());
+        assert!(decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"apply_resume","preview_id":"profile-p","obd_connection_generation":5}}"#).is_err());
+        assert!(matches!(decode_request(br#"{"action":"connect_adapter","choice":{"kind":"simulator"},"log_signal_ids":[],"profile_standby":true}"#).unwrap(), AgentRequest::ConnectAdapter { profile_standby: true, .. }));
+        let schema =
+            serde_json::to_string(&schemars::schema_for!(AgentVehicleProfileArgs)).unwrap();
+        assert!(schema.contains("apply_resume"));
+        assert!(schema.contains("profile_revision"));
+        assert!(schema.contains("recognize"));
+    }
+
+    #[test]
+    fn offline_vin_and_history_operations_are_typed_and_do_not_accept_provenance_claims() {
+        assert!(matches!(
+            decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"read_identity","obd_connection_generation":8}}"#).unwrap(),
+            AgentRequest::VehicleProfiles {
+                operation: AgentVehicleProfileOperation::ReadIdentity { obd_connection_generation: 8 }
+            }
+        ));
+        assert!(matches!(
+            decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"list_history","filter":{"scope":"live","page_size":25}}}"#).unwrap(),
+            AgentRequest::VehicleProfiles {
+                operation: AgentVehicleProfileOperation::ListHistory { .. }
+            }
+        ));
+        assert!(decode_request(
+            br#"{"action":"vehicle_profiles","operation":{"kind":"set_manual_vehicle_detail","scope":"live","vin_digest":"vin:v1:sha256:abc","field":"make","value":"Toyota","note":null,"actor":"owner_ui","ecu_verified":true}}"#
+        )
+        .is_err());
+        let schema =
+            serde_json::to_string(&schemars::schema_for!(AgentVehicleProfileArgs)).unwrap();
+        assert!(schema.contains("decode_vin_offline"));
+        assert!(schema.contains("get_history_report"));
+        assert!(schema.contains("cancel_history_import"));
     }
 
     #[test]

@@ -9,7 +9,7 @@ pub enum CanDirection {
     Tx,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CanByteOrder {
     Intel,
@@ -65,7 +65,7 @@ impl CanFrame {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct CanSignalDefinition {
     pub id: String,
     pub name: String,

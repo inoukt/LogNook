@@ -13,10 +13,11 @@ use self::{
 use crate::{
     model::{
         AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, Marker,
-        RetrospectiveRecordingStart,
+        RecordingVehicleContextV1, RetrospectiveRecordingStart,
     },
     pipeline::Message,
     recording::RecordingWriter,
+    vehicle_profiles::{ProfileScope, VehicleIdentitySnapshot},
 };
 use std::{
     collections::VecDeque,
@@ -42,6 +43,7 @@ pub(crate) fn process(
     let mut derived = DerivedProcessor::default();
     let mut pre_trigger_samples = VecDeque::new();
     let mut session_samples = VecDeque::new();
+    let mut vehicle_recording_context: Option<VehicleIdentitySnapshot> = None;
     let mut newest_elapsed_ns = 0;
     let mut omitted_samples = 0;
     'messages: while let Ok(message) = rx.recv() {
@@ -80,6 +82,7 @@ pub(crate) fn process(
                         &mut session_samples,
                         &mut newest_elapsed_ns,
                         &mut omitted_samples,
+                        &vehicle_recording_context,
                     ) {
                         continue 'messages;
                     }
@@ -109,6 +112,7 @@ pub(crate) fn process(
                             &mut session_samples,
                             &mut newest_elapsed_ns,
                             &mut omitted_samples,
+                            &vehicle_recording_context,
                         );
                         let _ = reply.send(if processed {
                             Ok(offset)
@@ -128,7 +132,14 @@ pub(crate) fn process(
                 let result = if recorder.is_some() {
                     Err("A recording is already active".to_owned())
                 } else {
-                    RecordingWriter::create(&path)
+                    let context = vehicle_recording_context.as_ref().map(|snapshot| {
+                        RecordingVehicleContextV1 {
+                            snapshot: snapshot.clone(),
+                            context_from_elapsed_ns: newest_elapsed_ns,
+                            context_from_sample_index: 0,
+                        }
+                    });
+                    RecordingWriter::create_with_vehicle_context(&path, context)
                         .map(|writer| {
                             recorder = Some(writer);
                             recording_active.store(true, Ordering::Release);
@@ -149,8 +160,17 @@ pub(crate) fn process(
                     Err("A recording is already active".to_owned())
                 } else {
                     (|| {
+                        let backfilled_count = session_samples.len();
+                        let context = vehicle_recording_context.as_ref().map(|snapshot| {
+                            RecordingVehicleContextV1 {
+                                snapshot: snapshot.clone(),
+                                context_from_elapsed_ns: newest_elapsed_ns,
+                                context_from_sample_index: backfilled_count as u64,
+                            }
+                        });
                         let mut writer =
-                            RecordingWriter::create(&path).map_err(|error| error.to_string())?;
+                            RecordingWriter::create_with_vehicle_context(&path, context)
+                                .map_err(|error| error.to_string())?;
                         if let Err(error) = writer.append_batch(&session_samples) {
                             let _ = writer.finish();
                             return Err(error.to_string());
@@ -209,6 +229,18 @@ pub(crate) fn process(
                     Ok(status)
                 };
                 let _ = reply.send(result);
+            }
+            Message::UpdateVehicleRecordingContext(snapshot, expected_generation, reply) => {
+                vehicle_recording_context = snapshot.filter(|snapshot| match snapshot.scope {
+                    ProfileScope::CanOnly => {
+                        snapshot.connection_generation.is_none()
+                            || snapshot.connection_generation == Some(expected_generation)
+                    }
+                    ProfileScope::Live | ProfileScope::Simulator => {
+                        snapshot.connection_generation == Some(expected_generation)
+                    }
+                });
+                let _ = reply.send(Ok(()));
             }
             Message::DisarmAutomaticTrigger(reply) => {
                 let status = get_trigger_status(&automatic_trigger_status);
@@ -280,6 +312,15 @@ pub(crate) fn process(
                 failed,
                 last_source,
             } => {
+                if vehicle_recording_context.as_ref().is_some_and(|snapshot| {
+                    last_source
+                        || match snapshot.scope {
+                            ProfileScope::Live | ProfileScope::Simulator => obd,
+                            ProfileScope::CanOnly => !obd,
+                        }
+                }) {
+                    vehicle_recording_context = None;
+                }
                 if last_source {
                     automatic_trigger = None;
                     pre_trigger_samples.clear();

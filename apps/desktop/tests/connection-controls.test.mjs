@@ -3,6 +3,18 @@ import test from "node:test";
 
 const controls = await import("../src/connectionControls.ts").catch(() => null);
 
+test("profile standby connects without a preselected polling set while preserving other guards", () => {
+  const state = {
+    busy: false, recording: false, replaying: false, hasSignals: false,
+    sxPort: "COM8", sxIdentityMatches: true, openPortProvider: "", openPortIdentityMatches: false,
+    bluetoothAddress: "", bluetoothIdentityMatches: false,
+  };
+  assert.equal(controls.connectionControlState("obdlink_sx", state).connectDisabled, true);
+  assert.equal(controls.connectionControlState("obdlink_sx", { ...state, profileStandby: true }).connectDisabled, false);
+  assert.equal(controls.connectionControlState("obdlink_sx", { ...state, profileStandby: true, recording: true }).connectDisabled, true);
+  assert.equal(controls.connectionControlState("obdlink_sx", { ...state, profileStandby: true, sxIdentityMatches: false }).connectDisabled, true);
+});
+
 test("adapter labels stay short for the one-row toolbar", () => {
   assert.ok(controls, "connection controls helper is available");
   assert.equal(controls.adapterLabel("simulator"), "Simulator");

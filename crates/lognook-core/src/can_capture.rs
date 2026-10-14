@@ -191,6 +191,10 @@ impl<R: Read> CanCaptureReader<R> {
             exhausted: false,
         })
     }
+
+    pub fn into_inner(self) -> R {
+        self.reader.into_inner()
+    }
 }
 
 impl<R: Read> Iterator for CanCaptureReader<R> {

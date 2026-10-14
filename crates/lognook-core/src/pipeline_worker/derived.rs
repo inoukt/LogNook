@@ -12,7 +12,10 @@ pub(super) struct DerivedProcessor {
 
 impl DerivedProcessor {
     pub(super) fn new(signals: Vec<CompiledDerivedSignal>) -> Self {
-        Self { signals, latest: HashMap::new() }
+        Self {
+            signals,
+            latest: HashMap::new(),
+        }
     }
 
     pub(super) fn observe(&mut self, input: &Sample) -> (Vec<Sample>, Vec<String>) {
@@ -21,7 +24,8 @@ impl DerivedProcessor {
             return (Vec::new(), Vec::new());
         }
         self.latest.insert(input.signal_id.clone(), input.clone());
-        let values = self.latest
+        let values = self
+            .latest
             .iter()
             .map(|(id, sample)| (id.clone(), sample.value))
             .collect::<HashMap<_, _>>();
@@ -29,20 +33,29 @@ impl DerivedProcessor {
         let mut errors = Vec::new();
         for signal in &self.signals {
             if !signal.dependencies().contains(&input.signal_id)
-                || !signal.dependencies().iter().all(|id| self.latest.contains_key(id))
+                || !signal
+                    .dependencies()
+                    .iter()
+                    .all(|id| self.latest.contains_key(id))
             {
                 continue;
             }
             let raw_value = match signal.formula.evaluate(&values) {
                 Ok(value) => value,
                 Err(error) => {
-                    errors.push(format!("Derived signal '{}': {error}", signal.definition.id));
+                    errors.push(format!(
+                        "Derived signal '{}': {error}",
+                        signal.definition.id
+                    ));
                     continue;
                 }
             };
             let value = raw_value - signal.definition.tare_offset;
             if !value.is_finite() {
-                errors.push(format!("Derived signal '{}' result must be finite", signal.definition.id));
+                errors.push(format!(
+                    "Derived signal '{}' result must be finite",
+                    signal.definition.id
+                ));
                 continue;
             }
             let sample = Sample {
@@ -68,20 +81,32 @@ impl DerivedProcessor {
     }
 
     pub(super) fn tare(&mut self, id: &str) -> Result<(Sample, f64), String> {
-        let index = self.signals
+        let index = self
+            .signals
             .iter()
             .position(|signal| signal.definition.id == id)
             .ok_or_else(|| format!("Derived signal '{id}' is not active"))?;
         let signal = &self.signals[index];
-        if !signal.dependencies().iter().all(|dependency| self.latest.contains_key(dependency)) {
-            return Err(format!("Derived signal '{id}' has no current input samples to tare"));
+        if !signal
+            .dependencies()
+            .iter()
+            .all(|dependency| self.latest.contains_key(dependency))
+        {
+            return Err(format!(
+                "Derived signal '{id}' has no current input samples to tare"
+            ));
         }
-        let values = self.latest
+        let values = self
+            .latest
             .iter()
             .map(|(signal_id, sample)| (signal_id.clone(), sample.value))
             .collect::<HashMap<_, _>>();
-        let offset = signal.formula.evaluate(&values).map_err(|error| error.to_string())?;
-        let input = signal.dependencies()
+        let offset = signal
+            .formula
+            .evaluate(&values)
+            .map_err(|error| error.to_string())?;
+        let input = signal
+            .dependencies()
             .iter()
             .filter_map(|dependency| self.latest.get(dependency))
             .max_by_key(|sample| sample.elapsed_ns)

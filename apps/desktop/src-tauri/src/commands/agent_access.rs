@@ -12,6 +12,11 @@ pub fn agent_access_status(state: State<'_, AppState>) -> Result<AgentAccessStat
         .map_err(|_| "Agent Access state is unavailable".to_owned())
         .map(|mut access| access.status())?;
     status.host_connected = state.agent_ipc.connected();
+    let replay_status = state
+        .agent_can_replay_status
+        .lock()
+        .map_err(|_| "CAN replay status is unavailable")?
+        .clone();
     status.active_operation = state
         .agent_workbench
         .lock()
@@ -20,6 +25,7 @@ pub fn agent_access_status(state: State<'_, AppState>) -> Result<AgentAccessStat
             state
                 .agent_scan_active
                 .load(std::sync::atomic::Ordering::Acquire),
+            replay_status.as_ref(),
         );
     status.trace_gaps = state.trace_store.gap_count();
     Ok(status)

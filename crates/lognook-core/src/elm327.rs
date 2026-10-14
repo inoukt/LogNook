@@ -581,6 +581,9 @@ impl Elm327Adapter {
             }
         }
         Ok(crate::DiagnosticReport {
+            report_id: None,
+            connection_generation: None,
+            vehicle_context: None,
             adapter,
             protocol: "ISO 15765-4 (CAN 11/500) via ELM327 SPP".into(),
             started_at_unix_ms,

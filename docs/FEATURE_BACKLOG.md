@@ -1,15 +1,18 @@
 # Deferred feature backlog
 
-Updated 2026-10-13. This is a deferred-candidate list, not an active work queue or implementation commitment. Check [current project status](../PROJECT_STATUS.md) before starting work.
+Updated 2026-10-14. This is a deferred-candidate list, not an active work queue or implementation commitment. Check [current project status](../PROJECT_STATUS.md) before starting work.
 
 Recent completed work is retained in dated plans, including [CAN discovery, diagnostics and simultaneous adapters](superpowers/plans/2026-10-09-discovery-diagnostics-dual-adapters.md), [continuous OEM logging](superpowers/plans/2026-10-07-continuous-oem-logging.md), and [live CAN investigation](superpowers/plans/2026-10-07-live-can-investigation.md). These plans are historical records; they are not the current requested feature bundle.
 
 ## Remaining candidate order
 
-1. **Vehicle/ECU profiles.** Save adapter settings, exact ECU routes/identity, working definitions, and signal selections under a stable vehicle/ECU fingerprint. Revalidate cached knowledge when identity or catalog revision changes; retain the previous profile when refresh fails. A USB port or provider alone is not a vehicle identity.
-2. **DBC import.** Import licensed/user-supplied DBC definitions into existing CAN fields with ID width, bit numbering, byte order, signedness, scaling, units, and source attribution. Preview mappings before applying them. Report unsupported constructs explicitly; handle multiplexing deliberately rather than silently flatten it. Verify imported fields against captured frames and the Rust decoder.
+1. **DBC import.** Import licensed/user-supplied DBC definitions into existing CAN fields with ID width, bit numbering, byte order, signedness, scaling, units, and source attribution. Preview mappings before applying them. Report unsupported constructs explicitly; handle multiplexing deliberately rather than silently flatten it. Verify imported fields against captured frames and the Rust decoder.
+2. **Recording profile context.** Add optional versioned profile ID/fingerprint/definition references at recording start while keeping existing measurements immutable and old session files readable.
 
 ## Recently implemented
+
+- **Saved-capture CAN TX replay.** Prepare a bounded immutable one-ID/time-range RX clip from `.candump.csv`, inspect source/target, then explicitly start one pass through the current CAN owner with separate paired evidence. UI and MCP share preparation/start/cancellation guards. See [CAN workflow](DISCOVERY_DIAGNOSTICS.md#transmit-a-selected-id-from-a-saved-capture).
+- **Vehicle/ECU profiles, offline VIN identity, and diagnostic history.** Local versioned identity/selection snapshots, standby recognition, exact/review/conflict matching, explicit eligible Resume preview, guarded signal replacement, provenance-aware full VIN storage, offline WMI/check-digit/year decoding, verified report history, resumable import, and MCP parity are implemented. Unsupported/revised selections remain saved/skipped. Automatic adapter configuration/connection and fuller manufacturer/model decoding remain future work. See [profile and history workflow](VEHICLE_PROFILES.md).
 
 - **Session organisation.** Rename, confirmed Delete, Folder, Share and Save As workflows are implemented; see the 2026-10-09 status entry and tests before proposing a replacement.
 - **Selected CAN-ID replay.** Counts/Frames can freeze matching retained RX frames and explicitly transmit one bounded replay sequence in active mode. The Agent MCP exposes the same operation using only the current live connection's validated RX buffer. See [Agent Access](AGENT_ACCESS.md) and the 2026-10-13 status entries.

@@ -21,6 +21,15 @@
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
   import CanHelp from "./CanHelp.svelte";
   import VehicleDiagnosticsPanel from "./VehicleDiagnosticsPanel.svelte";
+  import VehicleProfilePanel from "./VehicleProfilePanel.svelte";
+  import VehicleHistoryPanel from "./VehicleHistoryPanel.svelte";
+  import {
+    listVehicleProfiles, saveVehicleProfile, recognizeVehicle, prepareProfileResume,
+    applyProfileResume, discardProfileResume, vehicleProfilesStatus,
+    type VehicleProfile, type VehicleProfileStatus, type ProfileResumePreview,
+    type ProfileResumeApplyResult, type ProfileSelectionSnapshot,
+  } from "./vehicleProfiles";
+  import type { SavedCanReplayPreviewView } from "./savedCanReplay";
   import {
     appendCanFrames, appendCanTrafficSummary, canIdReplayEnabled, canSignalIdsNeedingReset, canSignalOption,
     canTransmitEnabled, createCanWorkbenchCommands, mergeCanIdReplayStatus,
@@ -163,6 +172,18 @@
   let diagnosticsUnlisten: UnlistenFn | undefined;
   let diagnosticsOpen = false;
   let vehicleDiagnosticsOpen = false;
+  let vehicleProfilesOpen = false;
+  let vehicleHistoryOpen = false;
+  let vehicleProfilesDialog: HTMLDialogElement | undefined;
+  let vehicleProfileMode = false;
+  let vehicleProfileBusy = false;
+  let vehicleProfileError = "";
+  let savedVehicleProfiles: VehicleProfile[] = [];
+  let vehicleProfileStatus: VehicleProfileStatus | null = null;
+  let vehicleProfilePreview: ProfileResumePreview | null = null;
+  let vehicleProfileSelectionUnlisten: UnlistenFn | undefined;
+  let lastAppliedProfilePreviewId: string | null = null;
+  let vehicleProfileCatalogVehicles: { vehicle_id: string; brand: string; model: string; model_year: number | null; engine: string }[] = [];
   let diagnosticRecords: DiagnosticRecord[] = [];
   let diagnosticsListenerError = "";
   let agentAccessStatus: AgentAccessStatus = { configured: false, unlocked: false, host_connected: false, expires_at_unix_ms: null, active_operation: null, trace_gaps: 0 };
@@ -224,6 +245,7 @@
     recording,
     replaying,
     hasSignals: logSignalIds.length > 0 && requestedAdapterSignals().length > 0,
+    profileStandby: vehicleProfileMode,
     sxPort: selectedSxPort,
     sxIdentityMatches: sxIdentity?.path === selectedSxPort,
     openPortProvider: selectedOpenPortProvider,
@@ -320,6 +342,14 @@
   $: if (workspacePreferencesReady && isTauri()) {
     invoke("agent_sync_signal_selection", { logSignalIds, graphSignalIds }).catch(() => {});
   }
+  $: if (workspacePreferencesReady) {
+    try { localStorage.setItem("lognook.vehicle-profile-mode.v1", JSON.stringify(vehicleProfileMode)); }
+    catch { /* Optional UI preference; backend profiles remain authoritative. */ }
+  }
+  $: if (vehicleProfilesDialog) {
+    if (vehicleProfilesOpen && !vehicleProfilesDialog.open) vehicleProfilesDialog.showModal();
+    else if (!vehicleProfilesOpen && vehicleProfilesDialog.open) vehicleProfilesDialog.close();
+  }
   $: if (workspacePreferencesReady && isTauri()) {
     getCurrentWebview().setZoom(uiScale / 100).catch(showError);
   }
@@ -361,6 +391,11 @@
       .then((stop) => disposed ? stop() : unlisten = stop)
       .catch(showError);
     if (isTauri()) {
+      try { vehicleProfileMode = localStorage.getItem("lognook.vehicle-profile-mode.v1") === "true"; } catch { /* Optional preference. */ }
+      void refreshVehicleProfileView();
+      listen<ProfileResumeApplyResult>("vehicle-profile-resumed", ({ payload }) => {
+        void installResumedVehicleProfile(payload).catch((reason) => vehicleProfileError = String(reason));
+      }).then((stop) => disposed ? stop() : vehicleProfileSelectionUnlisten = stop).catch(showError);
       listen<AgentSignalSelection>("agent-signal-selection", ({ payload }) => {
         logSignalIds = payload.log_signal_ids;
         graphSignalIds = payload.graph_signal_ids;
@@ -443,6 +478,7 @@
       unlisten?.();
       agentSelectionUnlisten?.();
       diagnosticsUnlisten?.();
+      vehicleProfileSelectionUnlisten?.();
     };
   });
 
@@ -591,6 +627,12 @@
           canIdReplayStopPending = false;
           canIdReplayError = canIdReplayStatus.state === "failed" ? canIdReplayStatus.error ?? "CAN ID replay failed." : "";
         }
+      } else if (update.state === "running" && canWorkbenchStatus?.connected && canIdReplayStatus?.state !== "running") {
+        // Explicit replay started through MCP still gets the visible global Stop control.
+        activeCanIdReplayId = update.replay_id;
+        canIdReplayStatus = update;
+        canIdReplayHistorySpanNs = 0;
+        canIdReplayError = "";
       }
     } else if (event.type === "canFrames") {
       queuedCanFrames = appendCanFrames(queuedCanFrames, event.payload, 400);
@@ -655,6 +697,7 @@
         recording = false;
       }
     } else if (event.type === "connected") {
+      void refreshVehicleProfileView();
       if (!canConnected && !obdConnected) {
         if (session) void clearSession();
         resetLiveHistory();
@@ -685,6 +728,9 @@
         : obdStatus;
     } else if (event.type === "disconnected") {
       obdConnected = false;
+      vehicleProfileStatus = null;
+      vehicleProfilePreview = null;
+      lastAppliedProfilePreviewId = null;
       activeAdapterDescriptor = null;
       if (!canConnected) recording = false;
       status = canConnected && canWorkbenchStatus
@@ -891,10 +937,155 @@
   }
 
   function connectSelectedAdapter() {
+    if (vehicleProfileMode) return connectSelectedProfileAdapter();
     if (selectedAdapter === "obdlink_sx") return connectSx();
     if (selectedAdapter === "openport2") return connectOpenPort();
     if (selectedAdapter === "elm327" || selectedAdapter === "a30") return connectBluetooth();
     return connect();
+  }
+
+  function selectedProfileAdapterChoice() {
+    if (selectedAdapter === "obdlink_sx") return { kind: "obd_link_sx", port_name: selectedSxPort };
+    if (selectedAdapter === "openport2") return { kind: "open_port2", provider_id: selectedOpenPortProvider };
+    if (selectedAdapter === "a30") return { kind: "a30", address: selectedBluetoothAddress };
+    if (selectedAdapter === "elm327") return { kind: "elm327", address: selectedBluetoothAddress };
+    return { kind: "simulator" };
+  }
+
+  function connectSelectedProfileAdapter() {
+    return run(async () => {
+      const capabilities = await invoke<ConnectionCapabilities>("connect_profile_adapter", { choice: selectedProfileAdapterChoice() });
+      activeAdapterDescriptor = capabilities.device;
+      await refreshVehicleProfileView();
+      vehicleProfilesOpen = true;
+      await recognizeVehicleProfile(true);
+    });
+  }
+
+  async function refreshVehicleProfileView() {
+    if (!isTauri()) return;
+    try {
+      const [profiles, profileStatus] = await Promise.all([listVehicleProfiles(), vehicleProfilesStatus()]);
+      savedVehicleProfiles = profiles;
+      vehicleProfileStatus = profileStatus;
+      vehicleProfilePreview = profileStatus.preview;
+    } catch (reason) { vehicleProfileError = String(reason); }
+  }
+
+  async function openVehicleProfiles() {
+    vehicleProfilesOpen = true;
+    await refreshVehicleProfileView();
+    try { vehicleProfileCatalogVehicles = await invoke("oem_vehicle_profiles"); }
+    catch { /* Catalog association is optional; generic profiles remain usable. */ }
+  }
+
+  async function recognizeVehicleProfile(autoPrepare = false) {
+    if (vehicleProfileBusy) return;
+    vehicleProfileBusy = true;
+    vehicleProfileError = "";
+    try {
+      const current = await vehicleProfilesStatus();
+      await recognizeVehicle(current.obd_connection_generation);
+      await refreshVehicleProfileView();
+      const exact = vehicleProfileStatus?.profile_matches.filter((match) => match.profile_match.state === "exact") ?? [];
+      if (autoPrepare && exact.length === 1 && vehicleProfileStatus?.profile_standby) {
+        vehicleProfilePreview = await prepareProfileResume(exact[0].profile_id, vehicleProfileStatus.obd_connection_generation);
+      }
+    } catch (reason) { vehicleProfileError = String(reason); }
+    finally { vehicleProfileBusy = false; }
+  }
+
+  function currentVehicleSelection(): ProfileSelectionSnapshot {
+    return {
+      log_signal_ids: [...logSignalIds], graph_signal_ids: [...graphSignalIds],
+      derived_definitions: [...derivedSignalDefinitions], can_fields: [...canSignalDefinitions],
+      oem_references: [],
+      can_source_id: canWorkbenchStatus?.connected ? canWorkbenchStatus.source_id : null,
+      can_bitrate: canWorkbenchStatus?.connected ? canWorkbenchStatus.bitrate : null,
+      can_channel: canWorkbenchStatus?.connected ? canWorkbenchStatus.target_channel : null,
+    };
+  }
+
+  async function saveCurrentVehicleProfile(name: string, manualAssociation: boolean, catalogVehicleId: string | null = null) {
+    if (vehicleProfileBusy) return;
+    vehicleProfileBusy = true;
+    vehicleProfileError = "";
+    try {
+      const current = await vehicleProfilesStatus();
+      if (!current.current_observation && !manualAssociation) await recognizeVehicle(current.obd_connection_generation);
+      await saveVehicleProfile({
+        profile_id: null, expected_revision: null, name, selection: currentVehicleSelection(),
+        manual_association: manualAssociation, catalog_vehicle_id: catalogVehicleId,
+      });
+      vehicleProfileMode = true;
+      await refreshVehicleProfileView();
+    } catch (reason) { vehicleProfileError = String(reason); }
+    finally { vehicleProfileBusy = false; }
+  }
+
+  async function previewVehicleProfile(profileId: string) {
+    if (vehicleProfileBusy) return;
+    vehicleProfileBusy = true;
+    vehicleProfileError = "";
+    try {
+      const current = await vehicleProfilesStatus();
+      vehicleProfilePreview = await prepareProfileResume(profileId, current.obd_connection_generation);
+      vehicleProfileStatus = current;
+    } catch (reason) { vehicleProfileError = String(reason); }
+    finally { vehicleProfileBusy = false; }
+  }
+
+  async function installResumedVehicleProfile(result: ProfileResumeApplyResult) {
+    const current = await vehicleProfilesStatus();
+    if (!current.obd_connected || current.obd_connection_generation !== result.obd_connection_generation || lastAppliedProfilePreviewId === result.preview_id) return;
+    lastAppliedProfilePreviewId = result.preview_id;
+    const restored = result.selection;
+    for (const option of result.graph_options) researchSignalOptions = upsertResearchSignalOption(researchSignalOptions, option);
+    derivedSignalDefinitions = restored.derived_definitions;
+    if (restored.can_fields.length) {
+      canSignalDefinitions = restored.can_fields;
+      workbenchGraphSignalIds = [...new Set([...workbenchGraphSignalIds, ...restored.can_fields.map((field) => field.id)])];
+    }
+    logSignalIds = restored.log_signal_ids;
+    graphSignalIds = restored.graph_signal_ids;
+    vehicleProfilePreview = null;
+    vehicleProfileStatus = current;
+    status = `Resumed vehicle profile · ${savedVehicleProfiles.find((profile) => profile.id === result.profile_id)?.name ?? result.profile_id}`;
+  }
+
+  async function resumeVehicleProfile(previewId: string, revision: number, generation: number) {
+    if (vehicleProfileBusy) return;
+    vehicleProfileBusy = true;
+    vehicleProfileError = "";
+    try { await installResumedVehicleProfile(await applyProfileResume(previewId, revision, generation)); }
+    catch (reason) { vehicleProfileError = String(reason); }
+    finally { vehicleProfileBusy = false; }
+  }
+
+  async function discardVehicleProfilePreview(previewId: string) {
+    try { await discardProfileResume(previewId); vehicleProfilePreview = null; }
+    catch (reason) { vehicleProfileError = String(reason); }
+  }
+
+  async function continueVehicleProfileSelection() {
+    if (vehicleProfileBusy) return;
+    vehicleProfileBusy = true;
+    vehicleProfileError = "";
+    try {
+      const current = await vehicleProfilesStatus();
+      const requested = requestedAdapterSignals();
+      await invoke("continue_profile_selection", {
+        logSignalIds: requested, graphSignalIds: graphSignalIds.filter((id) => requested.includes(id)),
+        derivedDefinitions: derivedSignalDefinitions, expectedObdGeneration: current.obd_connection_generation,
+      });
+      await refreshVehicleProfileView();
+    } catch (reason) { vehicleProfileError = String(reason); }
+    finally { vehicleProfileBusy = false; }
+  }
+
+  async function cancelVehicleProfileOperation() {
+    try { await invoke("cancel_vehicle_profile_operations"); await refreshVehicleProfileView(); }
+    catch (reason) { vehicleProfileError = String(reason); }
   }
 
   function selectAdapter(adapter: AdapterKind) {
@@ -1285,6 +1476,17 @@
     if (!canIdReplayStartEnabled || frames.length === 0) {
       throw new Error("ID replay requires an active CAN connection, a paired capture, no scan, and at least one retained RX frame.");
     }
+    return startCanReplayRequest(
+      () => canWorkbenchCommands.startCanIdReplay(frames),
+      Math.max(0, frames[frames.length - 1].elapsed_ns - frames[0].elapsed_ns),
+    );
+  }
+
+  async function startCanReplayRequest(
+    request: () => Promise<CanIdReplayStatus>,
+    historySpanNs: number,
+  ): Promise<CanIdReplayStatus> {
+    if (canIdReplayActive || canScanRunning || busy) throw new Error("Stop the current operation before starting another replay.");
     const generation = canIdReplayGeneration;
     canIdReplayStartPending = true;
     canIdReplayStopPending = false;
@@ -1292,10 +1494,10 @@
     canIdReplayStatus = null;
     activeCanIdReplayId = null;
     pendingCanIdReplayEvents = [];
-    canIdReplayHistorySpanNs = Math.max(0, frames[frames.length - 1].elapsed_ns - frames[0].elapsed_ns);
+    canIdReplayHistorySpanNs = historySpanNs;
     try {
-      const started = await canWorkbenchCommands.startCanIdReplay(frames);
-      if (generation !== canIdReplayGeneration) return;
+      const started = await request();
+      if (generation !== canIdReplayGeneration) throw new Error("The CAN connection changed while starting replay.");
       activeCanIdReplayId = started.replay_id;
       canIdReplayStatus = mergeCanIdReplayStatus(null, started);
       for (const update of pendingCanIdReplayEvents) {
@@ -1306,6 +1508,7 @@
       pendingCanIdReplayEvents = [];
       canIdReplayError = canIdReplayStatus.state === "failed" ? canIdReplayStatus.error ?? "CAN ID replay failed." : "";
       if (canIdReplayStatus.state !== "running") canIdReplayStopPending = false;
+      return canIdReplayStatus;
     } catch (reason) {
       if (generation === canIdReplayGeneration) {
         canIdReplayError = String(reason);
@@ -1315,6 +1518,13 @@
     } finally {
       if (generation === canIdReplayGeneration) canIdReplayStartPending = false;
     }
+  }
+
+  function startSavedCanReplay(preview: SavedCanReplayPreviewView, expectedCanGeneration: number, expectedOutputCaptureId: number) {
+    return startCanReplayRequest(
+      () => invoke<CanIdReplayStatus>("start_saved_can_replay", { previewId: preview.preview_id, expectedCanGeneration, expectedOutputCaptureId }),
+      preview.summary.source_span_ns,
+    );
   }
 
   async function stopCanIdReplay() {
@@ -1447,6 +1657,8 @@
       localStorage.removeItem("lognook.automatic-trigger");
       localStorage.removeItem("lognook.derived-signals");
       localStorage.removeItem("lognook.graph-preferences.v1");
+      localStorage.removeItem("lognook.vehicle-profile-mode.v1");
+      vehicleProfileMode = false;
     } catch { /* Preferences are optional. */ }
     window.dispatchEvent(new Event("lognook-reset-graph-preferences"));
   }
@@ -1548,6 +1760,7 @@
       agentSetupJson={agentSetupJson}
     />
     <button class="button secondary" title="Vehicle diagnostics: DTCs, identity and Mode 06" onclick={() => vehicleDiagnosticsOpen = true}>Diagnostics</button>
+    <button class="button secondary" title="Saved vehicle and ECU signal selections" onclick={openVehicleProfiles}>Profiles</button>
     <div class="session-tools">
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
         <summary aria-label="Browse saved sessions" title="Browse saved sessions">Browse saved sessions</summary>
@@ -1592,6 +1805,35 @@
     onClose={() => vehicleDiagnosticsOpen = false}
   />
   <main>
+    <dialog class="vehicle-profiles-dialog" aria-labelledby="vehicle-profiles-title" bind:this={vehicleProfilesDialog}
+      onclose={() => vehicleProfilesOpen = false}
+      oncancel={() => { vehicleProfilesOpen = false; if (vehicleProfileBusy) void cancelVehicleProfileOperation(); }}>
+      <div class="vehicle-profile-dialog-bar">
+        <label><input type="checkbox" bind:checked={vehicleProfileMode} /> Recognize vehicle before logging on the next Connect</label>
+        <button class="button secondary" type="button" onclick={() => vehicleHistoryOpen = !vehicleHistoryOpen}>{vehicleHistoryOpen ? "Vehicle profiles" : "Vehicle history"}</button>
+        <button class="button secondary" type="button" onclick={() => vehicleProfilesOpen = false}>Close</button>
+      </div>
+      {#if vehicleHistoryOpen}
+        <VehicleHistoryPanel open={vehicleHistoryOpen} profiles={savedVehicleProfiles} onOpenRecording={openSavedRecording} />
+      {:else}
+      <VehicleProfilePanel
+        profiles={savedVehicleProfiles}
+        catalogProfiles={vehicleProfileCatalogVehicles}
+        status={vehicleProfileStatus}
+        preview={vehicleProfilePreview}
+        busy={vehicleProfileBusy || busy || recording || replaying || session !== null || researchRunView.running || canScanRunning || canIdReplayActive}
+        error={vehicleProfileError}
+        onRecognize={() => void recognizeVehicleProfile()}
+        onSave={(name, manualAssociation, catalogVehicleId) => void saveCurrentVehicleProfile(name, manualAssociation, catalogVehicleId)}
+        onPrepareResume={(id) => void previewVehicleProfile(id)}
+        onManualAssociate={(id) => void previewVehicleProfile(id)}
+        onApplyResume={(id, revision, generation) => void resumeVehicleProfile(id, revision, generation)}
+        onDiscardResume={(id) => void discardVehicleProfilePreview(id)}
+        onContinueSelection={() => void continueVehicleProfileSelection()}
+      />
+      {#if vehicleProfileBusy}<button class="button danger" type="button" onclick={cancelVehicleProfileOperation}>Stop profile operation</button>{/if}
+      {/if}
+    </dialog>
     <section class="workspace-toolbar" aria-label="Acquisition controls">
       <div class="workspace-title"><p class="eyebrow">LIVE WORKSPACE</p><h1>Acquisition</h1></div>
       <div class="toolbar-groups">
@@ -1732,7 +1974,7 @@
                   <span class="signal-name-row"><span title={signal.name}>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
                   <small title={signal.description}>{signal.research ? "RESEARCH" : signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
                 </span>
-                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || obdConnected || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
+                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || (obdConnected && !vehicleProfileStatus?.profile_standby) || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
                 <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id) && !researchSignalOptions.some((research) => research.id === signal.id) && !workbenchGraphSignalIds.includes(signal.id))} />
               </div>
             {:else}
@@ -1768,6 +2010,9 @@
           correlationSamples={canCorrelationSamples}
           scanRunning={canScanRunning}
           canIdReplayRunning={canIdReplayActive}
+          canIdReplayStatus={canIdReplayStatus}
+          onStartSavedCanReplay={startSavedCanReplay}
+          onStopCanIdReplay={stopCanIdReplay}
           bind:captureOpen={canCaptureOpen}
           bind:capturePath={canCapturePath}
           onFieldsChanged={updateCanSignalDefinitions}

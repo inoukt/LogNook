@@ -1,5 +1,5 @@
 use super::{decode_payload, empty_read, is_bitmap_page, is_functional_responder};
-use crate::DeviceDescriptor;
+use crate::{DeviceDescriptor, VehicleIdentitySnapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -12,6 +12,25 @@ pub struct DiagnosticRequest {
 }
 
 impl DiagnosticRequest {
+    /// The bounded identity-only reads used when matching a saved vehicle profile.
+    /// This deliberately excludes DTC and Mode 06 queries from the full diagnostic snapshot.
+    pub fn identity_queries() -> VecDeque<DiagnosticQueryRequest> {
+        [
+            (DiagnosticReadKind::Vin, 0x02),
+            (DiagnosticReadKind::CalibrationId, 0x04),
+            (DiagnosticReadKind::EcuName, 0x0A),
+        ]
+        .into_iter()
+        .map(|(kind, pid)| DiagnosticQueryRequest {
+            kind,
+            service: 0x09,
+            identifier: Some(pid),
+            payload: vec![0x09, pid],
+            wait_ms: 1_500,
+        })
+        .collect()
+    }
+
     pub fn validate(&mut self) -> Result<(), String> {
         if self.mode06_test_ids.len() > MAX_MODE06_TEST_IDS {
             return Err(format!(
@@ -170,6 +189,12 @@ pub struct DiagnosticRead {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DiagnosticReport {
+    #[serde(default)]
+    pub report_id: Option<String>,
+    #[serde(default)]
+    pub connection_generation: Option<u64>,
+    #[serde(default)]
+    pub vehicle_context: Option<VehicleIdentitySnapshot>,
     pub adapter: DeviceDescriptor,
     pub protocol: String,
     pub started_at_unix_ms: u64,
@@ -185,6 +210,10 @@ pub fn supports_vehicle_diagnostics(adapter_family: Option<&str>) -> bool {
         adapter_family,
         Some("Xtool A30/A30M Bluetooth SPP") | Some("ELM327 Bluetooth SPP") | Some("OBDLink SX")
     )
+}
+
+pub fn supports_profile_identity(adapter_family: Option<&str>) -> bool {
+    supports_vehicle_diagnostics(adapter_family) || matches!(adapter_family, Some("OpenPort 2.0"))
 }
 
 #[derive(Clone, Debug)]
@@ -313,5 +342,58 @@ impl DiagnosticQueryRequest {
         read.outcome = DiagnosticOutcome::TransportError;
         read.detail = Some(detail);
         read
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{supports_profile_identity, supports_vehicle_diagnostics};
+
+    #[test]
+    fn profile_identity_capability_includes_openport_without_full_diagnostics() {
+        for family in [
+            "Xtool A30/A30M Bluetooth SPP",
+            "ELM327 Bluetooth SPP",
+            "OBDLink SX",
+            "OpenPort 2.0",
+        ] {
+            assert!(supports_profile_identity(Some(family)), "{family}");
+        }
+        assert!(!supports_profile_identity(None));
+        assert!(!supports_profile_identity(Some("unknown adapter")));
+        assert!(!supports_vehicle_diagnostics(Some("OpenPort 2.0")));
+        assert!(supports_vehicle_diagnostics(Some("OBDLink SX")));
+    }
+
+    #[test]
+    fn report_capture_metadata_round_trips_while_legacy_metadata_defaults() {
+        let base = serde_json::json!({
+            "adapter": {
+                "stable_id": "fixture",
+                "hardware_family": "OBDLink SX",
+                "firmware": null,
+                "path": null
+            },
+            "protocol": "fixture",
+            "started_at_unix_ms": 10,
+            "request": { "mode06_test_ids": [] },
+            "reads": [],
+            "route_restore_error": null,
+            "evidence_saved": false,
+            "evidence_save_error": null
+        });
+        let legacy: super::DiagnosticReport = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(legacy.report_id, None);
+        assert_eq!(legacy.connection_generation, None);
+        assert_eq!(legacy.vehicle_context, None);
+
+        let mut captured = base;
+        captured["report_id"] = serde_json::json!("report-fixture-1");
+        captured["connection_generation"] = serde_json::json!(7);
+        let captured: super::DiagnosticReport = serde_json::from_value(captured).unwrap();
+        let saved = serde_json::to_value(captured).unwrap();
+        assert_eq!(saved["report_id"], "report-fixture-1");
+        assert_eq!(saved["connection_generation"], 7);
+        assert!(saved["vehicle_context"].is_null());
     }
 }

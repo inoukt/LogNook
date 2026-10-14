@@ -6,6 +6,7 @@ mod can;
 mod can_analysis;
 mod can_capture;
 mod can_live_events;
+mod can_replay;
 mod can_workbench;
 pub mod candlelight;
 pub mod communication_trace;
@@ -30,6 +31,8 @@ mod research;
 mod session;
 mod simulator;
 mod vehicle_diagnostics;
+pub mod vehicle_profiles;
+pub use vehicle_profiles::*;
 
 pub use a30::{
     A30Adapter, A30CanReply, A30Decoder, A30Frame, A30GraphValue, A30ReadOutcome, A30ReadTest,
@@ -53,6 +56,10 @@ pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, re
 pub use can_live_events::{
     CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventMessageSnapshot, CanLiveEventSnapshot,
     CanLiveEventWindowSnapshot, CanLiveEventWindowState, LiveCanEventAnalyzer,
+};
+pub use can_replay::{
+    CanReplayFrame, CanReplayPlan, CanReplaySource, PreparedSavedCanReplay,
+    SavedCanReplaySelection, SavedCanReplaySummary, prepare_saved_can_replay,
 };
 pub use can_workbench::{
     CanDeviceCandidate, CanDeviceSelection, CanEvidenceRecord, CanEvidenceScanConfig,
@@ -81,8 +88,8 @@ pub use model::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
     DerivedSignalDefinition, DeviceDescriptor, EngineEvent, LogNookError, Marker, OemPollingStatus,
     PlaybackState, Recording, RecordingInfo, RecordingSignal, RecordingSummary,
-    RetrospectiveRecordingStart, Sample, SampleOrigin, SampleQuality, SignalDefinition,
-    TriggerDirection,
+    RecordingVehicleContextSummary, RecordingVehicleContextV1, RetrospectiveRecordingStart, Sample,
+    SampleOrigin, SampleQuality, SignalDefinition, TriggerDirection,
 };
 pub use obdlink_sx::{
     ObdLinkSxAdapter, OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse,
@@ -116,5 +123,6 @@ pub use research::{
 pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
 pub use vehicle_diagnostics::{
     DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticRead, DiagnosticReadKind,
-    DiagnosticReport, DiagnosticRequest, DiagnosticValue, supports_vehicle_diagnostics,
+    DiagnosticReport, DiagnosticRequest, DiagnosticValue, supports_profile_identity,
+    supports_vehicle_diagnostics,
 };

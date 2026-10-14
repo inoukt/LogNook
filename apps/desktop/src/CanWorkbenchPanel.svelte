@@ -1,6 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { canHelpBubblesEnabled } from "./canHelp";
+  import SavedCanReplayPanel from "./SavedCanReplayPanel.svelte";
+  import type { SavedCanReplayPreviewView } from "./savedCanReplay";
   import {
     buildCanCommunicationCheck, buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
     canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
@@ -12,7 +14,7 @@
   import type {
     CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanEventCorrelation, CanManualEventMark, CanScanConfig,
     CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult, CanTxStatus,
-    CanWorkbenchStatus, Sample,
+    CanWorkbenchStatus, CanIdReplayStatus, Sample,
   } from "./types";
 
   export let hidden = false;
@@ -27,6 +29,9 @@
   export let correlationSamples: Sample[] = [];
   export let scanRunning = false;
   export let canIdReplayRunning = false;
+  export let canIdReplayStatus: CanIdReplayStatus | null = null;
+  export let onStartSavedCanReplay: (preview: SavedCanReplayPreviewView, expectedCanGeneration: number, expectedOutputCaptureId: number) => Promise<CanIdReplayStatus> = async () => { throw new Error("Replay start callback is unavailable"); };
+  export let onStopCanIdReplay: () => Promise<void> = async () => {};
   export let captureOpen = false;
   export let capturePath = "";
   export let onFieldsChanged: (fields: CanSignalDefinition[]) => void = () => {};
@@ -632,8 +637,18 @@
       <button class="button secondary" onclick={compareCapture} disabled={!replayReport || captureOpen || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Compare another saved capture with the replay currently loaded." : undefined}>Compare another CSV</button>
       <button class="button secondary" onclick={exportDbc} disabled={!replayReport || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Export a DBC skeleton from this replay; the skeleton is explicitly unverified." : undefined}>Export UNVERIFIED DBC skeleton</button>
     </div>
-    {#if captureOpen}<p class="can-hint">Stop the current capture before replaying its CSV and JSONL sidecar.</p>{/if}
+    {#if captureOpen}<p class="can-hint">Stop capture before opening another source for analysis. A prepared TX replay uses this separate output capture.</p>{/if}
     {#if replayReport}
+      <SavedCanReplayPanel
+        sourcePath={replayPath}
+        census={replayReport.census}
+        {status}
+        {captureOpen}
+        workspaceBusy={busy || workspaceBusy || scanRunning}
+        replayStatus={canIdReplayStatus}
+        onStart={onStartSavedCanReplay}
+        onStop={onStopCanIdReplay}
+      />
       <p class="can-muted" title={replayPath}>{replayPath}</p>
       <p class="can-report-status">{replaySidecarStatus(replayReport)}</p>
       {#if replayReport.source_id}<p class="can-muted">Adapter: {replayReport.source_id} · {replayReport.bitrate?.toLocaleString()} bit/s · {replayReport.listen_only ? "listen-only" : "active"}</p>{/if}
