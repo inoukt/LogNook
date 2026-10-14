@@ -82,6 +82,12 @@ pub enum AgentWorkbenchOperation {
         pacing_ms: u64,
         repeat: u32,
     },
+    ReplayCanId {
+        can_id: u32,
+        extended: bool,
+        start_elapsed_ms: u64,
+        end_elapsed_ms: u64,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -711,6 +717,34 @@ mod tests {
             br#"{"action":"workbench","operation":{"kind":"send_frame","can_id":291,"extended":false,"data":[1,2],"pacing_ms":10,"repeat":1,"shell":"bad"}}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn replay_can_id_workbench_action_is_typed_and_schema_describes_the_selected_range() {
+        let request = decode_request(
+            br#"{"action":"workbench","operation":{"kind":"replay_can_id","can_id":801,"extended":false,"start_elapsed_ms":1,"end_elapsed_ms":500}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            request,
+            AgentRequest::Workbench {
+                operation: AgentWorkbenchOperation::ReplayCanId {
+                    can_id: 801,
+                    extended: false,
+                    start_elapsed_ms: 1,
+                    end_elapsed_ms: 500,
+                }
+            }
+        ));
+        assert!(decode_request(
+            br#"{"action":"workbench","operation":{"kind":"replay_can_id","can_id":801,"extended":false,"start_elapsed_ms":1,"end_elapsed_ms":500,"frames":[]}}"#
+        )
+        .is_err());
+
+        let schema = serde_json::to_value(schemars::schema_for!(AgentWorkbenchOperation)).unwrap();
+        assert!(schema.to_string().contains("replay_can_id"));
+        assert!(schema.to_string().contains("start_elapsed_ms"));
+        assert!(schema.to_string().contains("end_elapsed_ms"));
     }
 
     #[test]

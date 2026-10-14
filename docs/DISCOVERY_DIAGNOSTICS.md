@@ -5,7 +5,7 @@
 Open the **CAN** tab and select the small **?** beside **CAN bus fields**.
 The Help guide explains connection settings, raw capture, the Counts/Frames/Events
 views, repeated event marks, field decoding, trigger windows, scans, manual
-frames, and saved-capture analysis.
+frames, selected-ID replay, and saved-capture analysis.
 
 The guide's **Show control tips** checkbox enables or disables the short hover
 explanations throughout the CAN controls and field editor. LogNook remembers
@@ -67,6 +67,26 @@ saved raw capture and event marks. Reopening a saved capture does not rebuild
 this comparison. Colors show byte-pattern correlation only; correlation does
 not decode signal meaning or identify counters, checksums, ECUs, or vehicle
 functions.
+
+### Replay one selected CAN ID
+
+In the live **Traffic monitor → Counts** or **Frames** view, select an exact
+standard or extended CAN ID to freeze its matching retained RX data frames.
+Review the snapshot first; selecting an ID never transmits. Choose **Start TX
+replay · once** only when you intend to send that captured sequence. Replay
+requires an active-mode CAN connection and a paired capture, preserves the
+observed intervals with a 1 ms minimum, and rejects gaps over 60 seconds. It
+uses at most the latest 400 retained frames. The live CAN journal records the
+source timing and transmitted-frame results; the displayed frame does not
+establish that retransmission is harmless or that an ECU accepted it. Keep the
+vehicle stationary and use the persistent **Stop replay** control if the
+sequence should end early. Disconnecting the CAN adapter also stops replay.
+
+Agent MCP exposes the same operation after Agent Access is unlocked. It takes
+the CAN ID, frame format and live elapsed-time range, then resolves the frames
+inside LogNook from the current CAN connection; saved captures and MCP-supplied
+payloads are not replay sources. The MCP steps and schema are documented in
+[Agent Access](AGENT_ACCESS.md).
 
 ## Read vehicle diagnostics
 

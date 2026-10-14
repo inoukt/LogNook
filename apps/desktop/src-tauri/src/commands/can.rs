@@ -3,11 +3,12 @@ use crate::AppState;
 use lognook_core::{
     CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanCaptureWriter, CanCorrelationHypothesis,
     CanDeviceCandidate, CanDeviceSelection, CanDiagnosticRoute, CanEventCorrelation,
-    CanEventCorrelator, CanEvidenceRecord, CanFrame, CanIdComparison, CanManualEventMark,
-    CanRequestTiming, CanScanConfig, CanScanMode, CanSignalDefinition, CanTriggerCapture,
-    CanTriggerCaptureResult, CanWorkbenchConfig, CanWorkbenchStatus, OemCandidateTrySpec,
-    OemCatalog, Sample, SampleQuality, available_can_adapters as list_can_adapters,
-    can_dbc_skeleton, can_evidence_path, compare_can_census, decode_can_signal,
+    CanEventCorrelator, CanEvidenceRecord, CanFrame, CanIdComparison, CanIdReplayStatus,
+    CanManualEventMark, CanRequestTiming, CanScanConfig, CanScanMode, CanSignalDefinition,
+    CanTriggerCapture, CanTriggerCaptureResult, CanWorkbenchConfig, CanWorkbenchStatus,
+    OemCandidateTrySpec, OemCatalog, Sample, SampleQuality,
+    available_can_adapters as list_can_adapters, can_dbc_skeleton, can_evidence_path,
+    compare_can_census, decode_can_signal,
 };
 use serde::Serialize;
 use std::{
@@ -222,6 +223,23 @@ pub async fn send_can_frame(
 ) -> Result<(), String> {
     engine(&state)?
         .send_can_frame(frame, pacing_ms, repeat)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn start_can_id_replay(
+    state: State<'_, AppState>,
+    frames: Vec<CanFrame>,
+) -> Result<CanIdReplayStatus, String> {
+    engine(&state)?
+        .start_can_id_replay(frames)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn stop_can_id_replay(state: State<'_, AppState>) -> Result<(), String> {
+    engine(&state)?
+        .stop_can_id_replay()
         .map_err(|error| error.to_string())
 }
 

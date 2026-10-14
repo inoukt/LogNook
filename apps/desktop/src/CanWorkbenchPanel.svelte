@@ -26,6 +26,7 @@
   export let triggerCapture: CanTriggerCaptureResult | null = null;
   export let correlationSamples: Sample[] = [];
   export let scanRunning = false;
+  export let canIdReplayRunning = false;
   export let captureOpen = false;
   export let capturePath = "";
   export let onFieldsChanged: (fields: CanSignalDefinition[]) => void = () => {};
@@ -86,7 +87,7 @@
 
   $: selectedAdapter = adapters.find(({ id }) => id === selectedAdapterId);
   $: connected = Boolean(status?.connected);
-  $: transmissionReady = canTransmitEnabled(status, captureOpen) && !busy && !workspaceBusy;
+  $: transmissionReady = canTransmitEnabled(status, captureOpen) && !busy && !workspaceBusy && !canIdReplayRunning;
   $: scanConfig = currentScanConfig();
   $: scanError = scanConfig ? "" : scanKind === "can_id_range"
     ? "Enter a valid CAN ID range and up to eight payload bytes."
@@ -551,7 +552,7 @@
       <button class="button secondary" onclick={tryCanOnce} disabled={!transmissionReady || scanRunning} title={$canHelpBubblesEnabled ? "Send one Mode 01 PID 00 request on this route and record TX/RX in the paired capture." : undefined}>Try CAN once</button>
       <button class="button secondary" onclick={stopScan} disabled={!scanRunning || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Cancel the remaining scan requests; completed evidence stays available." : undefined}>Stop scan</button>
     </div>
-    {#if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
+    {#if canIdReplayRunning}<p class="can-hint" role="status">CAN ID replay is running; other CAN sends and scans are paused.</p>{:else if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
   </details>
 
   <details class="can-fields-settings">
@@ -587,7 +588,7 @@
       <label>Repeat<input class="text-input" type="number" min="1" max="10000" bind:value={txRepeat} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Number of times to transmit the configured frame." : undefined} /></label>
       <button class="button danger" onclick={sendCanFrame} disabled={!transmissionReady} title={$canHelpBubblesEnabled ? "Transmit the configured raw frame; TX and received echoes are recorded in the paired capture." : undefined}>Send frame</button>
     </div>
-    {#if !transmissionReady}<p class="can-hint">Sending is enabled only in active mode with a paired capture open.</p>{/if}
+    {#if canIdReplayRunning}<p class="can-hint" role="status">CAN ID replay is running; other CAN sends and scans are paused.</p>{:else if !transmissionReady}<p class="can-hint">Sending is enabled only in active mode with a paired capture open.</p>{/if}
     {#if txStatuses.length}
       <ul class="can-event-list" aria-label="Transmit status">
         {#each txStatuses.slice(-12).reverse() as item (`${item.capture_id}:${item.sequence}`)}

@@ -91,14 +91,14 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "List bounded live PID/CAN buffers and saved LogNook or agent CAN capture sources. Query any supplied recording path separately."
+        description = "List bounded live PID/CAN buffers and saved LogNook or agent CAN capture sources. CAN ID replay can use only the current live:can buffer; saved captures are read-only."
     )]
     async fn list_log_sources(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::ListLogSources).await
     }
 
     #[tool(
-        description = "Read a bounded time range from a live or saved PID/CAN source. Use list_log_sources first; provide elapsed milliseconds and optional PID or CAN-ID filters."
+        description = "Read a bounded time range from a live or saved PID/CAN source. Use list_log_sources first; inspect live:can with kind=can, elapsed milliseconds, and the CAN-ID filter before replay_can_id. Replay itself uses only matching frames retained from the current CAN connection."
     )]
     async fn query_log_range(
         &self,
@@ -253,7 +253,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Cancel the active agent CAN scan/send/capture and finalize any partial evidence."
+        description = "Cancel the active agent CAN scan, frame send, or selected-ID replay and finalize paired CAN/trace evidence. Use this to interrupt replay."
     )]
     async fn stop_operation(&self) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::StopOperation).await
@@ -267,7 +267,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Operate the connected CAN Workbench: capture, mark a vehicle event, run a configured scan, or send one bounded frame pattern. Use stop_operation to cancel agent-owned work. Scans and TX require an active-mode Candlelight connection and are recorded to app-data evidence."
+        description = "Operate the connected CAN Workbench: capture, mark an event, scan, send a bounded frame pattern, or replay captured RX frames once for one exact CAN ID/format and live elapsed-time range. For replay, use get_status -> list_log_sources -> query_log_range(live:can, kind=can with CAN-ID/time) to inspect frames, then pass that ID, standard/extended format, and range as replay_can_id. Replay uses only the current connection's retained unflagged classic RX frames (up to 400); saved files and caller-supplied frame data cannot be replayed. TX requires an active-mode Candlelight connection and is recorded to paired app-data evidence. stop_operation cancels replay and closes its paired capture."
     )]
     async fn workbench(
         &self,
@@ -312,7 +312,7 @@ impl LogNookAgent {
 impl ServerHandler for LogNookAgent {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
-        info.instructions = Some("Use get_status first. LogNook owns adapter I/O. Run only user-requested tests; raw responses are research evidence, not validation. Lock Agent Access in LogNook Settings to revoke access.".into());
+        info.instructions = Some("Use get_status first. For captured CAN ID replay, follow get_status -> list_log_sources -> query_log_range(live:can, kind=can with a CAN-ID/time range) to inspect current-connection RX frames, then workbench replay_can_id with the same ID, 11/29-bit format, and elapsed-ms range. Replay is one pass from retained unflagged classic frames; saved captures and agent-supplied frame data are not replay sources. Use stop_operation to interrupt replay and finalize paired evidence. LogNook owns adapter I/O. Raw responses are research evidence, not validation. Lock Agent Access in LogNook Settings to revoke access.".into());
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
@@ -357,6 +357,18 @@ mod tests {
     #[test]
     fn mcp_lists_status_tool_for_stdio_server() {
         let tools = LogNookAgent::tool_router().list_all();
+        let workbench = tools.iter().find(|tool| tool.name == "workbench").unwrap();
+        assert!(
+            workbench
+                .description
+                .as_deref()
+                .is_some_and(|description| description.contains("replay captured RX frames"))
+        );
+        assert!(
+            serde_json::to_string(workbench.input_schema.as_ref())
+                .unwrap()
+                .contains("replay_can_id")
+        );
         let names = tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>();
         assert_eq!(
             names,

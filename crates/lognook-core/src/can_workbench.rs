@@ -10,7 +10,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, SyncSender},
     },
     thread::{self, JoinHandle},
@@ -51,6 +51,83 @@ pub struct CanWorkbenchStatus {
     pub listen_only: bool,
     /// Candlelight VID/PID/serial-derived source identity; USB IDs alone are not authenticity proof.
     pub source_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanIdReplayState {
+    Running,
+    Completed,
+    Stopped,
+    Failed,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CanIdReplayStatus {
+    pub replay_id: u64,
+    pub can_id: u32,
+    pub extended: bool,
+    pub total_frames: usize,
+    pub sent_frames: usize,
+    pub state: CanIdReplayState,
+    pub error: Option<String>,
+}
+
+const CAN_ID_REPLAY_MAX_FRAMES: usize = 400;
+const CAN_ID_REPLAY_MIN_INTERVAL_MS: u64 = 1;
+const CAN_ID_REPLAY_MAX_INTERVAL_MS: u64 = 60_000;
+static NEXT_CAN_ID_REPLAY_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_can_id_replay_id() -> Result<u64, LogNookError> {
+    NEXT_CAN_ID_REPLAY_ID
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            next.checked_add(1)
+        })
+        .map_err(|_| LogNookError::new("CAN replay identifier space is exhausted"))
+}
+
+fn validate_can_id_replay_frames(frames: &[CanFrame]) -> Result<(u32, bool), LogNookError> {
+    if frames.is_empty() || frames.len() > CAN_ID_REPLAY_MAX_FRAMES {
+        return Err(LogNookError::new(
+            "CAN ID replay must contain 1-400 captured frames",
+        ));
+    }
+
+    let first = &frames[0];
+    first.validate()?;
+    let identity = (first.can_id, first.extended);
+    if first.direction != CanDirection::Rx || first.flags != 0 {
+        return Err(LogNookError::new(
+            "CAN ID replay accepts only unflagged received classic data frames",
+        ));
+    }
+    let mut previous_elapsed_ns = first.elapsed_ns;
+    for frame in &frames[1..] {
+        frame.validate()?;
+        if (frame.can_id, frame.extended) != identity {
+            return Err(LogNookError::new(
+                "CAN ID replay frames must use one exact identifier and format",
+            ));
+        }
+        if frame.direction != CanDirection::Rx || frame.flags != 0 {
+            return Err(LogNookError::new(
+                "CAN ID replay accepts only unflagged received classic data frames",
+            ));
+        }
+        if frame.elapsed_ns < previous_elapsed_ns {
+            return Err(LogNookError::new(
+                "CAN ID replay source frames must be in timestamp order",
+            ));
+        }
+        let interval_ns = frame.elapsed_ns - previous_elapsed_ns;
+        if interval_ns > (CAN_ID_REPLAY_MAX_INTERVAL_MS as i64) * 1_000_000 {
+            return Err(LogNookError::new(
+                "CAN ID replay source gaps must be at most 60000 ms",
+            ));
+        }
+        previous_elapsed_ns = frame.elapsed_ns;
+    }
+    Ok(identity)
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -450,6 +527,10 @@ pub enum CanEvidenceRecord {
         capture_id: u64,
         sequence: u64,
         frame: CanFrame,
+        #[serde(default)]
+        replay_id: Option<u64>,
+        #[serde(default)]
+        source_elapsed_ns: Option<i64>,
     },
     TxSubmitted {
         #[serde(default)]
@@ -466,6 +547,26 @@ pub enum CanEvidenceRecord {
         submitted_frame: CanFrame,
         echo_frame: CanFrame,
         raw_usb: Vec<u8>,
+    },
+    CanIdReplayStarted {
+        format_version: u32,
+        capture_id: u64,
+        replay_id: u64,
+        can_id: u32,
+        extended: bool,
+        source_frames: Vec<CanFrame>,
+        minimum_interval_ms: u64,
+        maximum_interval_ms: u64,
+        no_catch_up: bool,
+    },
+    CanIdReplayFinished {
+        capture_id: u64,
+        replay_id: u64,
+        total_frames: usize,
+        sent_frames: usize,
+        state: CanIdReplayState,
+        reason: String,
+        error: Option<String>,
     },
     TransportError {
         error: CanTransportError,
@@ -875,6 +976,24 @@ impl CanWorkbench {
             ));
         }
         self.request(|reply| Command::SendFrame(frame, pacing_ms, repeat, reply))
+    }
+
+    pub fn start_can_id_replay(
+        &self,
+        frames: Vec<CanFrame>,
+    ) -> Result<CanIdReplayStatus, LogNookError> {
+        if self.listen_only {
+            return Err(LogNookError::new(
+                "Switch Candlelight to active mode before replaying CAN frames",
+            ));
+        }
+        validate_can_id_replay_frames(&frames)?;
+        let replay_id = next_can_id_replay_id()?;
+        self.request(|reply| Command::StartCanIdReplay(replay_id, frames, reply))
+    }
+
+    pub fn stop_can_id_replay(&self) -> Result<(), LogNookError> {
+        self.request(Command::StopCanIdReplay)
     }
 
     pub fn start_scan(&self, config: CanScanConfig) -> Result<(), LogNookError> {

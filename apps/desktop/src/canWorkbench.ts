@@ -2,8 +2,8 @@ import type { SignalOption } from "./workspace";
 import type {
   CanCaptureComparison, CanCaptureReplayReport, CanCorrelationHypothesis, CanDeviceCandidate, CanDeviceSelection,
   CanDiagnosticRoute, CanFrame,
-  CanManualEventMark, CanScanConfig, CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult,
-  CanTxStatus, CanWorkbenchConfig, CanWorkbenchStatus, Sample,
+  CanIdReplayStatus, CanManualEventMark, CanScanConfig, CanScanResult, CanSignalDefinition, CanTransportError,
+  CanTriggerCaptureResult, CanTxStatus, CanWorkbenchConfig, CanWorkbenchStatus, Sample,
 } from "./types";
 
 export const defaultCanWorkbenchConfig: CanWorkbenchConfig = { bitrate: 500_000, listen_only: true };
@@ -23,6 +23,9 @@ export function createCanWorkbenchCommands(invoke: CanInvoke) {
       invoke<CanManualEventMark>("mark_can_event", { label, preMs, postMs }),
     sendFrame: (frame: CanFrame, pacingMs: number, repeat: number) =>
       invoke<void>("send_can_frame", { frame, pacingMs, repeat }),
+    startCanIdReplay: (frames: CanFrame[]) =>
+      invoke<CanIdReplayStatus>("start_can_id_replay", { frames }),
+    stopCanIdReplay: () => invoke<void>("stop_can_id_replay"),
     startScan: (config: CanScanConfig) => invoke<void>("start_can_scan", { config }),
     stopScan: () => invoke<void>("stop_can_scan"),
     startOemCandidate: (candidateId: string) =>
@@ -256,6 +259,91 @@ export function canTransmitEnabled(
   captureOpen: boolean,
 ): boolean {
   return Boolean(status?.connected && !status.listen_only && captureOpen);
+}
+
+export function canIdReplayEnabled(
+  status: Pick<CanWorkbenchStatus, "connected" | "listen_only"> | null,
+  captureOpen: boolean,
+  busy: boolean,
+  scanRunning: boolean,
+  replayRunning: boolean,
+): boolean {
+  return canTransmitEnabled(status, captureOpen) && !busy && !scanRunning && !replayRunning;
+}
+
+export type CanIdReplaySnapshot = {
+  can_id: number;
+  extended: boolean;
+  frames: CanFrame[];
+  skipped_frames: number;
+  history_span_ns: number;
+  max_inter_frame_gap_ns: number;
+  has_gap_over_limit: boolean;
+};
+
+export type CanIdReplaySelection = {
+  generation: number;
+  snapshot: CanIdReplaySnapshot | null;
+  error: string;
+};
+
+export function resetCanIdReplaySelectionForGeneration(
+  current: CanIdReplaySelection,
+  generation: number,
+): CanIdReplaySelection {
+  return current.generation === generation
+    ? current
+    : { generation, snapshot: null, error: "" };
+}
+
+const CAN_ID_REPLAY_MAX_GAP_NS = 60_000_000_000;
+
+export function createCanIdReplaySnapshot(
+  retainedFrames: CanFrame[],
+  can_id: number,
+  extended: boolean,
+): CanIdReplaySnapshot {
+  const matching = retainedFrames.filter((frame) => frame.can_id === can_id
+    && frame.extended === extended && frame.direction === "rx");
+  const maximumId = extended ? 0x1fff_ffff : 0x7ff;
+  const frames = matching
+    .filter((frame) => frame.flags === 0
+      && Number.isInteger(frame.can_id) && frame.can_id >= 0 && frame.can_id <= maximumId
+      && Number.isSafeInteger(frame.elapsed_ns) && frame.elapsed_ns >= 0
+      && Array.isArray(frame.data) && frame.data.length <= 8
+      && frame.data.every((byte) => integerInRange(byte, 0, 0xff)))
+    .map((frame) => ({ ...frame, data: [...frame.data] }))
+    .sort((left, right) => left.elapsed_ns - right.elapsed_ns);
+  let max_inter_frame_gap_ns = 0;
+  for (let index = 1; index < frames.length; index++) {
+    max_inter_frame_gap_ns = Math.max(
+      max_inter_frame_gap_ns,
+      frames[index].elapsed_ns - frames[index - 1].elapsed_ns,
+    );
+  }
+  const history_span_ns = frames.length > 1
+    ? frames[frames.length - 1].elapsed_ns - frames[0].elapsed_ns
+    : 0;
+  return {
+    can_id,
+    extended,
+    frames,
+    skipped_frames: matching.length - frames.length,
+    history_span_ns,
+    max_inter_frame_gap_ns,
+    has_gap_over_limit: max_inter_frame_gap_ns > CAN_ID_REPLAY_MAX_GAP_NS,
+  };
+}
+
+export function mergeCanIdReplayStatus(
+  current: CanIdReplayStatus | null,
+  incoming: CanIdReplayStatus,
+): CanIdReplayStatus {
+  if (!current || incoming.replay_id > current.replay_id) return incoming;
+  if (incoming.replay_id < current.replay_id) return current;
+  if (current.state !== "running") return current;
+  if (incoming.state !== "running" || incoming.sent_frames >= current.sent_frames) return incoming;
+  return current;
 }
 
 export function canTriggerConfigError(preMs: number, postMs: number, maxFrames: number): string | null {

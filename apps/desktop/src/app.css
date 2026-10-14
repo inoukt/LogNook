@@ -86,6 +86,10 @@ button { color: inherit; }
 .app-shell[data-high-contrast="true"] .mode-switch { border-color: var(--border); }
 .app-shell[data-high-contrast="true"] .mode-switch button.active { outline: 1px solid var(--border); }
 .topbar { position: relative; z-index: 10; height: 42px; flex: 0 0 42px; display: flex; align-items: center; gap: 14px; padding: 0 10px; border-bottom: 1px solid var(--border-soft); background: var(--surface-top); }
+.can-id-replay-global { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:4px 10px; border-bottom:1px solid var(--border-soft); background:var(--surface-raised); color:var(--text-secondary); font-size:10px; }
+.can-id-replay-global > span:first-child { flex:1 1 auto; min-width:0; }
+.can-id-replay-global .can-id-replay-error { color:var(--danger); }
+.can-id-replay-global .button { min-height:25px; padding:2px 7px; font-size:10px; }
 .brand { display: flex; align-items: center; gap: 8px; color: var(--text-bright); text-decoration: none; font-size: 16px; font-weight: 720; letter-spacing: -.4px; }
 .brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: var(--accent-text); background: var(--accent); font-size: 15px; font-weight: 800; }
 .brand-accent { color: var(--accent); }

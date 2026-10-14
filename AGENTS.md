@@ -11,6 +11,7 @@ LogNook is a desktop application for capturing, recording, graphing, exporting, 
 - User interface: Svelte and TypeScript under `apps/desktop/src`.
 - Prefer the existing `HardwareAdapter`, acquisition engine, event pipeline, and recording model. Add abstractions only when a concrete second use case needs them.
 - Keep responsibilities clear, APIs typed, and handwritten modules focused. Preserve existing worktree changes.
+- Treat MCP parity as part of every feature. If a capability has meaningful data or operations, expose it through typed Agent Access/MCP in the same change, using the same core owner and safety rules as the desktop UI. Update tool schemas/descriptions and cover discovery, authorization, results/status, cancellation, and evidence behavior as applicable. If a feature is truly presentation-only, record why MCP has no meaningful equivalent in the project status; do not silently skip MCP review.
 
 ## Catalog and data model
 
@@ -58,7 +59,7 @@ LogNook is a desktop application for capturing, recording, graphing, exporting, 
 
 1. Inspect the affected code, data, documentation, and existing tests before editing.
 2. Implement a complete, small vertical slice before broadening the feature.
-3. Add or update automated tests for parsing, decoding, storage, and UI behavior affected by the change.
+3. Add or update automated tests for parsing, decoding, storage, UI behavior, and MCP schema/behavior affected by the change.
 4. Update the architecture notes and concise project status when behavior or data format changes.
 5. Run the most relevant formatting, test, type-check, and build commands available in the current environment.
 6. In completion reports, list implemented behavior, exact verification results, environment limitations, and the next concrete task.

@@ -364,6 +364,15 @@ export type CanCensusRow = {
 };
 export type CanTransportError = { kind: string; message: string; raw_usb: number[] | null };
 export type CanTxStatus = { capture_id: number; sequence: number; echo_id: number; frame: CanFrame; confirmed: boolean };
+export type CanIdReplayStatus = {
+  replay_id: number;
+  can_id: number;
+  extended: boolean;
+  total_frames: number;
+  sent_frames: number;
+  state: "running" | "completed" | "stopped" | "failed";
+  error: string | null;
+};
 export type CanCaptureReplayReport = {
   frames: number;
   decoded_samples: number;
@@ -531,6 +540,7 @@ export type EngineEvent =
   | { type: "canScanStopped"; payload?: null }
   | { type: "canScanCompleted"; payload: CanScanConfig }
   | { type: "canWorkbenchStatus"; payload: CanWorkbenchStatus }
+  | { type: "canIdReplayStatus"; payload: CanIdReplayStatus }
   | { type: "canLiveEventAnalysis"; payload: CanLiveEventSnapshot }
   | { type: "canTxStatus"; payload: CanTxStatus }
   | { type: "canTransportError"; payload: CanTransportError }

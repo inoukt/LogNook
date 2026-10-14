@@ -3,8 +3,11 @@
   import CanEventSnapshotsDialog from "./CanEventSnapshotsDialog.svelte";
   import { changedBits, discoverySeed } from "./canDiscovery";
   import { canHelpBubblesEnabled } from "./canHelp";
-  import type { CanEventCandidate, CanFrame, CanLiveEventGroup, CanLiveEventSnapshot, CanSignalDefinition } from "./types";
-  import type { CanTrafficSummary } from "./canWorkbench";
+  import type { CanEventCandidate, CanFrame, CanIdReplayStatus, CanLiveEventGroup, CanLiveEventSnapshot, CanSignalDefinition } from "./types";
+  import {
+    createCanIdReplaySnapshot, resetCanIdReplaySelectionForGeneration,
+    type CanIdReplaySelection, type CanTrafficSummary,
+  } from "./canWorkbench";
 
   export let frames: CanFrame[] = [];
   export let trafficSummary: CanTrafficSummary[] = [];
@@ -13,6 +16,14 @@
   export let onSaveField: (field: CanSignalDefinition) => unknown = () => {};
   export let onRemoveField: (id: string) => unknown = () => {};
   export let onClearEvents: () => unknown = () => {};
+  export let canIdReplayEnabled = false;
+  export let canIdReplayGeneration = 0;
+  export let replayStartPending = false;
+  export let replayStopPending = false;
+  export let replayStatus: CanIdReplayStatus | null = null;
+  export let replayError = "";
+  export let onStartCanIdReplay: (frames: CanFrame[]) => Promise<unknown> = async () => {};
+  export let onStopCanIdReplay: () => Promise<unknown> = async () => {};
 
   let trafficView: "summary" | "frames" | "events" = "summary";
   let idFilter = "";
@@ -28,6 +39,7 @@
   let pinnedId: { can_id: number; extended: boolean } | null = null;
   let editor: { frame: CanFrame; fieldId: string | null; seed?: ReturnType<typeof discoverySeed>; evidence?: string } | null = null;
   let actionError = "";
+  let replaySelection: CanIdReplaySelection = { generation: canIdReplayGeneration, snapshot: null, error: "" };
   $: trafficFrameCount = trafficSummary.reduce((total, row) => total + row.rx_count + row.tx_count, 0);
   $: eventSnapshot = frozenEvents ?? liveEventAnalysis;
   $: if (selectedSnapshotLabel && (!liveEventAnalysis
@@ -48,6 +60,14 @@
   $: maxFrameRate = Math.max(1, ...filteredTrafficSummary.map((row) => row.rate_hz ?? 0));
   $: rateById = new Map(trafficSummary.map((row) => [`${row.extended ? 1 : 0}:${row.can_id}`, row.rate_hz]));
   $: filteredFrames = filterTrafficFrames(frames, rateById, idFilter, idFormatFilter, directionFilter, minimumRate, framesSort);
+  $: replayableIdKeys = new Set(frames.filter((frame) => frame.direction === "rx" && frame.flags === 0
+    && Number.isSafeInteger(frame.elapsed_ns) && frame.elapsed_ns >= 0
+    && frame.can_id <= (frame.extended ? 0x1fff_ffff : 0x7ff)
+    && frame.data.length <= 8 && frame.data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff))
+    .map((frame) => `${frame.extended ? 1 : 0}:${frame.can_id}`));
+  $: if (replaySelection.generation !== canIdReplayGeneration) {
+    replaySelection = resetCanIdReplaySelectionForGeneration(replaySelection, canIdReplayGeneration);
+  }
 
   function byteHue(byte: number): number {
     return Math.round(220 - Math.min(Math.max(byte, 0), 255) / 255 * 220);
@@ -147,6 +167,40 @@
     return `0x${can_id.toString(16).toUpperCase().padStart(extended ? 8 : 3, "0")} · ${extended ? "29" : "11"}-bit`;
   }
 
+  function selectReplayId(can_id: number, extended: boolean) {
+    replaySelection = {
+      ...replaySelection,
+      snapshot: createCanIdReplaySnapshot(frames, can_id, extended),
+      error: "",
+    };
+  }
+
+  async function startIdReplay() {
+    const { snapshot, generation } = replaySelection;
+    if (!snapshot?.frames.length || snapshot.has_gap_over_limit || !canIdReplayEnabled || replayStartPending || replayStatus?.state === "running") return;
+    replaySelection = { ...replaySelection, error: "" };
+    try {
+      await onStartCanIdReplay(snapshot.frames);
+    } catch (error) {
+      if (replaySelection.generation === generation && replaySelection.snapshot === snapshot) {
+        replaySelection = { ...replaySelection, error: String(error) };
+      }
+    }
+  }
+
+  async function stopIdReplay() {
+    if (replayStatus?.state !== "running" || replayStopPending) return;
+    const { generation, snapshot } = replaySelection;
+    replaySelection = { ...replaySelection, error: "" };
+    try {
+      await onStopCanIdReplay();
+    } catch (error) {
+      if (replaySelection.generation === generation && replaySelection.snapshot === snapshot) {
+        replaySelection = { ...replaySelection, error: String(error) };
+      }
+    }
+  }
+
   function latestRxFrame(can_id: number, extended: boolean): CanFrame | null {
     for (let index = frames.length - 1; index >= 0; index--) {
       const frame = frames[index];
@@ -231,6 +285,30 @@
     </div>
   </div>
   <p class="can-monitor-hint">{#if trafficView === "summary"}Counts since connection · RX period and rate are averages across received frames.{:else if trafficView === "frames"}Showing {Math.min(filteredFrames.length, 80)} of {filteredFrames.length} matching frames; sorted by ID rate or time.{:else}Mark each physical action during a paired capture; recurring RX changes rise to the top.{/if}</p>
+  {#if replaySelection.snapshot}
+    {@const selectedReplaySnapshot = replaySelection.snapshot}
+    <section class="can-id-replay" aria-label="CAN ID replay source">
+      <div class="can-id-replay-details">
+        <strong>Frozen RX snapshot · {canId(selectedReplaySnapshot.can_id, selectedReplaySnapshot.extended)}</strong>
+        <span>{selectedReplaySnapshot.frames.length.toLocaleString()} RX {selectedReplaySnapshot.frames.length === 1 ? "frame" : "frames"} · {(selectedReplaySnapshot.history_span_ns / 1e9).toFixed(3)} s captured span</span>
+        <span>Snapshot covers only the current retained ring (up to 400 frames), not the full CSV capture. One pass; captured inter-frame timing with a 1 ms minimum.</span>
+        {#if selectedReplaySnapshot.skipped_frames}<span class="can-muted">{selectedReplaySnapshot.skipped_frames} matching RX {selectedReplaySnapshot.skipped_frames === 1 ? "frame was" : "frames were"} skipped because flags, timestamp, or classic CAN payload was invalid.</span>{/if}
+        {#if selectedReplaySnapshot.has_gap_over_limit}<span class="can-error" role="alert">Cannot replay: a captured inter-frame gap exceeds 60,000 ms. The backend rejects the whole replay before transmission.</span>{/if}
+        {#if replayStatus}<span class="can-replay-status" role="status">Replay {replayStatus.state} · {replayStatus.sent_frames.toLocaleString()}/{replayStatus.total_frames.toLocaleString()} TX frames submitted · {canId(replayStatus.can_id, replayStatus.extended)}{#if replayStatus.error} · {replayStatus.error}{/if}</span>{/if}
+        {#if replayError || replaySelection.error}<span class="can-error" role="alert">{replayError || replaySelection.error}</span>{/if}
+      </div>
+      <div class="can-id-replay-actions">
+        <button class="button primary" type="button" onclick={startIdReplay}
+          disabled={!canIdReplayEnabled || replayStartPending || replayStopPending || replayStatus?.state === "running" || !selectedReplaySnapshot.frames.length || selectedReplaySnapshot.has_gap_over_limit}
+          title={$canHelpBubblesEnabled ? "Transmit this frozen snapshot once, in captured order and timing. Row selection itself never transmits." : undefined}>Start TX replay · once</button>
+        {#if replayStatus?.state === "running"}
+          <button class="button danger" type="button" onclick={stopIdReplay} disabled={replayStopPending}>Stop replay</button>
+        {/if}
+        <button class="can-small-action" type="button" onclick={() => replaySelection = { ...replaySelection, snapshot: null, error: "" }} disabled={replayStatus?.state === "running"}>Clear snapshot</button>
+      </div>
+      {#if !canIdReplayEnabled && replayStatus?.state !== "running"}<p class="can-id-replay-hint">Replay needs an active CAN connection, an open paired capture, and no scan or active replay.</p>{/if}
+    </section>
+  {/if}
   {#if trafficView !== "events"}
     <div class="can-traffic-filters" role="group" aria-label="Filter and order CAN traffic">
       <input class="text-input" type="search" aria-label="Filter CAN IDs" placeholder="Filter ID (0x7E8)…" bind:value={idFilter} />
@@ -266,6 +344,7 @@
           <th title={$canHelpBubblesEnabled ? "Average received frames per second since the first frame for this ID." : undefined}>Rate</th>
           <th title={$canHelpBubblesEnabled ? "Printable ASCII view of the latest payload; non-printable bytes appear as dots." : undefined}>ASCII</th>
           <th>Field</th>
+          <th>Replay</th>
         </tr></thead>
         <tbody>
           {#each filteredTrafficSummary as row (`${row.can_id}:${row.extended}`)}
@@ -278,9 +357,10 @@
               <td>{#if row.rate_hz === null}—{:else}<span class="can-metric-grade" style={`--metric-grade:${gradePercent(row.rate_hz, maxFrameRate)}%`}>{row.rate_hz.toFixed(1)} Hz</span>{/if}</td>
               <td><code class="can-ascii">{#each row.last_data as byte, index (`${index}:${byte}`)}<span class={`can-ascii-${asciiCategory(byte)}`} title={$canHelpBubblesEnabled ? `Byte ${index}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}` : undefined}>{asciiCharacter(byte)}</span>{/each}</code></td>
               <td><button class="can-small-action" type="button" disabled={!latestRxFrame(row.can_id, row.extended)} onclick={() => openTrafficEditor(row.can_id, row.extended)} title={$canHelpBubblesEnabled ? "Open the signal editor from the latest received frame for this ID." : undefined}>{fields.some((field) => field.can_id === row.can_id && field.extended === row.extended) ? "Edit" : "＋ Field"}</button></td>
+              <td><button class="can-small-action" type="button" disabled={!replayableIdKeys.has(`${row.extended ? 1 : 0}:${row.can_id}`)} onclick={() => selectReplayId(row.can_id, row.extended)} title={$canHelpBubblesEnabled ? "Freeze valid RX frames for this exact ID and frame format from the current 400-frame retained ring. This does not transmit." : undefined}>Select ID</button></td>
             </tr>
           {:else}
-            <tr><td colspan="8" class="can-muted">{trafficSummary.length ? "No CAN IDs match these filters" : "Waiting for Candlelight frames"}</td></tr>
+            <tr><td colspan="9" class="can-muted">{trafficSummary.length ? "No CAN IDs match these filters" : "Waiting for Candlelight frames"}</td></tr>
           {/each}
         </tbody>
       </table>
@@ -297,6 +377,7 @@
           <th title={$canHelpBubblesEnabled ? "Raw bytes in this frame; hue tracks byte value from low to high." : undefined}>Data</th>
           <th title={$canHelpBubblesEnabled ? "Printable characters are colored by category; dots represent nonprintable bytes" : undefined}>ASCII</th>
           <th>Field</th>
+          <th>Replay</th>
         </tr></thead>
         <tbody>
           {#each filteredFrames.slice(0, 80) as frame, index (`${frame.wall_time_unix_ns}:${frame.can_id}:${index}`)}
@@ -309,9 +390,10 @@
               <td><code class="can-hex-data">{#each frame.data as byte, byteIndex (`${byteIndex}:${byte}`)}<span class="can-hex-byte" style={`--byte-hue:${byteHue(byte)}deg`} title={`Byte ${byteIndex}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{byte.toString(16).padStart(2, "0").toUpperCase()}</span>{/each}</code></td>
               <td><code class="can-ascii">{#each frame.data as byte, byteIndex (`${byteIndex}:${byte}`)}<span class={`can-ascii-${asciiCategory(byte)}`} title={`Byte ${byteIndex}: 0x${byte.toString(16).padStart(2, "0").toUpperCase()}`}>{asciiCharacter(byte)}</span>{/each}</code></td>
               <td><button class="can-small-action" type="button" disabled={frame.direction !== "rx"} onclick={() => openEditor(frame, fields.find((field) => field.can_id === frame.can_id && field.extended === frame.extended)?.id ?? null)} title={$canHelpBubblesEnabled ? "Open the signal editor from this received frame and select any saved field for its ID." : undefined}>＋ Field</button></td>
+              <td><button class="can-small-action" type="button" disabled={frame.direction !== "rx" || !replayableIdKeys.has(`${frame.extended ? 1 : 0}:${frame.can_id}`)} onclick={() => selectReplayId(frame.can_id, frame.extended)} title={$canHelpBubblesEnabled ? "Freeze all valid RX frames for this exact ID and frame format from the current retained ring. This does not transmit." : undefined}>Select ID</button></td>
             </tr>
           {:else}
-            <tr><td colspan="8" class="can-muted">{frames.length ? "No frames match these filters" : "Waiting for Candlelight frames"}</td></tr>
+            <tr><td colspan="9" class="can-muted">{frames.length ? "No frames match these filters" : "Waiting for Candlelight frames"}</td></tr>
           {/each}
         </tbody>
       </table>
@@ -410,6 +492,13 @@
   .can-traffic-filters { display:flex; align-items:center; flex-wrap:wrap; gap:4px; min-width:0; }
   .can-traffic-filters > .text-input { width:auto; min-width:70px; min-height:25px; padding:2px 5px; font-size:9px; }
   .can-traffic-filters > input[type="search"] { flex:1 1 125px; }
+  .can-id-replay { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:center; gap:6px; padding:5px 6px; border:1px solid var(--border-strong); border-radius:6px; background:var(--surface-raised); }
+  .can-id-replay-details { display:grid; gap:2px; min-width:0; color:var(--text-muted); font-size:9px; white-space:normal; }
+  .can-id-replay-details strong { color:var(--text-primary); font-size:10px; }
+  .can-id-replay-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:4px; }
+  .can-id-replay-actions .button { min-height:25px; padding:2px 6px; font-size:9px; }
+  .can-replay-status { color:var(--accent); }
+  .can-id-replay-hint { grid-column:1 / -1; margin:0; color:var(--text-muted); font-size:9px; }
   .can-min-rate { display:flex; align-items:center; gap:4px; color:var(--text-muted); font-size:9px; }
   .can-min-rate .text-input { width:60px; min-width:0; min-height:25px; padding:2px 4px; font-size:9px; }
   .can-color-guide { color:var(--text-muted); font-size:9px; white-space:nowrap; }
@@ -437,5 +526,5 @@
   .can-pinned-id, .can-event-error { margin:0; color:var(--text-secondary); font-size:10px; }
   .can-event-error { color:var(--danger); }
   .can-noise-hint { display:block; margin-top:2px; color:var(--text-muted); white-space:normal; }
-  @media (max-width:700px) { .can-monitor-toolbar { flex-wrap:wrap; } .can-monitor-toolbar .count-pill { margin-left:0; } .can-view-switch { margin-left:auto; } .can-candidate-wrap { max-height:45vh; } }
+  @media (max-width:700px) { .can-monitor-toolbar { flex-wrap:wrap; } .can-monitor-toolbar .count-pill { margin-left:0; } .can-view-switch { margin-left:auto; } .can-candidate-wrap { max-height:45vh; } .can-id-replay { grid-template-columns:minmax(0, 1fr); } .can-id-replay-actions { justify-content:flex-start; } }
 </style>

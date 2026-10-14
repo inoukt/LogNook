@@ -196,10 +196,11 @@ pub(super) fn tick_scan(
         started,
         pending_tx,
         next_tx_sequence,
+        None,
     ) {
         Ok(submitted) => submitted,
         Err(error) => {
-            task.transport_error = Some(error);
+            task.transport_error = Some(error.error);
             return;
         }
     };
@@ -382,8 +383,9 @@ pub(super) fn accept_scan_response(
             started,
             pending_tx,
             next_tx_sequence,
+            None,
         ) {
-            task.transport_error = Some(error);
+            task.transport_error = Some(error.error);
             return;
         }
     }

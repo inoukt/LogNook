@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, async_runtime};
 
@@ -19,21 +19,27 @@ use tauri::{AppHandle, Emitter, Manager, async_runtime};
 pub(crate) struct AgentWorkbenchState {
     capture_path: Option<PathBuf>,
     send_until: Option<Instant>,
+    replay_until: Option<Instant>,
 }
 
 impl AgentWorkbenchState {
     pub(crate) fn active_operation(&mut self, scan_active: bool) -> Option<String> {
+        let now = Instant::now();
+        if self.replay_until.is_some_and(|deadline| now >= deadline) {
+            self.replay_until = None;
+        }
+        if self.send_until.is_some_and(|deadline| now >= deadline) {
+            self.send_until = None;
+        }
         if scan_active {
             Some("CAN scan".into())
-        } else if self
-            .send_until
-            .is_some_and(|deadline| Instant::now() < deadline)
-        {
+        } else if self.replay_until.is_some_and(|deadline| now < deadline) {
+            Some("CAN ID replay".into())
+        } else if self.send_until.is_some_and(|deadline| now < deadline) {
             Some("CAN frame send".into())
         } else if self.capture_path.is_some() {
             Some("CAN capture".into())
         } else {
-            self.send_until = None;
             None
         }
     }
@@ -62,24 +68,55 @@ pub(crate) fn stop_active_operations(
     reason: CanScanStopReason,
 ) -> Result<Option<PathBuf>, String> {
     let state = app.state::<AppState>();
-    let (capture_path, send_active) = match state.agent_workbench.lock() {
-        Ok(mut operation) => {
-            let active = operation
-                .send_until
-                .is_some_and(|until| Instant::now() < until);
-            let values = (operation.capture_path.take(), active);
-            operation.send_until = None;
-            values
-        }
-        Err(_) => return Err("Agent Workbench state is unavailable".into()),
-    };
+    let result = stop_active_operations_state(&state, reason);
+    if let Err(message) = &result {
+        let _ = app.emit(
+            "lognook-event",
+            lognook_core::EngineEvent::Error(format!(
+                "Agent operation stop was incomplete: {message}"
+            )),
+        );
+    }
+    result
+}
+
+fn stop_active_operations_state(
+    state: &AppState,
+    reason: CanScanStopReason,
+) -> Result<Option<PathBuf>, String> {
+    let mut operation = state
+        .agent_workbench
+        .lock()
+        .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
+    stop_active_operations_locked(state, reason, &mut operation)
+}
+
+fn stop_active_operations_locked(
+    state: &AppState,
+    reason: CanScanStopReason,
+    operation: &mut AgentWorkbenchState,
+) -> Result<Option<PathBuf>, String> {
+    let send_active = operation
+        .send_until
+        .is_some_and(|until| Instant::now() < until);
+    let replay_active = operation
+        .replay_until
+        .is_some_and(|until| Instant::now() < until);
+    let capture_path = operation.capture_path.take();
+    operation.send_until = None;
+    operation.replay_until = None;
     let scan_active = state.agent_scan_active.swap(false, Ordering::AcqRel);
     let mut errors = Vec::new();
-    if capture_path.is_some() || scan_active || send_active {
+    if capture_path.is_some() || scan_active || send_active || replay_active {
         match state.engine.lock() {
             Ok(engine) if capture_path.is_some() => {
                 if let Err(error) = engine.stop_can_capture_with_reason(reason.clone()) {
                     errors.push(format!("CAN evidence finalization failed: {error}"));
+                }
+            }
+            Ok(engine) if replay_active => {
+                if let Err(error) = engine.stop_can_id_replay() {
+                    errors.push(format!("CAN replay stop failed: {error}"));
                 }
             }
             Ok(engine) => {
@@ -103,18 +140,56 @@ pub(crate) fn stop_active_operations(
     }
     if !errors.is_empty() {
         let message = errors.join("; ");
-        let _ = app.emit(
-            "lognook-event",
-            lognook_core::EngineEvent::Error(format!(
-                "Agent operation stop was incomplete: {message}"
-            )),
-        );
         return Err(match capture_path {
             Some(path) => format!("{message}; partial evidence: {}", path.display()),
             None => message,
         });
     }
     Ok(capture_path)
+}
+
+fn agent_can_operation_active(operation: &AgentWorkbenchState, scan_active: bool) -> bool {
+    operation.capture_path.is_some()
+        || operation
+            .send_until
+            .is_some_and(|until| Instant::now() < until)
+        || operation
+            .replay_until
+            .is_some_and(|until| Instant::now() < until)
+        || scan_active
+}
+
+fn disconnect_source_state(state: &AppState, source: AgentConnectionSource) -> Result<(), String> {
+    match source {
+        AgentConnectionSource::Can => {
+            let mut operation = state
+                .agent_workbench
+                .lock()
+                .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
+            if agent_can_operation_active(
+                &operation,
+                state.agent_scan_active.load(Ordering::Acquire),
+            ) {
+                stop_active_operations_locked(
+                    state,
+                    CanScanStopReason::AgentRequested,
+                    &mut operation,
+                )?;
+            }
+            state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine is unavailable".to_owned())?
+                .disconnect_can()
+                .map_err(|error| error.to_string())
+        }
+        AgentConnectionSource::Obd => state
+            .engine
+            .lock()
+            .map_err(|_| "Acquisition engine is unavailable".to_owned())?
+            .disconnect_obd()
+            .map_err(|error| error.to_string()),
+    }
 }
 
 pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentResponse {
@@ -243,16 +318,7 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
         AgentRequest::DisconnectSource { source } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || {
-                let state = app.state::<AppState>();
-                let mut engine = state
-                    .engine
-                    .lock()
-                    .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
-                match source {
-                    AgentConnectionSource::Obd => engine.disconnect_obd(),
-                    AgentConnectionSource::Can => engine.disconnect_can(),
-                }
-                .map_err(|error| error.to_string())
+                disconnect_source_state(&app.state::<AppState>(), source)
             })
             .await
             {
@@ -399,6 +465,7 @@ fn workbench(
         }
         Operation::StopCapture => {
             let path = active.capture_path.clone();
+            active.replay_until = None;
             engine
                 .stop_can_capture_with_reason(CanScanStopReason::AgentRequested)
                 .map_err(|error| error.to_string())?;
@@ -484,7 +551,86 @@ fn workbench(
                 active.capture_path.clone(),
             ))
         }
+        Operation::ReplayCanId {
+            can_id,
+            extended,
+            start_elapsed_ms,
+            end_elapsed_ms,
+        } => {
+            let (start_ns, end_ns) = replay_time_range_ns(start_elapsed_ms, end_elapsed_ms)?;
+            if can_id > if extended { 0x1fff_ffff } else { 0x7ff } {
+                return Err("CAN identifier exceeds its 11-bit or 29-bit format".into());
+            }
+            if state.agent_scan_active.load(Ordering::Acquire)
+                || active
+                    .send_until
+                    .is_some_and(|until| Instant::now() < until)
+                || active
+                    .replay_until
+                    .is_some_and(|until| Instant::now() < until)
+            {
+                return Err("A CAN send, scan, or replay is already active".into());
+            }
+
+            let can_status = engine
+                .can_workbench_status()
+                .filter(|status| status.connected)
+                .ok_or_else(|| {
+                    "Connect Candlelight before replaying captured CAN frames".to_owned()
+                })?;
+            let selection = state
+                .agent_log_buffer
+                .lock()
+                .map_err(|_| "Live log buffer is unavailable".to_owned())?
+                .query_can_replay_frames(
+                    &can_status.source_id,
+                    can_id,
+                    extended,
+                    start_ns,
+                    end_ns,
+                )?;
+            ensure_can_transmit(&engine)?;
+            ensure_agent_capture(&state, &mut active, &engine)?;
+            if !state.trace_store.capture_status().capturing {
+                super::trace::start_capture(&state)?;
+            }
+            let duration = replay_status_duration(&selection.frames);
+            let replay = engine
+                .start_can_id_replay(selection.frames.clone())
+                .map_err(|error| error.to_string())?;
+            active.replay_until = Some(Instant::now() + duration);
+            Ok(AgentWorkbenchResult {
+                operation: "can_id_replay_started".into(),
+                detail: Some(format!(
+                    "Replay {} for {} CAN ID 0x{can_id:X}, elapsed {start_elapsed_ms}-{end_elapsed_ms} ms, started with {} of {} matching RX frames ({} omitted by the 400-frame limit)",
+                    replay.replay_id,
+                    if extended { "extended" } else { "standard" },
+                    replay.total_frames,
+                    selection.matched_count,
+                    selection.truncated_count
+                )),
+                evidence_path: active
+                    .capture_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+            })
+        }
     }
+}
+
+fn replay_status_duration(frames: &[CanFrame]) -> Duration {
+    let scheduled_ns = frames
+        .windows(2)
+        .map(|pair| (pair[1].elapsed_ns - pair[0].elapsed_ns).max(1_000_000) as u64)
+        .sum::<u64>();
+    Duration::from_nanos(scheduled_ns).saturating_add(Duration::from_secs(2))
+}
+
+fn replay_time_range_ns(start_ms: u64, end_ms: u64) -> Result<(i64, i64), String> {
+    if start_ms > end_ms || end_ms > (i64::MAX as u64 / 1_000_000) {
+        return Err("CAN replay range must be ordered and within the supported time range".into());
+    }
+    Ok(((start_ms * 1_000_000) as i64, (end_ms * 1_000_000) as i64))
 }
 
 fn is_agent_access_unlocked(state: &AppState) -> bool {
@@ -1363,6 +1509,13 @@ fn adapter_id(choice: &AgentAdapterChoice) -> String {
 
 fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
+    let mut active = state
+        .agent_workbench
+        .lock()
+        .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
+    if agent_can_operation_active(&active, state.agent_scan_active.load(Ordering::Acquire)) {
+        stop_active_operations_locked(&state, CanScanStopReason::AgentRequested, &mut active)?;
+    }
     let mut engine = state
         .engine
         .lock()
@@ -1375,6 +1528,7 @@ fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
         .begin_operation(adapter_id, "disconnect", vec![]);
     let result = engine.disconnect().map_err(|error| error.to_string());
     operation.finish_result(&result);
+    drop(active);
     result
 }
 
@@ -1382,21 +1536,110 @@ fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
 mod tests {
     use super::{
         AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
-        decode_hex_payload, ensure_mode06_supported, search_oem_candidates, start_agent_scan,
+        decode_hex_payload, disconnect_source_state, ensure_mode06_supported,
+        replay_status_duration, replay_time_range_ns, search_oem_candidates, start_agent_scan,
         summarize_oem_try, supported_mode06_tests, to_a30_test, update_agent_scan_state,
         validate_signal_selection,
     };
     use crate::agent::protocol::{
         AgentAccessSnapshot, AgentAdapterChoice, AgentCanScanConfig, AgentCanScanMode,
-        AgentSignalSelection,
+        AgentConnectionSource, AgentSignalSelection,
     };
     use lognook_core::{
-        CanScanConfig, CanScanMode, DeviceDescriptor, LogNookEngine, OemCandidateOutcome,
-        OemCandidateTryResult, OemCatalog,
+        CanDirection, CanEvidenceRecord, CanFrame, CanScanConfig, CanScanMode, CanTransport,
+        CanTransportError, CanTransportEvent, CanWorkbenchConfig, DeviceDescriptor, LogNookEngine,
+        OemCandidateOutcome, OemCandidateTryResult, OemCatalog,
+    };
+    use std::{
+        path::PathBuf,
+        sync::atomic::AtomicBool,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     fn engine() -> LogNookEngine {
         LogNookEngine::new(|_| {})
+    }
+
+    struct QuietCanTransport;
+
+    impl CanTransport for QuietCanTransport {
+        fn source_id(&self) -> String {
+            "can:agent-test".into()
+        }
+
+        fn start(
+            &mut self,
+            _bitrate: u32,
+            _listen_only: bool,
+            _session_origin: Instant,
+        ) -> Result<(), CanTransportError> {
+            Ok(())
+        }
+
+        fn receive(
+            &mut self,
+            timeout: Duration,
+        ) -> Result<Option<CanTransportEvent>, CanTransportError> {
+            std::thread::sleep(timeout.min(Duration::from_millis(2)));
+            Ok(None)
+        }
+
+        fn transmit(&mut self, _frame: &CanFrame) -> Result<u32, CanTransportError> {
+            Ok(1)
+        }
+
+        fn stop(&mut self) -> Result<(), CanTransportError> {
+            Ok(())
+        }
+    }
+
+    fn test_app_state() -> (crate::AppState, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "lognook-agent-replay-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let diagnostics =
+            crate::diagnostics::DiagnosticsService::start(root.join("operations.jsonl"), |_| {})
+                .unwrap();
+        let observer = diagnostics.clone();
+        let log_buffer = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::agent::log_data::AgentLogBuffer::default(),
+        ));
+        let engine_log_buffer = std::sync::Arc::clone(&log_buffer);
+        let engine = LogNookEngine::new(move |event| {
+            observer.observe_engine(&event);
+            if let Ok(mut buffer) = engine_log_buffer.lock() {
+                buffer.record_engine_event(&event);
+            }
+        });
+        let state = crate::AppState {
+            engine: std::sync::Mutex::new(engine),
+            diagnostics,
+            diagnostics_path: root.join("operations.jsonl"),
+            recordings_dir: root.join("recordings"),
+            pid_catalog_path: root.join("catalog.sqlite"),
+            oem_validation_log: root.join("probe.jsonl"),
+            oem_candidate_try_log: root.join("tries.jsonl"),
+            a30_read_test_log: root.join("reads.jsonl"),
+            agent_access: std::sync::Mutex::new(
+                crate::agent::access::AgentAccessManager::open(root.join("pin.hash")).unwrap(),
+            ),
+            agent_ipc: crate::agent::ipc::AgentIpcService::new(&root),
+            agent_ipc_endpoint: crate::agent::ipc::endpoint_name(&root),
+            agent_selection: std::sync::Mutex::new(AgentSignalSelection {
+                log_signal_ids: vec![],
+                graph_signal_ids: vec![],
+            }),
+            agent_scan_active: std::sync::Arc::new(AtomicBool::new(false)),
+            agent_workbench: std::sync::Mutex::new(AgentWorkbenchState::default()),
+            agent_log_buffer: log_buffer,
+            trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
+        };
+        (state, root)
     }
 
     #[test]
@@ -1582,6 +1825,128 @@ mod tests {
         let mut state = AgentWorkbenchState::default();
         assert_eq!(state.active_operation(true).as_deref(), Some("CAN scan"));
         assert_eq!(state.active_operation(false), None);
+        state.replay_until = Some(Instant::now() + std::time::Duration::from_secs(1));
+        assert_eq!(
+            state.active_operation(false).as_deref(),
+            Some("CAN ID replay")
+        );
+        state.replay_until = Some(Instant::now());
+        assert_eq!(state.active_operation(false), None);
+        assert!(state.replay_until.is_none());
+    }
+
+    #[test]
+    fn replay_time_range_checks_order_and_nanosecond_conversion_overflow() {
+        assert_eq!(replay_time_range_ns(1, 2).unwrap(), (1_000_000, 2_000_000));
+        assert!(replay_time_range_ns(2, 1).is_err());
+        assert!(replay_time_range_ns(0, (i64::MAX as u64 / 1_000_000) + 1).is_err());
+
+        let frames = [
+            CanFrame {
+                elapsed_ns: 10,
+                wall_time_unix_ns: 10,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![1],
+                flags: 0,
+            },
+            CanFrame {
+                elapsed_ns: 1_000_010,
+                wall_time_unix_ns: 1_000_010,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![2],
+                flags: 0,
+            },
+        ];
+        assert_eq!(
+            replay_status_duration(&frames),
+            Duration::from_millis(2_001)
+        );
+    }
+
+    #[test]
+    fn can_disconnect_cancels_active_replay_but_leaves_unrelated_trace_open() {
+        let (state, root) = test_app_state();
+        let capture_path = root.join("replay.candump.csv");
+        {
+            let mut engine = state.engine.lock().unwrap();
+            engine
+                .connect_can_transport(
+                    CanWorkbenchConfig {
+                        bitrate: 500_000,
+                        listen_only: false,
+                    },
+                    Box::new(QuietCanTransport),
+                )
+                .unwrap();
+            engine.start_can_capture(&capture_path).unwrap();
+            engine
+                .start_can_id_replay(vec![
+                    CanFrame {
+                        elapsed_ns: 0,
+                        wall_time_unix_ns: 0,
+                        can_id: 0x321,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data: vec![1],
+                        flags: 0,
+                    },
+                    CanFrame {
+                        elapsed_ns: 60_000_000_000,
+                        wall_time_unix_ns: 60_000_000_000,
+                        can_id: 0x321,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data: vec![2],
+                        flags: 0,
+                    },
+                ])
+                .unwrap();
+        }
+        let trace_path = root.join("agent-traces").join("capture.jsonl");
+        state.trace_store.start_capture(&trace_path).unwrap();
+        {
+            let mut operation = state.agent_workbench.lock().unwrap();
+            operation.capture_path = Some(capture_path.clone());
+            operation.replay_until = Some(Instant::now() + Duration::from_secs(120));
+            assert_eq!(
+                operation.active_operation(false).as_deref(),
+                Some("CAN ID replay")
+            );
+        }
+
+        disconnect_source_state(&state, AgentConnectionSource::Can).unwrap();
+        let mut operation = state.agent_workbench.lock().unwrap();
+        assert_eq!(operation.active_operation(false), None);
+        assert!(operation.replay_until.is_none());
+        assert!(!state.trace_store.capture_status().capturing);
+        drop(operation);
+
+        let journal =
+            std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path)).unwrap();
+        assert!(journal.contains("\"record\":\"can_id_replay_finished\""));
+        assert!(journal.contains("\"state\":\"stopped\""));
+        let records = journal
+            .lines()
+            .map(|line| serde_json::from_str::<CanEvidenceRecord>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(records.iter().any(|record| matches!(
+            record,
+            CanEvidenceRecord::CanIdReplayFinished {
+                state: lognook_core::CanIdReplayState::Stopped,
+                ..
+            }
+        )));
+        let unrelated_trace = root.join("agent-traces").join("unrelated.jsonl");
+        state.trace_store.start_capture(&unrelated_trace).unwrap();
+        disconnect_source_state(&state, AgentConnectionSource::Can).unwrap();
+        assert!(state.trace_store.capture_status().capturing);
+        state.trace_store.stop_capture().unwrap();
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -249,6 +249,7 @@ pub enum EngineEvent {
     CanScanStarted(crate::CanScanConfig),
     CanScanStopped,
     CanWorkbenchStatus(crate::CanWorkbenchStatus),
+    CanIdReplayStatus(crate::CanIdReplayStatus),
     CanLiveEventAnalysis(crate::CanLiveEventSnapshot),
     CanScanCompleted(crate::CanScanConfig),
     CanTxStatus {

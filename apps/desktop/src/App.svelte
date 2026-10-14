@@ -22,7 +22,8 @@
   import CanHelp from "./CanHelp.svelte";
   import VehicleDiagnosticsPanel from "./VehicleDiagnosticsPanel.svelte";
   import {
-    appendCanFrames, appendCanTrafficSummary, canSignalIdsNeedingReset, canSignalOption, canTransmitEnabled,
+    appendCanFrames, appendCanTrafficSummary, canIdReplayEnabled, canSignalIdsNeedingReset, canSignalOption,
+    canTransmitEnabled, createCanWorkbenchCommands, mergeCanIdReplayStatus,
     adjustCanMonitorHeight, restoreCanSignalDefinitions,
     clearCanSessionSamples as withoutCanSamples, emptyCanSessionEvents,
   } from "./canWorkbench";
@@ -40,7 +41,7 @@
   } from "./derivedSignals";
   import type { ShortcutAction } from "./shortcuts";
   import type {
-    A30GraphValue, AgentAccessStatus, AgentSignalSelection, BluetoothSppDevice, CanFrame, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
+    A30GraphValue, AgentAccessStatus, AgentSignalSelection, BluetoothSppDevice, CanFrame, CanIdReplayStatus, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
     CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
     J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, RecordingInfo, ResearchRunViewState,
@@ -70,6 +71,7 @@
   const canSignalDefinitionsKey = "lognook.can-signal-definitions";
   const automaticTriggerPreferencesKey = "lognook.automatic-trigger";
   const liveCsvBuffer = new LiveCsvBuffer();
+  const canWorkbenchCommands = createCanWorkbenchCommands(invoke);
 
   let signalCatalog: SignalDefinition[] = [];
   let derivedSignalDefinitions: DerivedSignalDefinition[] = [];
@@ -122,6 +124,14 @@
   let signalPickerVisible = true;
   let pidPickerView: "signals" | "oem" | "can" = "signals";
   let canWorkbenchStatus: CanWorkbenchStatus | null = null;
+  let canIdReplayStatus: CanIdReplayStatus | null = null;
+  let canIdReplayStartPending = false;
+  let canIdReplayStopPending = false;
+  let canIdReplayError = "";
+  let canIdReplayHistorySpanNs = 0;
+  let activeCanIdReplayId: number | null = null;
+  let canIdReplayGeneration = 0;
+  let pendingCanIdReplayEvents: CanIdReplayStatus[] = [];
   let canSignalDefinitions: CanSignalDefinition[] = [];
   let canFrames: CanFrame[] = [];
   let canTrafficSummary: CanTrafficSummary[] = [];
@@ -201,6 +211,14 @@
   let availableSignals: SignalOption[] = [];
   let visibleLiveSignalIds: string[] = [];
   $: connected = obdConnected || canConnected;
+  $: canIdReplayActive = canIdReplayStartPending || canIdReplayStatus?.state === "running";
+  $: canIdReplayStartEnabled = canIdReplayEnabled(
+    canWorkbenchStatus,
+    canCaptureOpen,
+    busy || replaying || researchRunView.running || session !== null || canIdReplayStartPending || canIdReplayStopPending,
+    canScanRunning,
+    canIdReplayActive,
+  );
   $: connectionControls = connectionControlState(selectedAdapter, {
     busy: busy || researchRunView.running,
     recording,
@@ -517,7 +535,9 @@
       readoutRequest++;
       latest = { ...latest, [sample.signal_id]: sample };
     } else if (event.type === "canWorkbenchStatus") {
+      const wasCanConnected = canConnected;
       if (event.payload.connected && !canConnected) {
+        resetCanIdReplayUi();
         if (!obdConnected) {
           if (session) void clearSession();
           resetLiveHistory();
@@ -547,6 +567,7 @@
           ? `${activeAdapterDescriptor.hardware_family} + ${canStatus}`
           : canStatus;
       } else {
+        if (wasCanConnected || canIdReplayStartPending || activeCanIdReplayId !== null) resetCanIdReplayUi();
         canCaptureOpen = false;
         canCapturePath = "";
         clearCanSignalSamples();
@@ -554,6 +575,22 @@
         status = obdConnected && activeAdapterDescriptor
           ? `${activeAdapterDescriptor.hardware_family} · read only`
           : "Disconnected";
+      }
+    } else if (event.type === "canIdReplayStatus") {
+      const update = event.payload;
+      if (canIdReplayStartPending) {
+        const current = pendingCanIdReplayEvents.find((item) => item.replay_id === update.replay_id) ?? null;
+        const merged = mergeCanIdReplayStatus(current, update);
+        pendingCanIdReplayEvents = [
+          ...pendingCanIdReplayEvents.filter((item) => item.replay_id !== update.replay_id),
+          merged,
+        ].slice(-4);
+      } else if (activeCanIdReplayId === update.replay_id) {
+        canIdReplayStatus = mergeCanIdReplayStatus(canIdReplayStatus, update);
+        if (canIdReplayStatus.state !== "running") {
+          canIdReplayStopPending = false;
+          canIdReplayError = canIdReplayStatus.state === "failed" ? canIdReplayStatus.error ?? "CAN ID replay failed." : "";
+        }
       }
     } else if (event.type === "canFrames") {
       queuedCanFrames = appendCanFrames(queuedCanFrames, event.payload, 400);
@@ -1233,6 +1270,69 @@
     canTriggerCapture = null;
   }
 
+  function resetCanIdReplayUi() {
+    canIdReplayGeneration++;
+    canIdReplayStatus = null;
+    canIdReplayStartPending = false;
+    canIdReplayStopPending = false;
+    canIdReplayError = "";
+    canIdReplayHistorySpanNs = 0;
+    activeCanIdReplayId = null;
+    pendingCanIdReplayEvents = [];
+  }
+
+  async function startCanIdReplay(frames: CanFrame[]) {
+    if (!canIdReplayStartEnabled || frames.length === 0) {
+      throw new Error("ID replay requires an active CAN connection, a paired capture, no scan, and at least one retained RX frame.");
+    }
+    const generation = canIdReplayGeneration;
+    canIdReplayStartPending = true;
+    canIdReplayStopPending = false;
+    canIdReplayError = "";
+    canIdReplayStatus = null;
+    activeCanIdReplayId = null;
+    pendingCanIdReplayEvents = [];
+    canIdReplayHistorySpanNs = Math.max(0, frames[frames.length - 1].elapsed_ns - frames[0].elapsed_ns);
+    try {
+      const started = await canWorkbenchCommands.startCanIdReplay(frames);
+      if (generation !== canIdReplayGeneration) return;
+      activeCanIdReplayId = started.replay_id;
+      canIdReplayStatus = mergeCanIdReplayStatus(null, started);
+      for (const update of pendingCanIdReplayEvents) {
+        if (update.replay_id === activeCanIdReplayId) {
+          canIdReplayStatus = mergeCanIdReplayStatus(canIdReplayStatus, update);
+        }
+      }
+      pendingCanIdReplayEvents = [];
+      canIdReplayError = canIdReplayStatus.state === "failed" ? canIdReplayStatus.error ?? "CAN ID replay failed." : "";
+      if (canIdReplayStatus.state !== "running") canIdReplayStopPending = false;
+    } catch (reason) {
+      if (generation === canIdReplayGeneration) {
+        canIdReplayError = String(reason);
+        pendingCanIdReplayEvents = [];
+      }
+      throw reason;
+    } finally {
+      if (generation === canIdReplayGeneration) canIdReplayStartPending = false;
+    }
+  }
+
+  async function stopCanIdReplay() {
+    if (canIdReplayStatus?.state !== "running" || canIdReplayStopPending) return;
+    const generation = canIdReplayGeneration;
+    canIdReplayStopPending = true;
+    canIdReplayError = "";
+    try {
+      await canWorkbenchCommands.stopCanIdReplay();
+    } catch (reason) {
+      if (generation === canIdReplayGeneration) {
+        canIdReplayStopPending = false;
+        canIdReplayError = String(reason);
+      }
+      throw reason;
+    }
+  }
+
   function startCanOemCandidate(candidateId: string) {
     return run(async () => {
       const spec = await invoke<OemCandidateTrySpec>("start_can_oem_candidate", { candidateId });
@@ -1460,6 +1560,19 @@
     <span class="milestone">MultiAdaptCan-v1</span>
   </header>
 
+  {#if canIdReplayStatus || canIdReplayStartPending || canIdReplayError}
+    <aside class="can-id-replay-global" aria-label="CAN ID replay status">
+      {#if canIdReplayStartPending && !canIdReplayStatus}<span role="status">Starting CAN ID replay…</span>{/if}
+      {#if canIdReplayStatus}
+        <span role="status">CAN ID replay {canIdReplayStatus.state} · {canIdReplayStatus.sent_frames.toLocaleString()}/{canIdReplayStatus.total_frames.toLocaleString()} TX frames submitted · {canIdReplayStatus.extended ? "29" : "11"}-bit 0x{canIdReplayStatus.can_id.toString(16).toUpperCase()}{#if canIdReplayHistorySpanNs} · {(canIdReplayHistorySpanNs / 1e9).toFixed(3)} s retained RX history{/if} · Adapter TX echoes are tracked separately; ECU receipt is not confirmed.</span>
+      {/if}
+      {#if canIdReplayError}<span class="can-id-replay-error" role="alert">{canIdReplayError}</span>{/if}
+      {#if canIdReplayStatus?.state === "running"}
+        <button class="button danger" type="button" onclick={stopCanIdReplay} disabled={canIdReplayStopPending}>Stop ID replay</button>
+      {/if}
+    </aside>
+  {/if}
+
   <SessionShare path={sharePath} onClose={() => sharePath = ""} onSaved={(message) => status = message} />
 
   <DiagnosticsPanel
@@ -1654,6 +1767,7 @@
           triggerCapture={canTriggerCapture}
           correlationSamples={canCorrelationSamples}
           scanRunning={canScanRunning}
+          canIdReplayRunning={canIdReplayActive}
           bind:captureOpen={canCaptureOpen}
           bind:capturePath={canCapturePath}
           onFieldsChanged={updateCanSignalDefinitions}
@@ -1668,9 +1782,17 @@
             trafficSummary={canTrafficSummary}
             liveEventAnalysis={canLiveEventAnalysis}
             fields={canSignalDefinitions}
+            canIdReplayEnabled={canIdReplayStartEnabled}
+            canIdReplayGeneration={canIdReplayGeneration}
+            replayStartPending={canIdReplayStartPending}
+            replayStopPending={canIdReplayStopPending}
+            replayStatus={canIdReplayStatus}
+            replayError={canIdReplayError}
             onSaveField={saveCanSignalField}
             onRemoveField={removeCanSignalField}
             onClearEvents={clearLiveCanEventAnalysis}
+            onStartCanIdReplay={startCanIdReplay}
+            onStopCanIdReplay={stopCanIdReplay}
           />
           <div class="can-monitor-splitter" role="slider" tabindex="0" aria-orientation="vertical" aria-valuemin="120" aria-valuemax={Math.max(120, (measurementsElement?.clientHeight ?? 288) - 168)} aria-valuenow={canMonitorHeight} aria-label="CAN monitor height"
             onpointerdown={startCanSplitResize} onpointermove={resizeCanSplit} onpointerup={finishCanSplitResize} onpointercancel={finishCanSplitResize} onkeydown={resizeCanSplitFromKeyboard}></div>

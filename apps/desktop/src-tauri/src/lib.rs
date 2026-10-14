@@ -164,6 +164,8 @@ pub fn run() {
             commands::mark_can_event,
             commands::clear_can_event_results,
             commands::send_can_frame,
+            commands::start_can_id_replay,
+            commands::stop_can_id_replay,
             commands::start_can_scan,
             commands::stop_can_scan,
             commands::arm_can_trigger,

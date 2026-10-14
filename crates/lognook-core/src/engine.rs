@@ -355,6 +355,23 @@ impl LogNookEngine {
             .send_frame(frame, pacing_ms, repeat)
     }
 
+    pub fn start_can_id_replay(
+        &self,
+        frames: Vec<crate::CanFrame>,
+    ) -> Result<crate::CanIdReplayStatus, LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("Connect Candlelight before replaying CAN frames"))?
+            .start_can_id_replay(frames)
+    }
+
+    pub fn stop_can_id_replay(&self) -> Result<(), LogNookError> {
+        self.can_workbench
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No CAN workbench is connected"))?
+            .stop_can_id_replay()
+    }
+
     pub fn start_can_scan(&self, config: CanScanConfig) -> Result<(), LogNookError> {
         self.can_workbench
             .as_ref()

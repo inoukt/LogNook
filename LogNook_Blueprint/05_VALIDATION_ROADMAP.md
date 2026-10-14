@@ -1,7 +1,9 @@
 # Development stages and proof-of-concept validation
 
+> This is the original staged validation proposal, not the current task list. Several stages and adapters have since been implemented. Check [current project status](../PROJECT_STATUS.md), [the remaining backlog](../docs/FEATURE_BACKLOG.md), and the dated hardware reports before repeating or planning a test.
+
 ## Stage 0 — requirements freeze, fixtures, safety
-Lock shared sample/event types and the minimal connection contract. Obtain at least one adapter of each family plus a real ECU or legitimate bench simulator. Create a reusable timestamped ECU simulator covering variable delay, stale values, malformed responses, multiple ECUs and unplug/replug. Store independently captured reference frames as legal fixtures. Establish measurement-only acquisition tests and separate source-backed physical read probes under root `AGENTS.md`; state-changing tests require exact per-test approval, and flashing/programming is prohibited.
+Lock shared sample/event types and the minimal connection contract. Obtain at least one adapter of each family plus a real ECU or legitimate bench simulator. Create a reusable timestamped ECU simulator covering variable delay, stale values, malformed responses, multiple ECUs and unplug/replug. Store independently captured reference frames as legally usable fixtures. Establish measurement-only acquisition tests and explicit physical read probes under root `AGENTS.md`. Keep CAN bench transmission user-started, bounded, serialized, and recorded; do not add automatic state changes, firmware flashing, or programming workflows.
 
 ## Stage 1 — vertical slice
 Connect one known-good generic USB ELM327 or OBDLink SX to simulated/real generic CAN OBD; show supported PID selection, live RPM/coolant graph, marker, Start/Stop, exact timestamped `.lognook`, live CSV export, reopen/replay and crash recovery. In parallel build automated tests for parser and scheduler. A usable vertical slice before elaborate UI theming prevents architecture drift.
@@ -22,7 +24,7 @@ The unprioritized ideas in [`Addons for later.txt`](../Addons%20for%20later.txt)
 
 ## Test matrix (record firmware, vehicle ECU and observed conditions)
 - Known field vehicles: **2011 Ford Flex 3.5L EcoBoost**, **2014 Scion xB 2.4L 2AZ-FE**; Subaru make/model/year/ECU variants as test access permits. See `08_POC_VEHICLES.md` for the actual sequence and conditional signal selection.
-- Personally available adapters: Tactrix OpenPort 2.0, OBDLink SX, generic ELM327 (specific firmware/driver revisions must still be recorded). RH-02 physical hardware is not yet confirmed.
+- Adapters reported or evaluated: Tactrix OpenPort 2.0, OBDLink SX, generic ELM327, A30, and Candlelight/RH-02. Record the exact physical unit, firmware, driver and vehicle on each run; this roadmap does not establish current availability or full compatibility.
 - Devices: OpenPort 2.0 with official J2534; OBDLink SX FTDI; known-original/suspect ELM clones; RH-02 candleLight; CANable SLCAN.
 - Platform: Windows 10 and 11 x64 on at least two USB chipsets; Linux engine/adapter continuous integration (later physical tests).
 - Protocol: generic CAN 11/29-bit, real multi-ECU requests, ISO-TP segmentation, variable ECU timing, K-line/J1850 where the device is electrically capable.
