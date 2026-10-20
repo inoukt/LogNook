@@ -7,13 +7,15 @@ export function graphPngFilename(date: Date): string {
 
 export function buildGraphExportSvg(
   graphMarkup: string,
-  options: { width: number; height: number; title?: string; legend?: readonly GraphExportLegendItem[] },
+  options: { width: number; height: number; title?: string; legend?: readonly GraphExportLegendItem[]; viewBox?: readonly [number, number, number, number] },
 ): { svg: string; width: number; height: number } {
   if (!Number.isFinite(options.width) || options.width <= 0 || !Number.isFinite(options.height) || options.height <= 0) {
     throw new RangeError("Graph export dimensions must be positive numbers.");
   }
 
   const width = Math.round(options.width);
+  const viewBox = options.viewBox ?? [0, 0, 720, 168];
+  if (!viewBox.every(Number.isFinite) || viewBox[2] <= 0 || viewBox[3] <= 0) throw new RangeError("Graph viewBox must have finite positive dimensions.");
   const headerHeight = options.title ? 48 : 0;
   const graphHeight = Math.round(options.height);
   const legend = options.legend ?? [];
@@ -33,7 +35,7 @@ export function buildGraphExportSvg(
   return {
     width,
     height,
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><style>line{stroke:#2d3c47;stroke-width:1;stroke-dasharray:3 5}.marker-guide{stroke:#f0d45c;stroke-width:1.3;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}.marker-cap{fill:#f0d45c}.playhead-guide{stroke:#56c8bd;stroke-width:1.5;stroke-dasharray:5 3;vector-effect:non-scaling-stroke}.reference-trace{stroke-dasharray:6 4}polyline{fill:none;stroke-width:2.3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}text{fill:#657984;font:22px Inter,'Segoe UI',sans-serif}.export-title{fill:#e7edf3;font-size:20px;font-weight:600}.legend-label,.legend-value{fill:#aab9c2;font-size:16px}</style><rect x="0" y="0" width="${width}" height="${height}" fill="#19232d"/>${titleMarkup}<svg x="0" y="${headerHeight}" width="${width}" height="${graphHeight}" viewBox="0 0 720 168" preserveAspectRatio="none">${graphMarkup}</svg>${legendMarkup}</svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><style>line{stroke:#2d3c47;stroke-width:1;stroke-dasharray:3 5}.marker-guide{stroke:#f0d45c;stroke-width:1.3;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}.marker-cap{fill:#f0d45c}.playhead-guide{stroke:#56c8bd;stroke-width:1.5;stroke-dasharray:5 3;vector-effect:non-scaling-stroke}.reference-trace{stroke-dasharray:6 4}polyline{fill:none;stroke-width:2.3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}text{fill:#657984;font:22px Inter,'Segoe UI',sans-serif}.export-title{fill:#e7edf3;font-size:20px;font-weight:600}.legend-label,.legend-value{fill:#aab9c2;font-size:16px}</style><rect x="0" y="0" width="${width}" height="${height}" fill="#19232d"/>${titleMarkup}<svg x="0" y="${headerHeight}" width="${width}" height="${graphHeight}" viewBox="${viewBox.join(" ")}" preserveAspectRatio="none">${graphMarkup}</svg>${legendMarkup}</svg>`,
   };
 }
 

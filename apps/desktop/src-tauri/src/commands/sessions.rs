@@ -1,6 +1,8 @@
 use super::engine;
 use crate::AppState;
-use lognook_core::{RecordingInfo, export_recording_csv, inspect_recording};
+use lognook_core::{
+    RecordingInfo, RecordingVehicleContextSummary, export_recording_csv, inspect_recording,
+};
 use std::process::Command;
 use std::{
     path::{Path, PathBuf},
@@ -9,7 +11,13 @@ use std::{
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-type BrowserRecordingRow = (String, String, u64, usize);
+type BrowserRecordingRow = (
+    String,
+    String,
+    u64,
+    usize,
+    Option<RecordingVehicleContextSummary>,
+);
 
 #[tauri::command]
 pub async fn list_recordings(
@@ -105,6 +113,9 @@ fn list_recordings_in(recordings_dir: &Path) -> Result<Vec<BrowserRecordingRow>,
                 .unwrap_or_default(),
             modified_unix_ms,
             info.sample_count,
+            info.vehicle_context
+                .as_ref()
+                .map(RecordingVehicleContextSummary::from),
         ));
     }
     recordings.sort_by(|left, right| right.2.cmp(&left.2).then_with(|| left.1.cmp(&right.1)));

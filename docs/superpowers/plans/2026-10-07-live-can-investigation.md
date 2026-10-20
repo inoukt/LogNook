@@ -60,6 +60,12 @@ Implemented limits: 50,000 history frames, 10,000 frames per mark, 32 pending wi
 
 The editor opens from count rows, recent RX frames, or event candidates; it freezes the selected frame, supports keyboard-accessible bit selection and Intel/Motorola 8/16/32-bit shortcuts, previews with `decode_can_signal`, and saves/edits/removes definitions through the existing Workbench command and graph-selection persistence.
 
+### Repeated-event snapshots
+
+For repeated physical actions, each mark uses the configured pre/post window. The live `CanLiveEventAnalysis` payload includes ordered, capture-local per-mark summaries: sequence and mark time, configured window durations, pending/complete/incomplete state, omitted-ID count, and at most 100 retained RX IDs with frame count and latest exact frame. The existing bounds remain 256 marks, 32 pending windows, and 10,000 frames per window. A window exceeding its frame limit or losing required pre-window history is incomplete; an empty completed window remains comparable. Snapshots are live analysis state only. Clearing live analysis clears these summaries but leaves raw capture data and event marks intact; reopening a saved capture does not reconstruct the comparison.
+
+The Events view can open **Compare snapshots** for one label. Standard and extended IDs remain separate. Green means exact payload recurrence among known completed observations, with intensity reflecting recurrence; amber means a different payload for the same CAN ID and standard/extended width has the same DLC and at least 90% matching bits against the most common exact payload for that same ID and width. Neutral means an observed payload does not meet that similarity threshold. Absent means the ID was not seen in a complete uncapped window; unknown/not retained means the window's ID cap prevents that conclusion. Pending and incomplete windows are labeled and excluded from recurrence. At least two known observations are required before relation colors are applied. These colors describe byte-pattern correlation only: they do not decode signals or establish ECU, counter, checksum, or vehicle meaning.
+
 ## Delivery scope
 
 The implementation reuses the existing CAN owner, capture/evidence, correlation, field decoder, and workspace graph APIs. It adds a focused editor component rather than enlarging `CanWorkbenchPanel.svelte`. No adapter firmware change is needed for either feature.

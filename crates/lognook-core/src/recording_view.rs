@@ -1,5 +1,5 @@
 use crate::{
-    model::{LogNookError, Marker, RecordingInfo, RecordingSignal},
+    model::{LogNookError, Marker, RecordingInfo, RecordingSignal, RecordingVehicleContextV1},
     recording::open_recording,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
@@ -8,6 +8,8 @@ use std::path::Path;
 pub fn inspect_recording(path: &Path) -> Result<RecordingInfo, LogNookError> {
     let connection = open_recording(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let summary = recording_summary(path)?;
+    let vehicle_context = metadata_value(&connection, "vehicle_context_v1")?
+        .and_then(|value| serde_json::from_str::<RecordingVehicleContextV1>(&value).ok());
     let mut statement = connection.prepare(
         "SELECT id, elapsed_ns, wall_time_unix_ns, label, note FROM markers ORDER BY elapsed_ns, id",
     )?;
@@ -33,6 +35,7 @@ pub fn inspect_recording(path: &Path) -> Result<RecordingInfo, LogNookError> {
         duration_ns,
         signals: summary.signals,
         markers,
+        vehicle_context,
     })
 }
 

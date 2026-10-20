@@ -86,6 +86,10 @@ button { color: inherit; }
 .app-shell[data-high-contrast="true"] .mode-switch { border-color: var(--border); }
 .app-shell[data-high-contrast="true"] .mode-switch button.active { outline: 1px solid var(--border); }
 .topbar { position: relative; z-index: 10; height: 42px; flex: 0 0 42px; display: flex; align-items: center; gap: 14px; padding: 0 10px; border-bottom: 1px solid var(--border-soft); background: var(--surface-top); }
+.can-id-replay-global { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:4px 10px; border-bottom:1px solid var(--border-soft); background:var(--surface-raised); color:var(--text-secondary); font-size:10px; }
+.can-id-replay-global > span:first-child { flex:1 1 auto; min-width:0; }
+.can-id-replay-global .can-id-replay-error { color:var(--danger); }
+.can-id-replay-global .button { min-height:25px; padding:2px 7px; font-size:10px; }
 .brand { display: flex; align-items: center; gap: 8px; color: var(--text-bright); text-decoration: none; font-size: 16px; font-weight: 720; letter-spacing: -.4px; }
 .brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: var(--accent-text); background: var(--accent); font-size: 15px; font-weight: 800; }
 .brand-accent { color: var(--accent); }
@@ -122,6 +126,10 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .adapter-select { width: clamp(94px, 7.5vw, 118px); min-width: 88px; }
 .port-select { width: clamp(104px, 8vw, 124px); min-width: 104px; }
 .provider-select { width: clamp(128px, 10vw, 156px); min-width: 112px; }
+.protocol-select { width: clamp(120px, 9vw, 142px); min-width: 108px; }
+.can-obd-device-select { width: clamp(150px, 12vw, 210px); min-width: 140px; }
+.adapter-number { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 0.75rem; }
+.adapter-number input { width: 48px; min-width: 48px; padding-inline: 5px; text-align: center; }
 .bluetooth-select { width: clamp(112px, 11vw, 158px); min-width: 104px; }
 .bluetooth-select { width: clamp(112px, 11vw, 158px); min-width: 104px; }
 .adapter-refresh { min-width: 28px; padding-inline: 6px; }
@@ -378,3 +386,8 @@ svg text { fill: var(--text-muted); font-size: 11px; }
 @media (max-width: 900px) {
   main { padding-inline: 8px; }
 }
+.vehicle-profiles-dialog { width:min(860px, calc(100vw - 24px)); max-height:85vh; overflow:auto; padding:18px; border:1px solid var(--border-strong); border-radius:12px; background:var(--surface-raised); color:var(--text-primary); }
+.vehicle-profiles-dialog::backdrop { background:rgb(0 0 0 / 55%); }
+.vehicle-profile-dialog-bar { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; }
+.vehicle-profile-dialog-bar label { display:flex; align-items:center; gap:8px; font-size:12px; }
+.vehicle-project-unavailable { margin: 6px 12px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; }

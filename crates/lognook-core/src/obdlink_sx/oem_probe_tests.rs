@@ -1,5 +1,10 @@
-use super::{ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTrySpec};
-use crate::{HardwareAdapter, OemCandidate, ResearchTestRequest, ResearchTestResult};
+use super::{
+    ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTrySpec, decode_oem_candidate_payload,
+};
+use crate::{
+    HardwareAdapter, OemCandidate, OemCandidateSourcePolicy, ResearchTestRequest,
+    ResearchTestResult,
+};
 use std::{
     io::{Cursor, Read, Write},
     sync::{Arc, Mutex},
@@ -30,6 +35,7 @@ impl Write for FixturePort {
 
 fn spec() -> OemCandidateTrySpec {
     OemCandidateTrySpec {
+        source_policy: crate::OemCandidateSourcePolicy::IndexedPack,
         candidate: OemCandidate {
             candidate_id: "candidate-1".into(),
             source_id: "SCION_SOURCE".into(),
@@ -69,6 +75,64 @@ fn spec() -> OemCandidateTrySpec {
         },
         value_format: "uint".into(),
     }
+}
+
+#[test]
+fn owner_supplied_subaru_read_uses_local_provenance_without_claiming_a_license() {
+    let mut local = spec();
+    let catalog_sha = "a".repeat(64);
+    local.source_policy = OemCandidateSourcePolicy::LocalSubaruCatalog {
+        catalog_sha256: catalog_sha.clone(),
+    };
+    local.candidate.candidate_id = "subaru-candidate_1234".into();
+    local.candidate.source_id = "SUBARU_OEM_40_01B_ABCD1234".into();
+    local.candidate.family = "Subaru OEM catalog".into();
+    local.candidate.brand = "Subaru".into();
+    local.candidate.source_blob_sha.clear();
+    local.candidate.source_url = None;
+    local.candidate.license = None;
+    local.candidate.license_url = None;
+    local.candidate.research_state = "review_required".into();
+    local.candidate.vehicle_validation = "not_tested".into();
+    local.candidate.auto_request = false;
+    local.candidate.source_scope = format!("owner_supplied_subaru_catalog:{catalog_sha}");
+    assert!(super::build_oem_candidate_command(&local).is_ok());
+
+    local.candidate.family = "Unrelated".into();
+    assert!(super::build_oem_candidate_command(&local).is_err());
+}
+
+#[test]
+fn subaru_ssm_group_payload_decodes_as_memory_bytes_without_mode22_framing() {
+    let mut local = spec();
+    let catalog_sha = "a".repeat(64);
+    local.source_policy = OemCandidateSourcePolicy::LocalSubaruCatalog {
+        catalog_sha256: catalog_sha.clone(),
+    };
+    local.candidate.candidate_id = format!("subaru-candidate_{}", "b".repeat(64));
+    local.candidate.source_id = "SUBARU_OEM_40_01B_ABCD1234".into();
+    local.candidate.family = "Subaru OEM catalog".into();
+    local.candidate.brand = "Subaru".into();
+    local.candidate.service = "SSM-KWP".into();
+    local.candidate.identifier = "00000E".into();
+    local.candidate.request_header = "$10 $20".into();
+    local.candidate.response_header = "F0".into();
+    local.candidate.bit_offset = Some(8);
+    local.candidate.decoder_json =
+        "{\"bix\":0,\"len\":8,\"mul\":1,\"div\":1,\"add\":0,\"unit\":\"celsius\"}".into();
+    local.candidate.source_blob_sha.clear();
+    local.candidate.source_url = None;
+    local.candidate.license = None;
+    local.candidate.license_url = None;
+    local.candidate.research_state = "review_required".into();
+    local.candidate.vehicle_validation = "not_tested".into();
+    local.candidate.auto_request = false;
+    local.candidate.source_scope = format!("owner_supplied_subaru_catalog:{catalog_sha}");
+
+    let decoded = decode_oem_candidate_payload(&local, Some("F0"), &[0x22, 0x7d]);
+    assert_eq!(decoded.outcome, OemCandidateOutcome::Positive);
+    assert_eq!(decoded.decoded_value.unwrap().value, Some(125.0));
+    assert!(super::build_oem_candidate_command(&local).is_err());
 }
 
 fn started_adapter(transcript: &str) -> (ObdLinkSxAdapter, Arc<Mutex<Vec<u8>>>) {

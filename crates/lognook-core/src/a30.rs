@@ -774,6 +774,12 @@ impl A30Adapter {
             device,
             protocol: "SAE J1979 Mode 01 via Xtool A30/A30M".into(),
             read_only: true,
+            diagnostics: crate::DiagnosticCapabilities {
+                dtc_snapshot: true,
+                identity: true,
+                mode06: true,
+                clear_dtcs: true,
+            },
             supported_signals,
         })
     }
@@ -813,10 +819,31 @@ impl HardwareAdapter for A30Adapter {
                     .map(crate::ResearchTestResult::A30ReadTest)
             }
             crate::ResearchTestRequest::Diagnostic(query) => {
+                if query.kind == crate::DiagnosticReadKind::ClearDtcs {
+                    return Err(LogNookError::new(
+                        "Mode 04 is available only through the explicit DTC clear operation",
+                    ));
+                }
                 read_a30_vehicle_diagnostic(session, &self.address, query)
                     .map(crate::ResearchTestResult::Diagnostic)
             }
         }
+    }
+
+    fn clear_vehicle_dtcs(&mut self) -> Result<Vec<crate::DiagnosticRead>, LogNookError> {
+        if self.started.is_none() {
+            return Err(LogNookError::new("A30 adapter is not connected"));
+        }
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| LogNookError::new("A30 adapter is not connected"))?;
+        read_a30_vehicle_diagnostic(
+            session,
+            &self.address,
+            crate::DiagnosticQueryRequest::clear_dtcs(),
+        )
+        .map(|report| report.reads)
     }
 
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
@@ -1220,9 +1247,13 @@ fn read_a30_vehicle_diagnostic(
         )),
     }
     Ok(crate::DiagnosticReport {
+        report_id: None,
+        connection_generation: None,
+        vehicle_context: None,
         adapter,
         protocol: "Xtool A30/A30M Bluetooth SPP · SAE J1979 functional CAN".into(),
         started_at_unix_ms,
+        operation_kind: crate::DiagnosticReportKind::Snapshot,
         request: crate::DiagnosticRequest::default(),
         reads,
         route_restore_error,
@@ -1880,6 +1911,7 @@ mod tests {
 
     fn scion_mode21_candidate() -> OemCandidateTrySpec {
         OemCandidateTrySpec {
+            source_policy: crate::OemCandidateSourcePolicy::IndexedPack,
             value_format: "uint".into(),
             candidate: OemCandidate {
                 candidate_id: "scion-xb-engine-mode21-01-test".into(),
@@ -2020,6 +2052,9 @@ mod tests {
                     }
                     (0xFFEC, _) if request.data.get(11) == Some(&0x0A) => {
                         (0xFFF1, notify_data(&[0x4A, 0]))
+                    }
+                    (0xFFEC, _) if request.data.get(11) == Some(&0x04) => {
+                        (0xFFF1, notify_data(&[0x44]))
                     }
                     (0xFFEC, _) if request.data.get(11) == Some(&0x21) => {
                         (0xFFBD, captured_mode21_block())
@@ -2786,6 +2821,50 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn a30_explicit_mode04_uses_one_captured_record_and_keeps_research_read_only() {
+        let (dongle, requests) = ScriptedDongle::new();
+        let timing = A30Timing {
+            handshake_wait: Duration::ZERO,
+            retry_wait: Duration::ZERO,
+            status_wait: Duration::ZERO,
+            poll_wait: Duration::ZERO,
+            config_wait: Duration::ZERO,
+            read_wait: Duration::ZERO,
+        };
+        let mut adapter =
+            A30Adapter::with_stream_for_test("AA:BB:CC:DD:EE:FF", Box::new(dongle), timing);
+        let capabilities = adapter.connect().unwrap();
+        assert!(capabilities.diagnostics.clear_dtcs);
+        requests.lock().unwrap().clear();
+
+        let reads = adapter.clear_vehicle_dtcs().unwrap();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].service, 0x04);
+        assert_eq!(reads[0].request_payload, [0x04]);
+        assert_eq!(reads[0].outcome, crate::DiagnosticOutcome::Positive);
+        assert_eq!(reads[0].response_payload, [0x44]);
+        assert_eq!(
+            requests.lock().unwrap().as_slice(),
+            [(
+                0xFFEC,
+                vec![
+                    1, 0, 0x10, 0x61, 0x04, 0, 0x0B, 8, 7, 0x04, 0xDF, 0x04, 0, 0, 0, 0, 0, 0, 0xFF
+                ]
+            )]
+        );
+
+        requests.lock().unwrap().clear();
+        assert!(
+            adapter
+                .execute_research_test(crate::ResearchTestRequest::Diagnostic(
+                    crate::DiagnosticQueryRequest::clear_dtcs()
+                ))
+                .is_err()
+        );
+        assert!(requests.lock().unwrap().is_empty());
     }
 
     #[test]

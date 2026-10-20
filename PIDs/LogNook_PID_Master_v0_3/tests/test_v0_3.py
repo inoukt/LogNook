@@ -7,6 +7,7 @@ def main():
     db=sqlite3.connect(ROOT/'data/lognook_pids.sqlite'); db.row_factory=sqlite3.Row
     assert db.execute('pragma integrity_check').fetchone()[0]=='ok'
     assert db.execute("select value from db_meta where key='schema_version'").fetchone()[0]=='3'
+    assert db.execute("select value from db_meta where key='subaru_catalog_schema_version'").fetchone()[0]=='1'
     assert db.execute("select value from db_meta where key='package_version'").fetchone()[0]=='0.3'
     imported=db.execute('select count(*) from oem_candidates').fetchone()[0]
     assert db.execute("select value from db_meta where key='synced_oem_candidates'").fetchone()[0]==str(imported)
@@ -18,6 +19,15 @@ def main():
     assert support['auto_request']==0 and support['validation_status']=='not_independently_verified'
     assert db.execute("select count(*) from vehicle_supported_commands where profile_id='SCION_XB_2008_2014'").fetchone()[0]==30
     assert db.execute('select count(*) from candidate_concepts').fetchone()[0]>0
+    extension=db.execute("select value from db_meta where key='subaru_catalog_schema_version'").fetchone()
+    subaru_tables={r[0] for r in db.execute("select name from sqlite_master where type='table' and name like 'subaru_%'")}
+    if extension:
+        assert extension[0]=='1'
+        assert {'subaru_signal_definitions','subaru_signal_ecu_links','subaru_request_hints'} <= subaru_tables
+        assert db.execute("select count(*) from subaru_catalog_search where auto_request<>0 or vehicle_validation<>'not_tested'").fetchone()[0]==0
+        assert db.execute("select count(*) from subaru_request_hints where mapping_state<>'inferred' or auto_request<>0").fetchone()[0]==0
+    else:
+        assert not subaru_tables, subaru_tables
     summary=json.loads((ROOT/'data/deep_catalog_summary.json').read_text('utf-8'))
     assert summary['imported_oem_candidates']==imported
     summary=json.loads((ROOT/'data/catalog_summary.json').read_text('utf-8'))

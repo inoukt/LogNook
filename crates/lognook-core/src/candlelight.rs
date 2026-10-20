@@ -13,9 +13,9 @@ use nusb::{
     },
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt,
-    sync::mpsc,
+    sync::{Mutex, OnceLock, mpsc},
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -44,6 +44,7 @@ pub enum CandlelightError {
     UnsupportedFrame(String),
     Protocol(String),
     Usb(String),
+    ChannelBusy,
     Worker(String),
 }
 impl fmt::Display for CandlelightError {
@@ -64,6 +65,9 @@ impl fmt::Display for CandlelightError {
             Self::UnsupportedFrame(s) | Self::Protocol(s) | Self::Usb(s) | Self::Worker(s) => {
                 f.write_str(s)
             }
+            Self::ChannelBusy => f.write_str(
+                "Candlelight USB interface/channel is already owned by another LogNook source. Disconnect that source before identifying or connecting this channel.",
+            ),
         }
     }
 }
@@ -487,6 +491,49 @@ fn decode_frame_inner(
 pub struct CandlelightDevice {
     pub usb: DeviceInfo,
 }
+
+static CLAIMED_CHANNELS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+#[derive(Debug)]
+struct CandlelightChannelLease {
+    key: String,
+}
+
+impl CandlelightChannelLease {
+    fn claim(key: String) -> Result<Self, CandlelightError> {
+        let claimed = CLAIMED_CHANNELS.get_or_init(|| Mutex::new(HashSet::new()));
+        let mut claimed = claimed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !claimed.insert(key.clone()) {
+            return Err(CandlelightError::ChannelBusy);
+        }
+        Ok(Self { key })
+    }
+}
+
+impl Drop for CandlelightChannelLease {
+    fn drop(&mut self) {
+        if let Some(claimed) = CLAIMED_CHANNELS.get() {
+            claimed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&self.key);
+        }
+    }
+}
+
+fn channel_lease_key(device: &DeviceInfo, interface_number: u8, channel: u8) -> String {
+    let device_path = device.serial_number().map_or_else(
+        || format!("{}:{}", device.bus_id(), device.device_address()),
+        |serial| format!("serial:{serial}:bus:{}", device.bus_id()),
+    );
+    format!(
+        "{:04X}:{:04X}:{device_path}:{interface_number}:{channel}",
+        device.vendor_id(),
+        device.product_id()
+    )
+}
 pub fn available_candlelight_devices() -> Result<Vec<CandlelightDevice>, CandlelightError> {
     thread::Builder::new()
         .name("candlelight-enumerate".into())
@@ -538,6 +585,7 @@ enum Command {
 /// The later Workbench manager must ensure one transport per physical adapter.
 pub struct CandlelightTransport {
     identity: CandlelightIdentity,
+    _channel_lease: CandlelightChannelLease,
     commands: mpsc::Sender<Command>,
     worker: Option<JoinHandle<()>>,
     communication_sink: Option<crate::communication_trace::CommunicationSink>,
@@ -562,6 +610,11 @@ impl CandlelightTransport {
         interface_number: u8,
         channel: u8,
     ) -> Result<Self, CandlelightError> {
+        let channel_lease = CandlelightChannelLease::claim(channel_lease_key(
+            &device.usb,
+            interface_number,
+            channel,
+        ))?;
         let (commands, requests) = mpsc::channel();
         let (ready, result) = mpsc::channel();
         let worker = thread::Builder::new()
@@ -615,6 +668,7 @@ impl CandlelightTransport {
         match result.recv() {
             Ok(Ok(identity)) => Ok(Self {
                 identity,
+                _channel_lease: channel_lease,
                 commands,
                 worker: Some(worker),
                 communication_sink: None,
@@ -896,5 +950,25 @@ impl UsbOwner {
             decoded.frame.data = original.data;
         }
         Ok(decoded)
+    }
+}
+
+#[cfg(test)]
+mod channel_ownership_tests {
+    use super::CandlelightChannelLease;
+
+    #[test]
+    fn one_owner_per_interface_channel_and_drop_releases_the_claim() {
+        let key = format!("lease-test:{}", std::thread::current().name().unwrap());
+        let first = CandlelightChannelLease::claim(key.clone()).unwrap();
+
+        let collision = CandlelightChannelLease::claim(key.clone()).unwrap_err();
+        assert!(collision.to_string().contains("already owned"));
+        let other_channel = CandlelightChannelLease::claim(format!("{key}:channel-1")).unwrap();
+        let other_device = CandlelightChannelLease::claim(format!("{key}:other-device")).unwrap();
+
+        drop(first);
+        assert!(CandlelightChannelLease::claim(key).is_ok());
+        drop((other_channel, other_device));
     }
 }

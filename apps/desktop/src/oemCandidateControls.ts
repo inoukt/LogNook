@@ -13,16 +13,18 @@ export function oemCandidateTryState(
   candidate: TryCandidate,
   device: string,
   blocked: boolean,
-  adapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" = "obdlink_sx",
+  adapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" | "candlelight_obd" = "obdlink_sx",
 ) {
-  if (adapter !== "obdlink_sx" && adapter !== "a30" && adapter !== "elm327") {
-    return { disabled: true, reason: "OEM reads require OBDLink SX or Bluetooth ELM327/A30" };
-  }
+  const supportedAdapter = adapter === "obdlink_sx" || adapter === "a30" || adapter === "elm327"
+    || adapter === "openport2" || adapter === "candlelight_obd" || adapter === "simulator";
+  if (!supportedAdapter) return { disabled: true, reason: "OEM reads are unavailable for this adapter" };
   if (!device) {
-    return {
-      disabled: true,
-      reason: adapter === "a30" || adapter === "elm327" ? "Select a paired Bluetooth device" : "Select an OBDLink SX port",
-    };
+    const reason = adapter === "a30" || adapter === "elm327" ? "Select a paired Bluetooth device"
+      : adapter === "openport2" ? "Connect an OpenPort 2 adapter"
+        : adapter === "candlelight_obd" ? "Connect a Candlelight OBD adapter"
+          : adapter === "simulator" ? "Connect the simulator"
+            : "Select an OBDLink SX port";
+    return { disabled: true, reason };
   }
   if (blocked) return { disabled: true, reason: "Connect a supported adapter and finish replay or other current actions before testing" };
   const identifierWidth = candidate.service === "21" ? 2 : candidate.service === "22" ? 4 : 0;

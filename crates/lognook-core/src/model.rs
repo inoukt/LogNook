@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt, path::PathBuf};
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct DeviceDescriptor {
     pub stable_id: String,
     pub hardware_family: String,
@@ -26,6 +26,8 @@ pub struct ConnectionCapabilities {
     pub device: DeviceDescriptor,
     pub protocol: String,
     pub read_only: bool,
+    #[serde(default)]
+    pub diagnostics: crate::DiagnosticCapabilities,
     pub supported_signals: Vec<SignalDefinition>,
 }
 
@@ -130,7 +132,7 @@ pub struct Marker {
     pub note: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct DerivedSignalDefinition {
     pub id: String,
     pub name: String,
@@ -218,11 +220,51 @@ pub struct RecordingSignal {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RecordingVehicleContextV1 {
+    pub snapshot: crate::vehicle_profiles::VehicleIdentitySnapshot,
+    pub context_from_elapsed_ns: i64,
+    #[serde(default)]
+    pub context_from_sample_index: u64,
+}
+
+impl RecordingVehicleContextV1 {
+    pub fn applies_to_sample(&self, sample_index: u64, elapsed_ns: i64) -> bool {
+        sample_index >= self.context_from_sample_index && elapsed_ns >= self.context_from_elapsed_ns
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RecordingVehicleContextSummary {
+    pub scope: crate::vehicle_profiles::ProfileScope,
+    pub vin_digest: Option<String>,
+    pub masked_vin: Option<String>,
+    pub identity_source: crate::vehicle_profiles::VehicleIdentitySource,
+    pub vin_conflict: bool,
+    pub has_full_vin: bool,
+}
+
+impl From<&RecordingVehicleContextV1> for RecordingVehicleContextSummary {
+    fn from(context: &RecordingVehicleContextV1) -> Self {
+        let snapshot = &context.snapshot;
+        Self {
+            scope: snapshot.scope,
+            vin_digest: snapshot.vin_digest.clone(),
+            masked_vin: snapshot.masked_vin.clone(),
+            identity_source: snapshot.identity_source,
+            vin_conflict: snapshot.vin_conflict,
+            has_full_vin: snapshot.full_vin.is_some(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RecordingInfo {
     pub sample_count: usize,
     pub duration_ns: i64,
     pub signals: Vec<RecordingSignal>,
     pub markers: Vec<Marker>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vehicle_context: Option<RecordingVehicleContextV1>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -249,6 +291,7 @@ pub enum EngineEvent {
     CanScanStarted(crate::CanScanConfig),
     CanScanStopped,
     CanWorkbenchStatus(crate::CanWorkbenchStatus),
+    CanIdReplayStatus(crate::CanIdReplayStatus),
     CanLiveEventAnalysis(crate::CanLiveEventSnapshot),
     CanScanCompleted(crate::CanScanConfig),
     CanTxStatus {

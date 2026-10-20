@@ -2,12 +2,11 @@ use super::engine;
 use crate::AppState;
 use lognook_core::{
     ConnectionCapabilities, DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticReport,
-    DiagnosticRequest, ResearchTestRequest, ResearchTestResult, supports_vehicle_diagnostics,
+    DiagnosticRequest, ResearchTestRequest, ResearchTestResult, VinOrigin,
+    supports_vehicle_diagnostics,
 };
 use std::{
-    fs::OpenOptions,
-    io::Write,
-    sync::{Mutex, mpsc::Receiver},
+    sync::mpsc::Receiver,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
@@ -20,7 +19,11 @@ fn connected_capabilities(state: &AppState) -> Result<ConnectionCapabilities, St
     let capabilities = engine.connection_capabilities().cloned().ok_or_else(|| {
         "Connect a supported OBD adapter before reading vehicle diagnostics".to_owned()
     })?;
-    if !supports_vehicle_diagnostics(Some(&capabilities.device.hardware_family)) {
+    if !supports_vehicle_diagnostics(Some(&capabilities.device.hardware_family))
+        || !(capabilities.diagnostics.dtc_snapshot
+            || capabilities.diagnostics.identity
+            || capabilities.diagnostics.mode06)
+    {
         return Err(format!(
             "Vehicle diagnostics are not supported by {}",
             capabilities.device.hardware_family
@@ -48,6 +51,13 @@ fn queue_query(
             capabilities.device.hardware_family
         ));
     }
+    if !capabilities.diagnostics.supports_query(&query) {
+        return Err(format!(
+            "{} does not support Mode {:02X} reads",
+            capabilities.device.hardware_family,
+            query.request_payload().first().copied().unwrap_or_default()
+        ));
+    }
     let receiver = engine
         .queue_research_test(ResearchTestRequest::Diagnostic(query))
         .map_err(|error| error.to_string())?;
@@ -60,15 +70,84 @@ fn report_for(
     request: DiagnosticRequest,
 ) -> DiagnosticReport {
     DiagnosticReport {
+        report_id: None,
+        connection_generation: None,
+        vehicle_context: None,
         adapter: capabilities.device.clone(),
         protocol: capabilities.protocol.clone(),
         started_at_unix_ms: now_unix_ms(),
+        operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
         request,
         reads: Vec::new(),
         route_restore_error: None,
         evidence_saved: false,
         evidence_save_error: None,
     }
+}
+
+pub(crate) fn execute_vehicle_dtc_clear(
+    state: &AppState,
+    expected_adapter_id: String,
+    expected_generation: u64,
+) -> Result<DiagnosticReport, String> {
+    let (capabilities, scope, recognition, receiver) = {
+        let current = engine(state)?;
+        if !current.is_obd_connected() {
+            return Err("Connect an OBD adapter before clearing DTCs".into());
+        }
+        let capabilities = current
+            .connection_capabilities()
+            .cloned()
+            .ok_or_else(|| "No OBD adapter is connected".to_owned())?;
+        if capabilities.device.stable_id != expected_adapter_id
+            || current.obd_connection_generation() != expected_generation
+        {
+            return Err("The OBD connection changed; review the adapter and confirm again".into());
+        }
+        if !capabilities.diagnostics.clear_dtcs {
+            return Err(format!(
+                "{} does not support standard Mode 04 DTC clearing",
+                capabilities.device.hardware_family
+            ));
+        }
+        let receiver = current
+            .queue_clear_vehicle_dtcs(&expected_adapter_id, expected_generation)
+            .map_err(|error| error.to_string())?;
+        (
+            capabilities.clone(),
+            super::vehicle_profiles::connection_scope(&capabilities.device.hardware_family),
+            state
+                .vehicle_profiles
+                .current_observation(expected_generation),
+            receiver,
+        )
+    };
+    let operation = state.diagnostics.begin_operation(
+        Some(expected_adapter_id.clone()),
+        "vehicle_dtc_clear",
+        Vec::new(),
+    );
+    let result = receiver
+        .recv()
+        .map_err(|_| "Acquisition worker did not complete the DTC clear operation".to_owned())
+        .and_then(|result| result.map_err(|error| error.to_string()))
+        .map(|reads| {
+            let mut report = report_for(&capabilities, DiagnosticRequest::default());
+            report.operation_kind = lognook_core::DiagnosticReportKind::ClearDtcs;
+            report.connection_generation = Some(expected_generation);
+            report.reads = reads;
+            crate::vehicle_reads::append_vehicle_report(
+                state,
+                &mut report,
+                scope,
+                expected_generation,
+                VinOrigin::EcuReport,
+                recognition.as_ref(),
+            );
+            report
+        });
+    operation.finish_result(&result);
+    result
 }
 
 fn add_transport_error(
@@ -111,38 +190,6 @@ fn add_query_result(
     next
 }
 
-fn save_evidence(path: &std::path::Path, report: &mut DiagnosticReport) {
-    let result = (|| -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let mut evidence = report.clone();
-        evidence.evidence_saved = true;
-        evidence.evidence_save_error = None;
-        let envelope = serde_json::json!({
-            "os": std::env::consts::OS,
-            "app_version": env!("CARGO_PKG_VERSION"),
-            "report": evidence,
-        });
-        let mut line = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
-        line.push(b'\n');
-        static APPEND_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = APPEND_LOCK
-            .lock()
-            .map_err(|_| "Vehicle-read evidence lock is unavailable".to_owned())?;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .map_err(|error| format!("Could not open vehicle-read evidence log: {error}"))?;
-        file.write_all(&line).map_err(|error| error.to_string())
-    })();
-    match result {
-        Ok(()) => report.evidence_saved = true,
-        Err(error) => report.evidence_save_error = Some(error),
-    }
-}
-
 fn collect_sync(
     state: &AppState,
     mut request: DiagnosticRequest,
@@ -152,6 +199,14 @@ fn collect_sync(
     let capabilities = connected_capabilities(state)?;
     let mut report = report_for(&capabilities, request);
     while let Some(query) = queries.pop_front() {
+        if !capabilities.diagnostics.supports_query(&query) {
+            report.reads.push(query.unsupported(format!(
+                "{} does not support Mode {:02X} reads; no request was sent",
+                capabilities.device.hardware_family,
+                query.request_payload().first().copied().unwrap_or_default()
+            )));
+            continue;
+        }
         let receiver = match queue_query(state, query.clone(), &report.adapter.stable_id) {
             Ok(receiver) => receiver,
             Err(error) => {
@@ -178,8 +233,6 @@ fn collect_sync(
             }
         }
     }
-    let path = state.diagnostics_path.with_file_name("vehicle-reads.jsonl");
-    save_evidence(&path, &mut report);
     Ok(report)
 }
 
@@ -187,9 +240,24 @@ pub(crate) fn execute_vehicle_diagnostic(
     state: &AppState,
     request: DiagnosticRequest,
 ) -> Result<DiagnosticReport, String> {
-    let adapter_id = connected_capabilities(state)
-        .ok()
-        .map(|capabilities| capabilities.device.stable_id);
+    let (adapter_id, generation, scope, recognition) = {
+        let current = engine(state)?;
+        if !current.is_obd_connected() {
+            return Err(
+                "Connect a supported OBD adapter before reading vehicle diagnostics".into(),
+            );
+        }
+        let capabilities = current.connection_capabilities().cloned().ok_or_else(|| {
+            "Connect a supported OBD adapter before reading vehicle diagnostics".to_owned()
+        })?;
+        let generation = current.obd_connection_generation();
+        (
+            Some(capabilities.device.stable_id.clone()),
+            generation,
+            super::vehicle_profiles::connection_scope(&capabilities.device.hardware_family),
+            state.vehicle_profiles.current_observation(generation),
+        )
+    };
     let signal_ids = request
         .mode06_test_ids
         .iter()
@@ -199,7 +267,23 @@ pub(crate) fn execute_vehicle_diagnostic(
         state
             .diagnostics
             .begin_operation(adapter_id, "vehicle_diagnostics", signal_ids);
-    let result = collect_sync(state, request);
+    let mut result = collect_sync(state, request);
+    if let Ok(report) = &mut result {
+        report.connection_generation = Some(generation);
+        crate::vehicle_reads::append_vehicle_report(
+            state,
+            report,
+            scope,
+            generation,
+            VinOrigin::EcuReport,
+            recognition.as_ref(),
+        );
+        if let Some(context) = report.vehicle_context.clone()
+            && let Ok(mut current) = engine(state)
+        {
+            let _ = current.set_vehicle_recording_context(Some(context), generation);
+        }
+    }
     operation.finish_result(&result);
     result
 }
@@ -217,91 +301,24 @@ pub async fn run_vehicle_diagnostics(
     .map_err(|error| format!("Vehicle diagnostic worker failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn clear_vehicle_dtcs(
+    app: tauri::AppHandle,
+    expected_adapter_id: String,
+    expected_generation: u64,
+) -> Result<DiagnosticReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        execute_vehicle_dtc_clear(&state, expected_adapter_id, expected_generation)
+    })
+    .await
+    .map_err(|error| format!("Vehicle DTC clear worker failed: {error}"))?
+}
+
 fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
         .min(u64::MAX as u128) as u64
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lognook_core::DeviceDescriptor;
-
-    fn report() -> DiagnosticReport {
-        DiagnosticReport {
-            adapter: DeviceDescriptor {
-                stable_id: "test-obd".into(),
-                hardware_family: "OBDLink SX".into(),
-                firmware: None,
-                path: None,
-            },
-            protocol: "fixture".into(),
-            started_at_unix_ms: 123,
-            request: DiagnosticRequest::default(),
-            route_restore_error: None,
-            reads: vec![
-                DiagnosticRequest::default()
-                    .queries()
-                    .unwrap()
-                    .front()
-                    .unwrap()
-                    .transport_error(
-                        "RAW REPLY".into(),
-                        "03".into(),
-                        124,
-                        5,
-                        "fixture error".into(),
-                    ),
-            ],
-            evidence_saved: false,
-            evidence_save_error: None,
-        }
-    }
-
-    #[test]
-    fn concurrent_evidence_reports_remain_complete_json_lines() {
-        let path = std::env::temp_dir().join(format!(
-            "lognook-vehicle-evidence-{}.jsonl",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let jobs = (0..8)
-            .map(|_| {
-                let path = path.clone();
-                std::thread::spawn(move || {
-                    let mut value = report();
-                    save_evidence(&path, &mut value);
-                    assert!(value.evidence_saved);
-                    assert!(value.evidence_save_error.is_none());
-                })
-            })
-            .collect::<Vec<_>>();
-        for job in jobs {
-            job.join().unwrap();
-        }
-        let contents = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(contents.lines().count(), 8);
-        for line in contents.lines() {
-            let value: serde_json::Value = serde_json::from_str(line).unwrap();
-            assert_eq!(value["report"]["reads"][0]["raw_response"], "RAW REPLY");
-            assert_eq!(value["report"]["started_at_unix_ms"], 123);
-            assert_eq!(value["report"]["evidence_saved"], true);
-        }
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn evidence_failure_keeps_the_diagnostic_results() {
-        let mut value = report();
-        let before = value.reads.clone();
-        save_evidence(&std::env::temp_dir(), &mut value);
-        assert!(!value.evidence_saved);
-        assert!(value.evidence_save_error.is_some());
-        assert_eq!(value.reads, before);
-    }
 }

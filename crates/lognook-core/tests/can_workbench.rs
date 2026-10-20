@@ -1,16 +1,20 @@
 use lognook_core::{
-    CanByteOrder, CanCaptureReader, CanDirection, CanEvidenceRecord, CanFrame, CanScanConfig,
-    CanScanMode, CanScanStopReason, CanSignalDefinition, CanTransport, CanTransportError,
-    CanTransportEvent, CanWorkbenchConfig, EngineEvent, LogNookEngine, OemCandidate,
-    OemCandidateTrySpec, SampleQuality,
+    CanByteOrder, CanCaptureReader, CanCaptureWriter, CanDirection, CanEvidenceRecord, CanFrame,
+    CanScanConfig, CanScanMode, CanScanStopReason, CanSignalDefinition, CanTransport,
+    CanTransportError, CanTransportEvent, CanWorkbenchConfig, EngineEvent, LogNookEngine,
+    OemCandidate, OemCandidateTrySpec, SampleQuality, SavedCanReplaySelection,
     communication_trace::{
         CommunicationDirection, CommunicationTraceEvent, CommunicationTraceStore,
     },
-    read_recording,
+    prepare_saved_can_replay, read_recording,
 };
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Barrier, Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     thread::{self, ThreadId},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -62,6 +66,10 @@ impl CanTransport for FakeTransport {
 
     fn source_id(&self) -> String {
         "can:test-adapter".into()
+    }
+
+    fn target_channel(&self) -> Option<u8> {
+        Some(2)
     }
 
     fn start(
@@ -192,6 +200,7 @@ fn config(listen_only: bool) -> CanWorkbenchConfig {
 
 fn can_oem_candidate(service: &str, identifier: &str) -> OemCandidateTrySpec {
     OemCandidateTrySpec {
+        source_policy: lognook_core::OemCandidateSourcePolicy::IndexedPack,
         candidate: OemCandidate {
             candidate_id: format!("candidate-{service}-{identifier}"),
             source_id: "SCION_SOURCE".into(),
@@ -245,12 +254,39 @@ fn frame(can_id: u32, direction: CanDirection, data: &[u8], elapsed_ns: i64) -> 
     }
 }
 
+static TEMP_PATH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 fn temp_path(ext: &str) -> PathBuf {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("lognook-can-{stamp}.{ext}"))
+    let sequence = TEMP_PATH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "lognook-can-{stamp}-{}-{sequence}.{ext}",
+        std::process::id()
+    ))
+}
+
+#[test]
+fn temporary_capture_paths_are_unique_when_created_concurrently() {
+    const PATH_COUNT: usize = 128;
+    let barrier = Arc::new(Barrier::new(PATH_COUNT));
+    let handles = (0..PATH_COUNT)
+        .map(|_| {
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                temp_path("candump.csv")
+            })
+        })
+        .collect::<Vec<_>>();
+    let paths = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
+    let unique = paths.iter().collect::<std::collections::HashSet<_>>().len();
+    assert_eq!(unique, PATH_COUNT);
 }
 
 fn cleanup_capture(path: &std::path::Path) {
@@ -717,6 +753,734 @@ fn active_send_and_scan_are_rejected_without_a_capture_journal() {
     );
     assert!(transmitted.try_recv().is_err());
     engine.disconnect().unwrap();
+}
+
+#[test]
+fn can_id_replay_uses_recorded_intervals_and_audits_the_original_source_frames() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, transmitted, owners) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+
+    let source_frames = vec![
+        frame(0x321, CanDirection::Rx, &[0x10], 100_000_000),
+        frame(0x321, CanDirection::Rx, &[0x20], 130_000_000),
+        frame(0x321, CanDirection::Rx, &[0x30], 180_000_000),
+    ];
+    let started = engine.start_can_id_replay(source_frames.clone()).unwrap();
+    assert_eq!(started.can_id, 0x321);
+    assert!(!started.extended);
+    assert_eq!(started.total_frames, 3);
+    assert_eq!(started.sent_frames, 0);
+    assert_eq!(started.state, lognook_core::CanIdReplayState::Running);
+
+    let submitted = (0..3)
+        .map(|_| transmitted.recv_timeout(Duration::from_secs(1)).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        submitted
+            .iter()
+            .map(|item| item.data.clone())
+            .collect::<Vec<_>>(),
+        vec![vec![0x10], vec![0x20], vec![0x30]]
+    );
+    assert!(submitted.iter().all(|item| {
+        item.can_id == 0x321
+            && !item.extended
+            && item.direction == CanDirection::Tx
+            && item.elapsed_ns > 0
+    }));
+    assert!(submitted[1].elapsed_ns - submitted[0].elapsed_ns >= 30_000_000);
+    assert!(submitted[2].elapsed_ns - submitted[1].elapsed_ns >= 50_000_000);
+    assert!(
+        submitted
+            .windows(2)
+            .all(|pair| pair[1].elapsed_ns > pair[0].elapsed_ns)
+    );
+
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanIdReplayStatus(status)
+                if status.replay_id == started.replay_id
+                    && status.state == lognook_core::CanIdReplayState::Completed
+                    && status.sent_frames == 3)
+        })
+    });
+    let worker_thread = owners.lock().unwrap()[0];
+    assert!(
+        owners
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|owner| *owner == worker_thread)
+    );
+    engine.stop_can_capture().unwrap();
+
+    let evidence_path = lognook_core::can_evidence_path(&capture_path);
+    let records = std::fs::read_to_string(&evidence_path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<CanEvidenceRecord>(line).unwrap())
+        .collect::<Vec<_>>();
+    let start_record_index = records.iter().position(|record| {
+        matches!(record,
+            CanEvidenceRecord::CanIdReplayStarted {
+                replay_id,
+                can_id: 0x321,
+                extended: false,
+                source_frames: recorded_frames,
+                minimum_interval_ms: 1,
+                maximum_interval_ms: 60_000,
+                no_catch_up: true,
+                ..
+            } if *replay_id == started.replay_id && recorded_frames == &source_frames
+        )
+    });
+    assert!(start_record_index.is_some());
+    assert!(records.iter().any(|record| matches!(record,
+        CanEvidenceRecord::CanIdReplayFinished {
+            replay_id,
+            total_frames: 3,
+            sent_frames: 3,
+            state: lognook_core::CanIdReplayState::Completed,
+            reason,
+            error: None,
+            ..
+        } if *replay_id == started.replay_id && reason == "completed"
+    )));
+    let tx_attempts = records
+        .iter()
+        .enumerate()
+        .filter_map(|(index, record)| match record {
+            CanEvidenceRecord::TxAttempt {
+                frame,
+                replay_id: Some(replay_id),
+                source_elapsed_ns: Some(source_elapsed_ns),
+                ..
+            } => Some((index, *replay_id, *source_elapsed_ns, frame)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tx_attempts.len(), 3);
+    assert!(start_record_index.unwrap() < tx_attempts[0].0);
+    assert!(
+        tx_attempts
+            .iter()
+            .all(|(_, replay_id, _, _)| *replay_id == started.replay_id)
+    );
+    assert_eq!(
+        tx_attempts
+            .iter()
+            .map(|(_, _, source_elapsed_ns, _)| *source_elapsed_ns)
+            .collect::<Vec<_>>(),
+        [100_000_000, 130_000_000, 180_000_000]
+    );
+    assert!(
+        tx_attempts
+            .iter()
+            .all(|(_, _, source_elapsed_ns, frame)| frame.elapsed_ns != *source_elapsed_ns)
+    );
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn saved_replay_exceeds_live_limit_and_flushes_provenance_chunks_before_tx() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, transmitted, _owners) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let source_path = temp_path("candump.csv");
+    let output_path = temp_path("candump.csv");
+    let source_frames = (0..401)
+        .map(|index| {
+            frame(
+                0x321,
+                CanDirection::Rx,
+                &[(index & 0xFF) as u8],
+                index * 1_000_000,
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut writer = CanCaptureWriter::create_new(&source_path).unwrap();
+    for frame in &source_frames {
+        writer.write_frame(frame).unwrap();
+    }
+    writer.finish().unwrap();
+    let prepared = prepare_saved_can_replay(
+        &source_path,
+        SavedCanReplaySelection {
+            can_id: 0x321,
+            extended: false,
+            start_elapsed_ns: 0,
+            end_elapsed_ns: 400_000_000,
+        },
+        &std::sync::atomic::AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(prepared.plan.frames().len(), 401);
+    engine.start_can_capture(&output_path).unwrap();
+    assert_eq!(
+        engine.active_can_capture_path(),
+        Some(output_path.canonicalize().unwrap())
+    );
+
+    let mismatched = prepared.plan.clone().with_source_bitrate(Some(250_000));
+    assert!(engine.start_prepared_can_replay(mismatched).is_err());
+    assert!(transmitted.try_recv().is_err());
+
+    let started = engine
+        .start_prepared_can_replay(prepared.plan.clone())
+        .unwrap();
+    assert_eq!(started.total_frames, 401);
+    let submitted = (0..401)
+        .map(|_| transmitted.recv_timeout(Duration::from_secs(3)).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        submitted
+            .iter()
+            .map(|item| item.data[0])
+            .collect::<Vec<_>>(),
+        source_frames
+            .iter()
+            .map(|item| item.data[0])
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        submitted
+            .windows(2)
+            .all(|pair| pair[1].elapsed_ns - pair[0].elapsed_ns >= 1_000_000)
+    );
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanIdReplayStatus(status)
+                if status.replay_id == started.replay_id
+                    && status.state == lognook_core::CanIdReplayState::Completed
+                    && status.sent_frames == 401)
+        })
+    });
+    engine.stop_can_capture().unwrap();
+
+    let evidence_path = lognook_core::can_evidence_path(&output_path);
+    let records = std::fs::read_to_string(&evidence_path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<CanEvidenceRecord>(line).unwrap())
+        .collect::<Vec<_>>();
+    let start_index = records
+        .iter()
+        .position(|record| {
+            matches!(record,
+                CanEvidenceRecord::SavedCanIdReplayStarted {
+                    replay_id, summary, target_source_id, target_bitrate: 500_000,
+                    target_channel: Some(2),
+                    minimum_interval_ms: 1, maximum_interval_ms: 60_000, no_catch_up: true,
+                    ..
+                } if *replay_id == started.replay_id
+                    && summary == &prepared.summary
+                    && target_source_id == "can:test-adapter"
+            )
+        })
+        .unwrap();
+    let chunks = records
+        .iter()
+        .enumerate()
+        .filter_map(|(index, record)| match record {
+            CanEvidenceRecord::SavedCanIdReplaySourceFrames {
+                replay_id,
+                chunk_index,
+                frames,
+                ..
+            } if *replay_id == started.replay_id => Some((index, *chunk_index, frames)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        chunks
+            .iter()
+            .map(|(_, index, _)| *index)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(
+        chunks
+            .iter()
+            .map(|(_, _, frames)| frames.len())
+            .collect::<Vec<_>>(),
+        [400, 1]
+    );
+    assert!(chunks.iter().all(|(_, _, frames)| frames.len() <= 400));
+    assert_eq!(chunks[0].2[0].source_row, Some(2));
+    assert_eq!(chunks[1].2[0].source_row, Some(402));
+    let last_provenance_index = chunks.last().unwrap().0;
+    let first_tx_index = records
+        .iter()
+        .position(|record| {
+            matches!(record,
+                CanEvidenceRecord::TxAttempt { replay_id: Some(replay_id), .. }
+                    if *replay_id == started.replay_id
+            )
+        })
+        .unwrap();
+    assert!(start_index < chunks[0].0 && last_provenance_index < first_tx_index);
+
+    let mut output = CanCaptureReader::open(&output_path).unwrap();
+    let output_frames = output.by_ref().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(output_frames.len(), 401);
+    assert!(
+        output_frames
+            .iter()
+            .all(|frame| frame.direction == CanDirection::Tx)
+    );
+    assert!(engine.active_can_capture_path().is_none());
+    engine.disconnect().unwrap();
+    for path in [source_path, output_path, evidence_path] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[test]
+fn saved_replay_from_an_old_connection_generation_cannot_enter_reconnected_worker() {
+    let mut engine = LogNookEngine::new(|_| {});
+    let source_path = temp_path("candump.csv");
+    let mut writer = CanCaptureWriter::create_new(&source_path).unwrap();
+    writer
+        .write_frame(&frame(0x321, CanDirection::Rx, &[0x44], 0))
+        .unwrap();
+    writer.finish().unwrap();
+    let plan = prepare_saved_can_replay(
+        &source_path,
+        SavedCanReplaySelection {
+            can_id: 0x321,
+            extended: false,
+            start_elapsed_ns: 0,
+            end_elapsed_ns: 0,
+        },
+        &std::sync::atomic::AtomicBool::new(false),
+    )
+    .unwrap()
+    .plan;
+
+    let (first_transport, _first_incoming, _first_transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), first_transport)
+        .unwrap();
+    let old_generation = engine.can_connection_generation();
+    assert_eq!(engine.can_target_channel(), Some(2));
+    engine.disconnect_can().unwrap();
+
+    let (second_transport, _second_incoming, second_transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), second_transport)
+        .unwrap();
+    let new_generation = engine.can_connection_generation();
+    assert_ne!(old_generation, new_generation);
+    let output_path = temp_path("candump.csv");
+    engine.start_can_capture(&output_path).unwrap();
+
+    assert!(
+        engine
+            .start_prepared_can_replay_for_generation(plan, old_generation)
+            .is_err()
+    );
+    assert!(second_transmitted.try_recv().is_err());
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+    for path in [
+        source_path.clone(),
+        output_path.clone(),
+        lognook_core::can_evidence_path(&output_path),
+    ] {
+        let _ = std::fs::remove_file(path);
+    }
+    let _ = std::fs::remove_file(lognook_core::can_evidence_path(source_path));
+}
+
+#[test]
+fn can_id_replay_rejects_invalid_or_unbounded_source_sequences_before_transmit() {
+    let mut engine = LogNookEngine::new(|_| {});
+    let (transport, _incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+
+    assert!(engine.start_can_id_replay(Vec::new()).is_err());
+    assert!(
+        engine
+            .start_can_id_replay(vec![frame(0x321, CanDirection::Tx, &[1], 1)])
+            .is_err()
+    );
+    assert!(
+        engine
+            .start_can_id_replay(vec![
+                frame(0x321, CanDirection::Rx, &[1], 1),
+                frame(0x322, CanDirection::Rx, &[2], 2)
+            ])
+            .is_err()
+    );
+    let mut extended = frame(0x321, CanDirection::Rx, &[2], 2);
+    extended.extended = true;
+    assert!(
+        engine
+            .start_can_id_replay(vec![frame(0x321, CanDirection::Rx, &[1], 1), extended])
+            .is_err()
+    );
+    let mut flagged = frame(0x321, CanDirection::Rx, &[1], 1);
+    flagged.flags = 1;
+    assert!(engine.start_can_id_replay(vec![flagged]).is_err());
+    assert!(
+        engine
+            .start_can_id_replay(vec![
+                frame(0x321, CanDirection::Rx, &[2], 2),
+                frame(0x321, CanDirection::Rx, &[1], 1)
+            ])
+            .is_err()
+    );
+    assert!(
+        engine
+            .start_can_id_replay(vec![
+                frame(0x321, CanDirection::Rx, &[1], 0),
+                frame(0x321, CanDirection::Rx, &[2], 60_000_000_001),
+            ])
+            .is_err()
+    );
+    assert!(
+        engine
+            .start_can_id_replay(
+                (0..=400)
+                    .map(|index| frame(0x321, CanDirection::Rx, &[index as u8], index))
+                    .collect()
+            )
+            .is_err()
+    );
+    assert!(transmitted.try_recv().is_err());
+    engine.disconnect().unwrap();
+}
+
+#[test]
+fn can_id_replay_clamps_submillisecond_source_gaps_to_one_millisecond() {
+    let mut engine = LogNookEngine::new(|_| {});
+    let (transport, _incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    engine
+        .start_can_id_replay(vec![
+            frame(0x321, CanDirection::Rx, &[0x10], 100_000_000),
+            frame(0x321, CanDirection::Rx, &[0x20], 100_500_000),
+        ])
+        .unwrap();
+    let first = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    let second = transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(first.data, [0x10]);
+    assert_eq!(second.data, [0x20]);
+    assert!(second.elapsed_ns - first.elapsed_ns >= 1_000_000);
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn can_id_replay_stop_cancels_remaining_frames_and_records_terminal_status() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    let source_frames = vec![
+        frame(0x321, CanDirection::Rx, &[0x10], 100_000_000),
+        frame(0x321, CanDirection::Rx, &[0x20], 1_100_000_000),
+        frame(0x321, CanDirection::Rx, &[0x30], 2_100_000_000),
+    ];
+    let started = engine.start_can_id_replay(source_frames).unwrap();
+    assert_eq!(
+        transmitted
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .data,
+        [0x10]
+    );
+    engine.stop_can_id_replay().unwrap();
+    thread::sleep(Duration::from_millis(30));
+    assert!(transmitted.try_recv().is_err());
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanIdReplayStatus(status)
+                if status.replay_id == started.replay_id
+                    && status.state == lognook_core::CanIdReplayState::Stopped
+                    && status.sent_frames == 1)
+        })
+    });
+    engine.stop_can_capture().unwrap();
+    let records = std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path)).unwrap();
+    assert!(records.lines().any(
+        |line| serde_json::from_str::<CanEvidenceRecord>(line).is_ok_and(|record| matches!(record,
+            CanEvidenceRecord::CanIdReplayFinished {
+                replay_id,
+                total_frames: 3,
+                sent_frames: 1,
+                state: lognook_core::CanIdReplayState::Stopped,
+                reason,
+                error: None,
+                ..
+            } if replay_id == started.replay_id && reason == "user_requested"
+        ))
+    ));
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn can_id_replay_requires_active_capture_and_exclusive_worker_access() {
+    let mut passive_engine = LogNookEngine::new(|_| {});
+    let (passive_transport, _incoming, passive_tx, _) = transport();
+    passive_engine
+        .connect_can_transport(config(true), passive_transport)
+        .unwrap();
+    let passive_capture = temp_path("candump.csv");
+    passive_engine.start_can_capture(&passive_capture).unwrap();
+    assert!(
+        passive_engine
+            .start_can_id_replay(vec![frame(0x321, CanDirection::Rx, &[1], 1)])
+            .is_err()
+    );
+    assert!(passive_tx.try_recv().is_err());
+    passive_engine.stop_can_capture().unwrap();
+    passive_engine.disconnect().unwrap();
+    cleanup_capture(&passive_capture);
+
+    let mut engine = LogNookEngine::new(|_| {});
+    let (transport, _incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let source_frames = vec![
+        frame(0x321, CanDirection::Rx, &[1], 100_000_000),
+        frame(0x321, CanDirection::Rx, &[2], 200_000_000),
+    ];
+    assert!(engine.start_can_id_replay(source_frames.clone()).is_err());
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+
+    engine
+        .send_can_frame(frame(0x123, CanDirection::Tx, &[0xAA], 0), 100, 10)
+        .unwrap();
+    assert_eq!(
+        transmitted
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .data,
+        [0xAA]
+    );
+    assert!(engine.start_can_id_replay(source_frames.clone()).is_err());
+    engine.stop_can_scan().unwrap();
+
+    engine
+        .start_can_scan(CanScanConfig {
+            mode: CanScanMode::CanIdRange {
+                start_id: 0x120,
+                end_id: 0x121,
+                extended: false,
+                payload: vec![0x55],
+            },
+            pacing_ms: 1000,
+            response_timeout_ms: 100,
+            source_candidate_id: None,
+        })
+        .unwrap();
+    assert!(engine.start_can_id_replay(source_frames.clone()).is_err());
+    engine.stop_can_scan().unwrap();
+
+    engine.start_can_id_replay(source_frames).unwrap();
+    assert!(
+        engine
+            .send_can_frame(frame(0x123, CanDirection::Tx, &[0xBB], 0), 100, 1)
+            .is_err()
+    );
+    assert!(
+        engine
+            .start_can_scan(CanScanConfig {
+                mode: CanScanMode::CanIdRange {
+                    start_id: 0x120,
+                    end_id: 0x120,
+                    extended: false,
+                    payload: vec![0x55],
+                },
+                pacing_ms: 1000,
+                response_timeout_ms: 100,
+                source_candidate_id: None,
+            })
+            .is_err()
+    );
+    engine.stop_can_id_replay().unwrap();
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn can_id_replay_failure_cancels_the_rest_and_records_the_reason() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, transmitted, _) = transport_with_transmit_error(CanTransportError {
+        kind: lognook_core::CanTransportErrorKind::Other,
+        message: "mocked transmit failure".into(),
+        raw_usb: None,
+    });
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    let started = engine
+        .start_can_id_replay(vec![
+            frame(0x321, CanDirection::Rx, &[0x10], 100_000_000),
+            frame(0x321, CanDirection::Rx, &[0x20], 200_000_000),
+        ])
+        .unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanIdReplayStatus(status)
+                if status.replay_id == started.replay_id
+                    && status.state == lognook_core::CanIdReplayState::Failed
+                    && status.sent_frames == 0
+                    && status.error.as_deref() == Some("mocked transmit failure"))
+        })
+    });
+    assert!(transmitted.try_recv().is_err());
+    engine.stop_can_capture().unwrap();
+    let records = std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path)).unwrap();
+    assert!(records.lines().any(
+        |line| serde_json::from_str::<CanEvidenceRecord>(line).is_ok_and(|record| matches!(record,
+            CanEvidenceRecord::CanIdReplayFinished {
+                replay_id,
+                total_frames: 2,
+                sent_frames: 0,
+                state: lognook_core::CanIdReplayState::Failed,
+                reason,
+                error: Some(error),
+                ..
+            } if replay_id == started.replay_id && reason == "transmit_error" && error == "mocked transmit failure"
+        ))
+    ));
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn capture_stop_and_disconnect_publish_terminal_replay_status() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (capture_transport, _incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), capture_transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    let started = engine
+        .start_can_id_replay(vec![
+            frame(0x321, CanDirection::Rx, &[0x10], 100_000_000),
+            frame(0x321, CanDirection::Rx, &[0x20], 1_100_000_000),
+        ])
+        .unwrap();
+    transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    engine.stop_can_capture().unwrap();
+    wait_until(|| {
+        events.lock().unwrap().iter().any(|event| {
+            matches!(event, EngineEvent::CanIdReplayStatus(status)
+                if status.replay_id == started.replay_id
+                    && status.state == lognook_core::CanIdReplayState::Stopped
+                    && status.sent_frames == 1)
+        })
+    });
+    engine.disconnect().unwrap();
+    cleanup_capture(&capture_path);
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_sink = events.clone();
+    let mut engine = LogNookEngine::new(move |event| event_sink.lock().unwrap().push(event));
+    let (transport, _incoming, transmitted, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport)
+        .unwrap();
+    let capture_path = temp_path("candump.csv");
+    engine.start_can_capture(&capture_path).unwrap();
+    let started = engine
+        .start_can_id_replay(vec![
+            frame(0x321, CanDirection::Rx, &[0x10], 100_000_000),
+            frame(0x321, CanDirection::Rx, &[0x20], 1_100_000_000),
+        ])
+        .unwrap();
+    transmitted.recv_timeout(Duration::from_secs(1)).unwrap();
+    engine.disconnect().unwrap();
+    assert!(events.lock().unwrap().iter().any(|event| {
+        matches!(event, EngineEvent::CanIdReplayStatus(status)
+            if status.replay_id == started.replay_id
+                && status.state == lognook_core::CanIdReplayState::Stopped
+                && status.sent_frames == 1)
+    }));
+    let records = std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path)).unwrap();
+    assert!(records.lines().any(
+        |line| serde_json::from_str::<CanEvidenceRecord>(line).is_ok_and(|record| matches!(record,
+            CanEvidenceRecord::CanIdReplayFinished {
+                replay_id,
+                sent_frames: 1,
+                state: lognook_core::CanIdReplayState::Stopped,
+                reason,
+                ..
+            } if replay_id == started.replay_id && reason == "session_ended"
+        ))
+    ));
+    cleanup_capture(&capture_path);
+}
+
+#[test]
+fn can_id_replay_ids_are_unique_across_worker_reconnects() {
+    let mut engine = LogNookEngine::new(|_| {});
+    let (transport1, _incoming1, _transmitted1, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport1)
+        .unwrap();
+    let first_capture = temp_path("candump.csv");
+    engine.start_can_capture(&first_capture).unwrap();
+    let first = engine
+        .start_can_id_replay(vec![frame(0x321, CanDirection::Rx, &[1], 100_000_000)])
+        .unwrap();
+    engine.stop_can_id_replay().unwrap();
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+
+    let (transport2, _incoming2, _transmitted2, _) = transport();
+    engine
+        .connect_can_transport(config(false), transport2)
+        .unwrap();
+    let second_capture = temp_path("candump.csv");
+    engine.start_can_capture(&second_capture).unwrap();
+    let second = engine
+        .start_can_id_replay(vec![frame(0x321, CanDirection::Rx, &[2], 200_000_000)])
+        .unwrap();
+    assert!(second.replay_id > first.replay_id);
+    engine.stop_can_id_replay().unwrap();
+    engine.stop_can_capture().unwrap();
+    engine.disconnect().unwrap();
+    cleanup_capture(&first_capture);
+    cleanup_capture(&second_capture);
 }
 
 #[test]

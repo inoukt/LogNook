@@ -2,6 +2,7 @@ use super::trigger::{TriggerDetector, start_automatic_recording};
 use crate::{
     model::{AutomaticTriggerConfig, AutomaticTriggerStatus, EngineEvent, Sample, SampleOrigin},
     recording::RecordingWriter,
+    vehicle_profiles::VehicleIdentitySnapshot,
 };
 use std::{
     collections::VecDeque,
@@ -28,6 +29,7 @@ pub(super) fn process_live_sample(
     session_samples: &mut VecDeque<Sample>,
     newest_elapsed_ns: &mut i64,
     omitted_samples: &mut usize,
+    vehicle_recording_context: &Option<VehicleIdentitySnapshot>,
 ) -> bool {
     if sample.origin == SampleOrigin::Live {
         latest.fetch_max(sample.elapsed_ns, Ordering::AcqRel);
@@ -66,7 +68,13 @@ pub(super) fn process_live_sample(
             .is_some_and(|(detector, _, _)| detector.observe(&sample));
         if fired {
             let (_, config, path) = automatic_trigger.take().unwrap();
-            match start_automatic_recording(&path, &config, &sample, pre_trigger_samples) {
+            match start_automatic_recording(
+                &path,
+                &config,
+                &sample,
+                pre_trigger_samples,
+                vehicle_recording_context.clone(),
+            ) {
                 Ok((writer, marker)) => {
                     *recorder = Some(writer);
                     recording_active.store(true, Ordering::Release);

@@ -1,5 +1,6 @@
 use lognook_core::{
-    CanDirection, CanFrame, CanManualEventMark, LiveCanEventAnalyzer, correlate_can_events,
+    CanDirection, CanFrame, CanLiveEventWindowState, CanManualEventMark, LiveCanEventAnalyzer,
+    correlate_can_events,
 };
 
 fn frame(elapsed_ns: i64, value: u8) -> CanFrame {
@@ -202,4 +203,170 @@ fn live_window_finishes_on_time_without_a_later_frame_and_close_marks_pending_in
     assert_eq!(stopped.groups[0].pending_events, 0);
     assert_eq!(stopped.groups[0].incomplete_events, 1);
     assert_eq!(stopped.groups[0].completed_events, 1);
+}
+
+#[test]
+fn live_mark_publishes_pending_then_completed_window_with_latest_rx_summaries() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    analyzer.mark(mark(100)).unwrap();
+    let pending = &analyzer.snapshot().groups[0].windows[0];
+    assert_eq!(pending.sequence, 1);
+    assert_eq!(pending.elapsed_ns, 100);
+    assert_eq!(pending.pre_ns, 100);
+    assert_eq!(pending.post_ns, 100);
+    assert_eq!(pending.state, CanLiveEventWindowState::Pending);
+
+    analyzer
+        .feed(&identified_frame(110, 0x123, false, 1))
+        .unwrap();
+    analyzer
+        .feed(&identified_frame(120, 0x123, false, 2))
+        .unwrap();
+    analyzer
+        .feed(&identified_frame(130, 0x123, true, 3))
+        .unwrap();
+    analyzer
+        .feed(&identified_frame(140, 0x100, false, 4))
+        .unwrap();
+    analyzer.advance(200).unwrap();
+
+    let completed = &analyzer.snapshot().groups[0].windows[0];
+    assert_eq!(completed.state, CanLiveEventWindowState::Complete);
+    assert_eq!(completed.omitted_ids, 0);
+    assert_eq!(completed.messages.len(), 3);
+    let standard = completed
+        .messages
+        .iter()
+        .find(|message| message.can_id == 0x123 && !message.extended)
+        .unwrap();
+    assert_eq!(standard.frame_count, 2);
+    assert_eq!(standard.latest_frame.elapsed_ns, 120);
+    assert_eq!(standard.latest_frame.data, vec![2]);
+    assert!(
+        completed
+            .messages
+            .iter()
+            .any(|message| message.can_id == 0x123 && message.extended)
+    );
+}
+
+#[test]
+fn completed_window_with_no_frames_is_empty() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    analyzer.mark(mark(100)).unwrap();
+    analyzer.advance(200).unwrap();
+    let window = &analyzer.snapshot().groups[0].windows[0];
+    assert_eq!(window.state, CanLiveEventWindowState::Complete);
+    assert!(window.messages.is_empty());
+    assert_eq!(window.omitted_ids, 0);
+    assert_eq!(
+        serde_json::to_string(&window.state).unwrap(),
+        "\"complete\""
+    );
+}
+
+#[test]
+fn completed_window_caps_ids_and_orders_by_count_then_width_and_id() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    analyzer.mark(mark(100)).unwrap();
+    analyzer.feed(&identified_frame(101, 10, false, 1)).unwrap();
+    analyzer.feed(&identified_frame(102, 10, false, 2)).unwrap();
+    for can_id in 0..=101 {
+        analyzer
+            .feed(&identified_frame(103, can_id, false, 0))
+            .unwrap();
+    }
+    analyzer.advance(200).unwrap();
+
+    let window = &analyzer.snapshot().groups[0].windows[0];
+    assert_eq!(window.messages.len(), 100);
+    assert_eq!(window.omitted_ids, 2);
+    assert_eq!(window.messages[0].can_id, 10);
+    assert_eq!(window.messages[0].frame_count, 3);
+    assert_eq!(window.messages[1].can_id, 0);
+    assert_eq!(window.messages[2].can_id, 1);
+}
+
+#[test]
+fn completed_window_orders_standard_ids_before_extended_ids() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    analyzer.mark(mark(100)).unwrap();
+    analyzer.feed(&identified_frame(101, 0, true, 0)).unwrap();
+    analyzer
+        .feed(&identified_frame(102, 100, false, 0))
+        .unwrap();
+    analyzer.feed(&identified_frame(103, 0, false, 0)).unwrap();
+    analyzer.advance(200).unwrap();
+
+    let messages = &analyzer.snapshot().groups[0].windows[0].messages;
+    assert_eq!((messages[0].can_id, messages[0].extended), (0, false));
+    assert_eq!((messages[1].can_id, messages[1].extended), (100, false));
+    assert_eq!((messages[2].can_id, messages[2].extended), (0, true));
+}
+
+#[test]
+fn truncated_and_stopped_windows_are_incomplete() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    analyzer
+        .mark(CanManualEventMark {
+            label: "truncated".into(),
+            elapsed_ns: 0,
+            pre_ns: 0,
+            post_ns: 20_000,
+        })
+        .unwrap();
+    for elapsed_ns in 1..=10_001 {
+        analyzer.feed(&frame(elapsed_ns, elapsed_ns as u8)).unwrap();
+    }
+    analyzer.advance(20_000).unwrap();
+    assert_eq!(
+        analyzer.snapshot().groups[0].windows[0].state,
+        CanLiveEventWindowState::Incomplete
+    );
+
+    analyzer
+        .mark(CanManualEventMark {
+            label: "stopped".into(),
+            elapsed_ns: 20_001,
+            pre_ns: 0,
+            post_ns: 100,
+        })
+        .unwrap();
+    let stopped = analyzer.finish();
+    assert_eq!(
+        stopped.groups[1].windows[0].state,
+        CanLiveEventWindowState::Incomplete
+    );
+}
+
+#[test]
+fn mark_with_lost_receive_history_is_incomplete() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    for _ in 0..=50_000 {
+        analyzer.feed(&frame(50_001, 0)).unwrap();
+    }
+    analyzer
+        .mark(CanManualEventMark {
+            label: "lost history".into(),
+            elapsed_ns: 50_001,
+            pre_ns: 0,
+            post_ns: 1,
+        })
+        .unwrap();
+    analyzer.feed(&frame(50_002, 0)).unwrap();
+    analyzer.advance(50_002).unwrap();
+    let window = &analyzer.snapshot().groups[0].windows[0];
+    assert_eq!(window.state, CanLiveEventWindowState::Incomplete);
+    assert_eq!(window.messages[0].frame_count, 1);
+}
+
+#[test]
+fn sequence_continues_after_clearing_results() {
+    let mut analyzer = LiveCanEventAnalyzer::new(1, "test-can");
+    analyzer.mark(mark(100)).unwrap();
+    analyzer.clear_results();
+    analyzer.mark(mark(100)).unwrap();
+    let window = &analyzer.snapshot().groups[0].windows[0];
+    assert_eq!(window.sequence, 2);
+    assert_eq!(window.state, CanLiveEventWindowState::Pending);
 }

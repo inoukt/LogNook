@@ -1,5 +1,6 @@
 import type { AutomaticTriggerStatus } from "./automaticTrigger";
 import type { A30ReadTestId } from "./a30ReadTests";
+import type { VehicleIdentitySnapshot } from "./vehicleProfiles";
 
 export type SignalDefinition = {
   id: string;
@@ -233,7 +234,7 @@ export type CanDeviceCandidate = {
 };
 export type CanDeviceSelection = { id: string; interface_number: number; channel: number };
 export type CanWorkbenchConfig = { bitrate: number; listen_only: boolean };
-export type CanWorkbenchStatus = CanWorkbenchConfig & { connected: boolean; source_id: string };
+export type CanWorkbenchStatus = CanWorkbenchConfig & { connected: boolean; source_id: string; target_channel: number | null };
 export type AgentAccessStatus = { configured: boolean; unlocked: boolean; host_connected: boolean; expires_at_unix_ms: number | null; active_operation: string | null; trace_gaps: number };
 export type AgentSignalSelection = { log_signal_ids: string[]; graph_signal_ids: string[] };
 export type CanFrame = {
@@ -364,6 +365,15 @@ export type CanCensusRow = {
 };
 export type CanTransportError = { kind: string; message: string; raw_usb: number[] | null };
 export type CanTxStatus = { capture_id: number; sequence: number; echo_id: number; frame: CanFrame; confirmed: boolean };
+export type CanIdReplayStatus = {
+  replay_id: number;
+  can_id: number;
+  extended: boolean;
+  total_frames: number;
+  sent_frames: number;
+  state: "running" | "completed" | "stopped" | "failed";
+  error: string | null;
+};
 export type CanCaptureReplayReport = {
   frames: number;
   decoded_samples: number;
@@ -416,6 +426,22 @@ export type CanEventCandidate = {
   changed_bytes: CanEventByteChange[];
 };
 export type CanEventCorrelation = { label: string; event_count: number; candidates: CanEventCandidate[] };
+export type CanLiveEventWindowState = "pending" | "complete" | "incomplete";
+export type CanLiveEventMessageSnapshot = {
+  can_id: number;
+  extended: boolean;
+  frame_count: number;
+  latest_frame: CanFrame;
+};
+export type CanLiveEventWindowSnapshot = {
+  sequence: number;
+  elapsed_ns: number;
+  pre_ns: number;
+  post_ns: number;
+  state: CanLiveEventWindowState;
+  omitted_ids: number;
+  messages: CanLiveEventMessageSnapshot[];
+};
 export type CanLiveEventGroup = {
   label: string;
   completed_events: number;
@@ -423,6 +449,7 @@ export type CanLiveEventGroup = {
   incomplete_events: number;
   omitted_candidates: number;
   candidates: CanLiveEventCandidate[];
+  windows: CanLiveEventWindowSnapshot[];
 };
 export type CanLiveEventCandidate = {
   correlation: CanEventCandidate;
@@ -476,6 +503,12 @@ export type ConnectionCapabilities = {
   device: DeviceDescriptor;
   protocol: string;
   read_only: boolean;
+  diagnostics: {
+    dtc_snapshot: boolean;
+    identity: boolean;
+    mode06: boolean;
+    clear_dtcs: boolean;
+  };
   supported_signals: SignalDefinition[];
 };
 
@@ -489,11 +522,18 @@ export type Marker = {
 
 export type RecordingSignal = { id: string; unit: string };
 
+export type RecordingVehicleContext = {
+  snapshot: VehicleIdentitySnapshot;
+  context_from_elapsed_ns: number;
+  context_from_sample_index: number;
+};
+
 export type RecordingInfo = {
   sample_count: number;
   duration_ns: number;
   signals: RecordingSignal[];
   markers: Marker[];
+  vehicle_context?: RecordingVehicleContext | null;
 };
 
 export type PlaybackState = {
@@ -514,6 +554,7 @@ export type EngineEvent =
   | { type: "canScanStopped"; payload?: null }
   | { type: "canScanCompleted"; payload: CanScanConfig }
   | { type: "canWorkbenchStatus"; payload: CanWorkbenchStatus }
+  | { type: "canIdReplayStatus"; payload: CanIdReplayStatus }
   | { type: "canLiveEventAnalysis"; payload: CanLiveEventSnapshot }
   | { type: "canTxStatus"; payload: CanTxStatus }
   | { type: "canTransportError"; payload: CanTransportError }

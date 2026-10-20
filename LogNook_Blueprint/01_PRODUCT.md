@@ -1,12 +1,14 @@
 # Product and user experience
 
+> This is a product target and design reference, not a claim that every listed workflow is implemented. Check [current project status](../PROJECT_STATUS.md) and the [deferred backlog](../docs/FEATURE_BACKLOG.md) before planning changes.
+
 ## Primary 20-second workflow (target, not guaranteed on all cars)
 Open app -> automatically offer previously used adapter/vehicle/workspace -> show verified connection/capability badge -> suggested preset or searchable signal picker -> Start. Connection status must distinguish USB present / hardware opened / bus detected / ECU responding / signals actively updating. No splash delay or blocking dashboard.
 
 ## Modes
 - **Live**: compact status line, accessible Connect/Record/Marker, searchable/favorite signals, live values and synchronized graphs, two-pane graph+list, single pane graph-only, detachable/fullscreen panels.
 - **Analyze**: recording browser, CSV import, synchronized cursor, markers/comments, overlays, range statistics, graphs, scatter, heatmap, bars, histograms, event timeline, delta views.
-- **Inspect**: ECU/source tree, available/unsupported signals, raw CAN frame view, DTC read/report in a later milestone, communication diagnostics/trace for advanced users.
+- **Inspect**: ECU/source tree, available/unsupported signals, raw CAN frame view, supported DTC reads/reports, and communication diagnostics/trace. Adapter-specific limits are tracked in current status and hardware reports.
 - **Settings**: device preferences, keyboard mapping, units, formula editor, sound, privacy, themes/backgrounds, workspace reset, accessibility.
 
 ## Signal picker

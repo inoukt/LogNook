@@ -6,6 +6,8 @@ mod can;
 mod can_analysis;
 mod can_capture;
 mod can_live_events;
+mod can_obd;
+mod can_replay;
 mod can_workbench;
 pub mod candlelight;
 pub mod communication_trace;
@@ -28,8 +30,14 @@ mod recording;
 mod recording_view;
 mod research;
 mod session;
+pub mod signal_presets;
 mod simulator;
+mod subaru_catalog;
 mod vehicle_diagnostics;
+pub mod vehicle_profiles;
+pub mod vehicle_projects;
+pub use vehicle_profiles::*;
+pub use vehicle_projects::*;
 
 pub use a30::{
     A30Adapter, A30CanReply, A30Decoder, A30Frame, A30GraphValue, A30ReadOutcome, A30ReadTest,
@@ -51,15 +59,21 @@ pub use can_analysis::{
 };
 pub use can_capture::{CanCaptureReader, CanCaptureRowError, CanCaptureWriter, replay_can_capture};
 pub use can_live_events::{
-    CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventSnapshot, LiveCanEventAnalyzer,
+    CanLiveEventCandidate, CanLiveEventGroup, CanLiveEventMessageSnapshot, CanLiveEventSnapshot,
+    CanLiveEventWindowSnapshot, CanLiveEventWindowState, LiveCanEventAnalyzer,
+};
+pub use can_obd::{CanObdAdapter, identify_can_obd, identify_can_obd_with_sinks};
+pub use can_replay::{
+    CanReplayFrame, CanReplayPlan, CanReplaySource, PreparedSavedCanReplay,
+    SavedCanReplaySelection, SavedCanReplaySummary, prepare_saved_can_replay,
 };
 pub use can_workbench::{
     CanDeviceCandidate, CanDeviceSelection, CanEvidenceRecord, CanEvidenceScanConfig,
-    CanEvidenceScanResult, CanScanConfig, CanScanMode, CanScanResult, CanScanStopReason,
-    CanTransport, CanTransportError, CanTransportErrorKind, CanTransportEvent,
-    CanTriggerCaptureResult, CanTriggerEndReason, CanWorkbench, CanWorkbenchConfig,
-    CanWorkbenchStatus, available_can_adapters, can_evidence_path, oem_candidate_scan_config,
-    open_candlelight, replay_can_capture_file,
+    CanEvidenceScanResult, CanIdReplayState, CanIdReplayStatus, CanScanConfig, CanScanMode,
+    CanScanResult, CanScanStopReason, CanTransport, CanTransportError, CanTransportErrorKind,
+    CanTransportEvent, CanTriggerCaptureResult, CanTriggerEndReason, CanWorkbench,
+    CanWorkbenchConfig, CanWorkbenchStatus, available_can_adapters, can_evidence_path,
+    oem_candidate_scan_config, open_candlelight, replay_can_capture_file,
 };
 pub use csv_import::import_csv_to_recording;
 pub use csv_io::{export_csv, export_recording_csv, import_csv};
@@ -80,8 +94,8 @@ pub use model::{
     AutomaticTriggerConfig, AutomaticTriggerStatus, ConnectionCapabilities,
     DerivedSignalDefinition, DeviceDescriptor, EngineEvent, LogNookError, Marker, OemPollingStatus,
     PlaybackState, Recording, RecordingInfo, RecordingSignal, RecordingSummary,
-    RetrospectiveRecordingStart, Sample, SampleOrigin, SampleQuality, SignalDefinition,
-    TriggerDirection,
+    RecordingVehicleContextSummary, RecordingVehicleContextV1, RetrospectiveRecordingStart, Sample,
+    SampleOrigin, SampleQuality, SignalDefinition, TriggerDirection,
 };
 pub use obdlink_sx::{
     ObdLinkSxAdapter, OemCandidateDecodedValue, OemCandidateOutcome, OemCandidateResponse,
@@ -95,8 +109,8 @@ pub use obdlink_sx_protocol::{
     parse_supported_pid_payload,
 };
 pub use oem_catalog::{
-    OemCandidate, OemCandidateTrySpec, OemCatalog, OemCatalogPage, OemPollPlan, OemVehicleProfile,
-    SCION_XB_BLOB_SHA, ScionMode21ProbeSpec, ScionProbeChannel,
+    OemCandidate, OemCandidateSourcePolicy, OemCandidateTrySpec, OemCatalog, OemCatalogPage,
+    OemPollPlan, OemVehicleProfile, SCION_XB_BLOB_SHA, ScionMode21ProbeSpec, ScionProbeChannel,
 };
 pub use openport2::{
     OpenPort2Adapter, available_openport2_providers,
@@ -112,8 +126,19 @@ pub use research::{
     ResearchRunItem, ResearchRunItemStatus, ResearchRunReport, ResearchTestRequest,
     ResearchTestResult, ResearchTestSelection,
 };
-pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
-pub use vehicle_diagnostics::{
-    DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticRead, DiagnosticReadKind,
-    DiagnosticReport, DiagnosticRequest, DiagnosticValue, supports_vehicle_diagnostics,
+pub use signal_presets::{
+    PresetApplyMode, PresetAvailability, PresetCatalogEvidence, PresetChannel, PresetContext,
+    PresetOrigin, PresetPickerState, PresetResolvedSelection, PresetScope, PresetSize,
+    PresetSkipReason, PresetTaskFamily, PresetVehicleCriteria, SignalPreset, SignalPresetOperation,
+    SignalPresetResult, StagedPresetIntent,
+    builtin_signal_presets, resolve_preset, scope_match_rank,
 };
+pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
+pub use subaru_catalog::{SubaruCatalog, SubaruCatalogDetail, SubaruCatalogPage, SubaruCatalogRow};
+pub use vehicle_diagnostics::{
+    DiagnosticCapabilities, DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticRead,
+    DiagnosticReadKind, DiagnosticReport, DiagnosticReportKind, DiagnosticRequest, DiagnosticValue,
+    supports_profile_identity, supports_vehicle_diagnostics,
+};
+#[cfg(test)]
+mod oem_test_fixture;

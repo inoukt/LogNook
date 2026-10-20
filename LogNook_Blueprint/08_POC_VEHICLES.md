@@ -1,12 +1,12 @@
 # Physical POC vehicle test plan — known shop vehicles
 
-Status: planning; **no real adapter-to-car results have yet been measured**. Tested signal availability, timing, addresses and firmware must be populated only from actual measurements.
+Status: vehicle test matrix and protocol; it is not a current results page. The opening plan predates later adapter-to-car measurements. See [current Project Status](../PROJECT_STATUS.md) and the dated reports under `docs/hardware/` and `results/` for actual observations. Add new results there with the code revision and conditions.
 
 ## Equipment currently reported
 - Tactrix OpenPort 2.0 — vendor J2534 driver plus 32-bit worker as needed.
 - OBDLink SX — USB serial, with its own verified ST-command capability profile.
 - Generic USB ELM327 — identity and real command probing; assume no optional command works until tested.
-- RH-02 / CANable remains in the initial architecture but **is not yet confirmed to be on hand**.
+- RH-02 / Candlelight / CANable: implementations and user-reported adapter availability vary; this plan does not identify a specific tested unit. Record hardware identity and actual bus/vehicle tests in a dated report before claiming support.
 
 Use the same immutable acquisition, parser, recorder and chart events through all three hardware backends. Record OS build, USB hardware ID, driver version, adapter firmware, protocol negotiated, ECU identifiers, PID set, polling configuration and raw response traces for each test.
 

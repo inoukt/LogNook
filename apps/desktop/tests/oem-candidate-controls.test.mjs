@@ -59,3 +59,14 @@ test("A30 requires its supported 0x7xx request route while SX and ELM allow othe
   const a30Route = { ...valid, request_header: "7E0", response_header: "7E8" };
   assert.equal(controls.oemCandidateTryState(a30Route, "AA:BB:CC:DD:EE:FF", false, "a30").disabled, false);
 });
+
+test("OpenPort, Candlelight OBD, and the labeled simulator allow source-backed one-shot OEM reads", () => {
+  assert.ok(controls, "OEM candidate controls helper is available");
+  const valid = candidate("22", "1234");
+  for (const adapter of ["openport2", "candlelight_obd", "simulator"]) {
+    assert.deepEqual(controls.oemCandidateTryState(valid, `${adapter}:connected`, false, adapter), {
+      disabled: false,
+      reason: "",
+    });
+  }
+});

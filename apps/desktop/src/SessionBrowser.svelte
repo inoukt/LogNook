@@ -3,6 +3,7 @@
   import {
     formatRecordingTime,
     recentRecordingsFirst,
+    recordingFromRow,
     type BrowserRecording,
     type BrowserRecordingRow,
   } from "./sessionBrowser";
@@ -45,12 +46,7 @@
     error = "";
     try {
       const rows = await invoke<BrowserRecordingRow[]>("list_recordings");
-      recordings = recentRecordingsFirst(rows.map(([path, name, modified_unix_ms, sample_count]) => ({
-        path,
-        name,
-        modified_unix_ms,
-        sample_count,
-      })));
+      recordings = recentRecordingsFirst(rows.map(recordingFromRow));
     } catch (cause) {
       error = errorMessage(cause);
     } finally {

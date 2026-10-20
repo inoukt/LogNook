@@ -15,13 +15,28 @@ pub use sessions::*;
 mod session_share;
 pub use session_share::*;
 mod oem_catalog;
+pub(crate) mod oem_discovery;
 pub use oem_catalog::*;
-pub(crate) use oem_catalog::{execute_candidate_try, execute_obd_read_test};
+pub(crate) use oem_catalog::{execute_candidate_try, execute_obd_read_test, set_oem_logging};
 mod openport2;
+pub mod subaru_catalog;
 pub use openport2::*;
 pub(crate) use openport2::{discover_providers, worker_path};
 mod can;
 pub use can::*;
+pub(crate) mod can_obd;
+pub(crate) use can_obd::connect_shared as connect_can_obd_shared;
+pub(crate) use can_obd::identify_shared as identify_can_obd_shared;
+pub(crate) mod saved_can_replay;
+pub use saved_can_replay::*;
+pub(crate) mod profile_connection;
+pub use profile_connection::*;
+pub(crate) mod vehicle_profiles;
+pub use vehicle_profiles::*;
+pub(crate) mod signal_presets;
+pub use signal_presets::*;
+pub(crate) mod vehicle_projects;
+pub use vehicle_projects::*;
 
 use crate::AppState;
 use lognook_core::{
@@ -346,6 +361,7 @@ mod diagnostics_tests {
                 engine: std::sync::Mutex::new(lognook_core::LogNookEngine::new(move |event| {
                     observer.observe_engine(&event)
                 })),
+                can_obd_operations: can_obd::CanObdOperationRegistry::default(),
                 diagnostics,
                 diagnostics_path: path.join("operations.jsonl"),
                 recordings_dir: path.clone(),
@@ -380,6 +396,12 @@ mod diagnostics_tests {
                     crate::agent::log_data::AgentLogBuffer::default(),
                 )),
                 trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
+                can_replay_previews: crate::can_replay_previews::CanReplayPreviewRegistry::default(
+                ),
+                agent_can_replay_status: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                vehicle_profiles: crate::vehicle_profiles::VehicleProfileService::open(
+                    &path.join("profiles.sqlite"),
+                ),
             },
             rx,
         )

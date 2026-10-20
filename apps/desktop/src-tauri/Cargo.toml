@@ -23,10 +23,11 @@ rmcp = { version = "=3.0.1", default-features = false, features = ["server", "ma
 interprocess = { version = "=2.4.4", features = ["tokio"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time"] }
 schemars = { version = "=1.2.2", features = ["derive"] }
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 widestring = "1.2.1"
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Registry"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Registry"] }
 
 [dev-dependencies]
 rusqlite = { version = "0.40.2", features = ["bundled"] }

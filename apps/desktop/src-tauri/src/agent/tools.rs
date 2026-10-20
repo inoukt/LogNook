@@ -4,8 +4,8 @@ use lognook_core::{
     A30Adapter, A30ReadOutcome, A30ReadTest, A30ReadTestResult, CanDeviceSelection, CanDirection,
     CanFrame, CanScanConfig, CanScanMode, CanScanStopReason, CanWorkbenchConfig, Elm327Adapter,
     ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTryResult, OemCatalog, OpenPort2Adapter,
-    RawAdapterCommand, available_can_adapters, available_obdlink_sx_ports, paired_spp_devices,
-    standard_obd_signals,
+    RawAdapterCommand, SubaruCatalog, available_can_adapters, available_obdlink_sx_ports,
+    paired_spp_devices, standard_obd_signals,
 };
 use std::collections::HashSet;
 use std::{
@@ -19,21 +19,35 @@ use tauri::{AppHandle, Emitter, Manager, async_runtime};
 pub(crate) struct AgentWorkbenchState {
     capture_path: Option<PathBuf>,
     send_until: Option<Instant>,
+    replay_id: Option<u64>,
 }
 
 impl AgentWorkbenchState {
-    pub(crate) fn active_operation(&mut self, scan_active: bool) -> Option<String> {
+    pub(crate) fn active_operation(
+        &mut self,
+        scan_active: bool,
+        replay_status: Option<&lognook_core::CanIdReplayStatus>,
+    ) -> Option<String> {
+        let now = Instant::now();
+        if self.replay_id.is_some_and(|id| {
+            replay_status.is_some_and(|status| {
+                status.replay_id == id && status.state != lognook_core::CanIdReplayState::Running
+            })
+        }) {
+            self.replay_id = None;
+        }
+        if self.send_until.is_some_and(|deadline| now >= deadline) {
+            self.send_until = None;
+        }
         if scan_active {
             Some("CAN scan".into())
-        } else if self
-            .send_until
-            .is_some_and(|deadline| Instant::now() < deadline)
-        {
+        } else if self.replay_id.is_some() {
+            Some("CAN ID replay".into())
+        } else if self.send_until.is_some_and(|deadline| now < deadline) {
             Some("CAN frame send".into())
         } else if self.capture_path.is_some() {
             Some("CAN capture".into())
         } else {
-            self.send_until = None;
             None
         }
     }
@@ -48,6 +62,22 @@ pub(crate) fn update_agent_scan_state(scan_active: &AtomicBool, event: &lognook_
     }
 }
 
+/// Keep actual replay completion independent of the Workbench lock held while starting TX.
+pub(crate) fn update_agent_replay_state(
+    tracked: &std::sync::Mutex<Option<lognook_core::CanIdReplayStatus>>,
+    event: &lognook_core::EngineEvent,
+) {
+    if let Ok(mut current) = tracked.lock() {
+        match event {
+            lognook_core::EngineEvent::CanIdReplayStatus(status) => {
+                *current = Some(status.clone());
+            }
+            lognook_core::EngineEvent::CanWorkbenchStatus(_) => *current = None,
+            _ => {}
+        }
+    }
+}
+
 fn start_agent_scan(
     scan_active: &AtomicBool,
     start: impl FnOnce() -> Result<(), lognook_core::LogNookError>,
@@ -56,30 +86,87 @@ fn start_agent_scan(
     start().inspect_err(|_| scan_active.store(false, Ordering::Release))
 }
 
-/// Lock and expiry both stop the agent's incomplete CAN operation and close its evidence files.
+/// Lock and expiry stop agent-owned background work and close its evidence files.
 pub(crate) fn stop_active_operations(
     app: &AppHandle,
     reason: CanScanStopReason,
 ) -> Result<Option<PathBuf>, String> {
     let state = app.state::<AppState>();
-    let (capture_path, send_active) = match state.agent_workbench.lock() {
-        Ok(mut operation) => {
-            let active = operation
-                .send_until
-                .is_some_and(|until| Instant::now() < until);
-            let values = (operation.capture_path.take(), active);
-            operation.send_until = None;
-            values
+    let discovery_stop = crate::commands::oem_discovery::stop_agent_owned(app);
+    let result = match (stop_active_operations_state(&state, reason), discovery_stop) {
+        (Ok(path), Ok(())) => Ok(path),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(discovery)) => {
+            Err(format!("{error}; OEM discovery stop failed: {discovery}"))
         }
-        Err(_) => return Err("Agent Workbench state is unavailable".into()),
     };
+    if let Err(message) = &result {
+        let _ = app.emit(
+            "lognook-event",
+            lognook_core::EngineEvent::Error(format!(
+                "Agent operation stop was incomplete: {message}"
+            )),
+        );
+    }
+    result
+}
+
+fn stop_active_operations_state(
+    state: &AppState,
+    reason: CanScanStopReason,
+) -> Result<Option<PathBuf>, String> {
+    // Cancellation does not need the acquisition lock held by a pending exchange.
+    let _ = state.can_obd_operations.cancel();
+    let replay_preparation_error =
+        crate::commands::discard_saved_can_replay_with_state(state, None).err();
+    state.vehicle_profiles.cancel_pending_work();
+    let history_cancel_error = state.vehicle_profiles.cancel_history_import().err();
+    let preparation_error = match (replay_preparation_error, history_cancel_error) {
+        (Some(replay), Some(history)) => Some(format!(
+            "{replay}; history import cancellation failed: {history}"
+        )),
+        (Some(error), None) => Some(error),
+        (None, Some(error)) => Some(format!("History import cancellation failed: {error}")),
+        (None, None) => None,
+    };
+    let mut operation = state
+        .agent_workbench
+        .lock()
+        .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
+    let stopped = stop_active_operations_locked(state, reason, &mut operation);
+    match (stopped, preparation_error) {
+        (Ok(_), Some(error)) => Err(format!("Replay preparation cancellation failed: {error}")),
+        (Err(error), Some(preparation)) => Err(format!(
+            "{error}; replay preparation cancellation failed: {preparation}"
+        )),
+        (result, None) => result,
+    }
+}
+
+fn stop_active_operations_locked(
+    state: &AppState,
+    reason: CanScanStopReason,
+    operation: &mut AgentWorkbenchState,
+) -> Result<Option<PathBuf>, String> {
+    let send_active = operation
+        .send_until
+        .is_some_and(|until| Instant::now() < until);
+    let replay_active = operation.replay_id.is_some();
+    let capture_path = operation.capture_path.take();
+    operation.send_until = None;
+    operation.replay_id = None;
     let scan_active = state.agent_scan_active.swap(false, Ordering::AcqRel);
     let mut errors = Vec::new();
-    if capture_path.is_some() || scan_active || send_active {
+    if capture_path.is_some() || scan_active || send_active || replay_active {
         match state.engine.lock() {
             Ok(engine) if capture_path.is_some() => {
                 if let Err(error) = engine.stop_can_capture_with_reason(reason.clone()) {
                     errors.push(format!("CAN evidence finalization failed: {error}"));
+                }
+            }
+            Ok(engine) if replay_active => {
+                if let Err(error) = engine.stop_can_id_replay() {
+                    errors.push(format!("CAN replay stop failed: {error}"));
                 }
             }
             Ok(engine) => {
@@ -103,18 +190,54 @@ pub(crate) fn stop_active_operations(
     }
     if !errors.is_empty() {
         let message = errors.join("; ");
-        let _ = app.emit(
-            "lognook-event",
-            lognook_core::EngineEvent::Error(format!(
-                "Agent operation stop was incomplete: {message}"
-            )),
-        );
         return Err(match capture_path {
             Some(path) => format!("{message}; partial evidence: {}", path.display()),
             None => message,
         });
     }
     Ok(capture_path)
+}
+
+fn agent_can_operation_active(operation: &AgentWorkbenchState, scan_active: bool) -> bool {
+    operation.capture_path.is_some()
+        || operation
+            .send_until
+            .is_some_and(|until| Instant::now() < until)
+        || operation.replay_id.is_some()
+        || scan_active
+}
+
+fn disconnect_source_state(state: &AppState, source: AgentConnectionSource) -> Result<(), String> {
+    match source {
+        AgentConnectionSource::Can => {
+            let mut operation = state
+                .agent_workbench
+                .lock()
+                .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
+            if agent_can_operation_active(
+                &operation,
+                state.agent_scan_active.load(Ordering::Acquire),
+            ) {
+                stop_active_operations_locked(
+                    state,
+                    CanScanStopReason::AgentRequested,
+                    &mut operation,
+                )?;
+            }
+            state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine is unavailable".to_owned())?
+                .disconnect_can()
+                .map_err(|error| error.to_string())
+        }
+        AgentConnectionSource::Obd => state
+            .engine
+            .lock()
+            .map_err(|_| "Acquisition engine is unavailable".to_owned())?
+            .disconnect_obd()
+            .map_err(|error| error.to_string()),
+    }
 }
 
 pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentResponse {
@@ -173,13 +296,37 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
             log_signal_ids,
             graph_signal_ids,
         } => set_signal_selection(app, log_signal_ids, graph_signal_ids),
+        AgentRequest::CanObd { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || can_obd_operation(&app, operation)).await {
+                Ok(Ok(result)) => AgentResponse::CanObd { result },
+                Ok(Err((code, error))) => AgentResponse::error(code, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
         AgentRequest::ConnectAdapter {
             choice,
             log_signal_ids,
+            profile_standby,
         } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || {
-                connect_adapter(&app, choice, log_signal_ids)
+                if profile_standby {
+                    let capabilities = crate::commands::connect_profile_adapter_shared(
+                        &app.state::<AppState>(),
+                        choice,
+                    )?;
+                    Ok((
+                        capabilities.device.stable_id,
+                        capabilities
+                            .supported_signals
+                            .into_iter()
+                            .map(|signal| signal.id)
+                            .collect(),
+                    ))
+                } else {
+                    connect_adapter(&app, choice, log_signal_ids)
+                }
             })
             .await
             {
@@ -227,6 +374,80 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
         }
+        AgentRequest::SearchSubaruCatalog {
+            query,
+            model,
+            year,
+            ecu_id,
+            protocol_family,
+            offset,
+            limit,
+        } => {
+            if [
+                query.as_str(),
+                model.as_str(),
+                ecu_id.as_str(),
+                protocol_family.as_str(),
+            ]
+            .iter()
+            .any(|value| value.len() > 512)
+                || !(1..=100).contains(&limit)
+            {
+                return AgentResponse::error(
+                    AgentErrorCode::InvalidRequest,
+                    "Subaru catalog filter or page size is out of range",
+                );
+            }
+            let path = app.state::<AppState>().pid_catalog_path.clone();
+            match async_runtime::spawn_blocking(move || {
+                SubaruCatalog::new(path).search(
+                    &query,
+                    &model,
+                    year,
+                    &ecu_id,
+                    &protocol_family,
+                    offset,
+                    limit,
+                )
+            })
+            .await
+            {
+                Ok(Ok(result)) => AgentResponse::SubaruCatalog { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::GetSubaruCatalogDetail { candidate_id } => {
+            let path = app.state::<AppState>().pid_catalog_path.clone();
+            match async_runtime::spawn_blocking(move || SubaruCatalog::new(path).get(&candidate_id))
+                .await
+            {
+                Ok(Ok(result)) => AgentResponse::SubaruCatalogDetail { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::OemLogging { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                oem_logging(&app.state::<AppState>(), operation)
+            })
+            .await
+            {
+                Ok(Ok(result)) => AgentResponse::OemLogging { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::OemDiscovery { operation } => {
+            match crate::commands::oem_discovery::execute(app, operation, true).await {
+                Ok(response) => match serde_json::to_value(response) {
+                    Ok(result) => AgentResponse::OemDiscovery { result },
+                    Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+                },
+                Err(error) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+            }
+        }
         AgentRequest::TryOemCandidate { candidate_id } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || try_oem_candidate(&app, &candidate_id))
@@ -243,16 +464,7 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
         AgentRequest::DisconnectSource { source } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || {
-                let state = app.state::<AppState>();
-                let mut engine = state
-                    .engine
-                    .lock()
-                    .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
-                match source {
-                    AgentConnectionSource::Obd => engine.disconnect_obd(),
-                    AgentConnectionSource::Can => engine.disconnect_can(),
-                }
-                .map_err(|error| error.to_string())
+                disconnect_source_state(&app.state::<AppState>(), source)
             })
             .await
             {
@@ -269,11 +481,39 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                     &state,
                     lognook_core::DiagnosticRequest { mode06_test_ids },
                 )
-                .and_then(|report| serde_json::to_value(report).map_err(|error| error.to_string()))
+                .and_then(redact_generic_diagnostic_vin)
             })
             .await
             {
                 Ok(Ok(report)) => AgentResponse::VehicleDiagnostics { report },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::UnsupportedAdapter, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::ClearVehicleDtcs {
+            adapter_id,
+            connection_generation,
+            confirm,
+        } => {
+            if !confirm {
+                return AgentResponse::error(
+                    AgentErrorCode::InvalidRequest,
+                    "Explicit DTC clear requires confirm=true for the named adapter and generation",
+                );
+            }
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                crate::commands::vehicle_diagnostics::execute_vehicle_dtc_clear(
+                    &state,
+                    adapter_id,
+                    connection_generation,
+                )
+                .and_then(redact_generic_diagnostic_vin)
+            })
+            .await
+            {
+                Ok(Ok(report)) => AgentResponse::VehicleDtcsCleared { report },
                 Ok(Err(error)) => AgentResponse::error(AgentErrorCode::UnsupportedAdapter, error),
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
@@ -356,6 +596,12 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
             }
         }
         AgentRequest::Workbench { operation } => {
+            if is_saved_replay_operation(&operation) {
+                return match saved_replay_workbench(app, operation).await {
+                    Ok(result) => AgentResponse::Workbench { result },
+                    Err(error) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                };
+            }
             let app = app.clone();
             match async_runtime::spawn_blocking(move || workbench(&app, operation)).await {
                 Ok(Ok(result)) => AgentResponse::Workbench { result },
@@ -363,6 +609,503 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
         }
+        AgentRequest::VehicleProfiles { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || vehicle_profiles_operation(&app, operation))
+                .await
+            {
+                Ok(Ok(result)) => AgentResponse::VehicleProfiles { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::VehicleProjects { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                if !is_agent_access_unlocked(&state) { return Err("Agent Access is locked; unlock it in LogNook Settings".into()); }
+                let expected_generation = match &operation {
+                    crate::commands::vehicle_projects::VehicleProjectsOperation::PrepareOnConnect { expected_generation }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::LoadLastState { expected_generation, .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::StartFresh { expected_generation, .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::Save { expected_generation, .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::SelectManual { expected_generation, .. } => Some(*expected_generation),
+                    _ => None,
+                };
+                let result = crate::commands::vehicle_projects::execute(&state, operation)?;
+                if !is_agent_access_unlocked(&state) { state.vehicle_profiles.cancel_pending_work(); return Err("Agent Access was locked during vehicle project operation".into()); }
+                if matches!(&result, crate::commands::vehicle_projects::VehicleProjectsResult::Prepared { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::Loaded { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::Fresh { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::ManualSelected { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::Saved { .. }) {
+                    if let Some(expected) = expected_generation {
+                        let current = state.engine.lock().map_err(|_| "Acquisition engine is unavailable")?;
+                        if current.obd_connection_generation() == expected {
+                            app.emit("vehicle-project-updated", crate::commands::vehicle_projects::VehicleProjectUpdatedEvent { connection_generation: expected, result: result.clone() }).map_err(|error| error.to_string())?;
+                        }
+                    }
+                }
+                Ok::<_, String>(result)
+            }).await {
+                Ok(Ok(result)) => AgentResponse::VehicleProjects { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::SignalPresets { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                let result = crate::commands::signal_presets::execute(&state, operation, crate::commands::signal_presets::PresetCaller::Agent)?;
+                if let lognook_core::SignalPresetResult::Applied { resolved, .. } = &result {
+                    let _ = app.emit("agent-signal-selection", AgentSignalSelection { log_signal_ids: resolved.selection.log_signal_ids.clone(), graph_signal_ids: resolved.selection.graph_signal_ids.clone() });
+                }
+                Ok::<_, String>(result)
+            }).await {
+                Ok(Ok(result)) => AgentResponse::SignalPresets { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+    }
+}
+
+fn redact_generic_diagnostic_vin(
+    mut report: lognook_core::DiagnosticReport,
+) -> Result<serde_json::Value, String> {
+    let masked_vin = report
+        .vehicle_context
+        .as_ref()
+        .and_then(|context| context.masked_vin.clone())
+        .or_else(|| {
+            report.reads.iter().find_map(|read| {
+                read.values.iter().find_map(|value| match value {
+                    lognook_core::DiagnosticValue::Identity {
+                        pid: 0x02, value, ..
+                    } => lognook_core::canonical_vin_identity(value)
+                        .ok()
+                        .map(|(_, masked)| masked),
+                    _ => None,
+                })
+            })
+        })
+        .unwrap_or_else(|| "VIN redacted".into());
+    if let Some(context) = report.vehicle_context.as_mut() {
+        context.full_vin = None;
+        context.decoded_snapshot = None;
+        context.owner_details.clear();
+    }
+    for read in &mut report.reads {
+        if read.kind == lognook_core::DiagnosticReadKind::Vin
+            && read.service == 0x09
+            && read.identifier == Some(0x02)
+        {
+            for value in &mut read.values {
+                if let lognook_core::DiagnosticValue::Identity {
+                    pid: 0x02, value, ..
+                } = value
+                {
+                    *value = masked_vin.clone();
+                }
+            }
+            read.response_payload.clear();
+            if !read.raw_response.is_empty() {
+                read.raw_response =
+                    "[VIN bytes redacted; raw evidence remains in local history]".into();
+            }
+        }
+    }
+    serde_json::to_value(report).map_err(|error| error.to_string())
+}
+
+fn vehicle_profiles_operation(
+    app: &AppHandle,
+    operation: AgentVehicleProfileOperation,
+) -> Result<AgentVehicleProfileResult, String> {
+    use crate::commands::vehicle_profiles as profiles;
+    use AgentVehicleProfileOperation as Operation;
+    use AgentVehicleProfileResult as ResultView;
+    let state = app.state::<AppState>();
+    if !is_agent_access_unlocked(&state) {
+        return Err("Agent Access is locked; unlock it in LogNook Settings".into());
+    }
+    match operation {
+        Operation::List => Ok(ResultView::Profiles {
+            profiles: profiles::list_vehicle_profiles_shared(&state)?,
+        }),
+        Operation::Get { profile_id } => Ok(ResultView::Profile {
+            profile: profiles::get_vehicle_profile_shared(&state, &profile_id)?,
+        }),
+        Operation::Save { args } => Ok(ResultView::Profile {
+            profile: profiles::save_vehicle_profile_shared(&state, args)?,
+        }),
+        Operation::Status => Ok(ResultView::Status {
+            status: profiles::vehicle_profiles_status_shared(&state)?,
+        }),
+        Operation::Recognize {
+            obd_connection_generation,
+        } => {
+            let observation =
+                profiles::recognize_vehicle_shared(&state, obd_connection_generation)?;
+            if !is_agent_access_unlocked(&state) {
+                state.vehicle_profiles.cancel_pending_work();
+                return Err("Agent Access was locked during profile recognition".into());
+            }
+            Ok(ResultView::Recognized {
+                observation,
+                status: profiles::vehicle_profiles_status_shared(&state)?,
+            })
+        }
+        Operation::ReadIdentity {
+            obd_connection_generation,
+        } => {
+            let report = profiles::read_vehicle_identity_shared(&state, obd_connection_generation)?;
+            if !is_agent_access_unlocked(&state) {
+                state.vehicle_profiles.cancel_pending_work();
+                return Err("Agent Access was locked during the vehicle identity read".into());
+            }
+            Ok(ResultView::IdentityReport {
+                report: serde_json::to_value(report).map_err(|error| error.to_string())?,
+            })
+        }
+        Operation::GetIdentity { scope, vin_digest } => Ok(ResultView::IdentityRecord {
+            record: state
+                .vehicle_profiles
+                .get_vehicle_identity(scope, &vin_digest)?,
+        }),
+        Operation::DecodeVinOffline { scope, vin_digest } => {
+            let record = state
+                .vehicle_profiles
+                .decode_vehicle_identity(scope, &vin_digest)?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::SetManualVehicleDetail {
+            scope,
+            vin_digest,
+            field,
+            value,
+            note,
+        } => {
+            let record = state.vehicle_profiles.set_manual_vehicle_detail(
+                scope,
+                &vin_digest,
+                field,
+                value,
+                lognook_core::ManualDetailActor::AgentAccess,
+                note,
+            )?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::LinkLegacyVin {
+            profile_id,
+            expected_revision,
+            full_vin,
+        } => {
+            let record = state.vehicle_profiles.link_legacy_vehicle_vin(
+                &profile_id,
+                expected_revision,
+                &full_vin,
+                lognook_core::ManualDetailActor::AgentAccess,
+            )?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::AssignProfileVin {
+            profile_id,
+            expected_revision,
+            full_vin,
+        } => {
+            let record = state.vehicle_profiles.assign_manual_profile_vin(
+                &profile_id,
+                expected_revision,
+                &full_vin,
+                lognook_core::ManualDetailActor::AgentAccess,
+            )?;
+            let generation = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine lock is unavailable")?
+                .obd_connection_generation();
+            crate::vehicle_reads::sync_active_recording_context(&state, generation)?;
+            Ok(ResultView::IdentityUpdated { record })
+        }
+        Operation::ListHistory { filter } => Ok(ResultView::History {
+            page: state.vehicle_profiles.list_diagnostic_history(filter)?,
+        }),
+        Operation::GetHistoryReport { report_id } => Ok(ResultView::HistoryReport {
+            detail: serde_json::to_value(crate::vehicle_reads::read_report_detail(
+                &state.vehicle_profiles,
+                &crate::vehicle_reads::vehicle_reads_path(&state),
+                &report_id,
+            )?)
+            .map_err(|error| error.to_string())?,
+        }),
+        Operation::AssociateHistoryReport {
+            report_id,
+            scope,
+            vin_digest,
+            note,
+        } => Ok(ResultView::HistoryAssociation {
+            association: state.vehicle_profiles.append_manual_report_association(
+                report_id,
+                scope,
+                vin_digest,
+                lognook_core::ManualDetailActor::AgentAccess,
+                note,
+            )?,
+        }),
+        Operation::HistoryImportStatus => Ok(ResultView::HistoryImport {
+            status: state
+                .vehicle_profiles
+                .get_history_import_checkpoint()?
+                .status,
+        }),
+        Operation::StartHistoryImport => {
+            let mut checkpoint = state.vehicle_profiles.get_history_import_checkpoint()?;
+            let cancel = state.vehicle_profiles.begin_history_import()?;
+            checkpoint.status.state = lognook_core::HistoryIndexState::Indexing;
+            checkpoint.status.error = None;
+            if let Err(error) = state
+                .vehicle_profiles
+                .save_history_import_checkpoint(checkpoint)
+            {
+                state.vehicle_profiles.finish_history_import(&cancel);
+                return Err(error);
+            }
+            let worker_app = app.clone();
+            async_runtime::spawn_blocking(move || {
+                let worker_state = worker_app.state::<AppState>();
+                let result = crate::vehicle_reads::import_vehicle_history(&worker_state, &cancel);
+                if let Err(error) = result {
+                    if let Ok(mut checkpoint) = worker_state
+                        .vehicle_profiles
+                        .get_history_import_checkpoint()
+                    {
+                        checkpoint.status.state = lognook_core::HistoryIndexState::Failed;
+                        checkpoint.status.error = Some(error);
+                        let _ = worker_state
+                            .vehicle_profiles
+                            .save_history_import_checkpoint(checkpoint);
+                    }
+                }
+                worker_state.vehicle_profiles.finish_history_import(&cancel);
+            });
+            Ok(ResultView::HistoryImport {
+                status: state
+                    .vehicle_profiles
+                    .get_history_import_checkpoint()?
+                    .status,
+            })
+        }
+        Operation::CancelHistoryImport => {
+            state.vehicle_profiles.cancel_history_import()?;
+            Ok(ResultView::HistoryImport {
+                status: state
+                    .vehicle_profiles
+                    .get_history_import_checkpoint()?
+                    .status,
+            })
+        }
+        Operation::PrepareResume {
+            profile_id,
+            obd_connection_generation,
+        } => Ok(ResultView::Preview {
+            preview: profiles::prepare_profile_resume_shared(
+                &state,
+                &profile_id,
+                obd_connection_generation,
+            )?,
+        }),
+        Operation::ApplyResume {
+            preview_id,
+            profile_revision,
+            obd_connection_generation,
+        } => {
+            let result = profiles::apply_profile_resume_shared(
+                &state,
+                &preview_id,
+                profile_revision,
+                obd_connection_generation,
+            )?;
+            sync_profile_agent_selection(&state, &result)?;
+            let _ = app.emit("vehicle-profile-resumed", &result);
+            Ok(ResultView::Resumed { result })
+        }
+        Operation::DiscardResume { preview_id } => {
+            profiles::discard_profile_resume_shared(&state, &preview_id)?;
+            Ok(ResultView::Discarded)
+        }
+        Operation::ContinueSelection {
+            log_signal_ids,
+            graph_signal_ids,
+            derived_definitions,
+            obd_connection_generation,
+        } => {
+            let selection = crate::commands::continue_profile_selection_shared(
+                &state,
+                log_signal_ids,
+                graph_signal_ids,
+                derived_definitions,
+                obd_connection_generation,
+            )?;
+            let _ = app.emit("agent-signal-selection", &selection);
+            Ok(ResultView::SelectionContinued { selection })
+        }
+        Operation::Cancel => {
+            state.vehicle_profiles.cancel_pending_work();
+            Ok(ResultView::Cancelled)
+        }
+    }
+}
+
+pub(crate) fn sync_profile_agent_selection(
+    state: &AppState,
+    result: &crate::vehicle_profiles::ProfileResumeApplyResult,
+) -> Result<(), String> {
+    *state
+        .agent_selection
+        .lock()
+        .map_err(|_| "Agent selection is unavailable")? = AgentSignalSelection {
+        log_signal_ids: result.selection.log_signal_ids.clone(),
+        graph_signal_ids: result.selection.graph_signal_ids.clone(),
+    };
+    Ok(())
+}
+
+fn is_saved_replay_operation(operation: &AgentWorkbenchOperation) -> bool {
+    matches!(
+        operation,
+        AgentWorkbenchOperation::PrepareSavedCanReplay { .. }
+            | AgentWorkbenchOperation::InspectSavedCanReplay { .. }
+            | AgentWorkbenchOperation::DiscardSavedCanReplay { .. }
+            | AgentWorkbenchOperation::StartSavedCanReplay { .. }
+    )
+}
+
+async fn saved_replay_workbench(
+    app: &AppHandle,
+    operation: AgentWorkbenchOperation,
+) -> Result<AgentWorkbenchResult, String> {
+    use crate::commands::saved_can_replay as saved;
+    let state = app.state::<AppState>();
+    if !is_agent_access_unlocked(&state) {
+        return Err("Agent Access is locked; unlock it in LogNook Settings".into());
+    }
+    match operation {
+        AgentWorkbenchOperation::PrepareSavedCanReplay {
+            source_id,
+            can_id,
+            extended,
+            start_elapsed_ms,
+            end_elapsed_ms,
+        } => {
+            let (start_elapsed_ns, end_elapsed_ns) =
+                replay_time_range_ns(start_elapsed_ms, end_elapsed_ms)?;
+            let preview = saved::prepare_saved_can_replay_with_state(
+                &state,
+                source_id,
+                lognook_core::SavedCanReplaySelection {
+                    can_id,
+                    extended,
+                    start_elapsed_ns,
+                    end_elapsed_ns,
+                },
+            )
+            .await?;
+            if !is_agent_access_unlocked(&state) {
+                let _ =
+                    saved::discard_saved_can_replay_with_state(&state, Some(&preview.preview_id));
+                return Err("Agent Access was locked while preparing the replay".into());
+            }
+            Ok(AgentWorkbenchResult {
+                operation: "saved_can_replay_prepared".into(),
+                detail: None,
+                evidence_path: None,
+                saved_replay_preview: Some(preview),
+                replay_status: None,
+            })
+        }
+        AgentWorkbenchOperation::InspectSavedCanReplay { preview_id } => {
+            let preview = saved::inspect_saved_can_replay_with_state(&state, &preview_id)?;
+            Ok(AgentWorkbenchResult {
+                operation: "saved_can_replay_preview".into(),
+                detail: None,
+                evidence_path: None,
+                saved_replay_preview: Some(preview),
+                replay_status: None,
+            })
+        }
+        AgentWorkbenchOperation::DiscardSavedCanReplay { preview_id } => {
+            saved::discard_saved_can_replay_with_state(&state, preview_id.as_deref())?;
+            Ok(workbench_result("saved_can_replay_discarded", None))
+        }
+        AgentWorkbenchOperation::StartSavedCanReplay {
+            preview_id,
+            expected_can_generation,
+            expected_output_capture_id,
+        } => {
+            saved::inspect_saved_can_replay_with_state(&state, &preview_id)?;
+            let mut active = state
+                .agent_workbench
+                .lock()
+                .map_err(|_| "Agent Workbench state is unavailable")?;
+            {
+                let engine = state
+                    .engine
+                    .lock()
+                    .map_err(|_| "Acquisition engine is unavailable")?;
+                ensure_can_transmit(&engine)?;
+                if engine.can_connection_generation() != expected_can_generation {
+                    return Err(
+                        "The CAN connection changed; inspect the target again before replay".into(),
+                    );
+                }
+                ensure_agent_capture(&state, &mut active, &engine)?;
+            }
+            let preview = saved::inspect_saved_can_replay_with_state(&state, &preview_id)?;
+            if !is_agent_access_unlocked(&state) {
+                return Err("Agent Access is locked; unlock it in LogNook Settings".into());
+            }
+            if !state.trace_store.capture_status().capturing {
+                super::trace::start_capture(&state)?;
+            }
+            let replay = saved::start_saved_can_replay_with_state(
+                &state,
+                &preview_id,
+                expected_can_generation,
+                expected_output_capture_id,
+            )?;
+            active.replay_id = Some(replay.replay_id);
+            Ok(AgentWorkbenchResult {
+                operation: "saved_can_replay_started".into(),
+                detail: None,
+                evidence_path: active
+                    .capture_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+                saved_replay_preview: Some(preview),
+                replay_status: Some(replay),
+            })
+        }
+        _ => Err("Expected a saved CAN replay operation".into()),
     }
 }
 
@@ -399,6 +1142,7 @@ fn workbench(
         }
         Operation::StopCapture => {
             let path = active.capture_path.clone();
+            active.replay_id = None;
             engine
                 .stop_can_capture_with_reason(CanScanStopReason::AgentRequested)
                 .map_err(|error| error.to_string())?;
@@ -417,6 +1161,8 @@ fn workbench(
                 .map_err(|error| error.to_string())?;
             Ok(AgentWorkbenchResult {
                 operation: "event_marked".into(),
+                saved_replay_preview: None,
+                replay_status: None,
                 detail: Some(label),
                 evidence_path: active
                     .capture_path
@@ -484,7 +1230,90 @@ fn workbench(
                 active.capture_path.clone(),
             ))
         }
+        Operation::ReplayCanId {
+            can_id,
+            extended,
+            start_elapsed_ms,
+            end_elapsed_ms,
+        } => {
+            let (start_ns, end_ns) = replay_time_range_ns(start_elapsed_ms, end_elapsed_ms)?;
+            if can_id > if extended { 0x1fff_ffff } else { 0x7ff } {
+                return Err("CAN identifier exceeds its 11-bit or 29-bit format".into());
+            }
+            if state.agent_scan_active.load(Ordering::Acquire)
+                || active
+                    .send_until
+                    .is_some_and(|until| Instant::now() < until)
+                || active.replay_id.is_some_and(|id| {
+                    state.agent_can_replay_status.lock().is_ok_and(|status| {
+                        status.as_ref().is_none_or(|status| {
+                            status.replay_id == id
+                                && status.state == lognook_core::CanIdReplayState::Running
+                        })
+                    })
+                })
+            {
+                return Err("A CAN send, scan, or replay is already active".into());
+            }
+
+            let can_status = engine
+                .can_workbench_status()
+                .filter(|status| status.connected)
+                .ok_or_else(|| {
+                    "Connect Candlelight before replaying captured CAN frames".to_owned()
+                })?;
+            let selection = state
+                .agent_log_buffer
+                .lock()
+                .map_err(|_| "Live log buffer is unavailable".to_owned())?
+                .query_can_replay_frames(
+                    &can_status.source_id,
+                    can_id,
+                    extended,
+                    start_ns,
+                    end_ns,
+                )?;
+            ensure_can_transmit(&engine)?;
+            ensure_agent_capture(&state, &mut active, &engine)?;
+            if !state.trace_store.capture_status().capturing {
+                super::trace::start_capture(&state)?;
+            }
+            let replay = engine
+                .start_can_id_replay(selection.frames.clone())
+                .map_err(|error| error.to_string())?;
+            active.replay_id = Some(replay.replay_id);
+            Ok(AgentWorkbenchResult {
+                operation: "can_id_replay_started".into(),
+                saved_replay_preview: None,
+                replay_status: Some(replay.clone()),
+                detail: Some(format!(
+                    "Replay {} for {} CAN ID 0x{can_id:X}, elapsed {start_elapsed_ms}-{end_elapsed_ms} ms, started with {} of {} matching RX frames ({} omitted by the 400-frame limit)",
+                    replay.replay_id,
+                    if extended { "extended" } else { "standard" },
+                    replay.total_frames,
+                    selection.matched_count,
+                    selection.truncated_count
+                )),
+                evidence_path: active
+                    .capture_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+            })
+        }
+        Operation::PrepareSavedCanReplay { .. }
+        | Operation::InspectSavedCanReplay { .. }
+        | Operation::DiscardSavedCanReplay { .. }
+        | Operation::StartSavedCanReplay { .. } => {
+            Err("Saved replay uses the preparation service".into())
+        }
     }
+}
+
+fn replay_time_range_ns(start_ms: u64, end_ms: u64) -> Result<(i64, i64), String> {
+    if start_ms > end_ms || end_ms > (i64::MAX as u64 / 1_000_000) {
+        return Err("CAN replay range must be ordered and within the supported time range".into());
+    }
+    Ok(((start_ms * 1_000_000) as i64, (end_ms * 1_000_000) as i64))
 }
 
 fn is_agent_access_unlocked(state: &AppState) -> bool {
@@ -539,6 +1368,8 @@ fn workbench_result(operation: &str, path: Option<PathBuf>) -> AgentWorkbenchRes
     AgentWorkbenchResult {
         operation: operation.into(),
         detail: None,
+        saved_replay_preview: None,
+        replay_status: None,
         evidence_path: path.map(|path| path.to_string_lossy().into_owned()),
     }
 }
@@ -816,6 +1647,83 @@ fn list_mode06_tests(app: &AppHandle) -> AgentMode06Tests {
     }
 }
 
+fn oem_logging(
+    state: &AppState,
+    operation: AgentOemLoggingOperation,
+) -> Result<serde_json::Value, String> {
+    match operation {
+        AgentOemLoggingOperation::Status {} => {
+            let engine = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
+            serde_json::to_value(engine.oem_polling_status())
+        }
+        AgentOemLoggingOperation::Search {
+            vehicle_id,
+            query,
+            offset,
+            limit,
+        } => {
+            return OemCatalog::new(&state.pid_catalog_path)
+                .search_oem_poll_candidates(&vehicle_id, &query, offset, limit)
+                .and_then(|page| serde_json::to_value(page).map_err(|error| error.to_string()));
+        }
+        AgentOemLoggingOperation::Start {
+            vehicle_id,
+            candidate_ids,
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::set_oem_logging(
+                state,
+                Some(&vehicle_id),
+                &candidate_ids,
+                Some((&adapter_id, connection_generation)),
+            )?;
+            serde_json::to_value(status)
+        }
+        AgentOemLoggingOperation::Stop {
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::set_oem_logging(
+                state,
+                None,
+                &[],
+                Some((&adapter_id, connection_generation)),
+            )?;
+            serde_json::to_value(status)
+        }
+        AgentOemLoggingOperation::StartSubaru {
+            candidate_ids,
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::subaru_catalog::set_subaru_logging_bound(
+                state,
+                &candidate_ids,
+                &adapter_id,
+                connection_generation,
+            )?;
+            serde_json::to_value(status)
+        }
+        AgentOemLoggingOperation::StopSubaru {
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::subaru_catalog::set_subaru_logging_bound(
+                state,
+                &[],
+                &adapter_id,
+                connection_generation,
+            )?;
+            serde_json::to_value(status)
+        }
+    }
+    .map_err(|error| error.to_string())
+}
+
 fn try_oem_candidate(app: &AppHandle, candidate_id: &str) -> Result<AgentOemTrySummary, String> {
     if candidate_id.trim().is_empty() || candidate_id.len() > 256 {
         return Err("Choose a valid OEM candidate ID".into());
@@ -928,26 +1836,34 @@ fn a30_outcome_name(outcome: &A30ReadOutcome) -> &'static str {
 
 fn authorize_action(app: &AppHandle) -> Result<(), AgentError> {
     let state = app.state::<AppState>();
-    state
-        .agent_access
-        .lock()
-        .map_err(|_| AgentError {
-            code: AgentErrorCode::Internal,
-            message: "Agent Access state is unavailable".into(),
-        })?
-        .authorize_action()
-        .map_err(|message| AgentError {
-            code: AgentErrorCode::Locked,
-            message,
-        })
+    let mut access = state.agent_access.lock().map_err(|_| AgentError {
+        code: AgentErrorCode::Internal,
+        message: "Agent Access state is unavailable".into(),
+    })?;
+    authorize_access_manager(&mut access)
+}
+
+fn authorize_access_manager(
+    access: &mut crate::agent::access::AgentAccessManager,
+) -> Result<(), AgentError> {
+    access.authorize_action().map_err(|message| AgentError {
+        code: AgentErrorCode::Locked,
+        message,
+    })
 }
 
 fn get_status(app: &AppHandle) -> AgentResponse {
     let state = app.state::<AppState>();
+    let replay_status = state
+        .agent_can_replay_status
+        .lock()
+        .ok()
+        .and_then(|status| status.clone());
     let active_operation = match state.agent_workbench.lock() {
-        Ok(mut operation) => {
-            operation.active_operation(state.agent_scan_active.load(Ordering::Acquire))
-        }
+        Ok(mut operation) => operation.active_operation(
+            state.agent_scan_active.load(Ordering::Acquire),
+            replay_status.as_ref(),
+        ),
         Err(_) => {
             return AgentResponse::error(
                 AgentErrorCode::Internal,
@@ -955,6 +1871,12 @@ fn get_status(app: &AppHandle) -> AgentResponse {
             );
         }
     };
+    let active_operation = active_operation.or_else(|| {
+        state
+            .can_obd_operations
+            .is_connecting()
+            .then(|| "Candlelight OBD connection".into())
+    });
     let engine = match state.engine.lock() {
         Ok(engine) => engine,
         Err(_) => {
@@ -982,19 +1904,23 @@ fn get_status(app: &AppHandle) -> AgentResponse {
             );
         }
     };
-    AgentResponse::Status {
-        status: build_agent_status(
-            &engine,
-            AgentAccessSnapshot {
-                configured: access.configured,
-                unlocked: access.unlocked,
-                expires_at_unix_ms: access.expires_at_unix_ms,
-                host_connected: state.agent_ipc.connected(),
-            },
-            selection,
-            active_operation,
-        ),
+    let mut status = build_agent_status(
+        &engine,
+        AgentAccessSnapshot {
+            configured: access.configured,
+            unlocked: access.unlocked,
+            expires_at_unix_ms: access.expires_at_unix_ms,
+            host_connected: state.agent_ipc.connected(),
+        },
+        selection,
+        active_operation,
+    );
+    drop(engine);
+    match crate::commands::vehicle_profiles_status_shared(&state) {
+        Ok(profile_status) => status.vehicle_profile_status = Some(profile_status),
+        Err(error) => status.vehicle_profile_error = Some(error),
     }
+    AgentResponse::Status { status }
 }
 
 fn build_agent_status(
@@ -1016,11 +1942,22 @@ fn build_agent_status(
             .map(|caps| caps.device.stable_id.clone())
             .or_else(|| can.as_ref().map(|status| status.source_id.clone())),
         adapter_connected: engine.is_connected(),
+        obd_connection_generation: engine
+            .is_obd_connected()
+            .then_some(engine.obd_connection_generation()),
+        diagnostic_capabilities: capabilities.map(|caps| caps.diagnostics),
         obd_connected: engine.is_obd_connected(),
         can_connected: can.as_ref().is_some_and(|status| status.connected),
         can_adapter_id: can
+            .as_ref()
             .filter(|status| status.connected)
-            .map(|status| status.source_id),
+            .map(|status| status.source_id.clone()),
+        can_connection_generation: can
+            .as_ref()
+            .filter(|status| status.connected)
+            .map(|_| engine.can_connection_generation()),
+        vehicle_profile_status: None,
+        vehicle_profile_error: None,
         recording: engine.is_recording(),
         active_operation,
         supported_signal_ids: capabilities
@@ -1098,34 +2035,46 @@ fn list_adapters(app: &AppHandle) -> (Vec<AgentAdapterInfo>, Vec<String>) {
     match crate::commands::discover_providers(&state, crate::commands::worker_path) {
         Ok(discovery) => {
             errors.extend(discovery.diagnostics);
-            adapters.extend(
-                discovery
-                    .providers
-                    .into_iter()
-                    .map(|provider| AgentAdapterInfo {
-                        label: format!("OpenPort 2 · {}", provider.name),
-                        choice: AgentAdapterChoice::OpenPort2 {
-                            provider_id: provider.id,
-                        },
-                    }),
-            );
+            let providers = discovery.providers;
+            adapters.extend(providers.iter().cloned().map(|provider| AgentAdapterInfo {
+                label: format!("OpenPort 2 OBD-II CAN · {}", provider.name),
+                choice: AgentAdapterChoice::OpenPort2 {
+                    provider_id: provider.id,
+                },
+            }));
+            adapters.extend(providers.into_iter().map(|provider| AgentAdapterInfo {
+                label: format!("OpenPort 2 Subaru SSM K-Line · {}", provider.name),
+                choice: AgentAdapterChoice::OpenPort2SubaruSsm {
+                    provider_id: provider.id,
+                },
+            }));
         }
         Err(error) => errors.push(format!("OpenPort 2 discovery: {error}")),
     }
     match available_can_adapters() {
-        Ok(devices) => adapters.extend(devices.into_iter().map(|device| AgentAdapterInfo {
-            label: format!(
-                "Candlelight · {}",
-                device.product.as_deref().unwrap_or("USB CAN")
-            ),
-            choice: AgentAdapterChoice::Candlelight {
-                id: device.id,
-                interface_number: 0,
-                channel: 0,
-                bitrate: 500_000,
-                listen_only: true,
-            },
-        })),
+        Ok(devices) => {
+            for device in devices {
+                let product = device.product.as_deref().unwrap_or("USB CAN");
+                adapters.push(AgentAdapterInfo {
+                    label: format!("Candlelight · {product}"),
+                    choice: AgentAdapterChoice::Candlelight {
+                        id: device.id.clone(),
+                        interface_number: 0,
+                        channel: 0,
+                        bitrate: 500_000,
+                        listen_only: true,
+                    },
+                });
+                adapters.push(AgentAdapterInfo {
+                    label: format!("Candlelight OBD · {product}"),
+                    choice: AgentAdapterChoice::CandlelightObd {
+                        id: device.id,
+                        interface_number: 0,
+                        channel: 0,
+                    },
+                });
+            }
+        }
         Err(error) => errors.push(format!("Candlelight discovery: {error}")),
     }
     (adapters, errors)
@@ -1189,6 +2138,33 @@ fn same_ids(left: &[String], right: &[String]) -> bool {
     left == right
 }
 
+fn proposed_signal_selection(
+    engine: &lognook_core::LogNookEngine,
+    current_log_signal_ids: &[String],
+    log_signal_ids: Vec<String>,
+    graph_signal_ids: Vec<String>,
+) -> Result<AgentSignalSelection, String> {
+    validate_signal_selection(
+        engine,
+        current_log_signal_ids,
+        &log_signal_ids,
+        &graph_signal_ids,
+    )?;
+    Ok(AgentSignalSelection {
+        log_signal_ids,
+        graph_signal_ids,
+    })
+}
+
+fn is_can_obd_connection(engine: &lognook_core::LogNookEngine) -> bool {
+    engine
+        .connection_capabilities()
+        .is_some_and(|capabilities| {
+            engine.is_obd_connected()
+                && capabilities.device.hardware_family == "Candlelight GS-USB OBD-II"
+        })
+}
+
 fn set_signal_selection(
     app: &AppHandle,
     log_signal_ids: Vec<String>,
@@ -1232,6 +2208,162 @@ fn set_signal_selection(
     AgentResponse::SelectionUpdated { selection }
 }
 
+fn can_obd_operation(
+    app: &AppHandle,
+    operation: AgentCanObdOperation,
+) -> Result<AgentCanObdResult, (AgentErrorCode, String)> {
+    let state = app.state::<AppState>();
+    match operation {
+        AgentCanObdOperation::Discover => available_can_adapters()
+            .map(|devices| AgentCanObdResult::Devices { devices })
+            .map_err(|error| (AgentErrorCode::Internal, error.to_string())),
+        AgentCanObdOperation::Identify { selection } => {
+            crate::commands::identify_can_obd_shared(&state, selection)
+                .map(|device| AgentCanObdResult::Identified { device })
+                .map_err(|error| (AgentErrorCode::UnsupportedAdapter, error))
+        }
+        AgentCanObdOperation::Connect {
+            selection,
+            log_signal_ids,
+            graph_signal_ids,
+        } => {
+            let choice = AgentAdapterChoice::CandlelightObd {
+                id: selection.id,
+                interface_number: selection.interface_number,
+                channel: selection.channel,
+            };
+            let (adapter_id, supported_signal_ids) =
+                connect_adapter_with_selection(app, choice, log_signal_ids, graph_signal_ids)
+                    .map_err(|error| (AgentErrorCode::InvalidSelection, error))?;
+            Ok(AgentCanObdResult::Connected {
+                adapter_id,
+                supported_signal_ids,
+            })
+        }
+        AgentCanObdOperation::Select {
+            log_signal_ids,
+            graph_signal_ids,
+        } => update_can_obd_selection(app, log_signal_ids, graph_signal_ids)
+            .map(|selection| AgentCanObdResult::SelectionUpdated { selection }),
+        AgentCanObdOperation::Status => {
+            can_obd_status(&state, state.can_obd_operations.is_connecting())
+        }
+        AgentCanObdOperation::Disconnect => {
+            let engine = state.engine.lock().map_err(|_| {
+                (
+                    AgentErrorCode::Internal,
+                    "Acquisition engine is unavailable".to_owned(),
+                )
+            })?;
+            let is_can_obd = is_can_obd_connection(&engine);
+            drop(engine);
+            if !is_can_obd {
+                return Err((
+                    AgentErrorCode::UnsupportedAdapter,
+                    "No Candlelight OBD source is connected".into(),
+                ));
+            }
+            disconnect_source_state(&state, AgentConnectionSource::Obd)
+                .map_err(|error| (AgentErrorCode::Internal, error))?;
+            Ok(AgentCanObdResult::Disconnected)
+        }
+        AgentCanObdOperation::Cancel => Ok(AgentCanObdResult::Cancelled {
+            requested: state.can_obd_operations.cancel(),
+        }),
+    }
+}
+
+fn can_obd_status(
+    state: &AppState,
+    connecting: bool,
+) -> Result<AgentCanObdResult, (AgentErrorCode, String)> {
+    let selection = state
+        .agent_selection
+        .lock()
+        .map_err(|_| {
+            (
+                AgentErrorCode::Internal,
+                "Agent selection is unavailable".to_owned(),
+            )
+        })?
+        .clone();
+    if connecting {
+        return Ok(AgentCanObdResult::Status {
+            connecting: true,
+            connected: false,
+            device: None,
+            supported_signal_ids: vec![],
+            selection,
+        });
+    }
+    let engine = state.engine.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Acquisition engine is unavailable".to_owned(),
+        )
+    })?;
+    let device = engine
+        .connection_capabilities()
+        .filter(|_| is_can_obd_connection(&engine))
+        .map(|capabilities| capabilities.device.clone());
+    let supported_signal_ids = engine
+        .connection_capabilities()
+        .filter(|_| device.is_some())
+        .map(|capabilities| {
+            capabilities
+                .supported_signals
+                .iter()
+                .map(|signal| signal.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(AgentCanObdResult::Status {
+        connecting: false,
+        connected: device.is_some(),
+        device,
+        supported_signal_ids,
+        selection,
+    })
+}
+
+fn update_can_obd_selection(
+    app: &AppHandle,
+    log_signal_ids: Vec<String>,
+    graph_signal_ids: Vec<String>,
+) -> Result<AgentSignalSelection, (AgentErrorCode, String)> {
+    let state = app.state::<AppState>();
+    let engine = state.engine.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Acquisition engine is unavailable".to_owned(),
+        )
+    })?;
+    if !is_can_obd_connection(&engine) {
+        return Err((
+            AgentErrorCode::UnsupportedAdapter,
+            "Connect Candlelight OBD before changing its signal selection".into(),
+        ));
+    }
+    let mut current = state.agent_selection.lock().map_err(|_| {
+        (
+            AgentErrorCode::Internal,
+            "Agent selection is unavailable".to_owned(),
+        )
+    })?;
+    let selection = proposed_signal_selection(
+        &engine,
+        &current.log_signal_ids,
+        log_signal_ids,
+        graph_signal_ids,
+    )
+    .map_err(|error| (AgentErrorCode::InvalidSelection, error))?;
+    *current = selection.clone();
+    drop(current);
+    drop(engine);
+    let _ = app.emit("agent-signal-selection", &selection);
+    Ok(selection)
+}
+
 fn connect_adapter(
     app: &AppHandle,
     choice: AgentAdapterChoice,
@@ -1272,10 +2404,6 @@ fn connect_adapter(
         let status = result?;
         return Ok((status.source_id, vec![]));
     }
-    let engine = state
-        .engine
-        .lock()
-        .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
     let selection = state
         .agent_selection
         .lock()
@@ -1286,30 +2414,74 @@ fn connect_adapter(
         .filter(|id| log_signal_ids.contains(id))
         .cloned()
         .collect::<Vec<_>>();
-    validate_signal_selection(
-        &engine,
-        &selection.log_signal_ids,
-        &log_signal_ids,
-        &graph_signal_ids,
-    )?;
     drop(selection);
+    connect_adapter_with_selection(app, choice, log_signal_ids, graph_signal_ids)
+}
+
+fn connect_adapter_with_selection(
+    app: &AppHandle,
+    choice: AgentAdapterChoice,
+    log_signal_ids: Vec<String>,
+    graph_signal_ids: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    let state = app.state::<AppState>();
+    let engine = state
+        .engine
+        .lock()
+        .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
+    let current_selection = state
+        .agent_selection
+        .lock()
+        .map_err(|_| "Agent selection is unavailable".to_owned())?;
+    let proposed = if matches!(&choice, AgentAdapterChoice::OpenPort2SubaruSsm { .. }) {
+        if !log_signal_ids.is_empty() || !graph_signal_ids.is_empty() {
+            return Err(
+                "Subaru SSM K-Line uses candidate IDs through oem_logging; leave standard PID selections empty".into(),
+            );
+        }
+        AgentSignalSelection {
+            log_signal_ids: Vec::new(),
+            graph_signal_ids: Vec::new(),
+        }
+    } else {
+        proposed_signal_selection(
+            &engine,
+            &current_selection.log_signal_ids,
+            log_signal_ids.clone(),
+            graph_signal_ids.clone(),
+        )?
+    };
+    drop(current_selection);
     drop(engine);
     let adapter_id = adapter_id(&choice);
-    let capabilities = crate::commands::connect_with_diagnostics(
-        &state,
-        adapter_id.clone(),
-        log_signal_ids.clone(),
-        |engine, ids| connect_adapter_in_engine(engine, choice, ids),
-    )?;
+    let capabilities = if let AgentAdapterChoice::CandlelightObd {
+        id,
+        interface_number,
+        channel,
+    } = choice.clone()
+    {
+        crate::commands::connect_can_obd_shared(
+            &state,
+            CanDeviceSelection {
+                id,
+                interface_number,
+                channel,
+            },
+            log_signal_ids.clone(),
+        )?
+    } else {
+        crate::commands::connect_with_diagnostics(
+            &state,
+            adapter_id.clone(),
+            log_signal_ids.clone(),
+            |engine, ids| connect_adapter_in_engine(engine, choice, ids),
+        )?
+    };
     let mut selection = state
         .agent_selection
         .lock()
         .map_err(|_| "Agent selection is unavailable".to_owned())?;
-    selection.log_signal_ids = log_signal_ids;
-    let selected_log_ids = selection.log_signal_ids.clone();
-    selection
-        .graph_signal_ids
-        .retain(|id| selected_log_ids.contains(id));
+    *selection = proposed;
     let updated_selection = selection.clone();
     drop(selection);
     let _ = app.emit("agent-signal-selection", &updated_selection);
@@ -1341,9 +2513,25 @@ fn connect_adapter_in_engine(
             crate::commands::worker_path()?,
             provider_id,
         )),
+        AgentAdapterChoice::OpenPort2SubaruSsm { provider_id } => {
+            return engine
+                .connect_adapter_without_standard_signals(Box::new(
+                    OpenPort2Adapter::new_subaru_ssm(crate::commands::worker_path()?, provider_id),
+                ))
+                .map_err(|error| error.to_string());
+        }
         AgentAdapterChoice::Candlelight { .. } => {
             return Err("Use the explicit CAN adapter connection option for Candlelight".into());
         }
+        AgentAdapterChoice::CandlelightObd {
+            id,
+            interface_number,
+            channel,
+        } => Box::new(lognook_core::CanObdAdapter::new(CanDeviceSelection {
+            id,
+            interface_number,
+            channel,
+        })),
     };
     engine
         .connect_adapter(adapter, signal_ids)
@@ -1356,13 +2544,22 @@ fn adapter_id(choice: &AgentAdapterChoice) -> String {
         AgentAdapterChoice::ObdLinkSx { port_name } => format!("obdlink-sx:{port_name}"),
         AgentAdapterChoice::Elm327 { address } => format!("elm327:{address}"),
         AgentAdapterChoice::A30 { address } => format!("a30:{address}"),
-        AgentAdapterChoice::OpenPort2 { provider_id } => provider_id.clone(),
+        AgentAdapterChoice::OpenPort2 { provider_id }
+        | AgentAdapterChoice::OpenPort2SubaruSsm { provider_id } => provider_id.clone(),
         AgentAdapterChoice::Candlelight { id, .. } => format!("candlelight:{id}"),
+        AgentAdapterChoice::CandlelightObd { id, .. } => format!("candlelight-obd:{id}"),
     }
 }
 
 fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
+    let mut active = state
+        .agent_workbench
+        .lock()
+        .map_err(|_| "Agent Workbench state is unavailable".to_owned())?;
+    if agent_can_operation_active(&active, state.agent_scan_active.load(Ordering::Acquire)) {
+        stop_active_operations_locked(&state, CanScanStopReason::AgentRequested, &mut active)?;
+    }
     let mut engine = state
         .engine
         .lock()
@@ -1375,28 +2572,223 @@ fn disconnect_adapter(app: &AppHandle) -> Result<(), String> {
         .begin_operation(adapter_id, "disconnect", vec![]);
     let result = engine.disconnect().map_err(|error| error.to_string());
     operation.finish_result(&result);
+    drop(active);
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentWorkbenchState, build_agent_status, connect_adapter_in_engine, convert_scan_config,
-        decode_hex_payload, ensure_mode06_supported, search_oem_candidates, start_agent_scan,
-        summarize_oem_try, supported_mode06_tests, to_a30_test, update_agent_scan_state,
-        validate_signal_selection,
+        AgentWorkbenchState, authorize_access_manager, build_agent_status, can_obd_status,
+        connect_adapter_in_engine, convert_scan_config, decode_hex_payload,
+        disconnect_source_state, ensure_mode06_supported, is_can_obd_connection,
+        proposed_signal_selection, redact_generic_diagnostic_vin, replay_time_range_ns,
+        search_oem_candidates, start_agent_scan, summarize_oem_try, supported_mode06_tests,
+        to_a30_test, update_agent_replay_state, update_agent_scan_state, validate_signal_selection,
     };
     use crate::agent::protocol::{
-        AgentAccessSnapshot, AgentAdapterChoice, AgentCanScanConfig, AgentCanScanMode,
-        AgentSignalSelection,
+        AgentAccessSnapshot, AgentAdapterChoice, AgentCanObdResult, AgentCanScanConfig,
+        AgentCanScanMode, AgentConnectionSource, AgentErrorCode, AgentSignalSelection,
     };
     use lognook_core::{
-        CanScanConfig, CanScanMode, DeviceDescriptor, LogNookEngine, OemCandidateOutcome,
-        OemCandidateTryResult, OemCatalog,
+        CanDirection, CanEvidenceRecord, CanFrame, CanScanConfig, CanScanMode, CanTransport,
+        CanTransportError, CanTransportEvent, CanWorkbenchConfig, ConnectionCapabilities,
+        DeviceDescriptor, HardwareAdapter, LogNookEngine, LogNookError, OemCandidateOutcome,
+        OemCandidateTryResult, OemCatalog, Sample, SignalDefinition, standard_obd_signals,
+    };
+    use std::{
+        path::PathBuf,
+        sync::atomic::AtomicBool,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     fn engine() -> LogNookEngine {
         LogNookEngine::new(|_| {})
+    }
+
+    #[test]
+    fn generic_mcp_diagnostics_redact_full_vin_but_keep_masked_vehicle_context() {
+        let vin = "1FAHP2E89BG123456";
+        let (digest, masked_vin) = lognook_core::canonical_vin_identity(vin).unwrap();
+        let query = lognook_core::DiagnosticRequest::identity_queries()
+            .pop_front()
+            .unwrap();
+        let mut payload = vec![0x49, 0x02, 0x01];
+        payload.extend_from_slice(vin.as_bytes());
+        let read = query.report(
+            Some("7E8".into()),
+            payload,
+            format!("7E8 49 02 01 {vin}"),
+            "0902".into(),
+            1,
+            2,
+            false,
+        );
+        let report = lognook_core::DiagnosticReport {
+            report_id: Some("report".into()),
+            connection_generation: Some(5),
+            vehicle_context: Some(lognook_core::VehicleIdentitySnapshot {
+                scope: lognook_core::ProfileScope::Live,
+                connection_generation: Some(5),
+                profile_id: None,
+                profile_revision: None,
+                full_vin: Some(vin.into()),
+                vin_digest: Some(digest),
+                masked_vin: Some(masked_vin.clone()),
+                origin: Some(lognook_core::VinOrigin::EcuReport),
+                identity_source: lognook_core::VehicleIdentitySource::ReportEcu,
+                vin_conflict: false,
+                observed_ecus: Vec::new(),
+                decoded_snapshot: Some(lognook_core::VinDecodeResult {
+                    normalized_vin: vin.into(),
+                    check_digit_status: lognook_core::VinCheckDigitStatus::UnknownScope,
+                    check_digit_scheme: None,
+                    year_code: 'B',
+                    candidate_model_years: vec![1981, 2011],
+                    class_backed_model_year: None,
+                    wmi_assignment: None,
+                    decoder_revision: "fixture".into(),
+                    wmi_dataset_sha256: "fixture".into(),
+                }),
+                owner_details: vec![lognook_core::ManualVehicleDetail {
+                    field: lognook_core::ManualVehicleField::Make,
+                    value: vin.into(),
+                    actor: lognook_core::ManualDetailActor::OwnerUi,
+                    entered_at_unix_ms: 1,
+                    note: None,
+                }],
+            }),
+            adapter: DeviceDescriptor {
+                stable_id: "test".into(),
+                hardware_family: "OBDLink SX".into(),
+                firmware: None,
+                path: None,
+            },
+            protocol: "fixture".into(),
+            started_at_unix_ms: 1,
+            operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
+            request: lognook_core::DiagnosticRequest::default(),
+            reads: vec![read],
+            route_restore_error: None,
+            evidence_saved: true,
+            evidence_save_error: None,
+        };
+        let locally_saved_report = report.clone();
+        let agent_value = redact_generic_diagnostic_vin(report).unwrap();
+        let serialized = agent_value.to_string();
+
+        assert!(!serialized.contains(vin));
+        assert!(serialized.contains(&masked_vin));
+        assert_eq!(
+            agent_value["reads"][0]["response_payload"],
+            serde_json::json!([])
+        );
+        assert!(
+            agent_value["reads"][0]["raw_response"]
+                .as_str()
+                .unwrap()
+                .contains("redacted")
+        );
+        assert_eq!(locally_saved_report.reads[0].response_payload.len(), 20);
+        assert_eq!(
+            locally_saved_report
+                .vehicle_context
+                .unwrap()
+                .full_vin
+                .as_deref(),
+            Some(vin)
+        );
+    }
+
+    struct QuietCanTransport;
+
+    impl CanTransport for QuietCanTransport {
+        fn source_id(&self) -> String {
+            "can:agent-test".into()
+        }
+
+        fn start(
+            &mut self,
+            _bitrate: u32,
+            _listen_only: bool,
+            _session_origin: Instant,
+        ) -> Result<(), CanTransportError> {
+            Ok(())
+        }
+
+        fn receive(
+            &mut self,
+            timeout: Duration,
+        ) -> Result<Option<CanTransportEvent>, CanTransportError> {
+            std::thread::sleep(timeout.min(Duration::from_millis(2)));
+            Ok(None)
+        }
+
+        fn transmit(&mut self, _frame: &CanFrame) -> Result<u32, CanTransportError> {
+            Ok(1)
+        }
+
+        fn stop(&mut self) -> Result<(), CanTransportError> {
+            Ok(())
+        }
+    }
+
+    fn test_app_state() -> (crate::AppState, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "lognook-agent-replay-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let diagnostics =
+            crate::diagnostics::DiagnosticsService::start(root.join("operations.jsonl"), |_| {})
+                .unwrap();
+        let observer = diagnostics.clone();
+        let log_buffer = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::agent::log_data::AgentLogBuffer::default(),
+        ));
+        let engine_log_buffer = std::sync::Arc::clone(&log_buffer);
+        let agent_can_replay_status = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let engine_replay_status = std::sync::Arc::clone(&agent_can_replay_status);
+        let engine = LogNookEngine::new(move |event| {
+            update_agent_replay_state(&engine_replay_status, &event);
+            observer.observe_engine(&event);
+            if let Ok(mut buffer) = engine_log_buffer.lock() {
+                buffer.record_engine_event(&event);
+            }
+        });
+        let state = crate::AppState {
+            engine: std::sync::Mutex::new(engine),
+            can_obd_operations: crate::commands::can_obd::CanObdOperationRegistry::default(),
+            diagnostics,
+            diagnostics_path: root.join("operations.jsonl"),
+            recordings_dir: root.join("recordings"),
+            pid_catalog_path: root.join("catalog.sqlite"),
+            oem_validation_log: root.join("probe.jsonl"),
+            oem_candidate_try_log: root.join("tries.jsonl"),
+            a30_read_test_log: root.join("reads.jsonl"),
+            agent_access: std::sync::Mutex::new(
+                crate::agent::access::AgentAccessManager::open(root.join("pin.hash")).unwrap(),
+            ),
+            agent_ipc: crate::agent::ipc::AgentIpcService::new(&root),
+            agent_ipc_endpoint: crate::agent::ipc::endpoint_name(&root),
+            agent_selection: std::sync::Mutex::new(AgentSignalSelection {
+                log_signal_ids: vec![],
+                graph_signal_ids: vec![],
+            }),
+            agent_scan_active: std::sync::Arc::new(AtomicBool::new(false)),
+            agent_workbench: std::sync::Mutex::new(AgentWorkbenchState::default()),
+            agent_log_buffer: log_buffer,
+            agent_can_replay_status,
+            can_replay_previews: crate::can_replay_previews::CanReplayPreviewRegistry::default(),
+            vehicle_profiles: crate::vehicle_profiles::VehicleProfileService::open(
+                &root.join("profiles.sqlite"),
+            ),
+            trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
+        };
+        (state, root)
     }
 
     #[test]
@@ -1417,6 +2809,53 @@ mod tests {
         )
         .unwrap();
         assert!(engine.is_connected());
+    }
+
+    #[test]
+    fn registered_saved_can_source_is_discoverable_and_queryable_offline() {
+        let (state, root) = test_app_state();
+        let path = root.join("external-source.candump.csv");
+        let mut writer = lognook_core::CanCaptureWriter::create_new(&path).unwrap();
+        writer
+            .write_frame(&CanFrame {
+                elapsed_ns: 1_000_000,
+                wall_time_unix_ns: 10_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![0x11, 0x22],
+                flags: 0,
+            })
+            .unwrap();
+        writer.finish().unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let registered = state.can_replay_previews.register_source(&path).unwrap();
+        let sources = crate::agent::log_data::list_log_sources(&state).unwrap();
+        let source = sources
+            .iter()
+            .find(|source| source.source_id == registered.source_id)
+            .unwrap();
+        assert!(source.recorded);
+        assert_eq!(source.item_count, Some(1));
+        let page = crate::agent::log_data::query_log_range(
+            &state,
+            crate::agent::protocol::AgentLogQueryArgs {
+                source_id: registered.source_id,
+                kind: crate::agent::protocol::AgentLogKind::Can,
+                start_elapsed_ms: 0,
+                end_elapsed_ms: 2,
+                signal_ids: vec![],
+                can_ids: vec![0x321],
+                limit: 10,
+            },
+        )
+        .unwrap();
+        assert_eq!(page.can_frames.len(), 1);
+        assert_eq!(page.can_frames[0].data, [0x11, 0x22]);
+        assert!(!state.engine.lock().unwrap().is_connected());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1450,6 +2889,106 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn invalid_connect_selection_does_not_replace_the_existing_agent_selection() {
+        let engine = engine();
+        let original = AgentSignalSelection {
+            log_signal_ids: vec!["engine_rpm".into()],
+            graph_signal_ids: vec!["engine_rpm".into()],
+        };
+
+        assert!(
+            proposed_signal_selection(
+                &engine,
+                &original.log_signal_ids,
+                vec!["not_a_signal".into()],
+                vec!["not_a_signal".into()],
+            )
+            .is_err()
+        );
+        assert_eq!(original.log_signal_ids, ["engine_rpm"]);
+        assert_eq!(original.graph_signal_ids, ["engine_rpm"]);
+    }
+
+    struct CandlelightObdGuardAdapter;
+
+    impl HardwareAdapter for CandlelightObdGuardAdapter {
+        fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+            Ok(ConnectionCapabilities {
+                device: DeviceDescriptor {
+                    stable_id: "candlelight-obd:fixture".into(),
+                    hardware_family: "Candlelight GS-USB OBD-II".into(),
+                    firmware: None,
+                    path: None,
+                },
+                protocol: "SAE J1979 Mode 01 over 11-bit CAN".into(),
+                read_only: true,
+                diagnostics: Default::default(),
+                supported_signals: standard_obd_signals()
+                    .into_iter()
+                    .filter(|signal| signal.id == "engine_rpm")
+                    .collect(),
+            })
+        }
+
+        fn read_samples(
+            &mut self,
+            _signals: &[SignalDefinition],
+        ) -> Result<Vec<Sample>, LogNookError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn can_obd_selection_guard_only_accepts_its_own_connection_family() {
+        let mut engine = engine();
+        assert!(!is_can_obd_connection(&engine));
+        engine
+            .connect_adapter(Box::new(CandlelightObdGuardAdapter), &["engine_rpm".into()])
+            .unwrap();
+        assert!(is_can_obd_connection(&engine));
+    }
+
+    #[test]
+    fn can_obd_agent_action_is_denied_locked_and_allowed_after_unlock() {
+        let (state, root) = test_app_state();
+        let mut access = state.agent_access.lock().unwrap();
+        assert!(matches!(
+            authorize_access_manager(&mut access),
+            Err(crate::agent::protocol::AgentError {
+                code: AgentErrorCode::Locked,
+                ..
+            })
+        ));
+        access.configure_pin("135790").unwrap();
+        access.unlock("135790").unwrap();
+        assert!(authorize_access_manager(&mut access).is_ok());
+        drop(access);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn can_obd_status_reports_connecting_without_waiting_for_the_engine_lock() {
+        let (state, root) = test_app_state();
+        let engine = state.engine.lock().unwrap();
+
+        let status = can_obd_status(&state, true).unwrap();
+
+        assert!(matches!(
+            status,
+            AgentCanObdResult::Status {
+                connecting: true,
+                connected: false,
+                device: None,
+                ..
+            }
+        ));
+        drop(engine);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1580,8 +3119,132 @@ mod tests {
     #[test]
     fn agent_status_tracks_owned_workbench_operation() {
         let mut state = AgentWorkbenchState::default();
-        assert_eq!(state.active_operation(true).as_deref(), Some("CAN scan"));
-        assert_eq!(state.active_operation(false), None);
+        assert_eq!(
+            state.active_operation(true, None).as_deref(),
+            Some("CAN scan")
+        );
+        assert_eq!(state.active_operation(false, None), None);
+        state.replay_id = Some(7);
+        let mut replay = lognook_core::CanIdReplayStatus {
+            replay_id: 7,
+            can_id: 0x321,
+            extended: false,
+            total_frames: 10_000,
+            sent_frames: 1,
+            state: lognook_core::CanIdReplayState::Running,
+            error: None,
+        };
+        assert_eq!(
+            state.active_operation(false, Some(&replay)).as_deref(),
+            Some("CAN ID replay")
+        );
+        replay.sent_frames = 9_999;
+        assert_eq!(
+            state.active_operation(false, Some(&replay)).as_deref(),
+            Some("CAN ID replay")
+        );
+        replay.state = lognook_core::CanIdReplayState::Completed;
+        assert_eq!(state.active_operation(false, Some(&replay)), None);
+        assert!(state.replay_id.is_none());
+    }
+
+    #[test]
+    fn replay_time_range_checks_order_and_nanosecond_conversion_overflow() {
+        assert_eq!(replay_time_range_ns(1, 2).unwrap(), (1_000_000, 2_000_000));
+        assert!(replay_time_range_ns(2, 1).is_err());
+        assert!(replay_time_range_ns(0, (i64::MAX as u64 / 1_000_000) + 1).is_err());
+    }
+
+    #[test]
+    fn can_disconnect_cancels_active_replay_but_leaves_unrelated_trace_open() {
+        let (state, root) = test_app_state();
+        let capture_path = root.join("replay.candump.csv");
+        {
+            let mut engine = state.engine.lock().unwrap();
+            engine
+                .connect_can_transport(
+                    CanWorkbenchConfig {
+                        bitrate: 500_000,
+                        listen_only: false,
+                    },
+                    Box::new(QuietCanTransport),
+                )
+                .unwrap();
+            engine.start_can_capture(&capture_path).unwrap();
+            engine
+                .start_can_id_replay(vec![
+                    CanFrame {
+                        elapsed_ns: 0,
+                        wall_time_unix_ns: 0,
+                        can_id: 0x321,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data: vec![1],
+                        flags: 0,
+                    },
+                    CanFrame {
+                        elapsed_ns: 60_000_000_000,
+                        wall_time_unix_ns: 60_000_000_000,
+                        can_id: 0x321,
+                        extended: false,
+                        direction: CanDirection::Rx,
+                        data: vec![2],
+                        flags: 0,
+                    },
+                ])
+                .unwrap();
+        }
+        let trace_path = root.join("agent-traces").join("capture.jsonl");
+        state.trace_store.start_capture(&trace_path).unwrap();
+        {
+            let mut operation = state.agent_workbench.lock().unwrap();
+            operation.capture_path = Some(capture_path.clone());
+            operation.replay_id = state
+                .agent_can_replay_status
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|status| status.replay_id);
+            assert_eq!(
+                operation
+                    .active_operation(
+                        false,
+                        state.agent_can_replay_status.lock().unwrap().as_ref()
+                    )
+                    .as_deref(),
+                Some("CAN ID replay")
+            );
+        }
+
+        disconnect_source_state(&state, AgentConnectionSource::Can).unwrap();
+        let mut operation = state.agent_workbench.lock().unwrap();
+        assert_eq!(operation.active_operation(false, None), None);
+        assert!(operation.replay_id.is_none());
+        assert!(!state.trace_store.capture_status().capturing);
+        drop(operation);
+
+        let journal =
+            std::fs::read_to_string(lognook_core::can_evidence_path(&capture_path)).unwrap();
+        assert!(journal.contains("\"record\":\"can_id_replay_finished\""));
+        assert!(journal.contains("\"state\":\"stopped\""));
+        let records = journal
+            .lines()
+            .map(|line| serde_json::from_str::<CanEvidenceRecord>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(records.iter().any(|record| matches!(
+            record,
+            CanEvidenceRecord::CanIdReplayFinished {
+                state: lognook_core::CanIdReplayState::Stopped,
+                ..
+            }
+        )));
+        let unrelated_trace = root.join("agent-traces").join("unrelated.jsonl");
+        state.trace_store.start_capture(&unrelated_trace).unwrap();
+        disconnect_source_state(&state, AgentConnectionSource::Can).unwrap();
+        assert!(state.trace_store.capture_status().capturing);
+        state.trace_store.stop_capture().unwrap();
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

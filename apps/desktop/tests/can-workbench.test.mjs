@@ -116,6 +116,80 @@ test("manual CAN payloads parse strict byte tokens and produce classic TX frames
   assert.deepEqual(can.appendCanFrames(frames.slice(0, 2), frames.slice(2), 3), frames.slice(-3));
 });
 
+test("CAN ID replay snapshots clone valid RX frames for one exact ID in timestamp order", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  const frame = (elapsed_ns, direction = "rx", data = [elapsed_ns & 0xff], extended = false, flags = 0) => ({
+    elapsed_ns, wall_time_unix_ns: elapsed_ns, can_id: 0x123, extended, direction, data, flags,
+  });
+  const source = [
+    frame(4_000_000, "rx", [0x04]),
+    frame(1_000_000, "rx", [0x44], true),
+    frame(2_000_000, "tx"),
+    frame(3_000_000, "rx", [0x66], false, 1),
+    frame(5_000_000, "rx", Array(9).fill(0xaa)),
+    frame(2_000_000, "rx", [0x22]),
+  ];
+
+  const snapshot = can.createCanIdReplaySnapshot(source, 0x123, false);
+
+  assert.deepEqual(snapshot.frames.map((item) => [item.elapsed_ns, item.data]), [
+    [2_000_000, [0x22]],
+    [4_000_000, [0x04]],
+  ]);
+  assert.equal(snapshot.skipped_frames, 2);
+  assert.equal(snapshot.history_span_ns, 2_000_000);
+  assert.equal(snapshot.has_gap_over_limit, false);
+  source[5].data[0] = 0xff;
+  assert.deepEqual(snapshot.frames[0].data, [0x22], "the snapshot is independent of the live ring buffer");
+});
+
+test("CAN ID replay reports captured timing gaps beyond the backend limit", () => {
+  const frame = (elapsed_ns) => ({
+    elapsed_ns, wall_time_unix_ns: elapsed_ns, can_id: 0x321, extended: true,
+    direction: "rx", data: [1, 2, 3], flags: 0,
+  });
+  const snapshot = can.createCanIdReplaySnapshot([
+    frame(0), frame(60_000_000_000), frame(120_000_000_001),
+  ], 0x321, true);
+  assert.equal(snapshot.history_span_ns, 120_000_000_001);
+  assert.equal(snapshot.has_gap_over_limit, true);
+});
+
+test("CAN ID replay gating keeps listen-only, uncaptured, busy, scanned, and active replay states inert", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  const active = { connected: true, listen_only: false };
+  assert.equal(can.canIdReplayEnabled(null, false, false, false, false), false);
+  assert.equal(can.canIdReplayEnabled({ connected: true, listen_only: true }, true, false, false, false), false);
+  assert.equal(can.canIdReplayEnabled(active, false, false, false, false), false);
+  assert.equal(can.canIdReplayEnabled(active, true, true, false, false), false);
+  assert.equal(can.canIdReplayEnabled(active, true, false, true, false), false);
+  assert.equal(can.canIdReplayEnabled(active, true, false, false, true), false);
+  assert.equal(can.canIdReplayEnabled(active, true, false, false, false), true);
+});
+
+test("CAN ID replay status keeps terminal events over a late start response and ignores stale jobs", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  const status = (replay_id, sent_frames, state) => ({
+    replay_id, can_id: 0x123, extended: false, total_frames: 1, sent_frames, state, error: null,
+  });
+  const completed = status(7, 1, "completed");
+  assert.equal(can.mergeCanIdReplayStatus(completed, status(7, 0, "running")), completed);
+  assert.deepEqual(can.mergeCanIdReplayStatus(status(8, 2, "running"), status(7, 1, "completed")), status(8, 2, "running"));
+  assert.deepEqual(can.mergeCanIdReplayStatus(status(7, 1, "running"), completed), completed);
+});
+
+test("CAN ID replay keeps its frozen selection within a connection and clears it on reconnect", () => {
+  assert.ok(can, "CAN workbench helpers exist");
+  const frame = { elapsed_ns: 1, wall_time_unix_ns: 2, can_id: 0x123, extended: false, direction: "rx", data: [1], flags: 0 };
+  const snapshot = can.createCanIdReplaySnapshot([frame], 0x123, false);
+  const selected = { generation: 4, snapshot, error: "stale start error" };
+
+  assert.equal(can.resetCanIdReplaySelectionForGeneration(selected, 4), selected);
+  assert.deepEqual(can.resetCanIdReplaySelectionForGeneration(selected, 5), {
+    generation: 5, snapshot: null, error: "",
+  });
+});
+
 test("live CAN summary accumulates per-ID counts, period, latest data, and ASCII across batches", () => {
   assert.ok(can, "CAN workbench helpers exist");
   const frame = (elapsed_ns, direction, data, extended = false) => ({
@@ -176,7 +250,11 @@ test("CAN configuration sections start collapsed", () => {
   for (const section of ["can-trigger-settings", "can-scan-settings", "can-fields-settings", "can-send-settings"]) {
     const tag = panel.match(new RegExp(`<details class="${section}"[^>]*>`))?.[0];
     assert.ok(tag, `find ${section}`);
-    assert.doesNotMatch(tag, /\bopen\b/);
+    assert.doesNotMatch(tag, /\sopen(?:\s|=|>)/);
+    if (section === "can-scan-settings") {
+      assert.match(tag, /bind:open=\{scanSettingsOpen\}/);
+      assert.match(panel, /let scanSettingsOpen = false/);
+    }
   }
 });
 
@@ -300,6 +378,9 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
   await api.startCapture("D:/captures/run.candump.csv");
   await api.markEvent("Traction control toggle", 1000, 1000);
   await api.sendFrame({ elapsed_ns: 0, wall_time_unix_ns: 0, can_id: 0x7e0, extended: false, direction: "tx", data: [2, 0x21, 1], flags: 0 }, 100, 1);
+  const replayFrames = [{ elapsed_ns: 10, wall_time_unix_ns: 20, can_id: 0x7e8, extended: false, direction: "rx", data: [0x41], flags: 0 }];
+  await api.startCanIdReplay(replayFrames);
+  await api.stopCanIdReplay();
   await api.startScan({ mode: { kind: "mode_01_support", request_id: 0x7e0, response_id: 0x7e8, extended: false }, pacing_ms: 100, response_timeout_ms: 1000 });
   await api.stopScan();
   await api.startOemCandidate("scion:21:0100");
@@ -311,6 +392,8 @@ test("typed CAN command wrappers keep Tauri names and argument shapes aligned", 
     ["start_can_capture", { path: "D:/captures/run.candump.csv" }],
     ["mark_can_event", { label: "Traction control toggle", preMs: 1000, postMs: 1000 }],
     ["send_can_frame", { frame: { elapsed_ns: 0, wall_time_unix_ns: 0, can_id: 0x7e0, extended: false, direction: "tx", data: [2, 0x21, 1], flags: 0 }, pacingMs: 100, repeat: 1 }],
+    ["start_can_id_replay", { frames: replayFrames }],
+    ["stop_can_id_replay", undefined],
     ["start_can_scan", { config: { mode: { kind: "mode_01_support", request_id: 0x7e0, response_id: 0x7e8, extended: false }, pacing_ms: 100, response_timeout_ms: 1000 } }],
     ["stop_can_scan", undefined],
     ["start_can_oem_candidate", { candidateId: "scion:21:0100" }],

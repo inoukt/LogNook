@@ -1,6 +1,9 @@
 mod agent;
+mod can_replay_previews;
 pub(crate) mod commands;
 mod diagnostics;
+pub(crate) mod vehicle_profiles;
+mod vehicle_reads;
 
 use lognook_core::LogNookEngine;
 use std::{
@@ -11,6 +14,7 @@ use tauri::{Emitter, Manager};
 
 pub(crate) struct AppState {
     pub engine: Mutex<LogNookEngine>,
+    pub can_obd_operations: commands::can_obd::CanObdOperationRegistry,
     pub diagnostics: diagnostics::DiagnosticsService,
     pub diagnostics_path: PathBuf,
     pub recordings_dir: PathBuf,
@@ -25,15 +29,22 @@ pub(crate) struct AppState {
     pub agent_scan_active: Arc<AtomicBool>,
     pub agent_workbench: Mutex<agent::tools::AgentWorkbenchState>,
     pub agent_log_buffer: Arc<Mutex<agent::log_data::AgentLogBuffer>>,
+    pub agent_can_replay_status: Arc<Mutex<Option<lognook_core::CanIdReplayStatus>>>,
+    pub can_replay_previews: can_replay_previews::CanReplayPreviewRegistry,
+    pub vehicle_profiles: vehicle_profiles::VehicleProfileService,
     pub trace_store: lognook_core::communication_trace::CommunicationTraceStore,
 }
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(commands::oem_discovery::OemDiscoveryService::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            let vehicle_profiles = vehicle_profiles::VehicleProfileService::open(
+                &app_data_dir.join("profiles.sqlite"),
+            );
             let recordings_dir = app.path().app_data_dir()?.join("recordings");
             std::fs::create_dir_all(&recordings_dir)?;
             let oem_validation_dir = app.path().app_data_dir()?.join("oem-validation");
@@ -75,8 +86,11 @@ pub fn run() {
             let engine_agent_scan_active = Arc::clone(&agent_scan_active);
             let agent_log_buffer = Arc::new(Mutex::new(agent::log_data::AgentLogBuffer::default()));
             let engine_agent_log_buffer = Arc::clone(&agent_log_buffer);
+            let agent_can_replay_status = Arc::new(Mutex::new(None));
+            let engine_can_replay_status = Arc::clone(&agent_can_replay_status);
             let mut engine = LogNookEngine::new(move |event| {
                 agent::tools::update_agent_scan_state(&engine_agent_scan_active, &event);
+                agent::tools::update_agent_replay_state(&engine_can_replay_status, &event);
                 if let Ok(mut buffer) = engine_agent_log_buffer.lock() {
                     buffer.record_engine_event(&event);
                 }
@@ -86,6 +100,7 @@ pub fn run() {
             engine.set_communication_sink(trace_store.sink());
             app.manage(AppState {
                 engine: Mutex::new(engine),
+                can_obd_operations: commands::can_obd::CanObdOperationRegistry::default(),
                 diagnostics,
                 diagnostics_path,
                 recordings_dir,
@@ -111,13 +126,18 @@ pub fn run() {
                 }),
                 agent_workbench: Mutex::new(agent::tools::AgentWorkbenchState::default()),
                 agent_log_buffer,
+                agent_can_replay_status,
+                can_replay_previews: can_replay_previews::CanReplayPreviewRegistry::default(),
+                vehicle_profiles,
                 trace_store,
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::oem_discovery::oem_discovery,
             commands::diagnostic_snapshot,
             commands::run_vehicle_diagnostics,
+            commands::clear_vehicle_dtcs,
             commands::agent_access_status,
             commands::configure_agent_pin,
             commands::unlock_agent_access,
@@ -128,6 +148,9 @@ pub fn run() {
             commands::export_support_bundle,
             commands::available_signals,
             commands::search_oem_catalog,
+            commands::subaru_catalog::search_subaru_catalog,
+            commands::subaru_catalog::get_subaru_catalog_detail,
+            commands::subaru_catalog::set_subaru_logging,
             commands::oem_vehicle_profiles,
             commands::search_oem_poll_candidates,
             commands::start_oem_logging,
@@ -149,6 +172,7 @@ pub fn run() {
             commands::available_openport2_providers,
             commands::identify_openport2,
             commands::connect_openport2,
+            commands::connect_openport2_ssm,
             commands::available_can_adapters,
             commands::choose_can_capture_save_path,
             commands::choose_can_capture_open_path,
@@ -157,6 +181,10 @@ pub fn run() {
             commands::save_can_signal_definition,
             commands::choose_can_trigger_save_path,
             commands::connect_candlelight,
+            commands::can_obd::available_can_obd_adapters,
+            commands::can_obd::identify_can_obd,
+            commands::can_obd::connect_can_obd,
+            commands::can_obd::cancel_can_obd_connect,
             commands::configure_can_signals,
             commands::preview_can_signal,
             commands::start_can_capture,
@@ -164,6 +192,14 @@ pub fn run() {
             commands::mark_can_event,
             commands::clear_can_event_results,
             commands::send_can_frame,
+            commands::start_can_id_replay,
+            commands::stop_can_id_replay,
+            commands::register_saved_can_replay_source,
+            commands::list_saved_can_replay_sources,
+            commands::prepare_saved_can_replay,
+            commands::get_saved_can_replay_preview,
+            commands::discard_saved_can_replay_preview,
+            commands::start_saved_can_replay,
             commands::start_can_scan,
             commands::stop_can_scan,
             commands::arm_can_trigger,
@@ -175,6 +211,31 @@ pub fn run() {
             commands::compare_can_captures,
             commands::export_can_dbc_skeleton,
             commands::connect_simulator,
+            commands::connect_profile_adapter,
+            commands::continue_profile_selection,
+            commands::cancel_vehicle_profile_operations,
+            commands::list_vehicle_profiles,
+            commands::get_vehicle_profile,
+            commands::save_vehicle_profile,
+            commands::recognize_vehicle,
+            commands::read_vehicle_identity,
+            commands::get_vehicle_identity,
+            commands::decode_vehicle_vin_offline,
+            commands::set_manual_vehicle_detail,
+            commands::link_legacy_vehicle_vin,
+            commands::assign_manual_profile_vin,
+            commands::list_vehicle_diagnostic_history,
+            commands::get_vehicle_diagnostic_report,
+            commands::associate_vehicle_diagnostic_report,
+            commands::vehicle_history_import_status,
+            commands::start_vehicle_history_import,
+            commands::cancel_vehicle_history_import,
+            commands::prepare_profile_resume,
+            commands::apply_profile_resume,
+            commands::discard_profile_resume,
+            commands::vehicle_profiles_status,
+            commands::signal_presets,
+            commands::vehicle_projects,
             commands::connect_obdlink_sx,
             commands::disconnect,
             commands::disconnect_obd,

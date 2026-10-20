@@ -1,9 +1,44 @@
 use super::{decode_payload, empty_read, is_bitmap_page, is_functional_responder};
-use crate::DeviceDescriptor;
+use crate::{DeviceDescriptor, VehicleIdentitySnapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 const MAX_MODE06_TEST_IDS: usize = 32;
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
+pub struct DiagnosticCapabilities {
+    pub dtc_snapshot: bool,
+    pub identity: bool,
+    pub mode06: bool,
+    pub clear_dtcs: bool,
+}
+
+impl DiagnosticCapabilities {
+    pub fn supports_query(&self, query: &DiagnosticQueryRequest) -> bool {
+        self.supports_read(query.kind)
+    }
+
+    pub fn supports_read(&self, kind: DiagnosticReadKind) -> bool {
+        match kind {
+            DiagnosticReadKind::StoredDtcs
+            | DiagnosticReadKind::PendingDtcs
+            | DiagnosticReadKind::PermanentDtcs => self.dtc_snapshot,
+            DiagnosticReadKind::Vin
+            | DiagnosticReadKind::CalibrationId
+            | DiagnosticReadKind::EcuName => self.identity,
+            DiagnosticReadKind::Mode06Bitmap | DiagnosticReadKind::Mode06Monitor => self.mode06,
+            DiagnosticReadKind::ClearDtcs => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticReportKind {
+    #[default]
+    Snapshot,
+    ClearDtcs,
+}
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct DiagnosticRequest {
@@ -12,6 +47,25 @@ pub struct DiagnosticRequest {
 }
 
 impl DiagnosticRequest {
+    /// The bounded identity-only reads used when matching a saved vehicle profile.
+    /// This deliberately excludes DTC and Mode 06 queries from the full diagnostic snapshot.
+    pub fn identity_queries() -> VecDeque<DiagnosticQueryRequest> {
+        [
+            (DiagnosticReadKind::Vin, 0x02),
+            (DiagnosticReadKind::CalibrationId, 0x04),
+            (DiagnosticReadKind::EcuName, 0x0A),
+        ]
+        .into_iter()
+        .map(|(kind, pid)| DiagnosticQueryRequest {
+            kind,
+            service: 0x09,
+            identifier: Some(pid),
+            payload: vec![0x09, pid],
+            wait_ms: 1_500,
+        })
+        .collect()
+    }
+
     pub fn validate(&mut self) -> Result<(), String> {
         if self.mode06_test_ids.len() > MAX_MODE06_TEST_IDS {
             return Err(format!(
@@ -106,6 +160,7 @@ pub enum DiagnosticReadKind {
     EcuName,
     Mode06Bitmap,
     Mode06Monitor,
+    ClearDtcs,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -121,6 +176,7 @@ pub enum DiagnosticOutcome {
     MalformedResponse,
     WrongResponder,
     TransportError,
+    Unsupported,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -147,6 +203,7 @@ pub enum DiagnosticValue {
         minimum: u16,
         maximum: u16,
     },
+    DtcClearAcknowledgement,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -170,9 +227,17 @@ pub struct DiagnosticRead {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DiagnosticReport {
+    #[serde(default)]
+    pub report_id: Option<String>,
+    #[serde(default)]
+    pub connection_generation: Option<u64>,
+    #[serde(default)]
+    pub vehicle_context: Option<VehicleIdentitySnapshot>,
     pub adapter: DeviceDescriptor,
     pub protocol: String,
     pub started_at_unix_ms: u64,
+    #[serde(default)]
+    pub operation_kind: DiagnosticReportKind,
     pub request: DiagnosticRequest,
     pub reads: Vec<DiagnosticRead>,
     pub route_restore_error: Option<String>,
@@ -183,8 +248,18 @@ pub struct DiagnosticReport {
 pub fn supports_vehicle_diagnostics(adapter_family: Option<&str>) -> bool {
     matches!(
         adapter_family,
-        Some("Xtool A30/A30M Bluetooth SPP") | Some("ELM327 Bluetooth SPP") | Some("OBDLink SX")
+        Some("Xtool A30/A30M Bluetooth SPP")
+            | Some("ELM327 Bluetooth SPP")
+            | Some("OBDLink SX")
+            | Some("OpenPort 2.0")
+            | Some("OpenPort 2 J2534")
+            | Some("Candlelight GS-USB OBD-II")
+            | Some("simulator")
     )
+}
+
+pub fn supports_profile_identity(adapter_family: Option<&str>) -> bool {
+    supports_vehicle_diagnostics(adapter_family) || matches!(adapter_family, Some("OpenPort 2.0"))
 }
 
 #[derive(Clone, Debug)]
@@ -197,6 +272,16 @@ pub struct DiagnosticQueryRequest {
 }
 
 impl DiagnosticQueryRequest {
+    pub(crate) fn clear_dtcs() -> Self {
+        Self {
+            kind: DiagnosticReadKind::ClearDtcs,
+            service: 0x04,
+            identifier: None,
+            payload: vec![0x04],
+            wait_ms: 900,
+        }
+    }
+
     pub fn request_payload(&self) -> &[u8] {
         &self.payload
     }
@@ -206,6 +291,7 @@ impl DiagnosticQueryRequest {
             DiagnosticReadKind::StoredDtcs => (0x03, None, &[0x03][..]),
             DiagnosticReadKind::PendingDtcs => (0x07, None, &[0x07][..]),
             DiagnosticReadKind::PermanentDtcs => (0x0A, None, &[0x0A][..]),
+            DiagnosticReadKind::ClearDtcs => (0x04, None, &[0x04][..]),
             DiagnosticReadKind::Vin => (0x09, Some(0x02), &[0x09, 0x02][..]),
             DiagnosticReadKind::CalibrationId => (0x09, Some(0x04), &[0x09, 0x04][..]),
             DiagnosticReadKind::EcuName => (0x09, Some(0x0A), &[0x09, 0x0A][..]),
@@ -313,5 +399,110 @@ impl DiagnosticQueryRequest {
         read.outcome = DiagnosticOutcome::TransportError;
         read.detail = Some(detail);
         read
+    }
+
+    pub fn unsupported(&self, detail: impl Into<String>) -> DiagnosticRead {
+        let mut read = empty_read(
+            self,
+            None,
+            String::new(),
+            "Not sent (adapter capability unavailable)".into(),
+            super::now_unix_ms(),
+            0,
+        );
+        read.outcome = DiagnosticOutcome::Unsupported;
+        read.detail = Some(detail.into());
+        read
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{supports_profile_identity, supports_vehicle_diagnostics};
+
+    #[test]
+    fn profile_identity_capability_includes_openport_without_full_diagnostics() {
+        for family in [
+            "Xtool A30/A30M Bluetooth SPP",
+            "ELM327 Bluetooth SPP",
+            "OBDLink SX",
+            "OpenPort 2.0",
+        ] {
+            assert!(supports_profile_identity(Some(family)), "{family}");
+        }
+        assert!(!supports_profile_identity(None));
+        assert!(!supports_profile_identity(Some("unknown adapter")));
+        assert!(supports_vehicle_diagnostics(Some("OpenPort 2.0")));
+        assert!(supports_vehicle_diagnostics(Some("OBDLink SX")));
+        assert!(supports_vehicle_diagnostics(Some(
+            "Candlelight GS-USB OBD-II"
+        )));
+    }
+
+    #[test]
+    fn report_capture_metadata_round_trips_while_legacy_metadata_defaults() {
+        let base = serde_json::json!({
+            "adapter": {
+                "stable_id": "fixture",
+                "hardware_family": "OBDLink SX",
+                "firmware": null,
+                "path": null
+            },
+            "protocol": "fixture",
+            "started_at_unix_ms": 10,
+            "request": { "mode06_test_ids": [] },
+            "reads": [],
+            "route_restore_error": null,
+            "evidence_saved": false,
+            "evidence_save_error": null
+        });
+        let legacy: super::DiagnosticReport = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(legacy.report_id, None);
+        assert_eq!(legacy.connection_generation, None);
+        assert_eq!(legacy.vehicle_context, None);
+        assert_eq!(legacy.operation_kind, super::DiagnosticReportKind::Snapshot);
+
+        let mut captured = base;
+        captured["report_id"] = serde_json::json!("report-fixture-1");
+        captured["connection_generation"] = serde_json::json!(7);
+        let captured: super::DiagnosticReport = serde_json::from_value(captured).unwrap();
+        let saved = serde_json::to_value(captured).unwrap();
+        assert_eq!(saved["report_id"], "report-fixture-1");
+        assert_eq!(saved["connection_generation"], 7);
+        assert!(saved["vehicle_context"].is_null());
+    }
+
+    #[test]
+    fn clear_query_is_fixed_separate_from_read_only_snapshot_queries() {
+        let query = super::DiagnosticQueryRequest::clear_dtcs();
+        assert!(query.validate().is_ok());
+        assert_eq!(query.service, 0x04);
+        assert_eq!(query.identifier, None);
+        assert_eq!(query.payload, [0x04]);
+        assert!(
+            super::DiagnosticRequest::default()
+                .queries()
+                .unwrap()
+                .iter()
+                .all(|query| query.kind != super::DiagnosticReadKind::ClearDtcs)
+        );
+        let mut forged = query;
+        forged.payload = vec![0x04, 0xFF];
+        assert!(forged.validate().is_err());
+    }
+
+    #[test]
+    fn legacy_connection_capabilities_default_diagnostics_to_unsupported() {
+        let value = serde_json::json!({
+            "device": {"stable_id":"old", "hardware_family":"unknown", "firmware":null, "path":null},
+            "protocol":"old",
+            "read_only":true,
+            "supported_signals":[]
+        });
+        let capabilities: crate::ConnectionCapabilities = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            capabilities.diagnostics,
+            super::DiagnosticCapabilities::default()
+        );
     }
 }

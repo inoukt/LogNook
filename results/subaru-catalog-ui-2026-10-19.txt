@@ -1,0 +1,10 @@
+✔ vehicle scope formats normalized Subaru vehicle rows and filters pseudo entries (0.6666ms)
+✔ vehicle scope handles unmapped and malformed scope as explicit research states (0.127ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 102.0337

@@ -1,14 +1,35 @@
 # LogNook
 
-LogNook is a Windows-first, read-only OBD acquisition and recording desktop app built with Rust, Tauri 2, Svelte, and TypeScript. The current build supports simulated Mode 01 acquisition, hot-plug OBDLink SX discovery, OpenPort 2 provider diagnostics, `.lognook` recording/replay, LogNook CSV import/export (including live-buffer snapshots) and numeric FORScan `time(ms)` log import, saved-session Share/Save As actions, multi-signal graphs with smooth live motion, derived signals, and a paged read-only OEM PID research catalog. The OEM catalog includes a constrained one-shot Scion xB 2014 Mode 21 PID 01 read and manual SX-only Try once actions for eligible catalog rows; it does not add research candidates to normal polling.
+LogNook is a Windows-first desktop application for vehicle measurement, recording and CAN analysis, built with Rust, Tauri 2, Svelte and TypeScript. The current app includes simulated and hardware OBD paths, including read-only generic Mode 01 logging through Candlelight GS-USB on 11-bit/500 kbit/s CAN, `.lognook` recording/replay, CSV and FORScan log interchange, multi-signal live graphs, derived signals, a paged OEM research catalog, local Vehicle/ECU profiles with explicit signal-selection Resume previews, offline VIN decoding and provenance-aware diagnostic history, and a CAN Workbench for traffic capture, event analysis, field decoding, scans, manual sends and one-pass replay of a selected ID from a live or bounded saved capture. Generic OBD acquisition and supported diagnostic reads are read-oriented; CAN Workbench transmission is explicit, local and evidence-recorded. Adapter and vehicle support varies, so check [current project status](PROJECT_STATUS.md) and the relevant hardware report before relying on a result.
 
 Current build label: **MultiAdaptCan-v1** (`0.1.0-beta.1`).
+
+[VIN vehicle projects](docs/VEHICLE_PROJECTS.md) save a vehicle's signal and graph
+workspace locally and offer **Load last state** or **Start fresh** when its VIN
+is recognized again. Projects reuse vehicle-profile storage; loading never
+starts recording, OEM tests or CAN transmission.
+
+The **OEM** catalog offers an opt-in **Auto-try visible rows once per connection**
+checkbox and **Try all filtered** action with colored outcomes and values-first
+ordering. UI and MCP share the same serialized research queue across supported
+OBD adapters. A returned value remains research evidence, not verified vehicle
+compatibility. See the [discovery guide](docs/DISCOVERY_DIAGNOSTICS.md).
+
+The graph panel supports the usual **Time series** view and an optional **X/Y scatter** view for comparing selected signals. Scatter uses timestamp-aligned, already acquired samples and color grades by sample age or a selected signal; Time series remains the default. The graph type and signal choices are saved locally.
 
 Saved sessions support Rename, Delete (with confirmation), Open folder, Save As and Share. Share can upload a native session to [Catbox](https://catbox.moe/) for a short public link with no scheduled expiry, or save CSV locally. Anonymous uploads cannot be deleted through LogNook; service retention is not guaranteed.
 
 **Record** starts with new samples. **Rec From Connect** includes up to 100,000 decoded samples retained in memory from the current connection, then records subsequent live samples. Its persistent marker reports evicted history. It cannot recover unselected PIDs, earlier connections, raw CAN frames, or data lost at shutdown; use CAN Capture for raw bus traffic.
 
+This checkout currently has no repository-wide `LICENSE` file. GitHub's [licensing guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) explains that a public repository without a license remains subject to default copyright rules. The owner wants free redistribution and modification while preventing paid resale; that policy is source-available, not legally open source under the standard definition. See the [licensing policy proposal](docs/licensing-policy-proposal.md). The OEM PID database has separate source and licensing requirements documented in [its project guide](PIDs/LogNook_PID_Master_v0_3/docs/03_SOURCES_LICENSING.md).
+
 ## Build and run
+
+The optional owner-supplied [Subaru OEM catalog](docs/SUBARU_CATALOG.md) is searchable
+under OEM and through MCP. It uses a normalized extension of the existing SQLite
+catalog; explicit CAN Workbench preparation is separate from validated ordinary
+logging. Source datasets are local research inputs with their own provenance and
+distribution status.
 
 Requires Rust, Node.js/npm, and the Windows MSVC build tools.
 
@@ -27,6 +48,9 @@ For a packaged-protocol desktop build, run `cargo build -p lognook-desktop --fea
 ## Project documents
 
 - [Current project status and next hardware validation](PROJECT_STATUS.md)
+- [Contributor setup and development workflow](CONTRIBUTING.md)
+- [Documentation map and maintenance guidance](docs/README.md)
+- [Agent Access and MCP setup, tools, and feature-parity rules](docs/AGENT_ACCESS.md)
 - [Engineering blueprint and architecture](LogNook_Blueprint/README.md)
 - [Hardware protocol decisions](LogNook_Blueprint/03_HARDWARE_PROTOCOLS.md)
 - [Validation roadmap](LogNook_Blueprint/05_VALIDATION_ROADMAP.md)

@@ -1,5 +1,288 @@
 # LogNook project status
 
+- 2026-10-19: Source snapshot for the current version excludes the owner-supplied
+  PIDs/CatalogV2 data pack and locally enriched PID SQLite database from Git
+  publication, per docs/SUBARU_CATALOG.md. The enriched authoritative file remains
+  intact on this PC; Git retains the previously published base catalog. Importer,
+  schema extension, application integration and documentation are included.
+
+- 2026-10-19: VIN vehicle projects reuse profiles.sqlite schema v4, with one
+  canonical project per scope/VIN, a basic supported generic signal preset,
+  Load last state / Start fresh on reconnect, and ready-only workspace autosave.
+  Graph settings/layout/colors, catalog filters and preset selection are saved;
+  skipped custom definitions and selections remain available. Generic-only
+  manual project selection does not create vehicle evidence or VIN autosaves.
+  Typed vehicle_projects MCP operations share the Tauri service. Restoring never
+  starts recording, OEM tests/polling or CAN jobs. Rust core/desktop checks and
+  Svelte/Vite build passed (0 Svelte errors/warnings; Vite chunk-size advisory).
+  Automated tests were not run in this task. Physical vehicle behavior remains
+  unverified. See docs/VEHICLE_PROJECTS.md for workflow, migration and constraints.
+  The final packaged-protocol release build succeeded and produced
+  target/release/lognook-desktop.exe (34,250,752 bytes), which was opened and left
+  disconnected. Startup and the simulator's no-identity generic-logging fallback
+  were visually checked. The simulator's scripted diagnostic reads currently
+  lack a responding ECU ID, so they do not establish a project VIN; the returning
+  VIN prompt and positive-VIN autosave/restore flow were not exercised at runtime.
+  MCP mutation events now synchronize UI state with generation checks; no
+  connected MCP client was available for an end-to-end tool invocation.
+
+- 2026-10-19: Community OEM catalog cards now show three compact rows: signal
+  actions, a single-line vehicle/request summary, and result/validation status
+  with Details. Full applicability, disabled reasons, decoder metadata and source
+  provenance remain expandable. This is presentation-only; existing MCP catalog
+  data and operations are unchanged. Svelte/Vite build: zero errors or warnings.
+  Release app rebuilt; compact cards and expanded Details visually checked while
+  disconnected. No hardware requests were sent.
+
+- 2026-10-19: The Presets dialog now uses the dialog as its single scroll
+  container and keeps its header, including Close, sticky during scrolling.
+  The pinned Presets header itself has a 2px theme-accent border, rounded
+  corners, and a shadow; the outer dialog keeps its standard subtle border.
+  Preview scrolling leaves room for the pinned header. `pnpm.cmd run build`
+  passed with zero Svelte errors or warnings. The release executable was rebuilt
+  and the bordered header was visually checked in the running app while scrolling.
+
+- 2026-10-19: Implemented diagnostic signal presets: top-bar picker with
+  Suggested/All/My tabs, vehicle context that pre-fills from one exact matching
+  saved profile, family/search filters, preview with eligible/skipped and
+  task-defining counts, Replace/Add, offline staging, save/edit/copy/delete for
+  local custom recipes, and typed MCP parity. Four preset families ship in
+  Core/Extended sizes, with distinct knock-correction concepts and target/actual
+  companion slots. Custom recipes and staged picker context use profiles.sqlite;
+  imports do not modify the authoritative PID catalog. Resolution uses current
+  generic adapter capabilities through the same serialized acquisition owner.
+  `cargo test --workspace --locked` passed; UI suite: 250 passed; Svelte/Vite
+  build: 0 errors, 0 warnings. This first slice does not
+  include reviewed model-specific OEM mappings or per-signal rate budgeting;
+  recipe priorities are metadata for future scheduling work. No vehicle was
+  physically tested. Final verification: workspace tests passed (one ignored
+  local-catalog test), UI suite 250 passed, and Svelte/Vite build had zero
+  errors/warnings. `cargo build --release -p lognook-desktop
+  --features tauri/custom-protocol --locked` produced
+  `target/release/lognook-desktop.exe` (33,797,120 bytes). The matching x86
+  helper build produced `target/i686-pc-windows-msvc/release/lognook-j2534-worker.exe`
+  (488,448 bytes). The rebuilt release app is open with its Presets dialog showing the offline staged
+  preview while disconnected. It marks all 9 channels “To check on connection”
+  and clearly says support is unknown; no Apply action is available. A simulator
+  preview previously returned 9 eligible and 9 skipped channels; it was not
+  applied, and the simulator was disconnected afterward. At 762px width, the
+  dialog reflowed without horizontal overflow. Selecting Roughness / misfires ·
+  Core after Engine tuning · Core successfully replaced the disconnected staged
+  preview, confirming repeated selections use the updated picker revision. No
+  vehicle or physical adapter was tested. No commit or push was made.
+  [Draft design](docs/superpowers/specs/2026-10-19-diagnostic-presets-design.md),
+  [implementation plan](docs/superpowers/plans/2026-10-19-diagnostic-presets.md).
+
+- 2026-10-19: Subaru catalog results now place unnamed entries, including
+  `IDS_BLANK` placeholders, after named entries before pagination. Filtering and
+  MCP use the same ordering; placeholder entries remain searchable. Core
+  library checks: 290 passed, one ignored. A read-only catalog check confirmed
+  all 14 `IDS_BLANK` entries occupy the final 14 positions. The release app was
+  rebuilt successfully and reopened.
+
+- 2026-10-19: Unnamed Subaru entries now use the source Signal ID (or source
+  PID ID when no Signal ID exists) as their display name in catalog search,
+  details, MCP, and logging. Signal IDs are searchable. Source payloads remain
+  intact. Core library checks: 289 passed, one ignored; the local catalog smoke
+  also passed when explicitly run against all 45,364 entries. The release
+  desktop executable was rebuilt successfully and reopened.
+
+- 2026-10-19: Reworked Subaru catalog cards for the narrow sidebar: names have
+  their own wrapping row, actions use compact buttons beneath the name, filters
+  fit the panel width, and technical request/source details expand on demand.
+  Fitment uses a single-line preview with `+ N more` for the complete scope.
+  Cards keep their natural height inside a bounded vertical results scroller.
+  Corrected the panel colors to use the application's existing theme tokens. This is
+  presentation-only; the full scope data is unchanged and MCP continues to
+  return it in full, so MCP has no collapsed-display state to expose. The UI
+  suite passed 239 tests and the production UI build has zero Svelte
+  errors/warnings. The release app is rebuilt and its compact cards, filters,
+  and visible action buttons were checked in the normal desktop sidebar.
+
+- 2026-10-19: Completed live Subaru SSM-KWP logging for the current 684-row
+  catalog set through a dedicated OpenPort 2 SSM K-Line mode. UI and typed MCP
+  use the same connection and `start_subaru` / `stop_subaru` acquisition path.
+  The x86 J2534 worker opens ISO9141 at 4,800 baud and exposes only fixed SSM2
+  ECU init (`BF`) and bounded memory-address reads (`A8`); raw request/response
+  frames, catalog hash and suspect sample quality are retained. All 684 current
+  SSM rows can be graphed: 680 use supported catalog decoders, and four use raw
+  `code` output because their conversion method or enum mapping is unavailable.
+  Catalog validation stays `not_tested`, `auto_request=0`, and outside presets.
+  `cargo test --workspace --quiet`: 746 passed, one ignored; UI tests: 237
+  passed; `pnpm.cmd run build`: zero Svelte errors/warnings; i686 Windows worker
+  check, release worker build, and release desktop build passed. Artifacts:
+  `target/release/lognook-desktop.exe` (32,982,016 bytes) and
+  `target/i686-pc-windows-msvc/release/lognook-j2534-worker.exe` (488,448 bytes).
+  New SSM source files
+  pass standalone rustfmt and `git diff --check` passes; workspace-wide
+  `cargo fmt --all -- --check` still reports formatting differences in this
+  already dirty checkout, which were not mass-formatted. The ECU address
+  interpretation and SSM2 framing follow the community references documented in
+  [Subaru catalog workflow](docs/SUBARU_CATALOG.md); no physical Subaru/OpenPort
+  test or command was performed, so adapter/ECU compatibility remains unverified.
+
+- 2026-10-19: Added explicit live graph logging for supported local Subaru OEM
+  catalog entries. Rows with 11-bit FHI-CAN routes, valid read-only Mode 21/22
+  hints, no extra address byte and supported big-endian numeric/enum decoders
+  can be added from OEM to the Live signal picker. Checking Log starts/stops
+  their reads through the existing serialized OEM acquisition scheduler; graph,
+  live CSV and recording receive the same samples and raw response payloads.
+  Samples use `subaru:` IDs, suspect quality and a source ID containing the local
+  catalog SHA. Imported candidate state remains `not_tested` and
+  `auto_request=0`; unsupported route/decoder rows stay searchable and cannot be
+  scheduled. OpenPort uses a separate typed worker request for local catalog
+  provenance rather than fabricated license fields. MCP `oem_logging` now has
+  `start_subaru`/`stop_subaru`, using the same adapter/generation binding. Rust
+  workspace check, i686 Windows worker check, `cargo fmt --all -- --check`,
+  `git diff --check`, and the UI production build passed. `npm` was not on PATH;
+  the bundled Node and `pnpm` were used for `pnpm run build` (zero Svelte
+  warnings). The error page root cause was a release executable linked with
+  plain Cargo: it retained the configured dev URL `127.0.0.1:1420` instead of
+  serving packaged UI assets. The app is now rebuilt through the Tauri CLI with
+  a temporary config overriding `beforeBuildCommand` to `pnpm run build`
+  (`npm` is unavailable), using `pnpm run tauri build --no-bundle`, then launched
+  from `target/release/lognook-desktop.exe`. Tauri codegen assets are present in
+  the release build. No tests or physical adapter/vehicle reads were run. No
+  commit or push was made. Details:
+  [Subaru catalog workflow](docs/SUBARU_CATALOG.md).
+
+- 2026-10-19: Integrated the owner-supplied Subaru OEM catalog with Luna xhigh
+  implementation/review agents. The existing SQLite database now has extension
+  version 1 (base schema remains 3): **20,855 normalized definitions**, **45,364
+  ECU-linked entries**, 168 ECUs and 98 vehicle records. All measurement rows are
+  searchable under OEM → Subaru OEM catalog and through typed MCP
+  `search_subaru_catalog` / `get_subaru_catalog_detail`. Search is paginated and
+  source/decoder detail loads on demand. **36,829 entries** have representable
+  FHI-CAN routes for explicit CAN Workbench preparation; selection fills one
+  identifier and transmits nothing. Other protocols/address modes remain visible
+  with limitations. These counts do not establish vehicle compatibility or
+  ordinary continuous graph/log eligibility. Imported hints remain inferred,
+  validation remains not_tested and auto_request remains 0. Existing 37,093 OEM
+  candidates are unchanged. UI and MCP share the same read-only query service.
+  Verified: **731 Rust tests across 32 targets**, zero failures; one local-pack
+  smoke ignored by default and passed when explicitly run here; **236 UI tests**,
+  zero Svelte errors/warnings, production UI build, formatting and diff checks.
+  Database v0.2/v0.3 and focused importer tests pass; integrity/FK checks pass.
+  Runtime catalog copies match the authoritative enriched database hash. The local
+  release build passed; the embedded-UI executable is
+  `target/release/lognook-desktop.exe` (32,738,304 bytes). The app was left closed.
+  Import data and backup/distribution details, release build evidence and usage:
+  [integration report](results/subaru-catalog-integration-2026-10-19.md),
+  [guide](docs/SUBARU_CATALOG.md). No physical requests, driver/firmware changes,
+  commit or push were performed.
+
+- 2026-10-15: Implemented the compact graph controls with Luna xhigh implementation
+  and review agents. X −/+ and Y −/+ plus Auto share the existing Graph settings
+  bar. Combined legend entries and separate chart titles select the Y target;
+  scatter controls use the configured axes. Existing per-signal manual bounds,
+  live/replay time windows and renderer-local storage are reused. Zoom preserves
+  acquisition and recording data. MCP review: presentation-only, with no new
+  core operation to expose. Review caught and fixed disabled recovery controls
+  in empty replay intervals. **230 UI tests**, zero Svelte errors/warnings,
+  production UI build and diff check passed. Release build/evidence and usage:
+  [graph controls report](results/graph-quick-controls-2026-10-15.md).
+  No physical vehicle testing, commit or push was performed.
+
+- 2026-10-15: Implemented adapter parity: OpenPort standard Mode 06 bitmap and
+  monitor reads reuse the bounded J2534 receive path; OpenPort and Candlelight
+  OBD now admit catalog-validated OEM polling into the existing acquisition
+  scheduler. Typed MCP `oem_logging` supports status, search, start and stop,
+  with adapter identity/generation binding and the same catalog gates as UI.
+  No catalog candidate was promoted or made auto-requestable. Fixture verification:
+  **726 Rust tests across 32 targets**, **222 UI tests**, i686 Windows worker
+  check, Svelte/Vite build (zero Svelte errors/warnings), formatting and diff
+  checks passed. Evidence and release artifacts:
+  [adapter parity report](results/adapter-parity-2026-10-15.md).
+  No physical adapter/vehicle requests, commit or push were made. Compact graph
+  controls were subsequently implemented as documented in the newer entry above,
+  with Y zoom targeting the trace selected through its legend.
+
+- 2026-10-15: Added the optional X/Y scatter graph alongside the default Time
+  series view. Its compact Graph type selector now shares the expandable Graph
+  settings bar, saving a full toolbar row; X, Y and color-by controls appear in
+  the expanded settings only when scatter is selected. The scatter view replaces
+  the normal graph. Points pair acquired values using preceding timestamps,
+  fresh-sample limits, a 256-sample per-stream working bound and a 128-point
+  display cap; the view shows at most 15 seconds and fades older dots away. Color
+  grades by sample age
+  or a third signal, with a subtle newest-point pulse that respects reduced-motion
+  preferences. Existing manual signal bounds control each axis. This is a
+  presentation feature using the existing samples, so MCP has no separate graph
+  state or operation. `pnpm.cmd run build` is recorded in
+  [UI build output](results/xy-scatter-ui-build-2026-10-15.txt); no test suite was
+  run for this change. The graph was not visually checked in the desktop window.
+  `cargo build -p lognook-desktop --release --features tauri/custom-protocol
+  --locked -j 4` rebuilt the embedded-UI app at
+  [target/release/lognook-desktop.exe](target/release/lognook-desktop.exe)
+  (32,163,840 bytes; 2026-10-15 21:16:29 UTC). Build log:
+  [release output](results/xy-scatter-release-build-2026-10-15.txt). The app was
+  left closed for the owner to launch. Follow-up performance optimization
+  batches live sample graph/readout updates once per animation frame while
+  appending every event to the CSV buffer; simulator cadence remains unchanged.
+  After live feedback at roughly 200 plotted samples, scatter working/display
+  caps were lowered again to 256 per input and 128 visible points, with the
+  fading trail retained. UI build passes. The owner reported the simulator now
+  seems responsive; no sustained rate measurement was captured. The subsequent
+  adapter-parity release rebuild includes these changes.
+
+- 2026-10-15: Implemented opt-in OEM catalog one-shot discovery with Luna xhigh
+  sub-agents. **Auto-try visible rows once per connection** observes the actual
+  scroll viewport; **Try all filtered** traverses all matching pages and puts
+  finite numeric results, including zero, first without comparing unlike units.
+  Text/color distinguishes values, undecoded replies, negative replies, no
+  response, errors and pending work. Stop, filter changes and connection changes
+  cancel queued work; an existing bounded exchange may finish. Candidates not yet
+  sent remain eligible after cancellation; completed candidate/source revisions
+  are deduplicated for the connection. UI and typed MCP `oem_discovery` share one
+  serialized service bound to adapter identity and connection generation; Agent
+  Access lock/expiry stops agent-owned work. SX, ELM327 and A30 reuse their OEM
+  research paths; OpenPort and Candlelight OBD now support exact-source-route
+  Mode 21/22 one-shots using the existing J2534/ISO-TP owners. OpenPort preserves
+  pending/final raw replies and ignores unrelated traffic. Simulator outcomes
+  explicitly say simulated. Continuous OEM capabilities remain unchanged; the
+  read-only catalog, `auto_request`, validation and presets are not promoted by a
+  response. Discovery saves research evidence without graph/recording samples.
+  Verification: **719 Rust tests across 32 targets**, **222 UI tests**, desktop
+  library check, i686 Windows worker check, Svelte/Vite build (zero Svelte
+  errors/warnings), Rust formatting and diff checks passed. Rust evidence:
+  [workspace output](results/oem-discovery-rust-checks-2026-10-15.txt). Usage and
+  API: [discovery](docs/DISCOVERY_DIAGNOSTICS.md), [MCP](docs/AGENT_ACCESS.md).
+  Tested working changes are based on `eda608b3f0c6` on
+  `codex/can-event-freeze-frame`. No physical vehicle requests, commit or push
+  were made for this feature; live acceptance remains pending.
+  Both release builds passed: `cargo build --release -p lognook-desktop
+  --features tauri/custom-protocol --locked` produced
+  `target/release/lognook-desktop.exe` (32,159,744 bytes; 2026-10-15 19:12:11 UTC),
+  and `cargo build --release --locked -p lognook-j2534-worker
+  --target i686-pc-windows-msvc -j 4` produced
+  `target/i686-pc-windows-msvc/release/lognook-j2534-worker.exe` (414,208 bytes;
+  2026-10-15 19:08:55 UTC). The desktop embeds the built UI; no development
+  server is required. Bundling remains disabled, so no installer was generated.
+
+- 2026-10-15: Live confirmation from the owner's Ford/OpenPort 2 using the original Tactrix provider: all six implemented snapshot reads from ECU `7E8` are positive (stored/pending/permanent DTCs, VIN, calibration ID and ECU name). The previously failing name displays `PCM-PowertrainCtrl`; VIN and calibration remain successful after the shared decoder change. This confirms the combined receive-start, padded-flow-control and name-decoder fixes on this setup. Mode 06 remains unimplemented/not sent, OEM Mode 21/22 remains unavailable on OpenPort, and DTC clearing was not physically tested. Evidence and limitations: [Tactrix/Ford diagnostic confirmation](results/openport2-tactrix-ford-diagnostics-2026-10-15.md). Source changes remain uncommitted and unpushed.
+
+- 2026-10-15: The owner confirmed successful Ford VIN and calibration reads through the original Tactrix provider after the padded flow-control correction. ECU-name bytes `49 0A 01 50 43 4D 00 2D 50 6F 77 65 72 74 72 61 69 6E 43 74 72 6C 00` exposed a shared text-decoder issue: the four-byte acronym and 15-byte description have separate trailing NUL padding around the dash. The Mode 09 decoder now cleans these two fields independently for that 20-byte layout, yielding `PCM-PowertrainCtrl` while preserving response bytes. VIN/calibration parsing and rejection of other control characters remain strict. Both new regression tests, all 17 diagnostic tests, and all 263 core library tests pass; scoped rustfmt and diff checks pass. The desktop custom-protocol release rebuilt successfully at `target/release/lognook-desktop.exe`. Desktop/MCP share the corrected core decoder; historical reports retain their original outcomes. The updated ECU-name decoder has fixture coverage; the next owner-triggered read will verify its live display. No vehicle requests were sent by the agent and changes remain uncommitted.
+
+- 2026-10-15: Original Tactrix/Ford follow-up: the owner confirmed successful Modes 03/07/0A replies after receive-start filtering, but Mode 09 identity reads timed out around 1.5 seconds. Comparing `build_obd_flow_control_filters` with the locally installed Tactrix `C:/Program Files (x86)/OpenECU/OpenPort 2.0/samples/canlogger/canlogger.cpp` revealed missing `ISO15765_FRAME_PAD` on the ISO-TP filter messages. The filter mask/pattern/flow-control messages now use that flag, matching the vendor example, with no timeout or route changes. The new regression failed before the correction; all 43 worker tests and scoped rustfmt now pass. Live Ford VIN/calibration completion still requires a retest; software tests alone do not establish that padding was the only cause. Desktop and MCP use the shared helper without API changes.
+
+- 2026-10-15: Fixed original Tactrix J2534 receive-start handling. The owner's Ford Mode 09 report contained `ProtocolID=6`, `RxStatus=2`, `DataSize=4`, bytes `00 00 07 E8`. The installed Tactrix header defines flag `2` as `START_OF_MESSAGE`; it is a transport notification, not a completed ECU reply. The worker now skips these notifications in Mode 01, Mode 09 and standard DTC decoding while retaining validation of genuinely malformed completed replies. Two regression tests reproduce the captured notification and notification-followed-by-completed-VIN sequence; all 42 worker tests pass, scoped rustfmt passes, and the i686 release helper rebuilt successfully. UI and MCP both use this shared worker; no schema or desktop UI change was needed. A new Ford identity read is still required to confirm the live result. No vehicle commands were sent during this fix; changes remain uncommitted.
+
+- 2026-10-15: Unified Vehicle Diagnostics now reads adapter-reported capabilities for SX, ELM327, A30/A30M, OpenPort 2, Candlelight OBD, and simulator. Candlelight supports standard DTC, Mode 09 identity and Mode 06 reads on its single discovered ECU; it keeps the physical request/response route and refuses multi-ECU discovery instead of merging results. OpenPort supports typed standard DTC services 03/07/0A plus the separate clear service 04, keeps Mode 09 identity, and reports Mode 06 unsupported. Snapshot requests mark unsupported categories not sent. An explicit **Clear DTCs** confirmation sends one fixed Mode 04 `[04]` through the serialized adapter owner, binds the active adapter ID and connection generation, performs no retry, and appends a separate `clear_dtcs` diagnostic report. The MCP exposes the same operation under unlocked Agent Access with `confirm: true`, adapter ID, and generation; `read_vehicle_diagnostics` remains read-only. Raw payload/terminal commands reject Mode 04. Simulator diagnostics and clears are local and visibly labeled. A positive `44` is recorded as an ECU acknowledgement, not proof that a follow-up read is empty. Verification: `cargo test --workspace -j 4` passed (core lib 257 tests, desktop lib 147, J2534 protocol 6, protocol wire integration 6, worker 40, and all core integration targets); `cargo check -p lognook-desktop --lib --locked -j 4` passed; UI tests passed 214/214; `pnpm.cmd run build` passed with zero Svelte errors and warnings; `cargo fmt --all -- --check` and `git diff --check` passed. Release builds passed: [desktop executable](target/release/lognook-desktop.exe) (31,814,656 bytes) and [32-bit J2534 worker](target/i686-pc-windows-msvc/release/lognook-j2534-worker.exe) (353,792 bytes). No vehicle or physical Mode 04 clear was used. Changes are uncommitted and unpushed; the approved feature design remains in `docs/superpowers/specs/`.
+
+- 2026-10-14: Added normal Candlelight/gs_usb OBD logging through the shared `HardwareAdapter` acquisition, live graph, Record, CSV and session pipeline. Identify checks USB identity only; explicit Connect follows generic Mode 01 support pages and requires one responding standard ECU. This first version supports 11-bit / 500 kbit/s and preserves ECU ID plus raw CAN response bytes. Physical USB interface/channel leases prevent simultaneous Workbench and OBD ownership; typed MCP discover/identify/connect/select/status/disconnect/cancel uses the same gates. Generic Mode 01 only: no VIN/profile recognition, OEM candidate reads or state-changing requests. Verification: Rust workspace tests **651 passed across 32 targets**, Tauri library check passed, UI tests **212/212**, Svelte/Vite production build passed with 0 Svelte errors/warnings, and `git diff --check` passed. Release commands `cargo build -p lognook-desktop --release --features tauri/custom-protocol --locked -j 4` and `cargo build --release --locked -p lognook-j2534-worker --target i686-pc-windows-msvc -j 4` passed. Outputs: `target/release/lognook-desktop.exe` (31,500,800 bytes; 2026-10-14 18:17:16 UTC) and `target/i686-pc-windows-msvc/release/lognook-j2534-worker.exe` (336,384 bytes; 2026-10-14 16:04:35 UTC). No physical CAN hardware was tested; no commit or push was made.
+
+- 2026-10-14: Implemented provenance-backed full VIN identity and fully offline WMI/check-digit/model-year decoding; immutable diagnostic-history locators with SHA-256 verification and resumable legacy import; the Profiles dialog Vehicle History view; identity frozen into native recordings at the sample boundary; and typed MCP identity/history/import operations. Generic diagnostic MCP responses redact VIN bytes while explicit identity/report detail can return the full VIN. CSV remains VIN-free by default. OpenPort is limited to Mode 09 VIN/calibration/ECU-name reads. Final verification: `cargo test --workspace -j 4` passed; `cargo check -p lognook-desktop --lib --locked -j 4` passed; UI tests passed 211/211; `pnpm.cmd run build` passed with zero Svelte errors/warnings. Release artifacts were built: `C:\Users\inouk\LogNook-can-event-freeze-frame\target\release\lognook-desktop.exe` (31,109,120 bytes) and `C:\Users\inouk\LogNook-can-event-freeze-frame\target\i686-pc-windows-msvc\release\lognook-j2534-worker.exe` (336,384 bytes); Tauri bundling is disabled, so no installer was produced. Independent Luna max review findings were fixed and its follow-up found no remaining actionable issues. No vehicle or adapter was physically tested. Changes remain uncommitted on `codex/can-event-freeze-frame` because the worktree also contains earlier CAN/profile changes.
+
+- 2026-10-13: Documentation refresh for new contributors and agents. Added a contribution guide and documentation map; corrected current adapter/replay descriptions and labeled dated blueprints, plans, and reports as historical references. The repository has no root license yet. The no-paid-resale policy goal is recorded in a [source-available licensing proposal](docs/licensing-policy-proposal.md); actual terms still need owner/legal review before they grant rights. Start at [CONTRIBUTING.md](CONTRIBUTING.md), [the documentation map](docs/README.md), and the [project README](README.md).
+
+- 2026-10-13: Agent MCP now exposes selected CAN-ID replay through the typed `workbench` operation `replay_can_id`. MCP clients inspect `live:can` with `list_log_sources` and `query_log_range`, then provide the CAN ID, 11-/29-bit format, and elapsed-time range; LogNook selects only current-connection unflagged classic RX frames, capped to the latest 400. Saved captures and caller-provided payloads cannot be replayed. Replay requires unlocked Agent Access and an active CAN mode, records paired CAN/trace evidence, and can be cancelled with `stop_operation`; disconnect finalizes active replay evidence. Verification: 45 Agent tests, 530 Rust workspace tests, Tauri library check, Svelte check (0 errors/warnings), debug desktop build, and `git diff --check` passed. No hardware was accessed or CAN frames transmitted.
+
+- 2026-10-13: Selected CAN-ID transmit replay adds **Select ID** actions to the Traffic monitor's Counts and Frames views. Selection snapshots matching retained RX data frames by exact ID and 11-/29-bit format, then offers **Start TX replay · once** using recorded intervals (minimum 1 ms; gaps over 60 seconds are rejected). Replay requires an active CAN connection and an open paired raw capture; it shares the existing serialized Workbench owner, rejects overlapping TX/scan jobs, exposes submitted-frame progress and a persistent Stop control, and cancels on capture closure/disconnect/error. Connection changes clear frozen selections. Source frames/timing and outgoing TX evidence are recorded separately; known USB submissions remain counted if a subsequent evidence write fails. Source scope is the monitor's latest 400 retained frames. Verification: Rust workspace tests passed 524/524, UI tests passed 193/193, Svelte reported zero errors/warnings, the Tauri debug desktop executable rebuilt, and `git diff --check` passed. Independent Luna review confirmed the reconnect and post-TX evidence-failure fixes. No physical CAN transmissions or desktop visual acceptance were performed during development.
+
+- 2026-10-10: Live graph time scaling now retains up to 600 seconds / 60,000 samples per signal instead of discarding history after 180 replies. The chart selects the visible time window before reducing its rendered points, preserving endpoints and per-bucket minima/maxima so fast simulator and adapter streams cover the selected span without erasing brief peaks. Startup windows begin at elapsed zero, automatic value scales use visible data, disconnected charts retain the selected span, and cursor readouts use retained measurements. Recent signal averages retain their existing sample window. Recording and CSV buffers remain separate from display reduction. Verification: all 188 UI tests passed, Svelte reported zero errors/warnings, the local Tauri debug executable rebuilt successfully, and `git diff --check` passed. Desktop visual and physical hardware acceptance remain unverified.
+
+- 2026-10-09: Live CAN event freeze-frame comparison adds bounded per-mark RX snapshots to the live `CanLiveEventAnalysis` contract and a **Compare snapshots** dialog for each labeled Events group. Chronological columns show each mark's latest retained payload and RX count per CAN ID; standard and extended IDs stay distinct. Exact recurrence is green, same-DLC payloads at least 90% bit-similar are amber, and absent/unknown/pending/incomplete states remain distinct. The summaries are live-only: clearing event analysis clears summaries, saved raw capture and marks remain intact, and reopening a saved capture does not reconstruct the comparison. Correlation colors do not decode signal meaning. Verification: targeted core test `cargo test -p lognook-core --test live_can_events`, UI tests, production build, and `git diff --check` passed (results recorded in the Task 4 report). No physical CAN hardware acceptance was performed.
+
 - 2026-10-09: **MultiAdaptCan-v1** adds compact saved-session Rename, confirmed Delete and Folder actions, with filename/collision, managed-directory, loaded-session and SQLite-sidecar guards. Closing the session viewer now unloads the backend session as well. Share opens a small dialog offering local CSV or an explicit native-session upload to Catbox (200 MB, short public link, no scheduled expiry, no account); streaming, bounded responses/timeouts, provider URL validation and temporary-copy cleanup are implemented. Anonymous uploads cannot be deleted through LogNook and retention is not guaranteed. No recordings were uploaded publicly during development.
 - **Rec From Connect** is separate from ordinary Record. It saves up to 100,000 decoded live samples retained by the backend from the current logical connection, then records new samples through the same serialized pipeline. Original timestamps/source/ECU/raw metadata remain intact. A persistent marker documents retained/evicted counts. History clears when the last source disconnects and excludes replay; automatic-trigger history remains independent. Bulk history uses one SQLite transaction and cached inserts; a failed batch rolls back rows and summary bookkeeping. Raw CAN frames still require Capture.
 - Verification: Luna at high reasoning implemented the three feature slices and reviewed their integration. `cargo test --workspace -j 1 --quiet` passed **501 tests** (207 core unit, 157 core integration, 110 desktop, 6 J2534 protocol, 21 worker). UI tests passed **166/166**; Svelte/Vite production build passed with **0 errors and 0 warnings**. Tests cover backfill/live ordering, duplicate start, empty/evicted history, mixed-source reset/disarm, CSV round trip, transaction rollback, session unload/mutation guards, share metadata/URL/size limits/cleanup and an actual streamed multipart request to a local HTTP mock. The core unit suite including the 100,000-sample stress case completed in 4.79s after batching versus 17.12s before (suite timings, not an isolated adapter benchmark). `cargo build -p lognook-desktop --features tauri/custom-protocol -j 1` passed (46.81s); the updated executable was launched locally. Native folder/clipboard interaction and a real provider upload were not exercised. Next: use a simulator connection to try Rec From Connect → Stop → replay, then Rename/Share/Delete the saved fixture; verify one real upload and Folder/clipboard interaction. Physical adapter testing remains pending.
@@ -51,11 +334,11 @@
 
 - 2026-10-06: OpenPort/J2534 diagnostics progress now crosses the x86 worker IPC boundary for provider resolution, DLL load, device open, version read, channel/filter setup, Mode 01 discovery, and PID reads. Provider-discovery and Identify helpers expose optional diagnostics sinks; existing callers retain terminal responses and original deadlines. Fixture and native x86 worker verification pass; physical adapter timing validation remains pending.
 
-Updated 2026-10-09 · Current build label: **MultiAdaptCan-v1 (`0.1.0-beta.1`)**. Milestone 1 simulator complete; the OBDLink SX has completed live read-only acquisition and Ford transport/PID benchmarks on the MSI test computer. The production SX adapter uses the measured grouped Mode 01 path on verified CAN 11/500. The CSV session player imports mixed/legacy LogNook CSV and numeric FORScan wide logs, replays `.lognook` sessions with controls, and supports persistent markers and zoomable graph windows. The supplied FORScan `edge2.csv` imported as 100,844 samples across 17 numeric signals over 178.148 seconds; its elapsed-only `time(ms)` is anchored to import time. Five-signal UI CSV contained 1,095 live rows over about 65.6 seconds. All 35 public generic candidates marked auto-requestable returned valid responses individually and in seven combined SAE PID groups; the measured grouped path returned 350/350 values at 81.42 PID-values/s. Six advertised PIDs remain review-required for structured or multi-channel decoders. The live-first Vehicle Test Workbench is now delivered through the shared acquisition and sample/recording pipeline; software verification results and physical-test limits are recorded below.
+Updated 2026-10-13 · Current build label: **MultiAdaptCan-v1 (`0.1.0-beta.1`)**. The Windows desktop app includes simulated and hardware OBD acquisition, the shared recording/replay pipeline, CSV/FORScan interchange, graphing, OEM research, and a CAN Workbench with traffic analysis, field decoding, explicit scans/sends, and selected-ID replay. The OBDLink SX has completed live read-only acquisition and Ford transport/PID benchmarks on the MSI test computer. The production SX adapter uses the measured grouped Mode 01 path on verified CAN 11/500. The supplied FORScan `edge2.csv` imported as 100,844 samples across 17 numeric signals over 178.148 seconds; its elapsed-only `time(ms)` is anchored to import time. The grouped path returned 350/350 public generic values across seven combined SAE PID groups at 81.42 PID-values/s in the documented test; six advertised PIDs remain review-required for structured or multi-channel decoders. See dated reports for exact environment, physical conditions, and remaining validation limits.
 
 This Git checkout preserves the existing source and external-agent reports. The hardware records are [OBDLink SX / Ford physical test](docs/hardware/2026-10-02-sx-ford.md), [the direct current-check log](docs/hardware/2026-10-02-sx-current-check.log), [the key-on retry log](docs/hardware/2026-10-02-sx-key-on-retry.log), and [the remaining-PID log](docs/hardware/2026-10-02-sx-remaining-pids.log).
 
-## Adapter and operating-mode coverage — 2026-10-07
+## Adapter and operating-mode coverage — 2026-10-13
 
 | Adapter or mode | Current coverage | Important boundary |
 |---|---|---|
@@ -63,9 +346,9 @@ This Git checkout preserves the existing source and external-agent reports. The 
 | OBDLink SX | Standard Mode 01 acquisition; explicit source-backed Mode 21/22 candidate reads; separate captured Scion `21 01` probe. | The Scion probe is its own one-shot workflow; SX is not a raw CAN sniffer. Candidate reads do not auto-poll. |
 | Bluetooth ELM327 | Standard Mode 01 acquisition and explicit source-backed Mode 21/22 candidate reads over the selected RFCOMM session. | No raw bus monitor; vehicle support depends on adapter/ECU response and exact catalog route. |
 | Xtool A30/A30M | Standard Mode 01 acquisition; fixed one-shot reads for Modes 02/03/06/07/09/0A; source-backed Mode 21/22 candidate reads. | Numeric decodes graph; DTC/VIN text and unmapped Mode 06 counts remain result evidence. Physical Bluetooth interoperability is still under test. |
-| OpenPort 2 / J2534 | Standard Mode 01 acquisition through the isolated x86 worker. | The current adapter path does not run OEM candidate reads or raw-CAN Workbench capture/scans; physical ECU testing remains pending. |
-| Candlelight CAN Workbench | Passive raw CAN capture and per-ID live summary; explicit CAN-ID range, Mode 01 support/PID, and Mode 21/22 scans; manual CAN transmit; user-defined payload fields; source-backed one-shot CAN candidate reads. | Requires an active connection and paired capture before scans/requests. Raw evidence is retained; only successfully decoded finite numeric values become measurement samples. Manual field semantics remain operator-defined. |
-| Saved measurement session / CSV replay | Replays stored signals and markers through the playback pipeline; CAN capture replay supports census, payload/counter hints, event correlation, comparison, and configured field decoding. | Replay analysis does not transmit to a vehicle. CAN byte/counter/checksum hints are not semantic decodes or validation. |
+| OpenPort 2 / J2534 | Standard Mode 01 acquisition through the isolated x86 worker; live Ford samples and per-signal polling rates were measured through the OPTA provider. | No OEM candidate reads or raw-CAN Workbench capture/scans. The Ford results do not establish other-vehicle compatibility or long-duration stability; see the 2026-10-09 report. |
+| Candlelight CAN Workbench | Passive raw CAN capture and per-ID live summary; event/snapshot analysis; explicit CAN-ID range and Mode 01/21/22 scans; manual CAN transmit; user-defined payload fields; source-backed one-shot CAN candidate reads; selected-ID replay from retained RX frames. | Scans and TX require an active connection and paired capture. Replay is one pass over a bounded current-connection snapshot. Raw evidence is retained; only successfully decoded finite numeric values become measurement samples. Manual field semantics remain operator-defined. |
+| Saved measurement session / CSV replay | Replays stored signals and markers through the playback pipeline; saved CAN capture analysis supports census, payload/counter hints, event correlation, comparison, and configured field decoding. | Saved-capture analysis is read-only; selected-ID TX replay uses only the current live CAN buffer. CAN byte/counter/checksum hints are not semantic decodes or validation. |
 
 There is no single mode set shared by every adapter. Modes 21/22 are available as explicit source-backed tests on SX, ELM327, A30/A30M, and Candlelight; they remain outside automatic polling until validated for the exact ECU. Mode 04 clears, ECU writes/routines/security/session changes, and firmware flashing are not product workflows. Workbench raw frames remain an explicit expert action with exact evidence capture.
 
@@ -200,14 +483,12 @@ npm run tauri dev
 
 The machine has Rustup, MSVC build tools, Node, and npm. Clippy is not installed in the current Rust toolchain.
 
-## Next validation work
+## Next validation work — 2026-10-13
 
-OpenPort 2: the user chose to retain the OPTA WinUSB binding. The matching signed x86 DLL passed Open/ReadVersion/Close (firmware `1.17.4877`, DLL `0.1.0`, API `04.04`) and a passive CAN connect at 500 kbit/s. The trace records 104 Normal CAN frames across 24 IDs, including frames drained during disconnect. The first returned J2534 message combined frame data; the probe rejected it after 109 ms and disconnected/closed cleanly. The old host log does not retain the rejected message's complete metadata, so DataSize and RxStatus remain unknown. The observed filter command used TxFlags `0x40` despite requested 0. Reliable raw J2534 frame delivery is unverified. No diagnostic request or vehicle transmit API was used; the driver and DLL remain unchanged, and no production J2534 backend is implemented. Captures, physical fixture, and a small implementation plan are in [the OpenPort 2 report](docs/hardware/2026-10-02-openport2.md).
-
-1. Connect the OpenPort2 to USB and the Ford, then run the prepared passive metadata capture without replacing the OPTA driver; the latest PnP inventory showed only the SX.
-
-2. Verify the grouped STPX path in a live LogNook session when the SX is next available, including long-run timing, disconnect/restore behavior, and the selected-signal sets users record. Existing rate evidence is from the read-only hardware harness, not a post-implementation application recording. `R:1` truncates multi-frame responses; the app uses `R:2` only after unique responder discovery and response-size grouping. The six review-required PIDs need structured decoders before they can be exposed. OBDLink `STBC` host-command batching returned `?` on this SX. The screenshot's `STMPA`/`STMPR`/`STMPC` are not documented; actual `STPPMA/MD/MC` periodic messaging did not produce a reliable stream.
-3. Replay the five-signal recording, run longer stability/disconnect checks, and compare generic PIDs on the 2014 Scion xB when available. Do not claim Ford MS-CAN/enhanced support for the SX.
+1. **Selected CAN-ID replay:** UI/core and MCP schema/behavior tests pass, but no physical CAN replay transmission was performed during implementation. First validate start/stop/disconnect and paired evidence on a simulator or isolated bench bus. Do not infer safe vehicle behavior from software tests or from passive receive data.
+2. **2014 Scion xB:** No live-app generic Mode 01 validation is recorded yet; treat this as a separate vehicle test from Ford. The 2026-10-03 direct Toyota Service 22 probe tested 15 DIDs: the 7E0 route received NRC `0x11`, and the researched 700 route returned no data; see [the Scion result](results/scion-xb-2014-live-app-validation-2026-10-03.md). No Toyota Service 21 request was physically tested in that run. Do not repeat those Service 22 probes or invent session commands; first validate generic signals in LogNook, then use only a sourced Service 21 definition with a documented request plan.
+3. **OpenPort 2:** Live Ford Mode 01 readings and 1-, 3-, and 4-signal rates are recorded in [the 2026-10-09 OPTA report](results/openport2-opta-read-batch-diagnosis-2026-10-09.md). A longer stability test, reconnect/replay check, and cross-vehicle validation remain open. Do not change the driver or firmware as part of these checks.
+4. **Open-source readiness:** This checkout has no root `LICENSE` file. The project owner needs to select and add a repository license before contributors may assume the app code is licensed for reuse or redistribution. The PID database retains separate attribution and license obligations.
 
 ## Future feature ideas
 
@@ -222,7 +503,7 @@ These are backlog ideas from [Addons for later](Addons%20for%20later.txt), not y
 
 ## Remaining POC limits
 
-The Ford bench advertised 41 generic PIDs. The shared scalar signal catalog and production picker support the 35 seed entries marked `public_reference` and `auto_request=True`; the six review-required entries (`01`, `15`, `19`, `34`, `38`, `41`) need structured or sub-channel decoders. The grouped production path is covered by fixtures and unit tests; application throughput has not yet been remeasured on the vehicle. Multiple ECU responders remain rejected, and Ford enhanced/MS-CAN support is not claimed. Scripted timeout/disconnect simulation, installer work, Linux packaging, and alternate CSV schemas remain open. The COM4 transport remains the production implementation; direct D2XX was used only for diagnostics.
+The Ford bench advertised 41 generic PIDs. The shared scalar signal catalog and production picker support the 35 seed entries marked `public_reference` and `auto_request=True`; the six review-required entries (`01`, `15`, `19`, `34`, `38`, `41`) need structured or sub-channel decoders. The grouped SX path has fixture, unit, and live Ford acquisition evidence; sustained app-rate comparisons across multiple vehicles remain open. OpenPort live Ford polling rates are recorded separately. Multiple ECU responders remain rejected, and Ford enhanced/MS-CAN support is not claimed. Installer work, Linux packaging, and alternate CSV schemas remain open. The COM4 transport remains the production SX implementation; direct D2XX was used only for diagnostics.
 
 ## Grouped SX polling implementation and verification — 2026-10-02
 
@@ -381,3 +662,15 @@ For a development launch instead, run `npm run tauri -- dev` from `apps/desktop`
 - Verification: `cargo test --workspace -j 1 --quiet` passed (**158 tests**); `cargo check --workspace -j 1` passed with two existing J2534 worker dead-code warnings; `cargo build -p lognook-desktop --features tauri/custom-protocol -j 1` passed; `git diff --check` passed. Workspace `cargo fmt --all -- --check` still reports existing formatting differences across the repository; those were not mass-formatted.
 - No native-window stress run or 200k-row timing benchmark was repeated. The remaining audit items are the 180-sample live CSV snapshot retention limit and the missing disconnected trace end/cause cue.
 - Next task: implement and verify a clear disconnect end marker/cause in the graph; then decide whether live CSV should export a larger backend snapshot or continue to mean “save exactly what is currently on screen.”
+# Diagnostic signal presets (2026-10-19)
+
+The first diagnostic presets implementation slice is complete: eight immutable
+built-ins and custom recipe/picker storage are available through the desktop and
+MCP, with a same-session acknowledged Apply path. Offline staged previews remain
+visible while disconnected and label support as unknown. OEM candidates remain
+inert unless current exact evidence and catalog gates qualify them. No physical
+vehicle validation has been performed for presets. Focused verification: core
+profile-resume owner tests 5/5; desktop UI tests 250/250; Svelte build 0 errors
+and 0 warnings; rebuilt release app opened with the offline preview visible and
+successfully staged a second recipe while disconnected.
+See `docs/SIGNAL_PRESETS.md` and the task report for known limits.

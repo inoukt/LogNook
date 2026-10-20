@@ -1,8 +1,7 @@
 use super::ObdLinkSxAdapter;
 use crate::{
     DeviceDescriptor, HardwareAdapter, LogNookError, ScionMode21ProbeSpec,
-    obdlink_sx_protocol::parse_isotp_messages,
-    oem_catalog::SCION_XB_BLOB_SHA,
+    obdlink_sx_protocol::parse_isotp_messages, oem_catalog::SCION_XB_BLOB_SHA,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -130,11 +129,56 @@ pub(super) fn build_scion_probe_command(
 
 fn validate_scion_probe_spec(spec: &ScionMode21ProbeSpec) -> Result<(), LogNookError> {
     let expected = [
-        ("Intake air temperature", "celsius", 48, 8, 1.0, 1.0, -40.0, "(raw*(1)/(1))+(-40)"),
-        ("Coolant temperature", "celsius", 64, 8, 1.0, 1.0, -40.0, "(raw*(1)/(1))+(-40)"),
-        ("Engine speed", "rpm", 72, 16, 1.0, 4.0, 0.0, "(raw*(1)/(4))+(0)"),
-        ("Vehicle speed", "kilometersPerHour", 88, 8, 1.0, 1.0, 0.0, "(raw*(1)/(1))+(0)"),
-        ("Throttle sensor position", "percent", 112, 8, 100.0, 255.0, 0.0, "(raw*(100)/(255))+(0)"),
+        (
+            "Intake air temperature",
+            "celsius",
+            48,
+            8,
+            1.0,
+            1.0,
+            -40.0,
+            "(raw*(1)/(1))+(-40)",
+        ),
+        (
+            "Coolant temperature",
+            "celsius",
+            64,
+            8,
+            1.0,
+            1.0,
+            -40.0,
+            "(raw*(1)/(1))+(-40)",
+        ),
+        (
+            "Engine speed",
+            "rpm",
+            72,
+            16,
+            1.0,
+            4.0,
+            0.0,
+            "(raw*(1)/(4))+(0)",
+        ),
+        (
+            "Vehicle speed",
+            "kilometersPerHour",
+            88,
+            8,
+            1.0,
+            1.0,
+            0.0,
+            "(raw*(1)/(1))+(0)",
+        ),
+        (
+            "Throttle sensor position",
+            "percent",
+            112,
+            8,
+            100.0,
+            255.0,
+            0.0,
+            "(raw*(100)/(255))+(0)",
+        ),
     ];
     if spec.source_id != crate::oem_catalog::SCION_XB_SOURCE_ID
         || spec.source_blob_sha != SCION_XB_BLOB_SHA
@@ -148,8 +192,8 @@ fn validate_scion_probe_spec(spec: &ScionMode21ProbeSpec) -> Result<(), LogNookE
             "Scion Mode 21 probe definition failed fixed source/addressing checks",
         ));
     }
-    for (channel, (name, unit, offset, length, multiplier, divisor, addend, formula))
-        in spec.channels.iter().zip(expected)
+    for (channel, (name, unit, offset, length, multiplier, divisor, addend, formula)) in
+        spec.channels.iter().zip(expected)
     {
         if channel.name != name
             || channel.unit != unit
@@ -183,49 +227,73 @@ pub(super) fn decode_scion_mode21_response(
         Ok(Some(messages)) => messages,
         Ok(None) => {
             return ScionResponseDecode {
-                outcome: "no_response".into(), payload: Vec::new(), decoded: Vec::new(),
+                outcome: "no_response".into(),
+                payload: Vec::new(),
+                decoded: Vec::new(),
                 error: Some("No ISO-TP response frames were returned".into()),
             };
         }
         Err(error) => {
             return ScionResponseDecode {
-                outcome: "malformed_response".into(), payload: Vec::new(), decoded: Vec::new(),
+                outcome: "malformed_response".into(),
+                payload: Vec::new(),
+                decoded: Vec::new(),
                 error: Some(error),
             };
         }
     };
-    let matching: Vec<_> = messages.into_iter()
-        .filter(|(ecu, _)| ecu == &spec.response_header).collect();
+    let matching: Vec<_> = messages
+        .into_iter()
+        .filter(|(ecu, _)| ecu == &spec.response_header)
+        .collect();
     if matching.is_empty() {
         return ScionResponseDecode {
-            outcome: "wrong_responder".into(), payload: Vec::new(), decoded: Vec::new(),
-            error: Some(format!("Expected ECU {}, received a response from another header", spec.response_header)),
+            outcome: "wrong_responder".into(),
+            payload: Vec::new(),
+            decoded: Vec::new(),
+            error: Some(format!(
+                "Expected ECU {}, received a response from another header",
+                spec.response_header
+            )),
         };
     }
     if matching.len() != 1 {
         return ScionResponseDecode {
-            outcome: "malformed_response".into(), payload: Vec::new(), decoded: Vec::new(),
+            outcome: "malformed_response".into(),
+            payload: Vec::new(),
+            decoded: Vec::new(),
             error: Some("Multiple responses arrived from the target ECU".into()),
         };
     }
-    let (_, payload) = matching.into_iter().next().expect("one target response was checked");
+    let (_, payload) = matching
+        .into_iter()
+        .next()
+        .expect("one target response was checked");
     if payload.starts_with(&[0x7F, spec.service]) {
         return ScionResponseDecode {
-            outcome: "negative_response".into(), payload, decoded: Vec::new(),
+            outcome: "negative_response".into(),
+            payload,
+            decoded: Vec::new(),
             error: Some("ECU returned a negative response to service 21".into()),
         };
     }
     if payload.first() != Some(&0x61) || payload.get(1) != Some(&0x01) {
         return ScionResponseDecode {
-            outcome: "malformed_response".into(), payload, decoded: Vec::new(),
+            outcome: "malformed_response".into(),
+            payload,
+            decoded: Vec::new(),
             error: Some("Target ECU did not return positive response 61 01".into()),
         };
     }
     if !matches!(payload.len(), 28 | 29) {
         let length = payload.len();
         return ScionResponseDecode {
-            outcome: "wrong_length".into(), payload, decoded: Vec::new(),
-            error: Some(format!("Scion 21 01 expected 28 or 29 reassembled bytes, got {length}")),
+            outcome: "wrong_length".into(),
+            payload,
+            decoded: Vec::new(),
+            error: Some(format!(
+                "Scion 21 01 expected 28 or 29 reassembled bytes, got {length}"
+            )),
         };
     }
     let data = &payload[2..];
@@ -234,14 +302,20 @@ pub(super) fn decode_scion_mode21_response(
         let byte_offset = (channel.bit_offset / 8) as usize;
         let raw_value = match channel.bit_length {
             8 => data.get(byte_offset).copied().map(u32::from),
-            16 => data.get(byte_offset..byte_offset + 2)
+            16 => data
+                .get(byte_offset..byte_offset + 2)
                 .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]) as u32),
             _ => None,
         };
         let Some(raw_value) = raw_value else {
             return ScionResponseDecode {
-                outcome: "bad_decoder".into(), payload, decoded: Vec::new(),
-                error: Some(format!("Decoder points outside the response: {}", channel.name)),
+                outcome: "bad_decoder".into(),
+                payload,
+                decoded: Vec::new(),
+                error: Some(format!(
+                    "Decoder points outside the response: {}",
+                    channel.name
+                )),
             };
         };
         let value = (raw_value as f64 * channel.multiplier / channel.divisor) + channel.addend;
@@ -250,15 +324,30 @@ pub(super) fn decode_scion_mode21_response(
             || channel.maximum.is_some_and(|maximum| value > maximum)
         {
             return ScionResponseDecode {
-                outcome: "bad_decoder".into(), payload, decoded: Vec::new(),
-                error: Some(format!("Decoded value is outside the candidate range: {}", channel.name)),
+                outcome: "bad_decoder".into(),
+                payload,
+                decoded: Vec::new(),
+                error: Some(format!(
+                    "Decoded value is outside the candidate range: {}",
+                    channel.name
+                )),
             };
         }
         decoded.push(ScionMode21DecodedSignal {
-            candidate_id: channel.candidate_id.clone(), name: channel.name.clone(),
-            unit: channel.unit.clone(), bit_offset: channel.bit_offset, bit_length: channel.bit_length,
-            formula: channel.formula.clone(), raw_value, value,
+            candidate_id: channel.candidate_id.clone(),
+            name: channel.name.clone(),
+            unit: channel.unit.clone(),
+            bit_offset: channel.bit_offset,
+            bit_length: channel.bit_length,
+            formula: channel.formula.clone(),
+            raw_value,
+            value,
         });
     }
-    ScionResponseDecode { outcome: "positive".into(), payload, decoded, error: None }
+    ScionResponseDecode {
+        outcome: "positive".into(),
+        payload,
+        decoded,
+        error: None,
+    }
 }

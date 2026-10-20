@@ -1,6 +1,9 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import type { SubaruWorkbenchSelection } from "./subaruWorkbench";
   import { canHelpBubblesEnabled } from "./canHelp";
+  import SavedCanReplayPanel from "./SavedCanReplayPanel.svelte";
+  import type { SavedCanReplayPreviewView } from "./savedCanReplay";
   import {
     buildCanCommunicationCheck, buildCanScanConfig, canDiagnosticRouteKey, canSignalDefinitionError,
     canTransmitEnabled, canTriggerConfigError, createCanTxFrame,
@@ -12,10 +15,14 @@
   import type {
     CanCaptureComparison, CanCaptureReplayReport, CanDeviceCandidate, CanEventCorrelation, CanManualEventMark, CanScanConfig,
     CanScanResult, CanSignalDefinition, CanTransportError, CanTriggerCaptureResult, CanTxStatus,
-    CanWorkbenchStatus, Sample,
+    CanWorkbenchStatus, CanIdReplayStatus, Sample,
   } from "./types";
 
   export let hidden = false;
+  export let subaruSelection: SubaruWorkbenchSelection | null = null;
+  let appliedSubaruToken: number | null = null;
+  let selectedSubaruNote = "";
+  let scanSettingsOpen = false;
   export let workspaceBusy = false;
   export let recording = false;
   export let status: CanWorkbenchStatus | null = null;
@@ -26,6 +33,10 @@
   export let triggerCapture: CanTriggerCaptureResult | null = null;
   export let correlationSamples: Sample[] = [];
   export let scanRunning = false;
+  export let canIdReplayRunning = false;
+  export let canIdReplayStatus: CanIdReplayStatus | null = null;
+  export let onStartSavedCanReplay: (preview: SavedCanReplayPreviewView, expectedCanGeneration: number, expectedOutputCaptureId: number) => Promise<CanIdReplayStatus> = async () => { throw new Error("Replay start callback is unavailable"); };
+  export let onStopCanIdReplay: () => Promise<void> = async () => {};
   export let captureOpen = false;
   export let capturePath = "";
   export let onFieldsChanged: (fields: CanSignalDefinition[]) => void = () => {};
@@ -86,7 +97,7 @@
 
   $: selectedAdapter = adapters.find(({ id }) => id === selectedAdapterId);
   $: connected = Boolean(status?.connected);
-  $: transmissionReady = canTransmitEnabled(status, captureOpen) && !busy && !workspaceBusy;
+  $: transmissionReady = canTransmitEnabled(status, captureOpen) && !busy && !workspaceBusy && !canIdReplayRunning;
   $: scanConfig = currentScanConfig();
   $: scanError = scanConfig ? "" : scanKind === "can_id_range"
     ? "Enter a valid CAN ID range and up to eight payload bytes."
@@ -94,6 +105,18 @@
     ? "Enter valid, different request and response CAN IDs."
     : "Enter a valid route and hexadecimal identifier range.";
   $: if (!hidden && !adaptersLoaded && !refreshing) void refreshAdapters();
+  $: if (subaruSelection && subaruSelection.token !== appliedSubaruToken && !busy && !workspaceBusy && !scanRunning && !canIdReplayRunning) {
+    requestId = subaruSelection.requestId;
+    responseId = subaruSelection.responseId;
+    extended = subaruSelection.extended;
+    scanKind = subaruSelection.kind;
+    scanStart = subaruSelection.identifier;
+    scanEnd = subaruSelection.identifier;
+    selectedSubaruNote = `${subaruSelection.name} · ${subaruSelection.protocol} · ${subaruSelection.id}. Inferred request mapping; review the route and start the test explicitly.`;
+    scanStatus = "Subaru request prepared; nothing sent";
+    scanSettingsOpen = true;
+    appliedSubaruToken = subaruSelection.token;
+  }
 
   async function refreshAdapters() {
     refreshing = true;
@@ -437,6 +460,7 @@
 </script>
 
 <section class="can-workbench" hidden={hidden} aria-label="CAN Workbench">
+  {#if selectedSubaruNote}<p class="can-muted" role="status">{selectedSubaruNote}</p>{/if}
   <div class="can-connection">
     <div class="can-adapter-row">
       <label>GS_USB / Candlelight
@@ -518,7 +542,7 @@
     {/if}
   </details>
 
-  <details class="can-scan-settings">
+  <details class="can-scan-settings" bind:open={scanSettingsOpen}>
     <summary title={$canHelpBubblesEnabled ? "Configure a user-started CAN ID, Mode 01, Mode 21, or Mode 22 scan." : undefined}>Scan configuration</summary>
     <div class="can-scan-form">
       <label>Test
@@ -551,7 +575,7 @@
       <button class="button secondary" onclick={tryCanOnce} disabled={!transmissionReady || scanRunning} title={$canHelpBubblesEnabled ? "Send one Mode 01 PID 00 request on this route and record TX/RX in the paired capture." : undefined}>Try CAN once</button>
       <button class="button secondary" onclick={stopScan} disabled={!scanRunning || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Cancel the remaining scan requests; completed evidence stays available." : undefined}>Stop scan</button>
     </div>
-    {#if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
+    {#if canIdReplayRunning}<p class="can-hint" role="status">CAN ID replay is running; other CAN sends and scans are paused.</p>{:else if !canTransmitEnabled(status, captureOpen)}<p class="can-hint">Start a paired capture and reconnect in active mode to enable scans. Connect defaults to listen-only.</p>{/if}
   </details>
 
   <details class="can-fields-settings">
@@ -587,7 +611,7 @@
       <label>Repeat<input class="text-input" type="number" min="1" max="10000" bind:value={txRepeat} disabled={busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Number of times to transmit the configured frame." : undefined} /></label>
       <button class="button danger" onclick={sendCanFrame} disabled={!transmissionReady} title={$canHelpBubblesEnabled ? "Transmit the configured raw frame; TX and received echoes are recorded in the paired capture." : undefined}>Send frame</button>
     </div>
-    {#if !transmissionReady}<p class="can-hint">Sending is enabled only in active mode with a paired capture open.</p>{/if}
+    {#if canIdReplayRunning}<p class="can-hint" role="status">CAN ID replay is running; other CAN sends and scans are paused.</p>{:else if !transmissionReady}<p class="can-hint">Sending is enabled only in active mode with a paired capture open.</p>{/if}
     {#if txStatuses.length}
       <ul class="can-event-list" aria-label="Transmit status">
         {#each txStatuses.slice(-12).reverse() as item (`${item.capture_id}:${item.sequence}`)}
@@ -631,8 +655,18 @@
       <button class="button secondary" onclick={compareCapture} disabled={!replayReport || captureOpen || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Compare another saved capture with the replay currently loaded." : undefined}>Compare another CSV</button>
       <button class="button secondary" onclick={exportDbc} disabled={!replayReport || busy || workspaceBusy} title={$canHelpBubblesEnabled ? "Export a DBC skeleton from this replay; the skeleton is explicitly unverified." : undefined}>Export UNVERIFIED DBC skeleton</button>
     </div>
-    {#if captureOpen}<p class="can-hint">Stop the current capture before replaying its CSV and JSONL sidecar.</p>{/if}
+    {#if captureOpen}<p class="can-hint">Stop capture before opening another source for analysis. A prepared TX replay uses this separate output capture.</p>{/if}
     {#if replayReport}
+      <SavedCanReplayPanel
+        sourcePath={replayPath}
+        census={replayReport.census}
+        {status}
+        {captureOpen}
+        workspaceBusy={busy || workspaceBusy || scanRunning}
+        replayStatus={canIdReplayStatus}
+        onStart={onStartSavedCanReplay}
+        onStop={onStopCanIdReplay}
+      />
       <p class="can-muted" title={replayPath}>{replayPath}</p>
       <p class="can-report-status">{replaySidecarStatus(replayReport)}</p>
       {#if replayReport.source_id}<p class="can-muted">Adapter: {replayReport.source_id} · {replayReport.bitrate?.toLocaleString()} bit/s · {replayReport.listen_only ? "listen-only" : "active"}</p>{/if}

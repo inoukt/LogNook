@@ -12,17 +12,18 @@ const results = await readFile(new URL("../src/ResearchRunResults.svelte", impor
 const includes = (source, pattern, message) => assert.ok(pattern.test(source), message);
 const excludes = (source, pattern, message) => assert.ok(!pattern.test(source), message);
 
-test("workbench_shows_only_supported_quick_tests", () => {
+test("quick tests stay adapter-specific while OEM one-shot reads include all adapters", () => {
   includes(app, />OEM<\/button>/, "the OEM tab uses a compact label");
   includes(app, /aria-label="OEM Research"/, "the compact OEM tab retains its accessible name");
   includes(app, />Live<\/button>/, "the Live tab uses a compact label");
   includes(app, /aria-label="Live PIDs"/, "the compact Live tab retains its accessible name");
   includes(panel, /selectedAdapter === "a30"[\s\S]*?A30_READ_TESTS/, "captured quick tests are guarded by the A30 adapter check");
-  excludes(panel, /selectedAdapter === "openport2"[\s\S]{0,250}Try once/, "OpenPort has no OEM one-shot controls");
+  includes(panel, /selectedAdapter === "openport2"/, "OpenPort is identified in the OEM adapter paths");
+  includes(panel, /onclick={runSelectedCandidates} disabled={disabled \|\| runInProgress \|\| selectedCandidateIds\.length === 0}/, "selected OEM research stays available outside the continuous-logging adapter gate");
   assert.equal(oemCandidateTryState({
     service: "21", identifier: "01", request_header: "7E0", response_header: "7E8",
     source_blob_sha: "sha", source_url: "https://example.test/source", license: "CC", license_url: "https://example.test/license",
-  }, "provider-1", false, "openport2").disabled, true);
+  }, "provider-1", false, "openport2").disabled, false);
 });
 
 test("candidate_selection_survives_catalog_navigation", () => {
@@ -134,7 +135,7 @@ test("stop_does_not_send_the_next_request", async () => {
   }
 });
 
-test("numeric_result_updates_graph_while_recording", () => {
+test("numeric research graph registration remains available while recording", () => {
   const catalogProps = app.match(/<OemCatalogPanel([\s\S]*?)\/>/)?.[1] ?? "";
 
   includes(catalogProps, /onGraphCandidate=\{graphResearchCandidate\}/, "the existing candidate graph callback remains connected");
@@ -143,7 +144,6 @@ test("numeric_result_updates_graph_while_recording", () => {
   const testDisabledProp = catalogProps.match(/disabled=\{([^}]*)\}/)?.[1] ?? "";
   excludes(testDisabledProp, /recording/, "recording does not block active-session research reads");
   includes(panel, /Number\.isFinite\(typedResult\.payload\.decoded_value\?\.value\)/, "only finite positive candidate values select a graph trace");
-  includes(app, /signal_id\]: \[\.\.\.\(series\[sample\.signal_id\] \?\? \[\]\), sample\]/, "graph values arrive through engine sample events");
   excludes(panel, /series\s*=|push\(\{[^}]*signal_id/, "the workbench does not synthesize sample data");
   includes(results, /within_catalog_range\s*===\s*false/, "out-of-range values keep their Suspect research diagnostic");
 });

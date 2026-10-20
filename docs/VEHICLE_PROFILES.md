@@ -1,0 +1,33 @@
+# Vehicle/ECU profiles and Resume
+
+For the automatic on-connect VIN project and workspace choice, see
+[VIN vehicle projects](VEHICLE_PROJECTS.md). The strict profile Resume behavior
+below remains available for saved profile selections and ECU verification.
+
+Open **Profiles** in the top bar. Connect normally for a first visit, choose **Recognize vehicle**, select your signals, and **Save profile**. The profile stores separate logging/graph selections, user-defined formulas/CAN fields, and versioned OEM references. Optional catalog-vehicle association is a research reference, not evidence of vehicle identity or validation.
+
+Saving enables **Recognize vehicle before logging on the next Connect**. On subsequent connections, LogNook discovers fresh support and holds polling in standby while identity is read. A unique exact match prepares a preview; choose **Resume selection** to apply the eligible set. No automatic recording or CAN transmission starts.
+
+The preview lists eligible and skipped signals. Skipped selections remain saved. Identity, source/decoder revisions, dependencies and current adapter capabilities are rechecked at Apply, together with the connection generation and profile revision. Changing the vehicle, reconnecting even the same adapter, updating a profile, or cancelling invalidates stale work.
+
+VIN, actual responding ECU, protocol and observed calibration/software evidence determine matching. COM port, provider, adapter identity and vehicle name do not establish the vehicle. Previously observed fields that are now missing require review. OpenPort recognition uses identity-only Mode 09 reads for VIN (02), calibration ID (04), and ECU name (0A). Its separate Vehicle Diagnostics snapshot supports standard DTC and Mode 06 reads. Simulator profiles stay separate from physical vehicle profiles.
+
+OEM automatic logging still requires an exact applicable validated catalog definition, proven physical ECU addressing and unchanged source/decoder references. An identity response does not promote research definitions. Source-backed research graph channels stay graph-only. CAN fields require their saved active source/bitrate context and compatible idle Workbench state; unmatched fields stay saved/skipped.
+
+Profiles use `app_data_dir()/profiles.sqlite`, separate from the authoritative PID catalog. The complete VIN is stored only after a positive ECU report or as explicitly attributed owner/Agent-entered evidence; the UI shows a mask until a user opens identity details. The offline decoder uses a bundled, revision-pinned WMI assignment dataset. It reports manufacturer assignment and source, checksum status only where its jurisdictional scope is known, and candidate model-year cycles; it does not guess model, trim, engine, or an ambiguous year. Manual make/model/year/engine/trim details stay separate from ECU and decoder evidence. VIN decoding makes no network requests.
+
+Vehicle diagnostics are appended to the managed `app_data_dir()/diagnostics/vehicle-reads.jsonl` JSONL and indexed by immutable byte offset/length/SHA-256 in `profiles.sqlite`. The UI opens Vehicle history from the Profiles dialog. Listings are paginated and can be filtered by scope, VIN digest, ECU, and time. Reports and native recordings group by scoped VIN digest when available; conflicts and unassigned entries stay distinct. Opening a report verifies its saved bytes against the index hash before showing raw read evidence. If the bytes are missing, changed, or malformed, the separately labeled frozen context and index metadata remain available; they are not presented as recovered raw evidence. The older-report importer resumes from a saved offset, keeps only a bounded partial line, counts malformed/oversized rows, and is idempotent, including repair of missing VIN provenance for an already-indexed locator. Manual history associations append an owner/Agent annotation and never replace the captured VIN, scope, or conflict state.
+
+Native `.lognook` recording metadata may include the complete frozen vehicle identity snapshot, its profile/decoder provenance, and the elapsed-time plus stored-row boundary where that context began. Context is frozen when Record starts; Record From Connect marks it only after backfilled rows, and automatic-trigger recordings snapshot context at trigger time. Existing sample rows and raw measurement data are unchanged. CSV exports do not add VIN columns. Treat native session files and the local profile database as containing personal vehicle identity data.
+
+Profile-store schema v2 migrates v1 transactionally and keeps existing selections, ECU variants, and observations. Vehicle identities are keyed by profile scope and the existing VIN digest; migrated digest-only entries stay `legacy_hash_only` until a matching full VIN is supplied. Manual VIN and vehicle-detail entries retain actor/time provenance and never create ECU evidence. The diagnostic-history index stores report byte locators and SHA-256 hashes beside the append-only `vehicle-reads.jsonl`; listings are scoped and paged, and later manual report associations remain separate from the captured report identity or conflict.
+
+MCP: use `connect_adapter` with `profile_standby=true` and an empty `log_signal_ids`, then the typed `vehicle_profiles` tool. Operations include `status`, `recognize`, `read_identity`, `get_identity`, `decode_vin_offline`, `set_manual_vehicle_detail`, `link_legacy_vin`, `assign_profile_vin`, `prepare_resume`, `apply_resume`, paginated `list_history`, `get_history_report`, `associate_history_report`, `history_import_status`, `start_history_import`, and `cancel_history_import`. Apply uses the preview ID, profile revision and OBD connection generation. The same tool provides `list`, `get`, `save`, `discard_resume`, `continue_selection` and `cancel`. Generic `read_vehicle_diagnostics` stores full raw VIN evidence locally but masks PID 09 02 VIN values and bytes in its MCP response; use explicit `read_identity`, `get_identity`, or `get_history_report` to request full identity detail. Agent-entered VIN/detail/association data is labeled `agent_access`. Save uses the server's current observed identity; caller-supplied ECU validation is unavailable. Agent Access must be unlocked for every operation.
+
+Software checks use fixtures/fake adapters; these features have not been physically validated on a vehicle.
+# Signal presets
+
+Signal recipes share the profile database for custom recipe and offline picker
+state storage, while remaining distinct from recognized vehicle identities.
+See [SIGNAL_PRESETS.md](SIGNAL_PRESETS.md) for scope, applicability and safety
+rules. Persisted picker context never supplies physical connection evidence.

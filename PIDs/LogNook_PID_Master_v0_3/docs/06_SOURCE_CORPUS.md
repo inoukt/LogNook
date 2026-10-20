@@ -48,6 +48,14 @@ signalsets. Model rows can overlap with the make fallback and with each other.
 - Subaru
   - Use OBD/UDS definitions plus a separately licensed/managed SSM definition track.
 
+## Subaru OEM catalog research extension
+
+The local **Subaru OEM catalog** export contains 20,855 distinct monitor-table rows linked to 45,364 ECU-specific entries, spanning 7 separate protocol-family labels, 98 vehicle records, and 168 ECU records. The 10 unlinked table names and row counts are recorded as orphans; their decoder rows are not fabricated.
+
+The local export checksum and source revision are recorded in `subaru_source_releases`. The original package metadata is preserved internally, but there is no source URL, upstream Git blob SHA, or reuse license in the export. `license_status='not_cleared'` is intentional. The package is local research material only pending rights review.
+
+`request_hint` values are guesses, not communication-support ground truth. The imported rows remain search-only with `mapping_state='inferred'` and `auto_request=0`; do not use them as a verified request plan. Keep protocol families distinct, and keep invalid year ranges unresolved.
+
 ## Source integrity
 
 Each corpus row stores the exact Git blob SHA observed during research. `sync_obdb.py` computes the

@@ -1,0 +1,10 @@
+   Compiling lognook-core v0.1.0 (C:\Users\inouk\LogNook-can-event-freeze-frame\crates\lognook-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.38s
+     Running unittests src\lib.rs (target\debug\deps\lognook_core-da425e8e97a71843.exe)
+
+running 1 test
+Subaru catalog rows=45364 manual_can_prefill=36829 decoder_fields_supported=41971 auto_request=0 per_protocol={"CAN14230": (768, 0, 576), "FHI-CAN": (37749, 36829, 34609), "KWP14230": (407, 0, 403), "OBD-15765": (359, 0, 353), "Phase4-CAN": (1067, 0, 1036), "Phase5-CAN": (4330, 0, 4314), "SSM-KWP": (684, 0, 680)}
+test subaru_catalog::tests::authoritative_catalog_search_and_detail_smoke ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 282 filtered out; finished in 3.74s
+

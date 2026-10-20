@@ -66,6 +66,26 @@ pub async fn connect_openport2(
     })
 }
 
+#[tauri::command]
+pub async fn connect_openport2_ssm(
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> Result<ConnectionCapabilities, String> {
+    connect_with_diagnostics(
+        &state,
+        format!("openport2:ssm:{provider_id}"),
+        Vec::new(),
+        |engine, _| {
+            engine
+                .connect_adapter_without_standard_signals(Box::new(OpenPort2Adapter::new_subaru_ssm(
+                    worker_path()?,
+                    provider_id,
+                )))
+                .map_err(|error| error.to_string())
+        },
+    )
+}
+
 pub(crate) fn worker_path() -> Result<PathBuf, String> {
     let profile = if cfg!(debug_assertions) {
         "debug"

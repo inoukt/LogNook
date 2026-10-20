@@ -2173,9 +2173,11 @@ dependencies = [
  "lognook-j2534-protocol",
  "nusb",
  "rusqlite",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "serialport",
+ "sha2",
  "windows-sys 0.60.2",
 ]
 
@@ -2192,6 +2194,7 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

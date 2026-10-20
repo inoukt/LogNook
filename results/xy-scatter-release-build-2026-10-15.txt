@@ -1,0 +1,2 @@
+   Compiling lognook-desktop v0.1.0-beta.1 (C:\Users\inouk\LogNook-can-event-freeze-frame\apps\desktop\src-tauri)
+    Finished `release` profile [optimized] target(s) in 3m 24s

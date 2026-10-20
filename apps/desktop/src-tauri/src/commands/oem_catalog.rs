@@ -61,20 +61,38 @@ pub async fn start_oem_logging(
     vehicle_id: String,
     candidate_ids: Vec<String>,
 ) -> Result<OemPollingStatus, String> {
-    let plan =
-        OemCatalog::new(&state.pid_catalog_path).oem_poll_plan(&vehicle_id, &candidate_ids)?;
-    let engine = engine(&state)?;
-    engine
-        .set_oem_poll_plan(Some(plan))
-        .map_err(|error| error.to_string())?;
-    Ok(engine.oem_polling_status())
+    set_oem_logging(&state, Some(&vehicle_id), &candidate_ids, None)
 }
 
 #[tauri::command]
 pub async fn stop_oem_logging(state: State<'_, AppState>) -> Result<OemPollingStatus, String> {
-    let engine = engine(&state)?;
+    set_oem_logging(&state, None, &[], None)
+}
+
+pub(crate) fn set_oem_logging(
+    state: &AppState,
+    vehicle_id: Option<&str>,
+    candidate_ids: &[String],
+    binding: Option<(&str, u64)>,
+) -> Result<OemPollingStatus, String> {
+    let plan = vehicle_id
+        .map(|id| OemCatalog::new(&state.pid_catalog_path).oem_poll_plan(id, candidate_ids))
+        .transpose()?;
+    let engine = engine(state)?;
+    if let Some((adapter_id, generation)) = binding {
+        let capabilities = engine
+            .connection_capabilities()
+            .ok_or_else(|| "No OBD adapter is connected".to_owned())?;
+        if capabilities.device.stable_id != adapter_id
+            || engine.obd_connection_generation() != generation
+        {
+            return Err(
+                "The OBD adapter or connection changed before the OEM logging action".into(),
+            );
+        }
+    }
     engine
-        .set_oem_poll_plan(None)
+        .set_oem_poll_plan(plan)
         .map_err(|error| error.to_string())?;
     Ok(engine.oem_polling_status())
 }
@@ -211,6 +229,51 @@ pub(crate) fn execute_candidate_try(
     queue_index: usize,
     queue_size: usize,
 ) -> Result<OemCandidateTryResult, String> {
+    execute_candidate_try_inner(
+        state,
+        candidate_id,
+        run_id,
+        queue_index,
+        queue_size,
+        None,
+        true,
+    )
+}
+
+pub(crate) fn execute_candidate_try_bound(
+    state: &AppState,
+    candidate_id: &str,
+    expected_source_blob_sha: &str,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
+    expected_adapter_id: &str,
+    expected_generation: u64,
+) -> Result<OemCandidateTryResult, String> {
+    execute_candidate_try_inner(
+        state,
+        candidate_id,
+        run_id,
+        queue_index,
+        queue_size,
+        Some((
+            expected_adapter_id,
+            expected_generation,
+            expected_source_blob_sha,
+        )),
+        false,
+    )
+}
+
+fn execute_candidate_try_inner(
+    state: &AppState,
+    candidate_id: &str,
+    run_id: &str,
+    queue_index: usize,
+    queue_size: usize,
+    expected_connection: Option<(&str, u64, &str)>,
+    publish_sample: bool,
+) -> Result<OemCandidateTryResult, String> {
     diagnose(
         state,
         None,
@@ -219,7 +282,22 @@ pub(crate) fn execute_candidate_try(
         |op| {
             validate_run_item(run_id, queue_index, queue_size)?;
             let engine = engine(state)?;
+            if let Some((expected_adapter_id, expected_generation, _)) = expected_connection {
+                let capabilities = engine
+                    .connection_capabilities()
+                    .ok_or_else(|| "No OBD adapter is connected".to_owned())?;
+                if engine.obd_connection_generation() != expected_generation {
+                    return Err("OBD connection changed before the OEM read".into());
+                }
+                if capabilities.device.stable_id != expected_adapter_id {
+                    return Err("The connected adapter changed before the OEM read".into());
+                }
+            }
             let spec = OemCatalog::new(&state.pid_catalog_path).candidate_for_try(candidate_id)?;
+            if expected_connection.is_some_and(|(_, _, sha)| spec.candidate.source_blob_sha != sha)
+            {
+                return Err("OEM candidate source revision changed before the request".into());
+            }
             let result = engine
                 .execute_research_test(ResearchTestRequest::OemCandidate(spec.clone()))
                 .map_err(|error| error.to_string())?;
@@ -237,7 +315,9 @@ pub(crate) fn execute_candidate_try(
                 Ok(()) => result.evidence_saved = true,
                 Err(error) => result.evidence_save_error = Some(error),
             }
-            publish_graphable_candidate_sample(&engine, &spec, &result)?;
+            if publish_sample {
+                publish_graphable_candidate_sample(&engine, &spec, &result)?;
+            }
             op.research_outcome(
                 serde_json::to_value(&result.outcome)
                     .unwrap()
@@ -526,7 +606,7 @@ fn append_oem_candidate_try_evidence(
 mod tests {
     use super::{
         append_oem_candidate_try_evidence, append_read_test_evidence, execute_a30_read_test,
-        execute_candidate_try, execute_obd_read_test,
+        execute_candidate_try, execute_candidate_try_bound, execute_obd_read_test,
     };
     use lognook_core::{
         A30ReadOutcome, A30ReadTest, A30ReadTestResult, DeviceDescriptor, OemCandidate,
@@ -620,6 +700,7 @@ mod tests {
                 device: self.device.clone(),
                 protocol: "CAN".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: lognook_core::standard_obd_signals(),
             })
         }
@@ -679,6 +760,7 @@ mod tests {
     fn app_state(directory: &std::path::Path, catalog: std::path::PathBuf) -> crate::AppState {
         crate::AppState {
             engine: std::sync::Mutex::new(lognook_core::LogNookEngine::new(|_| {})),
+            can_obd_operations: crate::commands::can_obd::CanObdOperationRegistry::default(),
             diagnostics: crate::diagnostics::DiagnosticsService::start(
                 directory.join("diagnostics/operations.jsonl"),
                 |_| {},
@@ -715,6 +797,11 @@ mod tests {
                 crate::agent::log_data::AgentLogBuffer::default(),
             )),
             trace_store: lognook_core::communication_trace::CommunicationTraceStore::new(),
+            can_replay_previews: crate::can_replay_previews::CanReplayPreviewRegistry::default(),
+            agent_can_replay_status: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            vehicle_profiles: crate::vehicle_profiles::VehicleProfileService::open(
+                &directory.join("profiles.sqlite"),
+            ),
         }
     }
 
@@ -821,6 +908,107 @@ mod tests {
         state.engine.lock().unwrap().stop_recording().unwrap();
         state.engine.lock().unwrap().disconnect().unwrap();
         drop(connection);
+        drop(state);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn bound_candidate_try_rejects_stale_adapter_and_generation_before_sending() {
+        let directory = test_directory("bound-candidate-try");
+        let copied_catalog = directory.join("catalog.sqlite");
+        std::fs::copy(catalog_path(), &copied_catalog).unwrap();
+        let catalog = lognook_core::OemCatalog::new(&copied_catalog);
+        let candidate = catalog
+            .search("", "Scion", "xB", Some("21"), 0, 100)
+            .unwrap()
+            .candidates
+            .into_iter()
+            .find(|candidate| catalog.candidate_for_try(&candidate.candidate_id).is_ok())
+            .unwrap();
+        let state = app_state(&directory, copied_catalog);
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        state
+            .engine
+            .lock()
+            .unwrap()
+            .connect_adapter(
+                Box::new(ActiveAdapter {
+                    device: adapter(),
+                    wrong_result_type: false,
+                    requests: requests.clone(),
+                    reads: Default::default(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        let generation = state.engine.lock().unwrap().obd_connection_generation();
+
+        assert!(
+            super::set_oem_logging(&state, None, &[], Some(("different-adapter", generation)))
+                .is_err()
+        );
+        assert!(
+            super::set_oem_logging(&state, None, &[], Some(("active-adapter", generation + 1)))
+                .is_err()
+        );
+
+        assert!(
+            execute_candidate_try_bound(
+                &state,
+                &candidate.candidate_id,
+                "stale-source-revision",
+                "discovery-1",
+                1,
+                1,
+                "active-adapter",
+                generation,
+            )
+            .is_err()
+        );
+        assert!(
+            execute_candidate_try_bound(
+                &state,
+                &candidate.candidate_id,
+                &candidate.source_blob_sha,
+                "discovery-1",
+                1,
+                1,
+                "different-adapter",
+                generation,
+            )
+            .is_err()
+        );
+        assert!(
+            execute_candidate_try_bound(
+                &state,
+                &candidate.candidate_id,
+                &candidate.source_blob_sha,
+                "discovery-1",
+                1,
+                1,
+                "active-adapter",
+                generation + 1,
+            )
+            .is_err()
+        );
+        assert!(requests.lock().unwrap().is_empty());
+
+        let result = execute_candidate_try_bound(
+            &state,
+            &candidate.candidate_id,
+            &candidate.source_blob_sha,
+            "discovery-1",
+            1,
+            1,
+            "active-adapter",
+            generation,
+        )
+        .unwrap();
+        assert_eq!(result.adapter.stable_id, "active-adapter");
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        state.engine.lock().unwrap().disconnect().unwrap();
+        drop(state);
+        drop(catalog);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -897,6 +1085,7 @@ mod tests {
             serde_json::json!([[0x7F, 0x06, 0x12]])
         );
         state.engine.lock().unwrap().disconnect().unwrap();
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -982,6 +1171,7 @@ mod tests {
             recording.samples[0].raw_bytes.as_deref(),
             Some(&[0x41, 0x0C, 0x1F, 0x40][..])
         );
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1039,6 +1229,7 @@ mod tests {
         );
         assert_eq!(*reads.lock().unwrap(), [A30ReadTest::Mode06TidA2]);
         state.engine.lock().unwrap().disconnect().unwrap();
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
@@ -1251,6 +1442,7 @@ mod tests {
             recording.samples[2].raw_bytes.as_deref(),
             Some(&tid_a5_payload[..])
         );
+        drop(state);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

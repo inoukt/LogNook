@@ -10,6 +10,7 @@ use std::{
 
 const LIVE_BUFFER_CAPACITY: usize = 20_000;
 pub(crate) const MAX_LOG_QUERY_ROWS: usize = 1_000;
+pub(crate) const MAX_CAN_REPLAY_SOURCE_FRAMES: usize = 400;
 
 #[derive(Default)]
 pub(crate) struct AgentLogBuffer {
@@ -17,6 +18,13 @@ pub(crate) struct AgentLogBuffer {
     can_frames: VecDeque<CanFrame>,
     obd_connected: bool,
     can_connected: bool,
+    can_source_id: Option<String>,
+}
+
+pub(crate) struct CanReplaySourceSelection {
+    pub frames: Vec<CanFrame>,
+    pub matched_count: usize,
+    pub truncated_count: usize,
 }
 
 pub(crate) struct LogPage<T> {
@@ -34,7 +42,16 @@ impl AgentLogBuffer {
             EngineEvent::Disconnected => self.obd_connected = false,
             EngineEvent::CanWorkbenchStatus(status) => {
                 if status.connected {
+                    if !self.can_connected
+                        || self.can_source_id.as_deref() != Some(status.source_id.as_str())
+                    {
+                        self.can_frames.clear();
+                    }
                     self.start_session_if_idle();
+                    self.can_source_id = Some(status.source_id.clone());
+                } else {
+                    self.can_frames.clear();
+                    self.can_source_id = None;
                 }
                 self.can_connected = status.connected;
             }
@@ -103,6 +120,64 @@ impl AgentLogBuffer {
     ) -> LogPage<CanFrame> {
         query_bounded(&self.can_frames, start_ns, end_ns, limit, |frame| {
             can_ids.is_empty() || can_ids.contains(&frame.can_id)
+        })
+    }
+
+    pub(crate) fn query_can_replay_frames(
+        &self,
+        current_source_id: &str,
+        can_id: u32,
+        extended: bool,
+        start_ns: i64,
+        end_ns: i64,
+    ) -> Result<CanReplaySourceSelection, String> {
+        if !self.can_connected || self.can_source_id.as_deref() != Some(current_source_id) {
+            return Err("Replay requires frames from the current connected CAN source".into());
+        }
+        if start_ns < 0 || end_ns < start_ns {
+            return Err("CAN replay range must be non-negative and ordered".into());
+        }
+        if can_id > if extended { 0x1fff_ffff } else { 0x7ff } {
+            return Err("CAN identifier exceeds its 11-bit or 29-bit format".into());
+        }
+
+        let mut frames = self
+            .can_frames
+            .iter()
+            .filter(|frame| {
+                frame.elapsed_ns >= start_ns
+                    && frame.elapsed_ns <= end_ns
+                    && frame.can_id == can_id
+                    && frame.extended == extended
+                    && frame.direction == CanDirection::Rx
+                    && frame.flags == 0
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        frames.sort_by_key(|frame| frame.elapsed_ns);
+        if frames.is_empty() {
+            return Err("No matching received CAN frames in the selected live range".into());
+        }
+
+        let matched_count = frames.len();
+        let truncated_count = matched_count.saturating_sub(MAX_CAN_REPLAY_SOURCE_FRAMES);
+        if truncated_count > 0 {
+            frames.drain(..truncated_count);
+        }
+        for frame in &frames {
+            frame.validate().map_err(|error| error.to_string())?;
+        }
+        for pair in frames.windows(2) {
+            let gap_ns = pair[1].elapsed_ns - pair[0].elapsed_ns;
+            if gap_ns > 60_000_000_000 {
+                return Err("CAN replay source gaps must be at most 60000 ms".into());
+            }
+        }
+
+        Ok(CanReplaySourceSelection {
+            frames,
+            matched_count,
+            truncated_count,
         })
     }
 }
@@ -190,6 +265,21 @@ pub(crate) fn list_log_sources(state: &AppState) -> Result<Vec<AgentLogSource>, 
             });
         }
     }
+    for source in state.can_replay_previews.registered_sources()? {
+        let bounds = state
+            .can_replay_previews
+            .registered_path(&source.source_id)?
+            .and_then(|path| can_capture_bounds(&path).ok());
+        sources.push(AgentLogSource {
+            source_id: source.source_id,
+            name: source.name,
+            kind: AgentLogKind::Can,
+            recorded: true,
+            start_elapsed_ms: bounds.map(|(start, _, _)| ns_to_ms(start)),
+            end_elapsed_ms: bounds.map(|(_, end, _)| ns_to_ms(end)),
+            item_count: bounds.map(|(_, _, count)| count),
+        });
+    }
     Ok(sources)
 }
 
@@ -262,7 +352,13 @@ pub(crate) fn query_log_range(
             )
         }
         (AgentLogKind::Can, _) => {
-            let path = recorded_path(&query.source_id, AgentLogKind::Can)?;
+            let path = match state
+                .can_replay_previews
+                .registered_path(&query.source_id)?
+            {
+                Some(path) => path,
+                None => recorded_path(&query.source_id, AgentLogKind::Can)?,
+            };
             let page = query_can_capture(&path, start_ns, end_ns, &query.can_ids, limit)?;
             (
                 Vec::new(),
@@ -516,6 +612,7 @@ mod tests {
                 bitrate: 500_000,
                 listen_only: true,
                 source_id: "can:test".into(),
+                target_channel: None,
             })
         };
         buffer.record_engine_event(&EngineEvent::Connected(caps.clone()));
@@ -572,6 +669,195 @@ mod tests {
             [(30, 0x100)]
         );
         assert!(!page.truncated);
+    }
+
+    #[test]
+    fn can_replay_source_resets_on_disconnect_and_new_source_while_obd_stays_connected() {
+        use lognook_core::{CanWorkbenchStatus, EngineEvent, HardwareAdapter, SimulatedObdAdapter};
+        let mut buffer = AgentLogBuffer::default();
+        let caps = SimulatedObdAdapter::default().connect().unwrap();
+        buffer.record_engine_event(&EngineEvent::Connected(caps));
+        let can_status = |connected, source_id: &str| {
+            EngineEvent::CanWorkbenchStatus(CanWorkbenchStatus {
+                connected,
+                bitrate: 500_000,
+                listen_only: true,
+                source_id: source_id.into(),
+                target_channel: None,
+            })
+        };
+        buffer.record_engine_event(&can_status(true, "can:first"));
+        buffer.record_can_frame(CanFrame {
+            elapsed_ns: 10_000_000,
+            wall_time_unix_ns: 20_000_000,
+            can_id: 0x321,
+            extended: false,
+            direction: CanDirection::Rx,
+            data: vec![1],
+            flags: 0,
+        });
+        buffer.record_engine_event(&can_status(true, "can:second"));
+        assert!(buffer.can_range().is_none());
+        assert!(
+            buffer
+                .query_can_replay_frames("can:second", 0x321, false, 0, 50_000_000)
+                .is_err()
+        );
+        buffer.record_can_frame(CanFrame {
+            elapsed_ns: 30_000_000,
+            wall_time_unix_ns: 40_000_000,
+            can_id: 0x321,
+            extended: false,
+            direction: CanDirection::Rx,
+            data: vec![2],
+            flags: 0,
+        });
+        let selected = buffer
+            .query_can_replay_frames("can:second", 0x321, false, 0, 50_000_000)
+            .unwrap();
+        assert_eq!(selected.frames.len(), 1);
+        assert_eq!(selected.frames[0].data, [2]);
+        buffer.record_engine_event(&can_status(false, "can:second"));
+        assert!(buffer.can_range().is_none());
+        buffer.record_engine_event(&can_status(true, "can:third"));
+        buffer.record_can_frame(CanFrame {
+            elapsed_ns: 50_000_000,
+            wall_time_unix_ns: 60_000_000,
+            can_id: 0x321,
+            extended: false,
+            direction: CanDirection::Rx,
+            data: vec![3],
+            flags: 0,
+        });
+        let selected = buffer
+            .query_can_replay_frames("can:third", 0x321, false, 0, 70_000_000)
+            .unwrap();
+        assert_eq!(selected.frames.len(), 1);
+        assert_eq!(selected.frames[0].data, [3]);
+    }
+
+    #[test]
+    fn can_replay_query_filters_identity_direction_flags_and_frame_cap() {
+        let mut buffer = AgentLogBuffer::default();
+        buffer.can_connected = true;
+        buffer.can_source_id = Some("can:test".into());
+        buffer.record_can_frame(CanFrame {
+            elapsed_ns: 10_000_000,
+            wall_time_unix_ns: 20_000_000,
+            can_id: 0x321,
+            extended: false,
+            direction: CanDirection::Rx,
+            data: vec![0x10],
+            flags: 0,
+        });
+        for frame in [
+            CanFrame {
+                elapsed_ns: 11_000_000,
+                wall_time_unix_ns: 21_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Tx,
+                data: vec![0x20],
+                flags: 0,
+            },
+            CanFrame {
+                elapsed_ns: 12_000_000,
+                wall_time_unix_ns: 22_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![0x30],
+                flags: 1,
+            },
+            CanFrame {
+                elapsed_ns: 13_000_000,
+                wall_time_unix_ns: 23_000_000,
+                can_id: 0x321,
+                extended: true,
+                direction: CanDirection::Rx,
+                data: vec![0x40],
+                flags: 0,
+            },
+            CanFrame {
+                elapsed_ns: 14_000_000,
+                wall_time_unix_ns: 24_000_000,
+                can_id: 0x322,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![0x50],
+                flags: 0,
+            },
+        ] {
+            buffer.record_can_frame(frame);
+        }
+        let selected = buffer
+            .query_can_replay_frames("can:test", 0x321, false, 0, 50_000_000)
+            .unwrap();
+        assert_eq!(
+            selected
+                .frames
+                .iter()
+                .map(|frame| frame.data[0])
+                .collect::<Vec<_>>(),
+            [0x10]
+        );
+
+        let mut capped = AgentLogBuffer::default();
+        capped.can_connected = true;
+        capped.can_source_id = Some("can:test".into());
+        for elapsed_ms in 0..401 {
+            capped.record_can_frame(CanFrame {
+                elapsed_ns: elapsed_ms * 1_000_000,
+                wall_time_unix_ns: elapsed_ms * 1_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![(elapsed_ms % 256) as u8],
+                flags: 0,
+            });
+        }
+        let selected = capped
+            .query_can_replay_frames("can:test", 0x321, false, 0, 500_000_000)
+            .unwrap();
+        assert_eq!(selected.frames.len(), 400);
+        assert_eq!(selected.matched_count, 401);
+        assert_eq!(selected.truncated_count, 1);
+        assert_eq!(selected.frames[0].elapsed_ns, 1_000_000);
+        assert_eq!(selected.frames[399].elapsed_ns, 400_000_000);
+        assert!(
+            selected
+                .frames
+                .windows(2)
+                .all(|pair| pair[0].elapsed_ns <= pair[1].elapsed_ns)
+        );
+    }
+
+    #[test]
+    fn can_replay_query_rejects_empty_selection_and_gaps_over_sixty_seconds() {
+        let mut buffer = AgentLogBuffer::default();
+        buffer.can_connected = true;
+        buffer.can_source_id = Some("can:test".into());
+        assert!(
+            buffer
+                .query_can_replay_frames("can:test", 0x321, false, 0, 10_000_000)
+                .is_err()
+        );
+        for elapsed_ms in [0, 60_001] {
+            buffer.record_can_frame(CanFrame {
+                elapsed_ns: elapsed_ms * 1_000_000,
+                wall_time_unix_ns: elapsed_ms * 1_000_000,
+                can_id: 0x321,
+                extended: false,
+                direction: CanDirection::Rx,
+                data: vec![elapsed_ms as u8],
+                flags: 0,
+            });
+        }
+        assert!(
+            buffer
+                .query_can_replay_frames("can:test", 0x321, false, 0, 61_000_000_000)
+                .is_err()
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ use crate::model::{
     PlaybackState, RecordingSummary, RetrospectiveRecordingStart, Sample,
 };
 use crate::pipeline_worker::process;
+use crate::vehicle_profiles::VehicleIdentitySnapshot;
 use std::{
     path::PathBuf,
     sync::{
@@ -26,6 +27,11 @@ pub(crate) enum Message {
     StartRecordingFromConnect(
         PathBuf,
         mpsc::Sender<Result<RetrospectiveRecordingStart, String>>,
+    ),
+    UpdateVehicleRecordingContext(
+        Option<VehicleIdentitySnapshot>,
+        u64,
+        mpsc::Sender<Result<(), String>>,
     ),
     ArmAutomaticTrigger(
         AutomaticTriggerConfig,
@@ -52,6 +58,18 @@ pub(crate) enum Message {
 pub(crate) struct SampleSender(SyncSender<Message>, Arc<AtomicUsize>);
 
 impl SampleSender {
+    pub(crate) fn set_derived_signals(
+        &self,
+        signals: Vec<CompiledDerivedSignal>,
+    ) -> Result<(), LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.0.send(Message::SetDerivedSignals(signals, reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response.recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge derived signals"))?
+            .map_err(LogNookError::new)
+    }
+
     pub(crate) fn send_sample(&self, sample: Sample) -> Result<(), LogNookError> {
         self.0
             .send(Message::Sample(sample))
@@ -279,6 +297,26 @@ impl SamplePipeline {
         response
             .recv()
             .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge recording start"))?
+            .map_err(LogNookError::new)
+    }
+
+    pub(crate) fn update_vehicle_recording_context(
+        &self,
+        snapshot: Option<VehicleIdentitySnapshot>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.sender
+            .0
+            .send(Message::UpdateVehicleRecordingContext(
+                snapshot,
+                expected_generation,
+                reply,
+            ))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response
+            .recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge vehicle context"))?
             .map_err(LogNookError::new)
     }
 

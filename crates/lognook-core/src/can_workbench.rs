@@ -2,15 +2,16 @@
 use crate::candlelight::{CandlelightError, CandlelightTransport};
 use crate::{
     CanAnalysisConfig, CanAnalyzer, CanCaptureReader, CanDiagnosticOutcome, CanDirection, CanFrame,
-    CanManualEventMark, CanSignalDefinition, CanTriggerCapture, CanTriggerConfig,
-    CanTriggerRecorder, EngineEvent, LogNookError, OemCandidateTrySpec, SamplePublisher,
+    CanManualEventMark, CanReplayFrame, CanReplayPlan, CanReplaySource, CanSignalDefinition,
+    CanTriggerCapture, CanTriggerConfig, CanTriggerRecorder, EngineEvent, LogNookError,
+    OemCandidateTrySpec, SamplePublisher,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, SyncSender},
     },
     thread::{self, JoinHandle},
@@ -20,7 +21,7 @@ use std::{
 const COMMAND_CAPACITY: usize = 32;
 const TRANSMIT_TIMEOUT: Duration = Duration::from_millis(500);
 /// A candidate is a USB-ID hint. Interface/GS_USB evidence is verified on open.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct CanDeviceCandidate {
     pub id: String,
     pub bus_id: String,
@@ -31,7 +32,7 @@ pub struct CanDeviceCandidate {
     pub serial_number: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct CanDeviceSelection {
     pub id: String,
     pub interface_number: u8,
@@ -51,6 +52,39 @@ pub struct CanWorkbenchStatus {
     pub listen_only: bool,
     /// Candlelight VID/PID/serial-derived source identity; USB IDs alone are not authenticity proof.
     pub source_id: String,
+    pub target_channel: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CanIdReplayState {
+    Running,
+    Completed,
+    Stopped,
+    Failed,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, schemars::JsonSchema)]
+pub struct CanIdReplayStatus {
+    pub replay_id: u64,
+    pub can_id: u32,
+    pub extended: bool,
+    pub total_frames: usize,
+    pub sent_frames: usize,
+    pub state: CanIdReplayState,
+    pub error: Option<String>,
+}
+
+const CAN_ID_REPLAY_MIN_INTERVAL_MS: u64 = 1;
+const CAN_ID_REPLAY_MAX_INTERVAL_MS: u64 = 60_000;
+static NEXT_CAN_ID_REPLAY_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_can_id_replay_id() -> Result<u64, LogNookError> {
+    NEXT_CAN_ID_REPLAY_ID
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            next.checked_add(1)
+        })
+        .map_err(|_| LogNookError::new("CAN replay identifier space is exhausted"))
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -396,6 +430,7 @@ impl CanTransportError {
             CandlelightError::ListenOnlyUnavailable
             | CandlelightError::NotStarted
             | CandlelightError::PassiveTransmit
+            | CandlelightError::ChannelBusy
             | CandlelightError::FrameError { .. } => CanTransportErrorKind::Other,
         };
         Self {
@@ -450,6 +485,10 @@ pub enum CanEvidenceRecord {
         capture_id: u64,
         sequence: u64,
         frame: CanFrame,
+        #[serde(default)]
+        replay_id: Option<u64>,
+        #[serde(default)]
+        source_elapsed_ns: Option<i64>,
     },
     TxSubmitted {
         #[serde(default)]
@@ -466,6 +505,44 @@ pub enum CanEvidenceRecord {
         submitted_frame: CanFrame,
         echo_frame: CanFrame,
         raw_usb: Vec<u8>,
+    },
+    CanIdReplayStarted {
+        format_version: u32,
+        capture_id: u64,
+        replay_id: u64,
+        can_id: u32,
+        extended: bool,
+        source_frames: Vec<CanFrame>,
+        minimum_interval_ms: u64,
+        maximum_interval_ms: u64,
+        no_catch_up: bool,
+    },
+    SavedCanIdReplayStarted {
+        format_version: u32,
+        capture_id: u64,
+        replay_id: u64,
+        summary: crate::SavedCanReplaySummary,
+        target_source_id: String,
+        target_channel: Option<u8>,
+        target_bitrate: u32,
+        minimum_interval_ms: u64,
+        maximum_interval_ms: u64,
+        no_catch_up: bool,
+    },
+    SavedCanIdReplaySourceFrames {
+        capture_id: u64,
+        replay_id: u64,
+        chunk_index: usize,
+        frames: Vec<crate::CanReplayFrame>,
+    },
+    CanIdReplayFinished {
+        capture_id: u64,
+        replay_id: u64,
+        total_frames: usize,
+        sent_frames: usize,
+        state: CanIdReplayState,
+        reason: String,
+        error: Option<String>,
     },
     TransportError {
         error: CanTransportError,
@@ -524,6 +601,9 @@ pub trait CanTransport: Send + 'static {
     fn source_id(&self) -> String {
         "can:unknown".into()
     }
+    fn target_channel(&self) -> Option<u8> {
+        None
+    }
     fn start(
         &mut self,
         bitrate: u32,
@@ -551,6 +631,10 @@ impl CanTransport for CandlelightTransport {
             identity.product_id,
             identity.serial_number.as_deref().unwrap_or("unknown")
         )
+    }
+
+    fn target_channel(&self) -> Option<u8> {
+        Some(self.identity().channel)
     }
 
     fn start(
@@ -687,6 +771,10 @@ pub struct CanWorkbench {
     listen_only: bool,
     bitrate: u32,
     source_id: String,
+    target_channel: Option<u8>,
+    active_capture_path: Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
+    active_capture_id: Arc<AtomicU64>,
+    configured_fields: std::sync::Mutex<Vec<CanSignalDefinition>>,
 }
 
 impl CanWorkbench {
@@ -710,7 +798,12 @@ impl CanWorkbench {
         let bitrate = config.bitrate;
         let listen_only = config.listen_only;
         let source_id = transport.source_id();
+        let target_channel = transport.target_channel();
         let worker_source_id = source_id.clone();
+        let active_capture_path = Arc::new(std::sync::Mutex::new(None));
+        let worker_active_capture_path = Arc::clone(&active_capture_path);
+        let active_capture_id = Arc::new(AtomicU64::new(0));
+        let worker_active_capture_id = Arc::clone(&active_capture_id);
         let (commands, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (ready_tx, ready_rx) = mpsc::channel();
         let running = Arc::new(AtomicBool::new(false));
@@ -742,6 +835,8 @@ impl CanWorkbench {
                     bitrate,
                     listen_only,
                     session_origin,
+                    worker_active_capture_path,
+                    worker_active_capture_id,
                 );
                 let _ = thread_running;
             })
@@ -754,6 +849,10 @@ impl CanWorkbench {
                 listen_only,
                 bitrate,
                 source_id,
+                target_channel,
+                active_capture_path,
+                active_capture_id,
+                configured_fields: std::sync::Mutex::new(Vec::new()),
             }),
             Ok(Err(error)) => {
                 let _ = worker.join();
@@ -778,6 +877,25 @@ impl CanWorkbench {
             bitrate: self.bitrate,
             listen_only: self.listen_only,
             source_id: self.source_id.clone(),
+            target_channel: self.target_channel,
+        }
+    }
+
+    pub fn target_channel(&self) -> Option<u8> {
+        self.target_channel
+    }
+
+    pub fn active_capture_path(&self) -> Option<std::path::PathBuf> {
+        self.active_capture_path
+            .lock()
+            .ok()
+            .and_then(|path| path.clone())
+    }
+
+    pub fn active_capture_id(&self) -> Option<u64> {
+        match self.active_capture_id.load(Ordering::Acquire) {
+            0 => None,
+            capture_id => Some(capture_id),
         }
     }
 
@@ -785,7 +903,19 @@ impl CanWorkbench {
         for field in &fields {
             field.validate()?;
         }
-        self.request(|reply| Command::SetFields(fields, reply))
+        self.request(|reply| Command::SetFields(fields.clone(), reply))?;
+        *self
+            .configured_fields
+            .lock()
+            .map_err(|_| LogNookError::new("CAN field state is unavailable"))? = fields;
+        Ok(())
+    }
+
+    pub fn configured_fields(&self) -> Vec<CanSignalDefinition> {
+        self.configured_fields
+            .lock()
+            .map(|fields| fields.clone())
+            .unwrap_or_default()
     }
 
     pub fn start_capture(&self, path: &Path) -> Result<(), LogNookError> {
@@ -797,7 +927,12 @@ impl CanWorkbench {
     }
 
     pub fn stop_capture_with_reason(&self, reason: CanScanStopReason) -> Result<(), LogNookError> {
-        self.request(|reply| Command::StopCapture(reason, reply))
+        let result = self.request(|reply| Command::StopCapture(reason, reply));
+        self.active_capture_id.store(0, Ordering::Release);
+        if let Ok(mut active_path) = self.active_capture_path.lock() {
+            *active_path = None;
+        }
+        result
     }
 
     pub fn arm_trigger(
@@ -853,6 +988,10 @@ impl CanWorkbench {
         self.request(Command::ClearEventResults)
     }
 
+    pub fn has_active_operations(&self) -> Result<bool, LogNookError> {
+        self.request(Command::GetActiveOperations)
+    }
+
     pub fn disarm_trigger(&self) -> Result<(), LogNookError> {
         self.request(Command::DisarmTrigger)
     }
@@ -875,6 +1014,42 @@ impl CanWorkbench {
             ));
         }
         self.request(|reply| Command::SendFrame(frame, pacing_ms, repeat, reply))
+    }
+
+    pub fn start_can_id_replay(
+        &self,
+        frames: Vec<CanFrame>,
+    ) -> Result<CanIdReplayStatus, LogNookError> {
+        self.start_prepared_can_replay(CanReplayPlan::live_snapshot(frames)?)
+    }
+
+    pub fn start_prepared_can_replay(
+        &self,
+        plan: CanReplayPlan,
+    ) -> Result<CanIdReplayStatus, LogNookError> {
+        if self.listen_only {
+            return Err(LogNookError::new(
+                "Switch Candlelight to active mode before replaying CAN frames",
+            ));
+        }
+        let _ = plan.validate_for_worker()?;
+        if let Some(source_bitrate) = plan
+            .saved_summary()
+            .and_then(|summary| summary.source_bitrate)
+            && source_bitrate != self.bitrate
+        {
+            return Err(LogNookError::new(format!(
+                "Saved CAN replay bitrate mismatch: source is {source_bitrate} bit/s, target is {} bit/s",
+                self.bitrate
+            )));
+        }
+        let replay_id = next_can_id_replay_id()?;
+        let target_channel = self.target_channel;
+        self.request(|reply| Command::StartCanIdReplay(replay_id, plan, target_channel, reply))
+    }
+
+    pub fn stop_can_id_replay(&self) -> Result<(), LogNookError> {
+        self.request(Command::StopCanIdReplay)
     }
 
     pub fn start_scan(&self, config: CanScanConfig) -> Result<(), LogNookError> {
