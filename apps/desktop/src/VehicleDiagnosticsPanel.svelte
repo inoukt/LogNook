@@ -1,17 +1,19 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import {
-    availableMode06TestIds, diagnosticOutcomeLabel, diagnosticReadLabel, formatHexByte,
+    availableMode06TestIds, clearConfirmationMatchesConnection, diagnosticOutcomeLabel, diagnosticReadLabel, formatHexByte,
     groupDiagnosticReadsByEcu, mode06MonitorSummary, parseMode06TestIds,
     supportsVehicleDiagnostics,
-    type DiagnosticRead, type DiagnosticReport, type DiagnosticValue,
+    type DiagnosticCapabilities, type DiagnosticRead, type DiagnosticReport, type DiagnosticValue,
   } from "./vehicleDiagnostics";
   import { copyFullVin, vinDecodeLabels } from "./vehicleProfiles";
 
-  let { open = false, adapterFamily = null, adapterId = null, onClose }: {
+  let { open = false, adapterFamily = null, adapterId = null, connectionGeneration = null, diagnosticCapabilities = null, onClose }: {
     open?: boolean;
     adapterFamily: string | null;
     adapterId: string | null;
+    connectionGeneration: number | null;
+    diagnosticCapabilities: DiagnosticCapabilities | null;
     onClose: () => void;
   } = $props();
 
@@ -23,12 +25,25 @@
   let running = $state(false);
   let error = $state("");
   let copyMessage = $state("");
+  let clearBusy = $state(false);
+  let clearConfirm = $state<HTMLDialogElement>();
+  let clearAdapterId = $state<string | null>(null);
+  let clearGeneration = $state<number | null>(null);
   let dialog: HTMLDialogElement;
 
   const tabs: [Tab, string][] = [["dtcs", "DTCs"], ["identity", "Identity"], ["mode06", "Mode 06"], ["raw", "Raw"]];
-  let supported = $derived(supportsVehicleDiagnostics(adapterFamily));
+  let supported = $derived(diagnosticCapabilities !== null
+    ? diagnosticCapabilities.dtc_snapshot || diagnosticCapabilities.identity || diagnosticCapabilities.mode06
+    : supportsVehicleDiagnostics(adapterFamily));
+  let clearSupported = $derived(diagnosticCapabilities?.clear_dtcs === true);
+  let clearConfirmationStale = $derived(!clearConfirmationMatchesConnection(
+    adapterId, connectionGeneration, clearAdapterId, clearGeneration,
+  ));
   let stale = $derived(
-    report !== null && (adapterId !== report.adapter.stable_id || adapterFamily !== report.adapter.hardware_family),
+    report !== null && (adapterId !== report.adapter.stable_id
+      || adapterFamily !== report.adapter.hardware_family
+      || (report.connection_generation !== null && report.connection_generation !== undefined
+        && connectionGeneration !== report.connection_generation)),
   );
   let bitmapIds = $derived(report ? availableMode06TestIds(report.reads) : []);
   let identityContext = $derived(report?.vehicle_context ?? null);
@@ -58,6 +73,33 @@
       error = String(reason);
     } finally {
       running = false;
+    }
+  }
+
+  function beginClearConfirmation() {
+    if (clearBusy || !clearSupported || !adapterId || connectionGeneration === null) return;
+    clearAdapterId = adapterId;
+    clearGeneration = connectionGeneration;
+    error = "";
+    clearConfirm?.showModal();
+  }
+
+  async function confirmClear() {
+    if (clearBusy || clearConfirmationStale || !clearAdapterId || clearGeneration === null) return;
+    clearBusy = true;
+    error = "";
+    try {
+      report = await invoke<DiagnosticReport>("clear_vehicle_dtcs", {
+        expectedAdapterId: clearAdapterId,
+        expectedGeneration: clearGeneration,
+      });
+      activeTab = "dtcs";
+      copyMessage = "";
+      clearConfirm?.close();
+    } catch (reason) {
+      error = String(reason);
+    } finally {
+      clearBusy = false;
     }
   }
 
@@ -125,7 +167,7 @@
     {#if !supported}
       <div class="diagnostic-notice" role="status">
         Vehicle diagnostics are currently unsupported by {adapterFamily ?? "the selected adapter"}.
-        Supported adapters: Xtool A30/A30M, Bluetooth ELM327, and OBDLink SX.
+        Supported adapters: Xtool A30/A30M, Bluetooth ELM327, OBDLink SX, OpenPort 2, Candlelight OBD and simulator.
       </div>
     {:else}
       <div class="vehicle-diagnostics-toolbar">
@@ -133,6 +175,11 @@
           {running ? "Reading vehicle…" : mode06TestIds.length ? "Read diagnostics and selected monitors" : "Read diagnostics"}
         </button>
         {#if running}<span class="diagnostic-running" role="status">Using the serialized adapter; this may take several seconds.</span>{/if}
+        {#if clearSupported}
+          <button class="button danger" type="button" onclick={beginClearConfirmation} disabled={running || clearBusy || connectionGeneration === null}>
+            {clearBusy ? "Clearing DTCs…" : "Clear DTCs"}
+          </button>
+        {/if}
         {#if report}<span class="diagnostic-report-time">Last read {new Date(report.started_at_unix_ms).toLocaleString()}</span>{/if}
       </div>
     {/if}
@@ -143,6 +190,7 @@
         <span>{report.adapter.hardware_family}</span>
         <code>{report.adapter.stable_id}</code>
         <span>{report.protocol}</span>
+        <span>{report.operation_kind === "clear_dtcs" ? "Explicit Mode 04 operation" : "Read-only snapshot"}</span>
       </div>
       {#if stale}
         <p class="diagnostic-notice stale" role="status">These results are from a previous adapter connection. Read again to refresh.</p>
@@ -216,7 +264,7 @@
         {:else}
           {#each groupDiagnosticReadsByEcu(tabReads) as [ecu, reads]}
             <section class="diagnostic-ecu" aria-label={`Results from ECU ${ecu}`}>
-              <header><h3>{ecu}</h3><span>functional route 7DF · {reads.length} read{reads.length === 1 ? "" : "s"}</span></header>
+              <header><h3>{ecu}</h3><span>{reads[0]?.route ?? "route unavailable"} · {reads.length} read{reads.length === 1 ? "" : "s"}</span></header>
               {#each reads as read}
                 <article class="diagnostic-read">
                   <div class="diagnostic-read-heading">
@@ -245,6 +293,9 @@
                   {#each valuesOf(read, "mode06Monitor") as value}
                     {#if value.type === "mode06Monitor"}<p class="diagnostic-monitor">{mode06MonitorSummary(value.payload)}</p>{/if}
                   {/each}
+                  {#each valuesOf(read, "dtcClearAcknowledgement") as value}
+                    {#if value.type === "dtcClearAcknowledgement"}<p class="diagnostic-clear-ack">ECU acknowledged the Mode 04 clear request. Run a new diagnostic read to verify current codes.</p>{/if}
+                  {/each}
 
                   {#if activeTab === "raw"}
                     <details class="diagnostic-raw" open>
@@ -263,6 +314,19 @@
       </div>
     {:else}
       <p class="diagnostic-empty first-read">Open this view when ready, then select Read diagnostics to send the one-shot requests.</p>
+    {/if}
+    {#if clearSupported && !clearBusy}
+      <dialog bind:this={clearConfirm} class="clear-dtc-confirm" aria-labelledby="clear-dtc-title">
+        <h3 id="clear-dtc-title">Clear emission-related DTC information?</h3>
+        <p>This sends one standard Mode 04 request through <strong>{adapterFamily}</strong> to the responding ECU scope.</p>
+        <p>It can erase stored diagnostic information and affect readiness state. A positive response means the ECU acknowledged the request; it does not prove that a later DTC read will be empty.</p>
+        {#if adapterFamily === "Candlelight GS-USB OBD-II"}<p>The current Candlelight connection is limited to the single OBD ECU accepted during connection.</p>{/if}
+        {#if clearConfirmationStale}<p class="diagnostic-error" role="alert">The adapter or connection changed. Cancel and reopen this confirmation.</p>{/if}
+        <div class="clear-confirm-actions">
+          <button class="button secondary" type="button" onclick={() => clearConfirm?.close()}>Cancel</button>
+          <button class="button danger" type="button" onclick={confirmClear} disabled={clearConfirmationStale || clearBusy}>Confirm clear</button>
+        </div>
+      </dialog>
     {/if}
 </dialog>
 
@@ -307,6 +371,12 @@
   .diagnostic-outcome.no_response, .diagnostic-outcome.temporarily_unavailable, .diagnostic-outcome.response_pending { color: #f5d8a1; background: #3b3327; }
   .diagnostic-read-meta, .diagnostic-detail, .diagnostic-bitmap, .diagnostic-monitor { margin: 4px 0 0; color: var(--text-muted); font-size: 9px; }
   .diagnostic-detail { color: #ffd0cb; }
+  .diagnostic-clear-ack { margin: 7px 0 0; color: #f5d8a1; font-size: 10px; }
+  .clear-dtc-confirm { width: min(480px, calc(100% - 28px)); margin: auto; padding: 18px; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--text); background: var(--surface); box-shadow: 0 24px 80px #000b; }
+  .clear-dtc-confirm::backdrop { background: #081016cc; }
+  .clear-dtc-confirm h3 { margin: 0 0 10px; font-size: 15px; }
+  .clear-dtc-confirm p { margin: 8px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+  .clear-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
   .diagnostic-dtcs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
   .diagnostic-dtcs code { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-raised); font-size: 10px; }
   .diagnostic-identity { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 7px 0 0; font-size: 10px; }

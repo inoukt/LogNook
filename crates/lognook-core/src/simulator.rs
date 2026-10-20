@@ -5,6 +5,7 @@ use crate::{
         SampleQuality, SignalDefinition,
     },
 };
+mod oem;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Default)]
@@ -362,6 +363,12 @@ impl HardwareAdapter for SimulatedObdAdapter {
             },
             protocol: "SAE J1979 Mode 01 (simulated)".into(),
             read_only: true,
+            diagnostics: crate::DiagnosticCapabilities {
+                dtc_snapshot: true,
+                identity: true,
+                mode06: true,
+                clear_dtcs: true,
+            },
             supported_signals: standard_obd_signals(),
         })
     }
@@ -393,6 +400,108 @@ impl HardwareAdapter for SimulatedObdAdapter {
             std::thread::sleep(Duration::from_millis(1));
         }
         Ok(samples)
+    }
+
+    fn execute_research_test(
+        &mut self,
+        request: crate::ResearchTestRequest,
+    ) -> Result<crate::ResearchTestResult, LogNookError> {
+        if let crate::ResearchTestRequest::OemCandidate(ref spec) = request {
+            return self
+                .read_oem_candidate(spec)
+                .map(crate::ResearchTestResult::OemCandidate);
+        }
+        let crate::ResearchTestRequest::Diagnostic(query) = request else {
+            return Err(LogNookError::new(
+                "Simulator supports only local read-only vehicle diagnostic results",
+            ));
+        };
+        if query.kind == crate::DiagnosticReadKind::ClearDtcs {
+            return Err(LogNookError::new(
+                "DTC clearing is available only through the explicit clear operation",
+            ));
+        }
+        query.validate().map_err(LogNookError::new)?;
+        let response = match query.kind {
+            crate::DiagnosticReadKind::StoredDtcs
+            | crate::DiagnosticReadKind::PendingDtcs
+            | crate::DiagnosticReadKind::PermanentDtcs => vec![query.service + 0x40, 0x00],
+            crate::DiagnosticReadKind::Vin => {
+                [vec![0x49, 0x02, 0x01], b"1HGCM82633A004352".to_vec()].concat()
+            }
+            crate::DiagnosticReadKind::CalibrationId => {
+                [vec![0x49, 0x04, 0x01], b"SIMULATED000001".to_vec()].concat()
+            }
+            crate::DiagnosticReadKind::EcuName => {
+                [vec![0x49, 0x0A, 0x01], b"SIMULATED PCM".to_vec()].concat()
+            }
+            crate::DiagnosticReadKind::Mode06Bitmap => {
+                vec![0x46, query.identifier.unwrap_or(0), 0, 0, 0, 0]
+            }
+            crate::DiagnosticReadKind::Mode06Monitor => {
+                let test_id = query.identifier.unwrap_or(0);
+                vec![0x46, test_id, 0x01, 0x01, 0, 10, 0, 0, 0, 20]
+            }
+            crate::DiagnosticReadKind::ClearDtcs => unreachable!(),
+        };
+        let now = crate::vehicle_diagnostics::now_unix_ms();
+        let read = query.report(
+            None,
+            response.clone(),
+            format!(
+                "SIMULATED {}",
+                response
+                    .iter()
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            "SIMULATED (no vehicle transmission)".into(),
+            now,
+            0,
+            false,
+        );
+        Ok(crate::ResearchTestResult::Diagnostic(
+            crate::DiagnosticReport {
+                report_id: None,
+                connection_generation: None,
+                vehicle_context: None,
+                adapter: crate::DeviceDescriptor {
+                    stable_id: "simulated-obd".into(),
+                    hardware_family: "simulator".into(),
+                    firmware: Some("LogNook scripted OBD v1".into()),
+                    path: None,
+                },
+                protocol: "SAE J1979 (simulated)".into(),
+                started_at_unix_ms: now,
+                operation_kind: crate::DiagnosticReportKind::Snapshot,
+                request: crate::DiagnosticRequest::default(),
+                reads: vec![read],
+                route_restore_error: None,
+                evidence_saved: false,
+                evidence_save_error: None,
+            },
+        ))
+    }
+
+    fn clear_vehicle_dtcs(&mut self) -> Result<Vec<crate::DiagnosticRead>, LogNookError> {
+        if self.started.is_none() {
+            return Err(LogNookError::new("Simulator is not connected"));
+        }
+        let query = crate::DiagnosticQueryRequest::clear_dtcs();
+        let now = crate::vehicle_diagnostics::now_unix_ms();
+        let mut read = query.report(
+            None,
+            vec![0x44],
+            "SIMULATED 44".into(),
+            "SIMULATED (no vehicle transmission)".into(),
+            now,
+            0,
+            false,
+        );
+        read.route = "simulated".into();
+        read.detail = Some("Simulated acknowledgement; no vehicle request was sent".into());
+        Ok(vec![read])
     }
 
     fn disconnect(&mut self) {
@@ -469,5 +578,20 @@ mod tests {
         assert!((0.0..=100.0).contains(&samples[0].value));
         assert_eq!(samples[0].unit, "%");
         assert_eq!(standard_obd_signals().len(), 35);
+    }
+
+    #[test]
+    fn simulator_returns_a_labeled_local_mode04_acknowledgement() {
+        let mut adapter = SimulatedObdAdapter::default();
+        let capabilities = adapter.connect().unwrap();
+
+        let reads = adapter.clear_vehicle_dtcs().unwrap();
+
+        assert!(capabilities.protocol.contains("simulated"));
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].service, 0x04);
+        assert_eq!(reads[0].request_payload, [0x04]);
+        assert_eq!(reads[0].outcome, crate::DiagnosticOutcome::Positive);
+        assert_eq!(reads[0].kind, crate::DiagnosticReadKind::ClearDtcs);
     }
 }

@@ -63,6 +63,37 @@ fn raw_terminal_and_diagnostic_commands_use_the_serial_command_owner() {
     assert_eq!(&*diagnostic_written.lock().unwrap(), b"010C\r");
 }
 
+#[test]
+fn sx_explicit_mode04_sends_one_fixed_request_and_research_reads_reject_it() {
+    let (mut adapter, written) = adapter_for("7E8 01 44\r>".into());
+    adapter.started = Some(Instant::now());
+    adapter.restore_adapter_settings = true;
+    adapter.device = Some(crate::DeviceDescriptor {
+        stable_id: "sx-fixture".into(),
+        hardware_family: "OBDLink SX".into(),
+        firmware: None,
+        path: Some("COM4".into()),
+    });
+
+    let reads = adapter.clear_vehicle_dtcs().unwrap();
+
+    assert_eq!(reads.len(), 1);
+    assert_eq!(reads[0].request_payload, [0x04]);
+    assert_eq!(reads[0].response_payload, [0x44]);
+    assert_eq!(reads[0].outcome, crate::DiagnosticOutcome::Positive);
+    assert_eq!(&*written.lock().unwrap(), b"STPX H:7DF, D:04, T:250\r");
+
+    written.lock().unwrap().clear();
+    assert!(
+        adapter
+            .execute_research_test(crate::ResearchTestRequest::Diagnostic(
+                crate::DiagnosticQueryRequest::clear_dtcs()
+            ))
+            .is_err()
+    );
+    assert!(written.lock().unwrap().is_empty());
+}
+
 fn scion_probe_spec() -> ScionMode21ProbeSpec {
     let definitions = [
         (

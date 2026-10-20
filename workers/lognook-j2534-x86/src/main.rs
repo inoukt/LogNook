@@ -140,6 +140,31 @@ fn handle_request(
                 Err(error) => failed(error),
             }
         }
+        WorkerRequest::ConnectSubaruSsm { provider_id } => {
+            if session.is_some() {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "A J2534 provider is already connected".into(),
+                };
+            }
+            let result = (|| {
+                progress("provider_resolution");
+                let provider = registry::resolve_openport2_provider(&provider_id)?;
+                progress("dll_loading");
+                let api = DynamicJ2534::load(&provider.dll_path)?;
+                progress("passthru_open");
+                let mut opened = session::J2534Session::open(Box::new(api))?;
+                let identity = opened.connect_subaru_ssm_with_progress(progress)?;
+                Ok::<_, J2534Failure>((opened, identity))
+            })();
+            match result {
+                Ok((opened, identity)) => {
+                    *session = Some(opened);
+                    WorkerResponse::Connected { identity }
+                }
+                Err(error) => failed(error),
+            }
+        }
         WorkerRequest::DiscoverMode01 => {
             let Some(connected) = session.as_mut() else {
                 return WorkerResponse::Error {
@@ -183,6 +208,139 @@ fn handle_request(
             match connected.read_mode09(pid) {
                 Ok(responses) => WorkerResponse::Mode09Responses { responses },
                 // Keep the serialized channel open so one unavailable identity PID cannot hide later reads.
+                Err(error) => failed(error),
+            }
+        }
+        WorkerRequest::ReadMode06 { test_id } => {
+            let Some(connected) = session.as_mut() else {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "Connect a J2534 provider before reading Mode 06".into(),
+                };
+            };
+            progress("mode06_read");
+            match connected.read_mode06(test_id) {
+                Ok(responses) => WorkerResponse::Mode06Responses { responses },
+                Err(error) => failed(error),
+            }
+        }
+        WorkerRequest::ReadStandardDtc { service } => {
+            let Some(connected) = session.as_mut() else {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "Connect a J2534 provider before a standard DTC operation".into(),
+                };
+            };
+            progress(
+                if service == lognook_j2534_protocol::StandardDtcService::Clear {
+                    "dtc_clear"
+                } else {
+                    "dtc_read"
+                },
+            );
+            match connected.read_standard_dtc(service) {
+                Ok(responses) => WorkerResponse::StandardDtcResponses { responses },
+                // Keep the channel alive for the next explicit read. Clear is sent only
+                // once by the J2534 session and is never retried here.
+                Err(error) => failed(error),
+            }
+        }
+        WorkerRequest::ReadOemCandidate {
+            candidate_id,
+            source_id,
+            source_blob_sha,
+            source_url,
+            license,
+            license_url,
+            request_id,
+            response_id,
+            request,
+        } => {
+            if let Err(error) = lognook_j2534_protocol::validate_oem_candidate_request_fields(
+                &candidate_id,
+                &source_id,
+                &source_blob_sha,
+                &source_url,
+                &license,
+                &license_url,
+                request_id,
+                response_id,
+            ) {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::MalformedResponse,
+                    message: error.to_string(),
+                };
+            }
+            let Some(connected) = session.as_mut() else {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "Connect a J2534 provider before an OEM candidate read".into(),
+                };
+            };
+            progress("oem_candidate_read");
+            match connected.read_oem_candidate(request_id, response_id, request) {
+                Ok(responses) => WorkerResponse::OemCandidateResponses { responses },
+                // One candidate is one request. Preserve the serialized channel for later
+                // explicit attempts, with no automatic retry after a failed exchange.
+                Err(error) => failed(error),
+            }
+        }
+        WorkerRequest::ReadSubaruCandidate {
+            candidate_id,
+            source_id,
+            catalog_sha256,
+            request_id,
+            response_id,
+            request,
+        } => {
+            if let Err(error) = lognook_j2534_protocol::validate_subaru_catalog_request_fields(
+                &candidate_id,
+                &source_id,
+                &catalog_sha256,
+                request_id,
+                response_id,
+            ) {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::MalformedResponse,
+                    message: error.to_string(),
+                };
+            }
+            let Some(connected) = session.as_mut() else {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "Connect a J2534 provider before a Subaru catalog read".into(),
+                };
+            };
+            progress("subaru_catalog_read");
+            match connected.read_oem_candidate(request_id, response_id, request) {
+                Ok(responses) => WorkerResponse::OemCandidateResponses { responses },
+                Err(error) => failed(error),
+            }
+        }
+        WorkerRequest::ReadSubaruSsmAddresses {
+            candidate_ids,
+            source_id,
+            catalog_sha256,
+            ecu_address,
+            tool_address,
+            addresses,
+        } => {
+            let Some(connected) = session.as_mut() else {
+                return WorkerResponse::Error {
+                    kind: WorkerErrorKind::ChannelFailed,
+                    message: "Connect an OpenPort provider in Subaru SSM mode before an SSM read".into(),
+                };
+            };
+            progress("subaru_ssm_read");
+            match connected.read_subaru_ssm_addresses(
+                &candidate_ids,
+                &source_id,
+                &catalog_sha256,
+                ecu_address,
+                tool_address,
+                &addresses,
+            ) {
+                Ok(payload) => WorkerResponse::SubaruSsmRead { payload },
                 Err(error) => failed(error),
             }
         }

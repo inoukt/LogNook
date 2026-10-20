@@ -138,7 +138,7 @@ impl LogNookAgent {
     }
 
     #[tool(
-        description = "Connect an explicitly selected source through its existing adapter owner. Set profile_standby=true for supported OBD connections that discover support and wait for vehicle recognition and explicit Resume. For Candlelight GS-USB OBD use can_obd so connect cancellation and status share its owner. The same physical USB interface/channel cannot be owned simultaneously by OBD logging and CAN Workbench. Connecting never starts a CAN scan or replay."
+        description = "Connect an explicitly selected source through its existing adapter owner. OpenPort choices include normal OBD-II CAN and a dedicated read-only Subaru SSM K-Line mode. Use the latter to graph manually selected SSM-KWP catalog signals; it does not enable standard OBD diagnostics. Set profile_standby=true for supported OBD connections that discover support and wait for vehicle recognition and explicit Resume. For Candlelight GS-USB OBD use can_obd so connect cancellation and status share its owner. Connecting never starts a scan or replay."
     )]
     async fn connect_adapter(
         &self,
@@ -189,6 +189,46 @@ impl LogNookAgent {
     }
 
     #[tool(
+        description = "Search the Subaru OEM catalog by signal, source address, model year, ECU, or protocol. SSM-KWP rows can be explicitly added to live graphs while connected to OpenPort 2 in Subaru SSM K-Line mode; the adapter sends only SSM initialization and memory-read commands. FHI-CAN rows use the CAN Workbench. Source mappings and vehicle/ECU support remain unverified, and normal preset/automatic polling stays disabled."
+    )]
+    async fn search_subaru_catalog(
+        &self,
+        Parameters(AgentSubaruCatalogSearchArgs {
+            query,
+            model,
+            year,
+            ecu_id,
+            protocol_family,
+            offset,
+            limit,
+        }): Parameters<AgentSubaruCatalogSearchArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::SearchSubaruCatalog {
+            query,
+            model,
+            year,
+            ecu_id,
+            protocol_family,
+            offset,
+            limit,
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Load decoder fields and source-row provenance for one Subaru OEM catalog result. The result is research data and does not establish vehicle support."
+    )]
+    async fn get_subaru_catalog_detail(
+        &self,
+        Parameters(AgentSubaruCatalogDetailArgs { candidate_id }): Parameters<
+            AgentSubaruCatalogDetailArgs,
+        >,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::GetSubaruCatalogDetail { candidate_id })
+            .await
+    }
+
+    #[tool(
         description = "Run one explicit OEM candidate request on the connected adapter and return typed response/evidence details."
     )]
     async fn try_oem_candidate(
@@ -197,6 +237,32 @@ impl LogNookAgent {
     ) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::TryOemCandidate { candidate_id })
             .await
+    }
+
+    #[tool(
+        description = "Use the same one-shot OEM discovery queue as the catalog UI. search returns a bounded filtered page and colored-result states; set_auto_try explicitly enables enqueue_visible for caller-listed visible candidate IDs; try_filtered tries the entire filtered list once and can be stopped. Bind starts/enqueues to adapter_id and connection_generation from get_status. status accepts page candidate_ids and returns progress/results; search values_first=true puts finite numeric values, including zero, first across pages. Source-backed services 21/22 only; results do not promote vehicle validation or enable continuous logging. Simulator replies are synthetic. Agent-owned discovery stops on Agent Access lock or connection change."
+    )]
+    async fn oem_discovery(
+        &self,
+        Parameters(args): Parameters<AgentOemDiscoveryArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::OemDiscovery {
+            operation: args.operation,
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Inspect or control continuous OEM logging through the serialized acquisition scheduler. Standard start requires exact-vehicle eligible candidates and the current adapter_id/connection_generation from get_status. StartSubaru accepts candidate IDs returned by search_subaru_catalog and logs only explicitly selected Subaru CAN or SSM-KWP signals with a compatible adapter. For SSM-KWP, connect OpenPort 2 in Subaru SSM K-Line mode; reads keep raw bytes and catalog SHA provenance and remain suspect/unverified. Automatic requests and presets stay disabled. StopSubaru stops only the Subaru plan. No raw payloads, write commands, session changes or validation overrides are accepted. Status reports actual samples, requests, errors and latency."
+    )]
+    async fn oem_logging(
+        &self,
+        Parameters(args): Parameters<AgentOemLoggingArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::OemLogging {
+            operation: args.operation,
+        })
+        .await
     }
 
     #[tool(
@@ -228,6 +294,21 @@ impl LogNookAgent {
     ) -> Result<Json<AgentResponse>, ErrorData> {
         self.request(AgentRequest::ReadVehicleDiagnostics { mode06_test_ids })
             .await
+    }
+
+    #[tool(
+        description = "Explicitly send one standard Mode 04 DTC-clear request through the connected adapter. This is separate from read_vehicle_diagnostics and requires Agent Access to be unlocked, confirm=true, and the exact current adapter_id and connection_generation from get_status. The request can clear emission-related stored information and affect readiness. Results record per-ECU acknowledgements and errors; a positive 44 response is only an ECU acknowledgement."
+    )]
+    async fn clear_vehicle_dtcs(
+        &self,
+        Parameters(args): Parameters<AgentClearVehicleDtcsArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::ClearVehicleDtcs {
+            adapter_id: args.adapter_id,
+            connection_generation: args.connection_generation,
+            confirm: args.confirm,
+        })
+        .await
     }
 
     #[tool(
@@ -302,6 +383,22 @@ impl LogNookAgent {
             .await
     }
 
+    #[tool(description = "Manage VIN-keyed vehicle projects. prepare_on_connect uses the current fresh positive VIN; new projects seed supported generic Mode 01 signals and a basic preset. Existing projects require an explicit load_last_state or start_fresh choice. Restores revalidate current signal support and keep OEM research references gated; they never test OEM signals or start a recording. Agent Access must be unlocked.")]
+    async fn vehicle_projects(
+        &self,
+        Parameters(crate::commands::vehicle_projects::VehicleProjectsArgs { operation }): Parameters<crate::commands::vehicle_projects::VehicleProjectsArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::VehicleProjects { operation }).await
+    }
+
+    #[tool(description = "Browse, filter, preview, apply, save, edit, delete, stage, or cancel signal presets through LogNook's shared preset service. Apply requires a fresh preview and explicit preview ID plus context revision and connection generation. The operation never promotes an OEM research candidate; unverified channels remain skipped.")]
+    async fn signal_presets(
+        &self,
+        Parameters(AgentSignalPresetsArgs { operation }): Parameters<AgentSignalPresetsArgs>,
+    ) -> Result<Json<AgentResponse>, ErrorData> {
+        self.request(AgentRequest::SignalPresets { operation }).await
+    }
+
     #[tool(
         description = "Send one raw diagnostic payload (hex bytes) or adapter-terminal command over a connected OBDLink SX or ELM327. The serialized adapter owner records TX/RX in its trace; use workbench send_frame for raw Candlelight CAN."
     )]
@@ -338,7 +435,7 @@ impl LogNookAgent {
 impl ServerHandler for LogNookAgent {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
-        info.instructions = Some("Use get_status first. Live CAN replay uses list_log_sources -> query_log_range(live:can) -> workbench replay_can_id. Saved CAN replay uses a listed recorded source -> query_log_range -> prepare_saved_can_replay -> inspect_saved_can_replay -> explicit start_saved_can_replay with the preview token and current target generation. Replay transmits one exact ID/format once from backend-frozen RX frames through the existing owner; caller payloads are not a replay source. Vehicle identity and history use the typed vehicle_profiles tool: read_identity performs only Mode 09 VIN/calibration/ECU-name reads; decode_vin_offline is local; report details verify stored bytes and hashes; history associations are append-only. Generic read_vehicle_diagnostics masks Mode 09 PID 02 values and payload bytes; use explicit identity/history detail to request the full VIN. Full VIN and manually entered details are personal local data. Profile Resume uses fresh support/identity and a connection/revision-bound preview; saved selections never enable unverified OEM polling. Use cancel_history_import to stop an import, cancel/stop_operation for profile and CAN operations. Raw responses are research evidence, not validation. Lock Agent Access in Settings to revoke access.".into());
+        info.instructions = Some("Use get_status first. OEM one-shot discovery uses oem_discovery search/status, then explicit set_auto_try plus enqueue_visible or try_filtered bound to the current adapter_id and connection_generation; stop cancels queued work. Numeric values including zero are research evidence, not vehicle validation. Live CAN replay uses list_log_sources -> query_log_range(live:can) -> workbench replay_can_id. Saved CAN replay uses a listed recorded source -> query_log_range -> prepare_saved_can_replay -> inspect_saved_can_replay -> explicit start_saved_can_replay with the preview token and current target generation. Replay transmits one exact ID/format once from backend-frozen RX frames through the existing owner; caller payloads are not a replay source. Vehicle identity and history use the typed vehicle_profiles tool: read_identity performs only Mode 09 VIN/calibration/ECU-name reads; decode_vin_offline is local; report details verify stored bytes and hashes; history associations are append-only. Generic read_vehicle_diagnostics masks Mode 09 PID 02 values and payload bytes and never clears codes; use explicit identity/history detail to request the full VIN. clear_vehicle_dtcs is a separate one-shot Mode 04 action requiring unlocked Agent Access, confirm=true, and the current adapter_id plus obd_connection_generation from get_status. A positive 44 is only an ECU acknowledgement. Full VIN and manually entered details are personal local data. Profile Resume uses fresh support/identity and a connection/revision-bound preview; saved selections never enable unverified OEM polling. Use cancel_history_import to stop an import, cancel/stop_operation for profile and CAN operations. Raw responses are research evidence, not validation. Lock Agent Access in Settings to revoke access.".into());
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
@@ -400,26 +497,124 @@ mod tests {
         let can_obd_schema = serde_json::to_string(can_obd.input_schema.as_ref()).unwrap();
         assert!(can_obd_schema.contains("identify"));
         assert!(can_obd_schema.contains("cancel"));
+        let clear = tools
+            .iter()
+            .find(|tool| tool.name == "clear_vehicle_dtcs")
+            .unwrap();
+        assert!(
+            clear
+                .description
+                .as_deref()
+                .unwrap()
+                .contains("confirm=true")
+        );
+        let clear_schema = serde_json::to_string(clear.input_schema.as_ref()).unwrap();
+        assert!(clear_schema.contains("connection_generation"));
+        assert!(clear_schema.contains("adapter_id"));
+        assert!(clear_schema.contains("confirm"));
+        let discovery = tools
+            .iter()
+            .find(|tool| tool.name == "oem_discovery")
+            .unwrap();
+        assert!(
+            discovery
+                .description
+                .as_deref()
+                .unwrap()
+                .contains("including zero")
+        );
+        let discovery_schema = serde_json::to_string(discovery.input_schema.as_ref()).unwrap();
+        for operation in [
+            "enqueue_visible",
+            "try_filtered",
+            "stop",
+            "values_first",
+            "connection_generation",
+        ] {
+            assert!(discovery_schema.contains(operation));
+        }
+        let logging = tools
+            .iter()
+            .find(|tool| tool.name == "oem_logging")
+            .unwrap();
+        let schema = serde_json::to_string(logging.input_schema.as_ref()).unwrap();
+        for field in [
+            "start",
+            "stop",
+            "candidate_ids",
+            "connection_generation",
+            "vehicle_id",
+        ] {
+            assert!(schema.contains(field));
+        }
+        let connect = tools
+            .iter()
+            .find(|tool| tool.name == "connect_adapter")
+            .unwrap();
+        let connect_schema = serde_json::to_string(connect.input_schema.as_ref()).unwrap();
+        assert!(connect_schema.contains("open_port2_subaru_ssm"));
+        assert!(connect.description.as_deref().unwrap().contains("Subaru SSM K-Line"));
+        let subaru = tools
+            .iter()
+            .find(|tool| tool.name == "search_subaru_catalog")
+            .unwrap();
+        let subaru_schema = serde_json::to_string(subaru.input_schema.as_ref()).unwrap();
+        for field in [
+            "query",
+            "model",
+            "year",
+            "ecu_id",
+            "protocol_family",
+            "offset",
+            "limit",
+        ] {
+            assert!(
+                subaru_schema.contains(field),
+                "Subaru search schema includes {field}"
+            );
+        }
+        let subaru_detail = tools
+            .iter()
+            .find(|tool| tool.name == "get_subaru_catalog_detail")
+            .unwrap();
+        assert!(
+            serde_json::to_string(subaru_detail.input_schema.as_ref())
+                .unwrap()
+                .contains("candidate_id")
+        );
+        let presets = tools
+            .iter()
+            .find(|tool| tool.name == "signal_presets")
+            .unwrap();
+        let presets_schema = serde_json::to_value(presets.input_schema.as_ref()).unwrap();
+        assert_eq!(presets_schema.get("type").and_then(|value| value.as_str()), Some("object"));
+        assert!(serde_json::to_string(&presets_schema).unwrap().contains("expected_generation"));
         let names = tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>();
         assert_eq!(
             names,
             [
                 "can_obd",
+                "clear_vehicle_dtcs",
                 "connect_adapter",
                 "disconnect_adapter",
                 "disconnect_source",
                 "export_evidence",
                 "get_status",
+                "get_subaru_catalog_detail",
                 "get_trace",
                 "list_adapters",
                 "list_log_sources",
                 "list_mode06_tests",
                 "list_signals",
+                "oem_discovery",
+                "oem_logging",
                 "query_log_range",
                 "read_vehicle_diagnostics",
                 "search_oem_candidates",
+                "search_subaru_catalog",
                 "send_raw_command",
                 "set_signal_selection",
+                "signal_presets",
                 "start_trace_capture",
                 "stop_operation",
                 "stop_trace_capture",

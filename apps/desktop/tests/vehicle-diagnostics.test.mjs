@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 const diagnostics = await import("../src/vehicleDiagnostics.ts");
+const diagnosticsPanelSource = await readFile(new URL("../src/VehicleDiagnosticsPanel.svelte", import.meta.url), "utf8");
 
-test("vehicle diagnostics are enabled only for the implemented CAN adapters", () => {
+test("vehicle diagnostics capability helper recognizes every supported adapter family", () => {
   assert.equal(diagnostics.supportsVehicleDiagnostics("Xtool A30/A30M Bluetooth SPP"), true);
   assert.equal(diagnostics.supportsVehicleDiagnostics("ELM327 Bluetooth SPP"), true);
   assert.equal(diagnostics.supportsVehicleDiagnostics("OBDLink SX"), true);
-  assert.equal(diagnostics.supportsVehicleDiagnostics("OpenPort 2 J2534"), false);
-  assert.equal(diagnostics.supportsVehicleDiagnostics("OpenPort 2.0"), false);
+  assert.equal(diagnostics.supportsVehicleDiagnostics("OpenPort 2 J2534"), true);
+  assert.equal(diagnostics.supportsVehicleDiagnostics("OpenPort 2.0"), true);
+  assert.equal(diagnostics.supportsVehicleDiagnostics("Candlelight GS-USB OBD-II"), true);
+  assert.equal(diagnostics.supportsVehicleDiagnostics("simulator"), true);
   assert.equal(diagnostics.supportsVehicleDiagnostics(null), false);
   assert.equal(diagnostics.supportsProfileIdentity("OpenPort 2.0"), true);
   assert.equal(diagnostics.supportsProfileIdentity("OpenPort 2 J2534"), true);
@@ -22,6 +26,27 @@ test("Mode 06 selections parse hex IDs, deduplicate, and reject bitmap pages", (
   assert.match(diagnostics.parseMode06TestIds("20").error, /bitmap page/);
   assert.match(diagnostics.parseMode06TestIds("xyz").error, /Invalid/);
   assert.match(diagnostics.parseMode06TestIds(Array(33).fill("35").join(",")).error, /32/);
+});
+
+test("DTC clear confirmation is valid only for the same active adapter generation", () => {
+  const matches = diagnostics.clearConfirmationMatchesConnection;
+  assert.equal(matches("sx-1", 7, "sx-1", 7), true);
+  assert.equal(matches("sx-1", 8, "sx-1", 7), false);
+  assert.equal(matches("sx-2", 7, "sx-1", 7), false);
+  assert.equal(matches(null, 7, "sx-1", 7), false);
+  assert.equal(matches("sx-1", null, "sx-1", 7), false);
+});
+
+test("DTC clear is a separate confirmed UI action with cancel and stale-connection guards", () => {
+  const start = diagnosticsPanelSource.indexOf("function beginClearConfirmation()");
+  const confirm = diagnosticsPanelSource.indexOf("async function confirmClear()");
+  assert.ok(start >= 0 && confirm > start);
+  assert.match(diagnosticsPanelSource.slice(start, confirm), /clearConfirm\?\.showModal\(\)/);
+  assert.match(diagnosticsPanelSource.slice(confirm), /clearConfirmationStale/);
+  assert.match(diagnosticsPanelSource.slice(confirm), /invoke<DiagnosticReport>\("clear_vehicle_dtcs"/);
+  assert.match(diagnosticsPanelSource, /onclick=\{\(\) => clearConfirm\?\.close\(\)\}>Cancel/);
+  assert.match(diagnosticsPanelSource, /affect readiness state/);
+  assert.match(diagnosticsPanelSource, /acknowledged the Mode 04 clear request/);
 });
 
 test("monitor summaries keep UASID and raw limits without assigning a pass result", () => {

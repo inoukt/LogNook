@@ -1,5 +1,41 @@
 # Engineering architecture and repository
 
+## Local Subaru catalog extension — 2026-10-19
+
+The existing PID SQLite catalog has a separately versioned, normalized Subaru
+extension. A shared read-only Rust service queries its bounded search view for
+UI and typed MCP. Definitions, ECU links, source revisions and vehicle scope
+remain distinct; the source protocol is not flattened into generic OBD. The
+shared query service resolves blank names to the source Signal ID, then source
+PID ID, for consistent UI, MCP and logging names while retaining the raw row.
+Catalog queries order unnamed source rows last before applying pagination. Raw
+decoder/provenance fields load on demand. Imported request hints retain inferred
+state and do not promote automatic polling eligibility. Decoded, supported FHI-CAN
+rows can be added to the Live signal picker and started by explicitly checking
+Log. They use the existing OEM acquisition scheduler and adapter research
+contract, share requests for identical routes/identifiers, and publish raw
+responses plus suspect-quality numeric samples into the normal graph/recording
+pipeline. The local plan resolves rows from SQLite by candidate ID and has a
+separate strict J2534 worker message, so no public source/license fields are
+invented. Every row stays `auto_request=0` and `not_tested`. Subaru SSM-KWP rows
+also have an explicit OpenPort 2 SSM K-Line connection mode: an x86 J2534 worker
+opens ISO9141 at 4,800 baud, sends a fixed SSM2 init on the first selected read
+per ECU, and batches only SSM2 address-read requests. The worker verifies route,
+length and checksum and exposes no write command in this mode. Raw returned
+memory bytes and catalog SHA flow through the existing acquisition sample path
+as suspect-quality measurements. Unknown conversion methods or unlabeled enums
+can graph as raw `code` values when the source byte/bit layout is present; that
+does not promote the catalog decoder to supported. The source `22 xxxx` hints
+are not transmitted for SSM-KWP. FHI-CAN stays on the existing CAN adapter
+route; KWP14230 remains searchable without live transport. The local header interpretation uses the
+first request-header byte as ECU target and response-header byte F0 as tester;
+the complete source strings, including the extra `$20`, remain in the catalog.
+Rows remain manual and outside presets. A UI selection can also prefill one
+representable Mode 21/22 CAN Workbench test; selection never sends. Typed MCP
+connect choices and `oem_logging.start_subaru` / `stop_subaru` use the same
+worker, polling plan and adapter owner. See
+[catalog workflow](../docs/SUBARU_CATALOG.md).
+
 ## Proposed stack
 - Tauri 2 desktop shell; Rust acquisition/storage/processing engine; Svelte + TypeScript UI; CSS variables/theme tokens.
 - Windows J2534 calls run in a separate architecture-matched worker. The implemented OpenPort 2 path uses the vendor-installed 32-bit J2534 v04.04 provider in `lognook-j2534-worker.exe`; the Tauri process never loads the vendor DLL. A bounded typed JSON-lines protocol and response deadlines isolate the x64 app from the x86 driver.
@@ -17,10 +53,32 @@ Selected CAN-ID TX replay snapshots matching retained RX data frames from this d
 Agent MCP exposes the same operation as `workbench` with `operation.kind = replay_can_id`, `can_id`, `extended`, `start_elapsed_ms`, and `end_elapsed_ms`. Clients inspect the current `live:can` source first; the app resolves matching unflagged classic RX frames server-side, capped to the latest 400, so MCP cannot supply or replay arbitrary or saved-frame payloads. Agent Access must be unlocked, the CAN adapter must be connected in active mode, and `stop_operation` or disconnect finalizes the paired evidence and stops remaining replay frames.
 MCP parity is part of feature development: every new capability with meaningful data or operations must use the existing typed Agent Access path and shared core owner, with matching schema/tool documentation and behavior tests. A genuinely presentation-only capability may remain UI-only when that decision is recorded in `PROJECT_STATUS.md`.
 
+OEM catalog discovery uses one managed `OemDiscoveryService` shared by the UI and
+typed MCP `oem_discovery` tool. Explicit opt-in queues only visible catalog rows,
+or lazily traverses the full filtered result set. Work binds to adapter identity
+and connection generation, deduplicates candidate/source revision, and runs one
+bounded research exchange at a time through the existing engine owner. Stops,
+connection changes and Agent Access expiry cancel pending work. Read-only SQL
+orders value-bearing candidate IDs before other filtered rows across pagination;
+catalog definitions remain in SQLite and are not copied wholesale into the UI.
+The filtered worker pages in the original catalog order, independently of the
+values-first display order, so new results cannot shift its offsets and skip
+candidates. Previously attempted candidates are skipped by the same dedup set.
+Finite zero is a value, while a raw positive reply without a decoded number has a
+different result state. Research evidence is append-only; discovery neither
+publishes graph samples nor promotes validation or automatic logging eligibility.
+SX, ELM327 and A30 reuse their source-backed research paths. OpenPort uses typed
+21/22 requests through its x86 J2534 worker, and Candlelight OBD reuses its bounded
+ISO-TP receiver with the source's exact request/response route. Both paths now admit source-backed requests to the existing continuous OEM
+scheduler only after the unchanged exact-vehicle catalog validation gates. The simulator uses the shared decoder on explicitly
+synthetic responses and never opens hardware.
+
 Saved CAN replay extends the same worker through a private validated `CanReplayPlan`. A streaming bounded reader hashes the source as it parses, validates all rows, and retains only one selected ID/format/time range (maximum 10,000 eligible RX frames/600 seconds). An opaque 10-minute backend preview token freezes the bytes and provenance. Explicit Start rechecks actual target generation/bitrate and a different active paired output capture; source provenance and <=400-frame chunks are flushed before TX. MCP lists session-registered sources and uses typed prepare/inspect/start operations instead of supplied frame arrays. Replay progress/cancellation uses actual worker status events, not guessed completion deadlines. Live replay keeps its 400-frame cap.
 
 Vehicle/ECU profiles use a dedicated versioned application-state SQLite service at `app_data_dir()/profiles.sqlite`; the PID catalog remains authoritative and read-only. Observed VIN digests and per-responder protocol/address/calibration evidence are distinct from manual associations and catalog-vehicle references. A profile-aware OBD connect keeps the existing owner in standby after fresh support discovery. Serialized identity-only queries produce an eligible Resume preview; the user explicitly applies it with connection-generation/profile-revision guards. One acknowledged worker command replaces generic/derived and validated OEM scheduling while retaining the connection timeline. Source-bound CAN fields and source-backed research graph metadata use their existing pipelines. Skipped selections and previous identity history remain stored. Existing v1 recordings remain readable; new sessions may carry optional `vehicle_context_v1` metadata containing a frozen identity snapshot and the elapsed/sample-row boundary where it applies. UI and MCP use the same profile/recognition/resume service.
 Live chart rendering keeps its display history separately from the live CSV ring (100,000 samples). Each signal retains up to 600 seconds, with a 60,000-sample safety cap and a preceding boundary point when capacity permits. The configured visible window is selected before rendering at most 180 points using chronological bucket minima/maxima and endpoints; cursor lookup uses the retained measurements. Startup time windows begin at zero and disconnected graphs preserve the configured span. Automatic vertical ranges use visible data. Display reduction never replaces recorder or CSV measurements. On-screen CSV export includes currently graphed live signals, including graph-only research/CAN signals, and reports when the oldest samples were overwritten. A trace is marked stale after at least five seconds, or three recent sample intervals if longer; stale live traces stop extending the latest point across the chart.
+The graph selector defaults to **Time series** and can replace that plot with a presentation-only X/Y scatter of selected signals. Scatter pairs samples with the latest preceding value from the other signal only while it is fresh, reads only the selected time window, bounds each input stream to 256 display points, renders at most 128 pairs over a maximum 15-second trail, fades older dots and colors by a selected third signal or sample age. This view does not alter samples, acquisition, recordings or MCP data. Its selector and axis/color choices are saved in graph preferences; existing manual per-signal bounds apply to the corresponding scatter axis.
+Incoming live samples are all appended to the CSV buffer, while readouts and graph history updates coalesce to one UI commit per animation frame. Every sample is still retained in the bounded graph history and recording buffers; rendering pressure does not change the adapter or simulator request interval.
 When CAN Workbench is selected, the monitor fills the upper right pane and the decoded-signal graph remains below it. A draggable, keyboard-adjustable divider changes their height; adapter and scan controls stay in the left pane.
 
 ## Shared contracts
@@ -103,7 +161,7 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - The Cargo workspace has one domain crate, `crates/lognook-core`, and one Tauri app at `apps/desktop/src-tauri`. Svelte 5, TypeScript, and Vite live under `apps/desktop`; no empty subsystem crates were created.
 - `HardwareAdapter` owns connect/read/disconnect. The simulator and SX use the same capability/signal/sample contracts. SX discovery and opening require exact USB VID/PID `0403:6015`; the selected COM port opens at 115200 8-N-1 with no flow control.
 - The SX handshake begins with the complete adapter-only query `STI\r`. Its firmware reply and `>` synchronize the connection. The adapter then queries STDI and STSN, waiting for each reply prompt. An already-powered device is not required to emit a fresh startup banner on port open; a queued startup banner or empty prompt is tolerated before the STI reply. Missing or unexpected replies stop before further commands.
-- Identify SX is a separate identity-only UI action. Live connection repeats identity, scans Mode 01 support ranges starting at `0100` and follows continuation flags (`0120`, etc.), then reads only selected supported signals from the shared catalog. The current production adapter sends no wake/reset, saved-protocol configuration, DTC-clear, OEM/UDS, actuator, or ECU-write commands. This describes current acquisition behavior, not the complete physical-test policy: separate source-backed read probes and state-changing test approval follow root `AGENTS.md`.
+- Identify SX is a separate identity-only UI action. Live connection repeats identity, scans Mode 01 support ranges starting at `0100` and follows continuation flags (`0120`, etc.), then reads only selected supported signals from the shared catalog. Ordinary acquisition sends no wake/reset, saved-protocol configuration, OEM/UDS, actuator, or ECU-write commands. Standard Mode 04 is limited to the distinct capability-gated, confirmed DTC clear action described below; raw commands cannot carry it.
 - SX serial ports are enumerated at launch, on adapter selection/focus, and every two seconds while SX is selected and disconnected. Refreshes preserve a still-present COM selection and clear identity when the selected port disappears.
 - Tests include synthetic protocol fixtures and physical Ford/SX identity, supported-PID, and grouped-response captures. They cover continuation parsing, absent/optional startup frames, wrong firmware/device, silent replies, USB matching, malformed/truncated responses, multiple responders, PID capability filtering, all 35 seed decoders, and selected reads. Group construction is checked to cover each catalog signal exactly once in seven responses of at most two CAN frames. The live rate bench captured all three supported-PID ranges, including raw `0120` response `41 20 A0 07 F1 19`, and validated positive responses for the 35 tested auto-requestable generic candidates. The Ford advertised six additional structured or multi-channel PIDs that remain review-required. One earlier UI session showed a Mode 01 PID 05 timeout, which did not recur in the later five-signal recording.
 - Acquisition serializes adapter reads at a 100 ms target and submits timestamped samples to a bounded 256-item synchronous queue. A slow recorder applies backpressure. The UI consumes pipeline events rather than synthesizing measurements.
@@ -168,7 +226,7 @@ No Windows APIs outside Windows adapter/worker and distribution modules. No fron
 - Windows lists already-paired Classic Bluetooth devices and connects through the standard SPP service-class UUID using Winsock RFCOMM; Windows service discovery resolves the RFCOMM channel. Pairing remains an OS action. BLE ELM clones and virtual-COM fallback are not implemented.
 - ELM327 uses a prompt-delimited ASCII session, positively checks `ATI`, configures only standard adapter display/protocol settings, discovers Mode 01 support bitmaps, and emits timestamped selected PID samples through `HardwareAdapter -> LogNookEngine -> Sample`. Its direct CAN-header access is reserved for source-backed Mode 21/22 candidate tries; no raw command entry exists.
 - A30 uses captured XOR-framed binary messages, SETUP/STATUS/poll/config startup, and serialized RFCOMM transactions. Its Mode 01 adapter follows supported PID bitmaps. The one-shot UI exposes captured read requests for Modes 01, 02, 03, 06, 07, 09, and 0A, plus source-backed candidate Modes 21/22. Numeric Mode 02/06 and candidate results use the shared sample pipeline; unmapped Mode 06 values are labeled `raw count`.
-- Mode 04 clear, service 30 actuators, FFDA and other writes, routines, session/security changes, and arbitrary hex commands remain unavailable. The A30 Mode 21 field map and physical Bluetooth interoperability still need vehicle tests.
+- Mode 04 clear is available only through the distinct confirmed DTC clear action described below. Service 30 actuators, FFDA and other writes, routines, session/security changes, and raw Mode 04 commands remain unavailable. The A30 Mode 21 field map and physical Bluetooth interoperability still need vehicle tests.
 - Derived-signal IDs are checked for syntax, uniqueness, and collisions with base PIDs before the keyed signal list changes. Formula help uses the parser's ASCII arithmetic operators (`+ - * /`).
 - The derived-signal editor is a native modal opened from the `ƒx` button on each base PID in Graph settings. New formulas start with that PID, its name, and its unit; the editor no longer occupies PID-list space.
 - Derived traces default to a dotted line and a color distinct from their formula inputs. Same-unit formulas share an automatic vertical range with their input PIDs to show offsets; a **Keep source line** checkbox controls whether those source traces are drawn. Combined and separate graph footers show the formula in parentheses beside its value.
@@ -266,6 +324,11 @@ Acquisition-worker scheduling and the workbench UI are separate follow-up slices
 - `pipeline_worker` serializes acquisition samples, recording, automatic triggers, and derived outputs. `pipeline_worker/trigger.rs` detects threshold conditions; `live_samples.rs` bounds the pre-trigger buffer and starts the recorder; `derived.rs` maintains formula inputs and emits separate output samples. Both use the same recording/event pipeline.
 - Derived formulas compile to a small arithmetic expression tree over catalog signal IDs. The engine requests formula inputs from the adapter, emits the derived sample with the source timestamp, and never changes source rows. Tare updates only the derived offset and records a zero-valued sample.
 - `GraphPreferences` are renderer-local preferences: per-signal manual min/max and line styling, one of line/scatter/bar/heatmap views, cursor readouts, and a stored reference snapshot. Reference samples are capped at 180 per signal and mapped to the current visible time span.
+- Compact graph zoom controls reuse these renderer-local bounds. Time-series X
+  adjusts the visible time span; Y targets the trace selected in the legend.
+  Scatter X/Y adjust the selected axes. View changes do not alter acquisition,
+  recordings or replay sample data. These controls have no separate MCP operation
+  because they only change local presentation, like the existing manual scales.
 - Graph screenshots serialize the displayed SVG with its legend and guides, then use the browser canvas to download PNG. Full-window/native desktop capture is not implemented.
 - Automatic recording currently supports one selected-signal threshold, above/below direction, hysteresis, hold duration, a 0–30 s pre-trigger window, and an automatic marker. The ring buffer is capped at 100,000 samples. Compound conditions, time/change events, automatic stop rules, notifications/audio, and physical trigger validation remain future work.
 
@@ -330,6 +393,16 @@ stopped. `get_status` reports both sources; `disconnect_source` operates on one.
 
 User and agent operation instructions: [Discovery and diagnostics](../docs/DISCOVERY_DIAGNOSTICS.md).
 
+## Unified Vehicle Diagnostics and explicit DTC clear — 2026-10-15
+
+- Mode 09 ECU-name decoding recognizes the 20-byte four-character acronym / dash / 15-character description layout and trims padding within each field. This supports the captured Ford `PCM\0-PowertrainCtrl\0` name without relaxing VIN/calibration validation or changing stored raw response bytes.
+- ISO15765 flow-control filter mask, pattern and flow-control messages carry `ISO15765_FRAME_PAD`, matching the installed Tactrix `canlogger` example. Padding applies to driver-generated flow-control frames as well as application requests; short DTC replies do not exercise multi-frame reassembly.
+- The J2534 worker skips `TX_MSG_TYPE` and `START_OF_MESSAGE` transport notifications before Mode 01, Mode 09 and standard DTC payload validation. Original Tactrix ISO-TP receive-start notifications may contain only a four-byte CAN header; they are not malformed ECU replies. Completed messages still require valid protocol, responder, length and payload checks. The same parser serves desktop and MCP diagnostics.
+- `ConnectionCapabilities.diagnostics` advertises DTC snapshot, identity, Mode 06 and standard clear support per connected adapter. Snapshot construction filters unsupported categories before enqueue and records an `unsupported` result without transmission. Legacy capability JSON defaults all diagnostic capabilities to false.
+- SX, ELM327 and A30 keep diagnostic exchanges on their existing serialized adapter session. Candlelight OBD performs standard DTC and identity reads on the single ECU accepted by its current Mode 01 connection flow; the report keeps that ECU ID and physical route, and ISO-TP identity responses use flow control on the existing Candlelight owner. It does not merge multiple ECUs. OpenPort receives only typed standard DTC service variants (03/04/07/0A) through its isolated J2534 worker; Mode 09 identity remains separate and Mode 06 remains unsupported. The simulator returns labeled local responses and never reaches hardware.
+- `HardwareAdapter::clear_vehicle_dtcs` is separate from `DiagnosticRequest::queries`, `execute_research_test(Diagnostic)`, snapshots and polling. Its public shape accepts no service, identifier, payload or retry count. The UI confirmation names the adapter and responding ECU scope; MCP uses a separate `clear_vehicle_dtcs` action gated by unlocked Agent Access, explicit `confirm=true`, adapter ID and OBD connection generation from `get_status`. Both dispatch through the same serialized owner and reject missing capability or stale generation before I/O.
+- Each physical clear sends one exact standard request `[04]`, without automatic retry. Raw hex payloads and adapter-terminal forms for Mode 04 are rejected with a pointer to the dedicated clear action. Per-ECU raw replies, route, timing, NRC and typed outcomes are appended as `DiagnosticReportKind::ClearDtcs` evidence; prior diagnostic snapshots remain unchanged. Positive `44` means ECU acknowledgement only, so the app never claims codes are gone until a later explicit read. No physical Mode 04 clear was used during implementation or automated validation.
+
 ## OpenPort OPTA hardware follow-up — 2026-10-09
 
 The laptop owner confirmed standard Mode 01 Ford acquisition through the OPTA
@@ -355,3 +428,23 @@ aggregate) with zero reported errors.
 [The evidence report](../results/openport2-opta-read-batch-diagnosis-2026-10-09.md)
 records the earlier approximately 1 Hz per-signal baseline and the subsequent
 rate measurements.
+# Signal preset operations
+
+The desktop picker and Agent Access share the typed signal-preset operation
+contract and service. Apply requires a server-held preview and fresh
+context/preset/connection checks, then replaces the selection through the
+existing acquisition worker. The worker validates OEM polling first and waits
+for the sample pipeline to acknowledge derived-definition replacement before
+swapping its schedule. Browsing and preview do not open another adapter owner.
+
+## VIN project workspace
+
+Vehicle projects extend the existing profile store with a bounded versioned
+workspace snapshot. A scoped VIN identifies the local project; current ECU and
+adapter evidence still determines selection eligibility. Identity-capable desktop
+Connect uses the existing profile standby/recognition owner, then creates a
+project or offers Load last state / Start fresh. Project restore uses shared
+selection validation without restarting OEM polling or CAN jobs. Ready-only
+autosave and generation/revision checks protect pending choices and reconnects.
+Typed `vehicle_projects` Tauri/MCP operations share the same service. See
+[VIN project behavior](../docs/VEHICLE_PROJECTS.md).

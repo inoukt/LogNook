@@ -1,7 +1,15 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import SubaruCatalogPanel from "./SubaruCatalogPanel.svelte";
+  import type { SubaruCatalogRow } from "./subaruCatalog";
   import { oemCandidateTryState } from "./oemCandidateControls";
+  import {
+    isCurrentOemDiscoveryConnection, nextVisibleOemCandidateIds, oemDiscoveryFilter,
+    oemDiscoveryPresentation, sortOemDiscoveryResults, uniqueCandidateIds,
+    updateVisibleOemCandidateIds,
+    type OemDiscoveryResponse, type OemDiscoveryResult, type OemDiscoveryStatus,
+  } from "./oemDiscovery";
   import { A30_READ_TESTS, type A30ReadTestId } from "./a30ReadTests";
   import { runResearchQueue, toggleCandidateSelection } from "./researchQueue";
   import type {
@@ -14,13 +22,21 @@
   export let selectedBluetoothAddress = "";
   export let selectedAdapter: "obdlink_sx" | "a30" | "elm327" | "openport2" | "simulator" | "candlelight_obd" = "obdlink_sx";
   export let activeAdapter: DeviceDescriptor | null = null;
+  export let connectionGeneration: number | null = null;
   export let disabled = false;
+  export let subaruDisabled = false;
   export let canConnected = false;
   export let canCandidateDisabled = true;
   export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
   export let onTryCanCandidate: (candidateId: string) => void = () => {};
   export let onGraphReadValue: (value: A30GraphValue) => void = () => {};
   export let onRunUpdate: (state: ResearchRunViewState) => void = () => {};
+  export let onSubaruSelect: (row: SubaruCatalogRow) => void = () => {};
+  export let onAddSubaruSignal: (row: SubaruCatalogRow) => void = () => {};
+  export let savedWorkspaceFilters: Record<string, unknown> = {};
+  export let onWorkspaceFiltersChange: (filters: Record<string, unknown>) => void = () => {};
+  let catalogSource: "community" | "subaru" = "community";
+  let filtersReady = false;
 
   const pageSize = 50;
   let query = "";
@@ -35,6 +51,31 @@
   let error = "";
   let searchTimer: number | undefined;
   let requestId = 0;
+  let valuesFirst = false;
+  let discoveryStatus: OemDiscoveryStatus = {
+    adapter_id: null, connection_generation: null, auto_try_visible: false, running: false,
+    queued: 0, completed: 0, with_values: 0, current_candidate_id: null, last_error: null, revision: 0,
+  };
+  let discoveryResults: Record<string, OemDiscoveryResult> = {};
+  let discoveryError = "";
+  let discoveryAutoTry = false;
+  let discoveryControlBusy = false;
+  let discoveryStopPending = false;
+  let discoveryStopOperations = 0;
+  let discoveryFilteredActive = false;
+  let visibleCandidateIds: string[] = [];
+  let attemptedCandidateIds = new Set<string>();
+  let discoveryPollTimer: number | undefined;
+  let discoveryEpoch = 0;
+  let discoveryContextKey = "";
+  let discoveryContextDisabled = false;
+  let destroyed = false;
+  let currentDiscoveryAdapterId: string | null = null;
+  let currentDiscoveryGeneration: number | null = null;
+  let catalogListElement: HTMLElement | null = null;
+  let candidateObserver: IntersectionObserver | null = null;
+  let candidateElements = new Map<HTMLElement, string>();
+  let visibleDiscoveryResults: OemDiscoveryResult[] = [];
   let selectedReadTest: A30ReadTestId = A30_READ_TESTS[0][0];
   let runRows: ResearchRunRow[] = [];
   let runInProgress = false;
@@ -63,9 +104,34 @@
   let pollStatusTimer: number | undefined;
   $: completedCount = runRows.filter(({ status }) => status === "completed" || status === "error").length;
   $: totalCount = runRows.length;
-  $: canTryCandidates = selectedAdapter === "obdlink_sx" || selectedAdapter === "a30" || selectedAdapter === "elm327";
+  $: canTryCandidates = selectedAdapter === "obdlink_sx" || selectedAdapter === "a30" || selectedAdapter === "elm327"
+    || selectedAdapter === "openport2" || selectedAdapter === "candlelight_obd";
+  $: if (filtersReady) onWorkspaceFiltersChange({ ...savedWorkspaceFilters, oem_catalog: { source: catalogSource, query, brand, model, service, pollQuery } });
+  function updateSubaruFilters(filters: Record<string, unknown>) {
+    savedWorkspaceFilters = { ...savedWorkspaceFilters, subaru_catalog: filters };
+    onWorkspaceFiltersChange(savedWorkspaceFilters);
+  }
+  $: catalogSwitchBusy = runInProgress || discoveryControlBusy || discoveryAutoTry
+    || discoveryFilteredActive || discoveryStatus.running || discoveryStatus.queued > 0;
+  $: visibleDiscoveryResults = sortOemDiscoveryResults(
+    page?.candidates.flatMap(({ candidate_id }) => discoveryResults[candidate_id] ? [discoveryResults[candidate_id]] : []) ?? [],
+  );
+  $: syncDiscoveryContext(activeAdapter?.stable_id ?? null, connectionGeneration, disabled);
+  $: if (catalogListElement && !candidateObserver) observeCatalogCandidates(catalogListElement);
 
   onMount(() => {
+    destroyed = false;
+    const filters = savedWorkspaceFilters.oem_catalog;
+    if (filters && typeof filters === "object" && !Array.isArray(filters)) {
+      const saved = filters as Record<string, unknown>;
+      if (saved.source === "community" || saved.source === "subaru") catalogSource = saved.source;
+      if (typeof saved.query === "string") query = saved.query;
+      if (typeof saved.brand === "string") brand = saved.brand;
+      if (typeof saved.model === "string") model = saved.model;
+      if (typeof saved.service === "string") service = saved.service;
+      if (typeof saved.pollQuery === "string") pollQuery = saved.pollQuery;
+    }
+    filtersReady = true;
     void loadPage();
     void loadPollProfiles();
     pollStatusTimer = window.setInterval(() => {
@@ -73,10 +139,242 @@
     }, 1000);
   });
   onDestroy(() => {
+    destroyed = true;
+    discoveryEpoch += 1;
+    requestId += 1;
     window.clearTimeout(searchTimer);
     window.clearTimeout(pollSearchTimer);
     window.clearInterval(pollStatusTimer);
+    window.clearTimeout(discoveryPollTimer);
+    candidateObserver?.disconnect();
+    void stopDiscoveryFor(currentDiscoveryAdapterId, currentDiscoveryGeneration);
   });
+
+  function observeCatalogCandidates(root: HTMLElement) {
+    candidateObserver?.disconnect();
+    candidateObserver = new IntersectionObserver((entries) => {
+      const newlyVisible: string[] = [];
+      for (const entry of entries) {
+        const candidateId = candidateElements.get(entry.target as HTMLElement);
+        if (!candidateId) continue;
+        visibleCandidateIds = updateVisibleOemCandidateIds(visibleCandidateIds, candidateId, entry.isIntersecting);
+        if (entry.isIntersecting && discoveryAutoTry) newlyVisible.push(candidateId);
+      }
+      if (newlyVisible.length) void enqueueVisibleCandidates(newlyVisible);
+    }, { root, threshold: 0 });
+    for (const node of candidateElements.keys()) candidateObserver.observe(node);
+  }
+
+  function trackCandidateVisibility(node: HTMLElement, candidateId: string) {
+    candidateElements.set(node, candidateId);
+    candidateObserver?.observe(node);
+    return {
+      update(nextCandidateId: string) {
+        candidateObserver?.unobserve(node);
+        candidateElements.set(node, nextCandidateId);
+        candidateObserver?.observe(node);
+      },
+      destroy() {
+        candidateObserver?.unobserve(node);
+        candidateElements.delete(node);
+        visibleCandidateIds = visibleCandidateIds.filter((id) => id !== candidateId);
+      },
+    };
+  }
+
+  function syncDiscoveryContext(adapterId: string | null, generation: number | null, isDisabled: boolean) {
+    const key = `${adapterId ?? ""}:${generation ?? ""}:${isDisabled ? "disabled" : "ready"}`;
+    if (key === discoveryContextKey) return;
+    const previousAdapterId = currentDiscoveryAdapterId;
+    const previousGeneration = currentDiscoveryGeneration;
+    const connectionChanged = adapterId !== currentDiscoveryAdapterId || generation !== currentDiscoveryGeneration;
+    const wasDisabled = discoveryContextDisabled;
+    discoveryEpoch += 1;
+    discoveryContextKey = key;
+    discoveryContextDisabled = isDisabled;
+    currentDiscoveryAdapterId = adapterId;
+    currentDiscoveryGeneration = generation;
+    discoveryAutoTry = false;
+    discoveryControlBusy = false;
+    discoveryFilteredActive = false;
+    if (connectionChanged) {
+      attemptedCandidateIds = new Set();
+      discoveryResults = {};
+      discoveryStatus = {
+        adapter_id: null, connection_generation: null, auto_try_visible: false, running: false,
+        queued: 0, completed: 0, with_values: 0, current_candidate_id: null, last_error: null, revision: 0,
+      };
+    } else if (!wasDisabled && isDisabled) {
+      discoveryStatus = { ...discoveryStatus, auto_try_visible: false, queued: 0 };
+    }
+    window.clearTimeout(discoveryPollTimer);
+    if (previousAdapterId && previousGeneration !== null && (connectionChanged || (!wasDisabled && isDisabled))) {
+      void stopDiscoveryFor(previousAdapterId, previousGeneration);
+    }
+    if (adapterId && generation !== null && !isDisabled && !destroyed) void refreshDiscoveryStatus(adapterId, generation);
+  }
+
+  async function stopDiscoveryFor(adapterId: string | null, generation: number | null): Promise<OemDiscoveryResponse | null> {
+    if (!adapterId || generation === null) return null;
+    attemptedCandidateIds = new Set();
+    window.clearTimeout(discoveryPollTimer);
+    discoveryPollTimer = undefined;
+    discoveryStopOperations += 1;
+    discoveryStopPending = true;
+    try {
+      try {
+        await invoke<OemDiscoveryResponse>("oem_discovery", {
+          request: { kind: "set_auto_try", enabled: false, adapter_id: adapterId, connection_generation: generation },
+        });
+      } catch {
+        // Stop still cancels queued work after a disconnect invalidates the connection-bound toggle.
+      }
+      return await invoke<OemDiscoveryResponse>("oem_discovery", { request: { kind: "stop" } });
+    } catch {
+      // Disconnect and unmount cleanup is best-effort; the backend also scopes work to the connection generation.
+      return null;
+    } finally {
+      if (!destroyed) {
+        discoveryStopOperations -= 1;
+        discoveryStopPending = discoveryStopOperations > 0;
+      }
+    }
+  }
+
+  function applyDiscoveryResponse(response: OemDiscoveryResponse, adapterId: string, generation: number) {
+    if (destroyed || disabled || adapterId !== currentDiscoveryAdapterId || generation !== currentDiscoveryGeneration
+      || activeAdapter?.stable_id !== adapterId || connectionGeneration !== generation
+      || !isCurrentOemDiscoveryConnection(response.status, adapterId, generation)) return false;
+    if (response.status.revision < discoveryStatus.revision) return false;
+    discoveryStatus = response.status;
+    discoveryAutoTry = response.status.auto_try_visible;
+    const next = { ...discoveryResults };
+    for (const result of response.results ?? []) next[result.candidate_id] = result;
+    discoveryResults = next;
+    if (response.status.last_error) discoveryError = response.status.last_error;
+    const active = response.status.running || response.status.queued > 0 || discoveryAutoTry || discoveryFilteredActive;
+    window.clearTimeout(discoveryPollTimer);
+    discoveryPollTimer = active ? window.setTimeout(() => void refreshDiscoveryStatus(adapterId, generation), 400) : undefined;
+    if (discoveryFilteredActive && !response.status.running && response.status.queued === 0) {
+      discoveryFilteredActive = false;
+      void loadPage();
+    }
+    return true;
+  }
+
+  async function refreshDiscoveryStatus(adapterId = currentDiscoveryAdapterId, generation = currentDiscoveryGeneration) {
+    if (!adapterId || generation === null || generation === undefined || disabled || destroyed) return;
+    const expectedEpoch = discoveryEpoch;
+    const candidateIds = uniqueCandidateIds(page?.candidates.map(({ candidate_id }) => candidate_id) ?? []).slice(0, pageSize);
+    try {
+      const response = await invoke<OemDiscoveryResponse>("oem_discovery", {
+        request: { kind: "status", candidate_ids: candidateIds },
+      });
+      if (expectedEpoch === discoveryEpoch) applyDiscoveryResponse(response, adapterId, generation);
+    } catch (caught) {
+      if (expectedEpoch === discoveryEpoch) discoveryError = String(caught);
+    }
+  }
+
+  async function enqueueVisibleCandidates(candidateIds: string[]) {
+    const adapterId = currentDiscoveryAdapterId;
+    const generation = currentDiscoveryGeneration;
+    if (!discoveryAutoTry || disabled || destroyed || !adapterId || generation === null) return;
+    const ids = nextVisibleOemCandidateIds(candidateIds, attemptedCandidateIds);
+    if (!ids.length) return;
+    for (const id of ids) attemptedCandidateIds.add(id);
+    const expectedEpoch = discoveryEpoch;
+    discoveryError = "";
+    try {
+      const response = await invoke<OemDiscoveryResponse>("oem_discovery", {
+        request: { kind: "enqueue_visible", candidate_ids: ids, adapter_id: adapterId, connection_generation: generation },
+      });
+      if (expectedEpoch === discoveryEpoch) applyDiscoveryResponse(response, adapterId, generation);
+    } catch (caught) {
+      if (expectedEpoch === discoveryEpoch) {
+        discoveryError = String(caught);
+        for (const id of ids) attemptedCandidateIds.delete(id);
+      }
+    }
+  }
+
+  async function toggleAutoTryVisible(enabled: boolean) {
+    const adapterId = currentDiscoveryAdapterId;
+    const generation = currentDiscoveryGeneration;
+    if (!adapterId || generation === null || disabled || discoveryStopPending) return;
+    discoveryEpoch += 1;
+    const expectedEpoch = discoveryEpoch;
+    discoveryControlBusy = true;
+    discoveryAutoTry = enabled;
+    discoveryError = "";
+    try {
+      const response = await invoke<OemDiscoveryResponse>("oem_discovery", {
+        request: { kind: "set_auto_try", enabled, adapter_id: adapterId, connection_generation: generation },
+      });
+      if (expectedEpoch !== discoveryEpoch) return;
+      if (!applyDiscoveryResponse(response, adapterId, generation)) return;
+      if (enabled) await enqueueVisibleCandidates(visibleCandidateIds);
+      else {
+        const stopped = await stopDiscoveryFor(adapterId, generation);
+        if (stopped) applyDiscoveryResponse(stopped, adapterId, generation);
+      }
+    } catch (caught) {
+      if (expectedEpoch === discoveryEpoch) {
+        discoveryAutoTry = false;
+        discoveryError = String(caught);
+      }
+    } finally {
+      if (expectedEpoch === discoveryEpoch) discoveryControlBusy = false;
+    }
+  }
+
+  async function stopDiscovery() {
+    const adapterId = currentDiscoveryAdapterId;
+    const generation = currentDiscoveryGeneration;
+    discoveryAutoTry = false;
+    discoveryControlBusy = false;
+    discoveryFilteredActive = false;
+    discoveryEpoch += 1;
+    if (adapterId && generation !== null) {
+      const response = await stopDiscoveryFor(adapterId, generation);
+      if (response) applyDiscoveryResponse(response, adapterId, generation);
+    }
+  }
+
+  async function tryFilteredCandidates() {
+    const adapterId = currentDiscoveryAdapterId;
+    const generation = currentDiscoveryGeneration;
+    if (!adapterId || generation === null || disabled || discoveryFilteredActive || discoveryStopPending) return;
+    if (discoveryAutoTry || discoveryStatus.running || discoveryStatus.queued > 0) await stopDiscovery();
+    discoveryEpoch += 1;
+    const expectedEpoch = discoveryEpoch;
+    discoveryAutoTry = false;
+    discoveryFilteredActive = true;
+    discoveryError = "";
+    valuesFirst = true;
+    try {
+      const response = await invoke<OemDiscoveryResponse>("oem_discovery", {
+        request: {
+          kind: "try_filtered",
+          filter: oemDiscoveryFilter(query, brand, model, service),
+          adapter_id: adapterId,
+          connection_generation: generation,
+        },
+      });
+      if (expectedEpoch !== discoveryEpoch) return;
+      if (!applyDiscoveryResponse(response, adapterId, generation)) return;
+      if (response.status.running || response.status.queued > 0) await loadPage();
+    } catch (caught) {
+      if (expectedEpoch === discoveryEpoch) {
+        discoveryFilteredActive = false;
+        discoveryError = String(caught);
+      }
+    }
+  }
+
+  function discoveryResult(candidateId: string): OemDiscoveryResult | null {
+    return discoveryResults[candidateId] ?? null;
+  }
 
   async function loadPollProfiles() {
     try {
@@ -184,6 +482,12 @@
   }
 
   function scheduleSearch() {
+    valuesFirst = false;
+    discoveryError = "";
+    requestId += 1;
+    discoveryEpoch += 1;
+    discoveryControlBusy = false;
+    if (discoveryAutoTry || discoveryFilteredActive || discoveryStatus.running || discoveryStatus.queued > 0) void stopDiscovery();
     offset = 0;
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => void loadPage(), 220);
@@ -194,14 +498,25 @@
     loading = true;
     error = "";
     try {
-      const result = await invoke<OemCatalogPage>("search_oem_catalog", {
-        query, brand, model, service: service || null, offset, limit: pageSize,
+      const result = await invoke<OemDiscoveryResponse>("oem_discovery", {
+        request: {
+          kind: "search",
+          filter: oemDiscoveryFilter(query, brand, model, service),
+          offset,
+          limit: pageSize,
+          values_first: valuesFirst,
+        },
       });
-      if (currentRequest === requestId) page = result;
+      if (!destroyed && currentRequest === requestId) {
+        page = result.page ?? null;
+        if (activeAdapter && connectionGeneration !== null) {
+          applyDiscoveryResponse(result, activeAdapter.stable_id, connectionGeneration);
+        }
+      }
     } catch (caught) {
-      if (currentRequest === requestId) error = String(caught);
+      if (!destroyed && currentRequest === requestId) error = String(caught);
     } finally {
-      if (currentRequest === requestId) loading = false;
+      if (!destroyed && currentRequest === requestId) loading = false;
     }
   }
 
@@ -236,7 +551,17 @@
   type QueueOutcome = { kind: "result"; result: ResearchTestResult } | { kind: "ineligible"; error: string };
 
   function currentCandidateDevice() {
-    return selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : selectedPort;
+    return selectedAdapter === "a30" || selectedAdapter === "elm327"
+      ? selectedBluetoothAddress
+      : selectedPort || activeAdapter?.path || activeAdapter?.stable_id || "";
+  }
+
+  function adapterTryName() {
+    return selectedAdapter === "simulator" ? "SIMULATOR (no vehicle transmission)"
+      : selectedAdapter === "openport2" ? "OpenPort 2"
+        : selectedAdapter === "candlelight_obd" ? "Candlelight OBD"
+          : selectedAdapter === "a30" ? "Xtool A30/A30M"
+            : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX";
   }
 
   async function runQueue(items: QueueSelection[]) {
@@ -381,6 +706,13 @@
 </script>
 
 <section class="oem-research" aria-label="OEM PID research catalog">
+  <div class="catalog-source-tabs" role="group" aria-label="OEM catalog source">
+    <button class:active={catalogSource === "community"} aria-pressed={catalogSource === "community"} disabled={catalogSwitchBusy} title={catalogSwitchBusy ? "Stop discovery before switching catalogs" : undefined} onclick={() => catalogSource = "community"}>Community catalog</button>
+    <button class:active={catalogSource === "subaru"} aria-pressed={catalogSource === "subaru"} disabled={catalogSwitchBusy} title={catalogSwitchBusy ? "Stop discovery before switching catalogs" : undefined} onclick={() => catalogSource = "subaru"}>Subaru OEM catalog</button>
+  </div>
+  {#if catalogSource === "subaru"}
+    <SubaruCatalogPanel disabled={subaruDisabled || runInProgress} savedFilters={savedWorkspaceFilters.subaru_catalog && typeof savedWorkspaceFilters.subaru_catalog === "object" ? savedWorkspaceFilters.subaru_catalog as Record<string, unknown> : {}} onFiltersChange={updateSubaruFilters} onSelect={onSubaruSelect} onAddToSignals={onAddSubaruSignal} />
+  {:else}
   <div class="oem-research-heading">
     <span class="oem-catalog-note">Source-backed candidates · research only</span>
     {#if page}<span class="oem-count">{page.total.toLocaleString()} results</span>{/if}
@@ -396,6 +728,52 @@
       </select>
     </div>
   </div>
+
+  <div class="oem-discovery-controls">
+    <label class="oem-auto-try">
+      <input
+        type="checkbox"
+        checked={discoveryAutoTry}
+        onchange={(event) => toggleAutoTryVisible(event.currentTarget.checked)}
+        disabled={disabled || discoveryControlBusy || discoveryStopPending || !activeAdapter || connectionGeneration === null}
+        aria-label="Auto-try visible OEM candidates once per connection"
+      />
+      <span>Auto-try visible rows once per connection</span>
+    </label>
+    <button class="button secondary" onclick={tryFilteredCandidates} disabled={disabled || discoveryControlBusy || discoveryStopPending || !activeAdapter || connectionGeneration === null || discoveryFilteredActive}>
+      {discoveryFilteredActive ? "Trying filtered list…" : "Try all filtered"}
+    </button>
+    {#if discoveryAutoTry || discoveryFilteredActive || discoveryStatus.running || discoveryStatus.queued > 0}
+      <button class="button secondary" onclick={stopDiscovery} disabled={disabled}>Stop discovery</button>
+    {/if}
+    {#if selectedAdapter === "simulator"}
+      <strong class="oem-simulator-label">SIMULATOR · NO VEHICLE TRANSMISSION</strong>
+    {/if}
+    <span class="oem-discovery-progress" aria-live="polite">
+      {#if discoveryStatus.running}
+        {discoveryAutoTry || discoveryFilteredActive ? "Reading" : "Finishing current read"} {discoveryStatus.current_candidate_id ?? "candidate"} · {discoveryStatus.completed} complete · {discoveryStatus.with_values} numeric
+      {:else if discoveryFilteredActive}
+        {discoveryStatus.completed} complete · {discoveryStatus.with_values} numeric
+      {:else if discoveryAutoTry}
+        Watching visible rows · {discoveryStatus.completed} complete · {discoveryStatus.with_values} numeric
+      {:else}
+        {discoveryStatus.with_values} numeric values found this connection
+      {/if}
+    </span>
+    {#if discoveryError}<span class="oem-discovery-error" role="alert">{discoveryError}</span>{/if}
+  </div>
+
+  {#if valuesFirst && visibleDiscoveryResults.length}
+    <div class="oem-discovery-values" aria-label="Numeric discovery results first">
+      <strong>Numeric results first on this page</strong>
+      {#each visibleDiscoveryResults as result (result.candidate_id)}
+        {@const presentation = oemDiscoveryPresentation(result)}
+        <span class={"oem-discovery-badge tone-" + presentation.tone} title={result.detail ?? result.outcome ?? ""}>
+          {page?.candidates.find(({ candidate_id }) => candidate_id === result.candidate_id)?.name ?? result.candidate_id}: {presentation.label}
+        </span>
+      {/each}
+    </div>
+  {/if}
 
   <details class="oem-polling">
     <summary>
@@ -460,7 +838,7 @@
 
   <div class="research-queue-controls">
     <span class="selected-candidate-count"><strong>{selectedCandidateIds.length}</strong> selected</span>
-    <button class="button primary" onclick={runSelectedCandidates} disabled={disabled || runInProgress || !canTryCandidates || selectedCandidateIds.length === 0}>Run selected</button>
+    <button class="button primary" onclick={runSelectedCandidates} disabled={disabled || runInProgress || selectedCandidateIds.length === 0}>Run selected</button>
     <button class="button secondary" onclick={stopQueue} disabled={!runInProgress || stopRequested}>{stopRequested ? "Stopping…" : "Stop"}</button>
   </div>
   <p class="research-queue-progress" aria-live="polite">
@@ -469,7 +847,7 @@
     {:else if totalCount}
       {completedCount} of {totalCount} completed · {runRows.filter(({ status }) => status === "skipped").length} skipped
     {:else if !canTryCandidates}
-      OEM candidate reads are unavailable for {selectedAdapter}.
+      Continuous OEM logging is unavailable for {selectedAdapter}; source-backed one-shot research stays separate.
     {:else}
       Select source-backed candidates; selection order is retained across search and pages.
     {/if}
@@ -478,28 +856,35 @@
   {#if error}<p class="oem-error" role="alert">Catalog unavailable: {error}</p>
   {:else if loading && !page}<p class="oem-empty">Loading the local PID catalog…</p>
   {:else if page}
-    <div class="oem-catalog-list" aria-busy={loading}>
+    <div class="oem-catalog-list" bind:this={catalogListElement} aria-busy={loading}>
       {#each page.candidates as candidate (candidate.candidate_id)}
         {@const candidateDevice = currentCandidateDevice()}
         {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || runInProgress, selectedAdapter)}
-        <article class="oem-candidate">
+        {@const result = discoveryResult(candidate.candidate_id)}
+        {@const discoveryBadge = oemDiscoveryPresentation(result)}
+        <article class="oem-candidate" use:trackCandidateVisibility={candidate.candidate_id}>
           <header>
             <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name}`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
             <strong title={candidate.name}>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
             <button class="button secondary oem-try-button" onclick={() => onGraphCandidate(candidate)} title="Add this research signal to the graph. This does not send a request to the vehicle." aria-label={`Graph ${candidate.name}`}>Graph</button>
-            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${selectedAdapter === "a30" ? "Xtool A30/A30M" : selectedAdapter === "elm327" ? "Bluetooth ELM327" : "OBDLink SX"}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
+            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${adapterTryName()}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
             {#if canConnected}
               <button class="button secondary oem-try-button" onclick={() => onTryCanCandidate(candidate.candidate_id)} disabled={canCandidateDisabled} title="Read this source-backed service 21/22 candidate over the active Candlelight CAN route" aria-label={`Try ${candidate.name} over CAN`}>CAN read</button>
             {/if}
           </header>
-          {#if tryState.disabled && !runInProgress}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
-          <p class="oem-address">{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
-          <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
-            {#if candidate.bit_offset !== null && candidate.bit_length !== null} · bits {candidate.bit_offset}–{candidate.bit_offset + candidate.bit_length - 1}{/if}
-          </p>
-          <div class="oem-badges"><span>Research</span><span>{candidate.vehicle_validation.replaceAll("_", " ")}</span><span>{candidate.auto_request ? "Auto-request allowed" : "Not auto-polled"}</span></div>
+          <p class="oem-address" title={`${candidate.brand} ${candidate.model_scope} · ${address(candidate)}`}>{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
           <details>
-            <summary>Decoder, applicability and source</summary>
+            <summary>
+              <span class={"oem-discovery-badge tone-" + discoveryBadge.tone} title={result?.detail ?? result?.outcome ?? ""}>{discoveryBadge.label}</span>
+              <span class="oem-validation" title={candidate.auto_request ? "Auto-request allowed" : "Research · not auto-polled"}>{candidate.vehicle_validation.replaceAll("_", " ")}</span>
+              <span class="oem-details-label">Details</span>
+            </summary>
+            {#if tryState.disabled && !runInProgress}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
+            <p>{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
+            <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
+              {#if candidate.bit_offset !== null && candidate.bit_length !== null} · bits {candidate.bit_offset}–{candidate.bit_offset + candidate.bit_length - 1}{/if}
+            </p>
+            <div class="oem-badges"><span>Research</span><span>{candidate.auto_request ? "Auto-request allowed" : "Not auto-polled"}</span></div>
             <dl>
               <dt>Formula</dt><dd>{candidate.formula || "Not supplied"}</dd>
               <dt>Decoder</dt><dd><code>{candidate.decoder_json}</code></dd>
@@ -526,11 +911,16 @@
     </footer>
   {/if}
   <p class="oem-footnote">Candidate responses remain research evidence until validated on the exact vehicle. Numeric results use the shared graph and recording pipeline.</p>
+  {/if}
 </section>
 
 <style>
+  .catalog-source-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .catalog-source-tabs button { flex: 1; min-width: 0; padding: 6px 4px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-deep); color: var(--text-muted); font-size: 10px; cursor: pointer; }
+  .catalog-source-tabs button.active { background: var(--surface-raised); border-color: var(--accent); color: var(--text); }
   .oem-research { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden; }
   .oem-research > :not(.oem-catalog-list) { flex: 0 0 auto; }
+  .oem-research > :global(.subaru-catalog) { flex: 1 1 0; min-width: 0; min-height: 0; }
   .oem-research-heading, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
   .oem-catalog-note { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-candidate p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.25; }
@@ -538,6 +928,21 @@
   .oem-filters { display: grid; gap: 3px; }
   .oem-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 78px; gap: 3px; }
   .oem-filters .text-input { min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .oem-discovery-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
+  .oem-auto-try { display: flex; flex: 1 1 145px; align-items: center; gap: 4px; min-width: 0; color: var(--text); font-size: 9px; }
+  .oem-auto-try input { flex: 0 0 auto; accent-color: #60a5fa; }
+  .oem-discovery-controls > .button { min-height: 23px; padding: 2px 6px; font-size: 8px; }
+  .oem-discovery-progress, .oem-discovery-error { flex: 1 1 100%; min-width: 0; color: var(--text-muted); font-size: 8px; overflow-wrap: anywhere; }
+  .oem-discovery-error { color: #ffb8ae; }
+  .oem-simulator-label { flex: 1 1 100%; color: #fbbf24; font-size: 8px; letter-spacing: .04em; }
+  .oem-discovery-values { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 5px; background: #142029; }
+  .oem-discovery-values > strong { flex: 1 1 100%; color: var(--text-muted); font-size: 8px; }
+  .oem-discovery-badge { display: inline-block; max-width: 100%; overflow: hidden; padding: 1px 5px; border-radius: 8px; font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-discovery-badge.tone-untested { color: #cbd5e1; background: #334155; }
+  .oem-discovery-badge.tone-waiting, .oem-discovery-badge.tone-active { color: #bfdbfe; background: #1e3a5f; }
+  .oem-discovery-badge.tone-value { color: #bbf7d0; background: #14532d; }
+  .oem-discovery-badge.tone-reply { color: #fde68a; background: #713f12; }
+  .oem-discovery-badge.tone-failure { color: #fecaca; background: #7f1d1d; }
   .oem-polling { min-width: 0; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
   .oem-polling > summary { display: flex; align-items: center; justify-content: space-between; gap: 5px; cursor: pointer; color: var(--accent); font-size: 9px; }
   .oem-polling > summary span { overflow: hidden; color: var(--text-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
@@ -574,11 +979,16 @@
   .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 20%; overflow: hidden; color: var(--text); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-try-button { flex: 0 0 auto; min-height: 22px; padding: 2px 5px; font-size: 8px; }
   .oem-disabled-reason { display: block; margin: 2px 0; color: var(--text-muted); font-size: 8px; line-height: 1.2; }
-  .oem-address { color: #b8c9d3 !important; }
+  .oem-address { overflow: hidden; color: #b8c9d3 !important; text-overflow: ellipsis; white-space: nowrap; }
   .oem-badges { display: flex; flex-wrap: nowrap; gap: 3px; margin-top: 3px; overflow: hidden; }
   .oem-badges span { overflow: hidden; padding: 1px 4px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-candidate details { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
-  .oem-candidate summary { cursor: pointer; }
+  .oem-candidate summary { display: flex; align-items: center; gap: 4px; min-width: 0; cursor: pointer; list-style: none; }
+  .oem-candidate summary::-webkit-details-marker { display: none; }
+  .oem-validation { min-width: 0; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-details-label { margin-left: auto; color: var(--accent); font-size: 9px; white-space: nowrap; }
+  .oem-details-label::after { content: " ▸"; }
+  .oem-candidate details[open] .oem-details-label::after { content: " ▾"; }
   .oem-candidate dl { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 3px 6px; margin: 6px 0; }
   .oem-candidate dt { color: var(--text-muted); }
   .oem-candidate dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text); }

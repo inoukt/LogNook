@@ -17,6 +17,8 @@ const SCHEMA_VERSION: i64 = VEHICLE_PROFILE_SCHEMA_VERSION as i64;
 mod history;
 #[path = "store_identity.rs"]
 mod identity;
+#[path = "store_presets.rs"]
+mod presets;
 
 pub struct VehicleProfileStore {
     connection: Connection,
@@ -73,8 +75,18 @@ impl VehicleProfileStore {
         match version {
             0 => initialize(&connection)?,
             1 => migrate_v1_to_v2(&connection)?,
+            2 => {}
+            3 => {}
             SCHEMA_VERSION => {}
             other => return Err(ProfileStoreError::UnsupportedSchema(other)),
+        }
+        let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version == 2 {
+            migrate_v2_to_v3(&connection)?;
+        }
+        let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version == 3 {
+            migrate_v3_to_v4(&connection)?;
         }
         Ok(Self { connection })
     }
@@ -152,6 +164,49 @@ impl VehicleProfileStore {
         }))
     }
 
+    pub fn get_project_workspace(
+        &self,
+        profile_id: &str,
+    ) -> Result<crate::VehicleProjectWorkspace, ProfileStoreError> {
+        let value = self.connection.query_row(
+            "SELECT workspace_json FROM vehicle_project_workspaces WHERE profile_id=?1",
+            [profile_id],
+            |row| row.get::<_, String>(0),
+        ).optional()?;
+        match value {
+            Some(json) => serde_json::from_str(&json).map_err(|error| ProfileStoreError::Encoding(error.to_string())),
+            None => Ok(crate::VehicleProjectWorkspace { version: crate::VEHICLE_PROJECT_WORKSPACE_VERSION, ..Default::default() }),
+        }
+    }
+
+    pub fn get_vehicle_project_id(&self, scope: ProfileScope, vin_digest: &str) -> Result<Option<String>, ProfileStoreError> {
+        self.connection.query_row("SELECT profile_id FROM vehicle_project_registry WHERE scope=?1 AND vin_digest=?2", params![scope_text(scope), vin_digest], |row| row.get(0)).optional().map_err(Into::into)
+    }
+
+    pub fn register_vehicle_project(&self, scope: ProfileScope, vin_digest: &str, profile_id: &str) -> Result<(), ProfileStoreError> {
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute("INSERT INTO vehicle_project_registry(scope,vin_digest,profile_id) VALUES(?1,?2,?3)", params![scope_text(scope), vin_digest, profile_id])?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn save_project_workspace(
+        &mut self,
+        profile_id: &str,
+        workspace: &crate::VehicleProjectWorkspace,
+    ) -> Result<(), ProfileStoreError> {
+        workspace.validate().map_err(ProfileStoreError::Invalid)?;
+        if self.get(profile_id)?.is_none() {
+            return Err(ProfileStoreError::Invalid("Vehicle project does not exist".into()));
+        }
+        let json = serde_json::to_string(workspace).map_err(|error| ProfileStoreError::Encoding(error.to_string()))?;
+        self.connection.execute(
+            "INSERT INTO vehicle_project_workspaces(profile_id,workspace_json) VALUES(?1,?2) ON CONFLICT(profile_id) DO UPDATE SET workspace_json=excluded.workspace_json",
+            params![profile_id, json],
+        )?;
+        Ok(())
+    }
+
     pub fn save(
         &mut self,
         profile: VehicleProfile,
@@ -164,11 +219,22 @@ impl VehicleProfileStore {
     /// leave the user with half of an explicit profile update.
     pub fn save_with_observation(
         &mut self,
-        mut profile: VehicleProfile,
+        profile: VehicleProfile,
         expected_revision: Option<u64>,
         observation: Option<VehicleIdentityObservation>,
     ) -> Result<VehicleProfile, ProfileStoreError> {
+        self.save_with_observation_and_workspace(profile, expected_revision, observation, None)
+    }
+
+    pub fn save_with_observation_and_workspace(
+        &mut self,
+        mut profile: VehicleProfile,
+        expected_revision: Option<u64>,
+        observation: Option<VehicleIdentityObservation>,
+        workspace: Option<&crate::VehicleProjectWorkspace>,
+    ) -> Result<VehicleProfile, ProfileStoreError> {
         validate_profile(&profile)?;
+        if let Some(workspace) = workspace { workspace.validate().map_err(ProfileStoreError::Invalid)?; }
         if let Some(observation) = &observation {
             validate_observation(observation)?;
         }
@@ -253,6 +319,9 @@ impl VehicleProfileStore {
                 params![id, count, encode(&observation)?],
             )?;
         }
+        if let Some(workspace) = workspace {
+            transaction.execute("INSERT INTO vehicle_project_workspaces(profile_id,workspace_json) VALUES(?1,?2) ON CONFLICT(profile_id) DO UPDATE SET workspace_json=excluded.workspace_json", params![id, encode(workspace)?])?;
+        }
         transaction.commit()?;
         profile.observations = self.observations_for(&id)?;
         Ok(profile)
@@ -333,6 +402,57 @@ fn migrate_v1_to_v2(connection: &Connection) -> Result<(), ProfileStoreError> {
         [],
     )?;
     transaction.execute_batch("PRAGMA user_version = 2;")?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn migrate_v2_to_v3(connection: &Connection) -> Result<(), ProfileStoreError> {
+    let transaction = connection.unchecked_transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE custom_signal_presets(
+             preset_id TEXT PRIMARY KEY,
+             revision INTEGER NOT NULL CHECK(revision >= 1),
+             name TEXT NOT NULL,
+             scope TEXT NOT NULL CHECK(scope IN ('generic','model_powertrain','exact_profile')),
+             criteria_json TEXT NOT NULL,
+             selection_json TEXT NOT NULL,
+             preset_json TEXT NOT NULL
+         );
+         CREATE TABLE preset_picker_state(
+             singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+             revision INTEGER NOT NULL CHECK(revision >= 0),
+             context_json TEXT NOT NULL,
+             staged_json TEXT
+         );
+         INSERT INTO preset_picker_state(singleton,revision,context_json,staged_json) VALUES(1,0,'{}',NULL);
+         PRAGMA user_version = 3;",
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn migrate_v3_to_v4(connection: &Connection) -> Result<(), ProfileStoreError> {
+    let transaction = connection.unchecked_transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE vehicle_project_workspaces(
+             profile_id TEXT PRIMARY KEY REFERENCES profiles(profile_id) ON DELETE CASCADE,
+             workspace_json TEXT NOT NULL
+         );
+         CREATE TABLE vehicle_project_registry(
+             scope TEXT NOT NULL CHECK(scope IN ('live','simulator','can_only')),
+             vin_digest TEXT NOT NULL,
+             profile_id TEXT NOT NULL UNIQUE REFERENCES profiles(profile_id) ON DELETE CASCADE,
+             PRIMARY KEY(scope,vin_digest)
+         );
+         INSERT INTO vehicle_project_registry(scope,vin_digest,profile_id)
+         SELECT p.scope,p.vin_digest,p.profile_id FROM profiles p
+         WHERE p.vin_digest IS NOT NULL AND p.profile_id=(
+             SELECT candidate.profile_id FROM profiles candidate
+             WHERE candidate.scope=p.scope AND candidate.vin_digest=p.vin_digest
+             ORDER BY candidate.updated_at_unix_ms DESC,candidate.profile_id DESC LIMIT 1
+         );
+         PRAGMA user_version = 4;",
+    )?;
     transaction.commit()?;
     Ok(())
 }

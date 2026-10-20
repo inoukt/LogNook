@@ -8,3 +8,6 @@ LogNookAfterConnect.zip
 *.lognook
 __pycache__/
 *.py[cod]
+
+# Owner-supplied research inputs are local; see docs/SUBARU_CATALOG.md.
+/PIDs/CatalogV2/

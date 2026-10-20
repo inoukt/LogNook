@@ -23,3 +23,7 @@ Full machine-readable URLs and warnings: `data/sources.csv`.
 - SAE's digital annex update status may change; verify official licensed content prior to release.
 
 **Redistribution decision:** treat v0.1 as an internal research seed. Ship only first-party validated generic code and properly licensed per-source data packs once legal and technical review are complete. The source catalog enables provenance but is not a legal opinion or a substitute for permission.
+
+## Subaru OEM catalog research material
+
+The local Subaru export retains its original package identity and revision in internal source metadata, but no source URL or reuse license was present in the supplied package. The database records `license_status='not_cleared'` and a SHA-256 of the local `catalog.json` export. That hash identifies the local file only; it is not a publisher checksum or upstream Git blob SHA. Keep the data local for research pending rights review, and do not redistribute it based on the database import alone.

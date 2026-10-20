@@ -158,6 +158,7 @@ impl HardwareAdapter for ReadFailureAdapter {
             },
             protocol: "test".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: lognook_core::standard_obd_signals(),
         })
     }

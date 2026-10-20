@@ -130,6 +130,7 @@ impl ObdLinkSxAdapter {
             adapter,
             protocol: "ISO 15765-4 (CAN 11/500) via OBDLink SX".into(),
             started_at_unix_ms,
+            operation_kind: crate::DiagnosticReportKind::Snapshot,
             request: crate::DiagnosticRequest::default(),
             reads,
             route_restore_error: None,
@@ -226,6 +227,12 @@ impl ObdLinkSxAdapter {
             device,
             protocol: "SAE J1979 Mode 01".into(),
             read_only: true,
+            diagnostics: crate::DiagnosticCapabilities {
+                dtc_snapshot: true,
+                identity: true,
+                mode06: true,
+                clear_dtcs: true,
+            },
             supported_signals,
         })
     }
@@ -376,10 +383,21 @@ impl HardwareAdapter for ObdLinkSxAdapter {
             crate::ResearchTestRequest::A30ReadTest(test) => self
                 .read_connected_quick_test(test)
                 .map(crate::ResearchTestResult::A30ReadTest),
-            crate::ResearchTestRequest::Diagnostic(query) => self
-                .read_vehicle_diagnostic(query)
-                .map(crate::ResearchTestResult::Diagnostic),
+            crate::ResearchTestRequest::Diagnostic(query) => {
+                if query.kind == crate::DiagnosticReadKind::ClearDtcs {
+                    return Err(LogNookError::new(
+                        "Mode 04 is available only through the explicit DTC clear operation",
+                    ));
+                }
+                self.read_vehicle_diagnostic(query)
+                    .map(crate::ResearchTestResult::Diagnostic)
+            }
         }
+    }
+
+    fn clear_vehicle_dtcs(&mut self) -> Result<Vec<crate::DiagnosticRead>, LogNookError> {
+        self.read_vehicle_diagnostic(crate::DiagnosticQueryRequest::clear_dtcs())
+            .map(|report| report.reads)
     }
 
     fn execute_raw_command(

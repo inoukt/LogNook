@@ -142,6 +142,7 @@ impl HardwareAdapter for RpmOnlyAdapter {
             },
             protocol: "test".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: standard_obd_signals()
                 .into_iter()
                 .filter(|signal| signal.id == "engine_rpm")

@@ -503,6 +503,12 @@ export type ConnectionCapabilities = {
   device: DeviceDescriptor;
   protocol: string;
   read_only: boolean;
+  diagnostics: {
+    dtc_snapshot: boolean;
+    identity: boolean;
+    mode06: boolean;
+    clear_dtcs: boolean;
+  };
   supported_signals: SignalDefinition[];
 };
 

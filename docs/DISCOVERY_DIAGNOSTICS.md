@@ -12,13 +12,44 @@ bitmap, follows advertised bitmap continuation pages, and requires one unique
 standard OBD responder. It exposes only signals with existing generic Mode 01
 decoders in the ordinary PID picker. The selected channels use the same live
 graphs, Record, CSV, session and replay pipeline as other OBD adapters. OEM
-Mode 21/22 scans and VIN/profile recognition are not part of this adapter.
+Numeric Mode 21/22 scans and VIN/profile recognition are not part of the normal
+connection flow. Explicit source-backed OEM one-shot research is available in
+the OEM catalog, as described below.
 
 One LogNook process owns each physical USB interface/channel. If CAN Workbench
 already owns the selected channel, Identify or Connect returns an ownership
 error; disconnect that source before switching. All-empty cycles wait briefly
 before retrying so unsupported or absent replies do not become a tight poll
 loop. Successful and partial cycles remain paced by ECU response time.
+
+## Try OEM catalog results once
+
+In the **OEM** list, enable **Auto-try visible rows once per connection** to try source-backed candidates
+as their rows enter the visible scroll area. The checkbox starts off and resets
+after disconnect/reconnect. Each candidate and source revision is attempted at
+most once during that connection, including rows revisited while scrolling.
+
+**Try all filtered** walks every result matching the current search and filters,
+including later pages. Returned finite numeric values move to the top across
+pages; zero is a value. Sorting does not compare unrelated units or change the
+catalog's order within the value/non-value groups. **Stop** cancels queued work;
+an exchange already in progress can finish within its existing timeout.
+
+Rows use both text and color: green for a decoded numeric value, amber for a
+reply without a decoded number, red for a negative reply, timeout or error, and
+blue for queued/running work. A returned number is not proof of decoder accuracy
+or vehicle compatibility. Inspect the source, route, raw response and outcome.
+
+The same serialized research service is available through Agent Access/MCP and
+supports SX, ELM327, A30, OpenPort 2, Candlelight OBD and the simulator. It uses
+the existing connected adapter; a passive CAN Workbench connection is a separate
+mode. Only catalog-backed read services 21/22 with complete provenance and exact
+supported addressing can run. Simulator results are explicitly simulated.
+Discovery preserves append-only try evidence and does not select graph channels,
+enable continuous logging, change source validation, or add candidates to presets.
+Continuous OEM logging is also available through OpenPort and Candlelight OBD,
+but only for explicitly selected, physically validated catalog definitions for
+the exact vehicle. Discovery responses never make a candidate eligible.
 
 ## CAN Help and control explanations
 
@@ -145,8 +176,9 @@ first Save, subsequent Connect/Resume, fallback, storage and MCP operations.
 ## Read vehicle diagnostics
 
 Open **Vehicle diagnostics** from the top bar after connecting OBDLink SX,
-Bluetooth ELM327, or A30. Select **Read diagnostics** to request the diagnostic
-snapshot. Opening the view alone does not issue requests.
+Bluetooth ELM327, Xtool A30/A30M, OpenPort 2, Candlelight OBD, or the simulator.
+The panel reads each adapter's negotiated diagnostic capabilities. Opening the
+view alone does not issue requests.
 
 - **DTCs:** stored, pending and permanent code categories, separated by ECU.
 - **Identity:** VIN, calibration identifiers and ECU name when returned.
@@ -154,11 +186,36 @@ snapshot. Opening the view alone does not issue requests.
   identifiers remain raw values, with their raw minimum and maximum.
 - **Raw:** request/reply bytes, timestamps, duration and typed outcomes.
 
+OpenPort reads standard DTC categories, Mode 09 identity and Mode 06 tests through
+its existing serialized J2534 channel. Candlelight reads standard DTC, Mode 09 and Mode 06 data through
+the single ECU selected by its existing connection flow; it does not merge
+multiple ECUs. The simulator displays clearly labeled local results.
+
 Unsupported, negative, pending and malformed replies remain visible. An empty
 code list is meaningful only for a successful reply. Results retained from a
 previous adapter are identified as historical. Support ZIP export includes the
-saved diagnostic evidence. OpenPort and the simulator currently have no
-dedicated diagnostic-read implementation.
+saved diagnostic evidence. Unsupported categories are recorded as not sent.
+
+## Explicitly clear DTCs
+
+The separate **Clear DTCs** action sends one standard Mode 04 request through
+the connected adapter's serialized owner. It is capability-gated and requires
+confirmation that names the connected adapter and responding ECU scope. The
+confirmation explains that clearing can erase stored emission-related
+diagnostic information and affect readiness state. Cancel sends nothing. On
+Candlelight, the current connection is limited to its single discovered ECU.
+
+Each clear operation is saved as its own append-only diagnostic report. A
+positive `44` response means the ECU acknowledged the request; it does not prove
+that a later DTC read will be empty. Run **Read diagnostics** separately to
+check current codes. The app does not automatically retry a clear or follow it
+with another read. Simulator clearing is a labeled local result and sends no
+vehicle request. Raw commands cannot send Mode 04.
+
+Agent Access exposes the distinct `clear_vehicle_dtcs` MCP action. It requires
+unlocked Agent Access, `confirm: true`, and the current adapter ID and OBD
+connection generation returned by `get_status`. `read_vehicle_diagnostics`
+remains read-only and never clears codes.
 
 ## Run one quick OBD mode test
 

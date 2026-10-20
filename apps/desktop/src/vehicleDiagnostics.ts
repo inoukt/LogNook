@@ -5,6 +5,10 @@ export const VEHICLE_DIAGNOSTICS_ADAPTERS = [
   "Xtool A30/A30M Bluetooth SPP",
   "ELM327 Bluetooth SPP",
   "OBDLink SX",
+  "OpenPort 2.0",
+  "OpenPort 2 J2534",
+  "Candlelight GS-USB OBD-II",
+  "simulator",
 ] as const;
 
 export type DiagnosticOutcome =
@@ -17,7 +21,8 @@ export type DiagnosticOutcome =
   | "no_response"
   | "malformed_response"
   | "wrong_responder"
-  | "transport_error";
+  | "transport_error"
+  | "unsupported";
 
 export type DiagnosticReadKind =
   | "stored_dtcs"
@@ -27,7 +32,15 @@ export type DiagnosticReadKind =
   | "calibration_id"
   | "ecu_name"
   | "mode06_bitmap"
-  | "mode06_monitor";
+  | "mode06_monitor"
+  | "clear_dtcs";
+
+export type DiagnosticCapabilities = {
+  dtc_snapshot: boolean;
+  identity: boolean;
+  mode06: boolean;
+  clear_dtcs: boolean;
+};
 
 export type DiagnosticValue =
   | { type: "dtcList"; payload: { codes: string[] } }
@@ -43,7 +56,8 @@ export type DiagnosticValue =
         minimum: number;
         maximum: number;
       };
-    };
+    }
+  | { type: "dtcClearAcknowledgement" };
 
 export type DiagnosticRead = {
   kind: DiagnosticReadKind;
@@ -75,6 +89,7 @@ export type DiagnosticReport = {
   };
   protocol: string;
   started_at_unix_ms: number;
+  operation_kind: "snapshot" | "clear_dtcs";
   request: { mode06_test_ids: number[] };
   reads: DiagnosticRead[];
   route_restore_error: string | null;
@@ -140,7 +155,19 @@ export function supportsVehicleDiagnostics(adapterFamily: string | null): boolea
 }
 
 export function supportsProfileIdentity(adapterFamily: string | null): boolean {
-  return supportsVehicleDiagnostics(adapterFamily) || adapterFamily === "OpenPort 2.0" || adapterFamily === "OpenPort 2 J2534";
+  return supportsVehicleDiagnostics(adapterFamily);
+}
+
+export function clearConfirmationMatchesConnection(
+  activeAdapterId: string | null,
+  activeGeneration: number | null,
+  confirmedAdapterId: string | null,
+  confirmedGeneration: number | null,
+): boolean {
+  return activeAdapterId !== null
+    && activeGeneration !== null
+    && activeAdapterId === confirmedAdapterId
+    && activeGeneration === confirmedGeneration;
 }
 
 export function historyDtcCountLabel(count: number | null | undefined): string {
@@ -207,6 +234,7 @@ export function availableMode06TestIds(reads: DiagnosticRead[]): number[] {
 }
 
 export function diagnosticReadLabel(read: DiagnosticRead): string {
+  if (read.kind === "clear_dtcs") return "DTC clear acknowledgement";
   if (read.kind === "mode06_bitmap") return `Mode 06 bitmap ${formatHexByte(read.identifier ?? 0)}`;
   if (read.kind === "mode06_monitor") return `Mode 06 test ${formatHexByte(read.identifier ?? 0)}`;
   return {

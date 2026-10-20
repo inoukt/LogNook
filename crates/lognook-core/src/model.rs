@@ -26,6 +26,8 @@ pub struct ConnectionCapabilities {
     pub device: DeviceDescriptor,
     pub protocol: String,
     pub read_only: bool,
+    #[serde(default)]
+    pub diagnostics: crate::DiagnosticCapabilities,
     pub supported_signals: Vec<SignalDefinition>,
 }
 

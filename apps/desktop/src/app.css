@@ -126,6 +126,7 @@ h3 { margin: 0 0 5px; font-size: 14px; font-weight: 650; }
 .adapter-select { width: clamp(94px, 7.5vw, 118px); min-width: 88px; }
 .port-select { width: clamp(104px, 8vw, 124px); min-width: 104px; }
 .provider-select { width: clamp(128px, 10vw, 156px); min-width: 112px; }
+.protocol-select { width: clamp(120px, 9vw, 142px); min-width: 108px; }
 .can-obd-device-select { width: clamp(150px, 12vw, 210px); min-width: 140px; }
 .adapter-number { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 0.75rem; }
 .adapter-number input { width: 48px; min-width: 48px; padding-inline: 5px; text-align: center; }
@@ -389,3 +390,4 @@ svg text { fill: var(--text-muted); font-size: 11px; }
 .vehicle-profiles-dialog::backdrop { background:rgb(0 0 0 / 55%); }
 .vehicle-profile-dialog-bar { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; }
 .vehicle-profile-dialog-bar label { display:flex; align-items:center; gap:8px; font-size:12px; }
+.vehicle-project-unavailable { margin: 6px 12px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; }

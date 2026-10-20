@@ -111,6 +111,7 @@ pub(crate) fn report_context(
         device: report.adapter.clone(),
         protocol: report.protocol.clone(),
         read_only: true,
+        diagnostics: Default::default(),
         supported_signals: vec![],
     };
     let ecu_observation = identity_observation(
@@ -310,6 +311,7 @@ pub(crate) fn sync_active_recording_context(
         adapter: capabilities.device.clone(),
         protocol: capabilities.protocol.clone(),
         started_at_unix_ms: now_unix_ms(),
+        operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
         request: Default::default(),
         reads: Vec::new(),
         route_restore_error: None,
@@ -1065,6 +1067,7 @@ mod tests {
             },
             protocol: "ISO 15765-4 CAN (11 bit, 500 kbaud)".into(),
             started_at_unix_ms: 1234,
+            operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
             request: DiagnosticRequest::default(),
             reads: Vec::new(),
             route_restore_error: None,

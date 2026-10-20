@@ -173,6 +173,31 @@ test("OpenPort identity and connect require a selected provider and matching ide
   assert.equal(identified.connectDisabled, false);
 });
 
+test("OpenPort Subaru SSM mode can connect without standard OBD signal selections", () => {
+  assert.ok(controls, "connection controls helper is available");
+  const state = {
+    busy: false,
+    recording: false,
+    replaying: false,
+    hasSignals: false,
+    sxPort: "",
+    sxIdentityMatches: false,
+    openPortProvider: "opta",
+    openPortIdentityMatches: true,
+    openPortMode: "obd_can",
+    bluetoothAddress: "",
+    bluetoothIdentityMatches: false,
+  };
+  assert.equal(controls.connectionControlState("openport2", state).connectDisabled, true);
+  const ssm = controls.connectionControlState("openport2", { ...state, openPortMode: "subaru_ssm" });
+  assert.equal(ssm.connectDisabled, false);
+  assert.equal(ssm.connectLabel, "Connect Subaru SSM");
+  assert.equal(
+    controls.connectionControlState("openport2", { ...state, openPortMode: "subaru_ssm", recording: true }).connectDisabled,
+    true,
+  );
+});
+
 test("simulator connect does not depend on hardware identity", () => {
   assert.ok(controls, "connection controls helper is available");
   const state = controls.connectionControlState("simulator", {

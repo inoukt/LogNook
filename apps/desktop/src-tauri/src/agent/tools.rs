@@ -4,8 +4,8 @@ use lognook_core::{
     A30Adapter, A30ReadOutcome, A30ReadTest, A30ReadTestResult, CanDeviceSelection, CanDirection,
     CanFrame, CanScanConfig, CanScanMode, CanScanStopReason, CanWorkbenchConfig, Elm327Adapter,
     ObdLinkSxAdapter, OemCandidateOutcome, OemCandidateTryResult, OemCatalog, OpenPort2Adapter,
-    RawAdapterCommand, available_can_adapters, available_obdlink_sx_ports, paired_spp_devices,
-    standard_obd_signals,
+    RawAdapterCommand, SubaruCatalog, available_can_adapters, available_obdlink_sx_ports,
+    paired_spp_devices, standard_obd_signals,
 };
 use std::collections::HashSet;
 use std::{
@@ -86,13 +86,20 @@ fn start_agent_scan(
     start().inspect_err(|_| scan_active.store(false, Ordering::Release))
 }
 
-/// Lock and expiry both stop the agent's incomplete CAN operation and close its evidence files.
+/// Lock and expiry stop agent-owned background work and close its evidence files.
 pub(crate) fn stop_active_operations(
     app: &AppHandle,
     reason: CanScanStopReason,
 ) -> Result<Option<PathBuf>, String> {
     let state = app.state::<AppState>();
-    let result = stop_active_operations_state(&state, reason);
+    let discovery_stop = crate::commands::oem_discovery::stop_agent_owned(app);
+    let result = match (stop_active_operations_state(&state, reason), discovery_stop) {
+        (Ok(path), Ok(())) => Ok(path),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(discovery)) => {
+            Err(format!("{error}; OEM discovery stop failed: {discovery}"))
+        }
+    };
     if let Err(message) = &result {
         let _ = app.emit(
             "lognook-event",
@@ -367,6 +374,80 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
         }
+        AgentRequest::SearchSubaruCatalog {
+            query,
+            model,
+            year,
+            ecu_id,
+            protocol_family,
+            offset,
+            limit,
+        } => {
+            if [
+                query.as_str(),
+                model.as_str(),
+                ecu_id.as_str(),
+                protocol_family.as_str(),
+            ]
+            .iter()
+            .any(|value| value.len() > 512)
+                || !(1..=100).contains(&limit)
+            {
+                return AgentResponse::error(
+                    AgentErrorCode::InvalidRequest,
+                    "Subaru catalog filter or page size is out of range",
+                );
+            }
+            let path = app.state::<AppState>().pid_catalog_path.clone();
+            match async_runtime::spawn_blocking(move || {
+                SubaruCatalog::new(path).search(
+                    &query,
+                    &model,
+                    year,
+                    &ecu_id,
+                    &protocol_family,
+                    offset,
+                    limit,
+                )
+            })
+            .await
+            {
+                Ok(Ok(result)) => AgentResponse::SubaruCatalog { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::GetSubaruCatalogDetail { candidate_id } => {
+            let path = app.state::<AppState>().pid_catalog_path.clone();
+            match async_runtime::spawn_blocking(move || SubaruCatalog::new(path).get(&candidate_id))
+                .await
+            {
+                Ok(Ok(result)) => AgentResponse::SubaruCatalogDetail { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::OemLogging { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                oem_logging(&app.state::<AppState>(), operation)
+            })
+            .await
+            {
+                Ok(Ok(result)) => AgentResponse::OemLogging { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::OemDiscovery { operation } => {
+            match crate::commands::oem_discovery::execute(app, operation, true).await {
+                Ok(response) => match serde_json::to_value(response) {
+                    Ok(result) => AgentResponse::OemDiscovery { result },
+                    Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+                },
+                Err(error) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+            }
+        }
         AgentRequest::TryOemCandidate { candidate_id } => {
             let app = app.clone();
             match async_runtime::spawn_blocking(move || try_oem_candidate(&app, &candidate_id))
@@ -405,6 +486,34 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
             .await
             {
                 Ok(Ok(report)) => AgentResponse::VehicleDiagnostics { report },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::UnsupportedAdapter, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::ClearVehicleDtcs {
+            adapter_id,
+            connection_generation,
+            confirm,
+        } => {
+            if !confirm {
+                return AgentResponse::error(
+                    AgentErrorCode::InvalidRequest,
+                    "Explicit DTC clear requires confirm=true for the named adapter and generation",
+                );
+            }
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                crate::commands::vehicle_diagnostics::execute_vehicle_dtc_clear(
+                    &state,
+                    adapter_id,
+                    connection_generation,
+                )
+                .and_then(redact_generic_diagnostic_vin)
+            })
+            .await
+            {
+                Ok(Ok(report)) => AgentResponse::VehicleDtcsCleared { report },
                 Ok(Err(error)) => AgentResponse::error(AgentErrorCode::UnsupportedAdapter, error),
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
@@ -506,6 +615,55 @@ pub(crate) async fn dispatch(app: &AppHandle, request: AgentRequest) -> AgentRes
                 .await
             {
                 Ok(Ok(result)) => AgentResponse::VehicleProfiles { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::VehicleProjects { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                if !is_agent_access_unlocked(&state) { return Err("Agent Access is locked; unlock it in LogNook Settings".into()); }
+                let expected_generation = match &operation {
+                    crate::commands::vehicle_projects::VehicleProjectsOperation::PrepareOnConnect { expected_generation }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::LoadLastState { expected_generation, .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::StartFresh { expected_generation, .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::Save { expected_generation, .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsOperation::SelectManual { expected_generation, .. } => Some(*expected_generation),
+                    _ => None,
+                };
+                let result = crate::commands::vehicle_projects::execute(&state, operation)?;
+                if !is_agent_access_unlocked(&state) { state.vehicle_profiles.cancel_pending_work(); return Err("Agent Access was locked during vehicle project operation".into()); }
+                if matches!(&result, crate::commands::vehicle_projects::VehicleProjectsResult::Prepared { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::Loaded { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::Fresh { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::ManualSelected { .. }
+                    | crate::commands::vehicle_projects::VehicleProjectsResult::Saved { .. }) {
+                    if let Some(expected) = expected_generation {
+                        let current = state.engine.lock().map_err(|_| "Acquisition engine is unavailable")?;
+                        if current.obd_connection_generation() == expected {
+                            app.emit("vehicle-project-updated", crate::commands::vehicle_projects::VehicleProjectUpdatedEvent { connection_generation: expected, result: result.clone() }).map_err(|error| error.to_string())?;
+                        }
+                    }
+                }
+                Ok::<_, String>(result)
+            }).await {
+                Ok(Ok(result)) => AgentResponse::VehicleProjects { result },
+                Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
+                Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
+            }
+        }
+        AgentRequest::SignalPresets { operation } => {
+            let app = app.clone();
+            match async_runtime::spawn_blocking(move || {
+                let state = app.state::<AppState>();
+                let result = crate::commands::signal_presets::execute(&state, operation, crate::commands::signal_presets::PresetCaller::Agent)?;
+                if let lognook_core::SignalPresetResult::Applied { resolved, .. } = &result {
+                    let _ = app.emit("agent-signal-selection", AgentSignalSelection { log_signal_ids: resolved.selection.log_signal_ids.clone(), graph_signal_ids: resolved.selection.graph_signal_ids.clone() });
+                }
+                Ok::<_, String>(result)
+            }).await {
+                Ok(Ok(result)) => AgentResponse::SignalPresets { result },
                 Ok(Err(error)) => AgentResponse::error(AgentErrorCode::InvalidRequest, error),
                 Err(error) => AgentResponse::error(AgentErrorCode::Internal, error.to_string()),
             }
@@ -1489,6 +1647,83 @@ fn list_mode06_tests(app: &AppHandle) -> AgentMode06Tests {
     }
 }
 
+fn oem_logging(
+    state: &AppState,
+    operation: AgentOemLoggingOperation,
+) -> Result<serde_json::Value, String> {
+    match operation {
+        AgentOemLoggingOperation::Status {} => {
+            let engine = state
+                .engine
+                .lock()
+                .map_err(|_| "Acquisition engine is unavailable".to_owned())?;
+            serde_json::to_value(engine.oem_polling_status())
+        }
+        AgentOemLoggingOperation::Search {
+            vehicle_id,
+            query,
+            offset,
+            limit,
+        } => {
+            return OemCatalog::new(&state.pid_catalog_path)
+                .search_oem_poll_candidates(&vehicle_id, &query, offset, limit)
+                .and_then(|page| serde_json::to_value(page).map_err(|error| error.to_string()));
+        }
+        AgentOemLoggingOperation::Start {
+            vehicle_id,
+            candidate_ids,
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::set_oem_logging(
+                state,
+                Some(&vehicle_id),
+                &candidate_ids,
+                Some((&adapter_id, connection_generation)),
+            )?;
+            serde_json::to_value(status)
+        }
+        AgentOemLoggingOperation::Stop {
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::set_oem_logging(
+                state,
+                None,
+                &[],
+                Some((&adapter_id, connection_generation)),
+            )?;
+            serde_json::to_value(status)
+        }
+        AgentOemLoggingOperation::StartSubaru {
+            candidate_ids,
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::subaru_catalog::set_subaru_logging_bound(
+                state,
+                &candidate_ids,
+                &adapter_id,
+                connection_generation,
+            )?;
+            serde_json::to_value(status)
+        }
+        AgentOemLoggingOperation::StopSubaru {
+            adapter_id,
+            connection_generation,
+        } => {
+            let status = crate::commands::subaru_catalog::set_subaru_logging_bound(
+                state,
+                &[],
+                &adapter_id,
+                connection_generation,
+            )?;
+            serde_json::to_value(status)
+        }
+    }
+    .map_err(|error| error.to_string())
+}
+
 fn try_oem_candidate(app: &AppHandle, candidate_id: &str) -> Result<AgentOemTrySummary, String> {
     if candidate_id.trim().is_empty() || candidate_id.len() > 256 {
         return Err("Choose a valid OEM candidate ID".into());
@@ -1707,6 +1942,10 @@ fn build_agent_status(
             .map(|caps| caps.device.stable_id.clone())
             .or_else(|| can.as_ref().map(|status| status.source_id.clone())),
         adapter_connected: engine.is_connected(),
+        obd_connection_generation: engine
+            .is_obd_connected()
+            .then_some(engine.obd_connection_generation()),
+        diagnostic_capabilities: capabilities.map(|caps| caps.diagnostics),
         obd_connected: engine.is_obd_connected(),
         can_connected: can.as_ref().is_some_and(|status| status.connected),
         can_adapter_id: can
@@ -1796,17 +2035,19 @@ fn list_adapters(app: &AppHandle) -> (Vec<AgentAdapterInfo>, Vec<String>) {
     match crate::commands::discover_providers(&state, crate::commands::worker_path) {
         Ok(discovery) => {
             errors.extend(discovery.diagnostics);
-            adapters.extend(
-                discovery
-                    .providers
-                    .into_iter()
-                    .map(|provider| AgentAdapterInfo {
-                        label: format!("OpenPort 2 · {}", provider.name),
-                        choice: AgentAdapterChoice::OpenPort2 {
-                            provider_id: provider.id,
-                        },
-                    }),
-            );
+            let providers = discovery.providers;
+            adapters.extend(providers.iter().cloned().map(|provider| AgentAdapterInfo {
+                label: format!("OpenPort 2 OBD-II CAN · {}", provider.name),
+                choice: AgentAdapterChoice::OpenPort2 {
+                    provider_id: provider.id,
+                },
+            }));
+            adapters.extend(providers.into_iter().map(|provider| AgentAdapterInfo {
+                label: format!("OpenPort 2 Subaru SSM K-Line · {}", provider.name),
+                choice: AgentAdapterChoice::OpenPort2SubaruSsm {
+                    provider_id: provider.id,
+                },
+            }));
         }
         Err(error) => errors.push(format!("OpenPort 2 discovery: {error}")),
     }
@@ -2192,12 +2433,24 @@ fn connect_adapter_with_selection(
         .agent_selection
         .lock()
         .map_err(|_| "Agent selection is unavailable".to_owned())?;
-    let proposed = proposed_signal_selection(
-        &engine,
-        &current_selection.log_signal_ids,
-        log_signal_ids.clone(),
-        graph_signal_ids.clone(),
-    )?;
+    let proposed = if matches!(&choice, AgentAdapterChoice::OpenPort2SubaruSsm { .. }) {
+        if !log_signal_ids.is_empty() || !graph_signal_ids.is_empty() {
+            return Err(
+                "Subaru SSM K-Line uses candidate IDs through oem_logging; leave standard PID selections empty".into(),
+            );
+        }
+        AgentSignalSelection {
+            log_signal_ids: Vec::new(),
+            graph_signal_ids: Vec::new(),
+        }
+    } else {
+        proposed_signal_selection(
+            &engine,
+            &current_selection.log_signal_ids,
+            log_signal_ids.clone(),
+            graph_signal_ids.clone(),
+        )?
+    };
     drop(current_selection);
     drop(engine);
     let adapter_id = adapter_id(&choice);
@@ -2260,6 +2513,13 @@ fn connect_adapter_in_engine(
             crate::commands::worker_path()?,
             provider_id,
         )),
+        AgentAdapterChoice::OpenPort2SubaruSsm { provider_id } => {
+            return engine
+                .connect_adapter_without_standard_signals(Box::new(
+                    OpenPort2Adapter::new_subaru_ssm(crate::commands::worker_path()?, provider_id),
+                ))
+                .map_err(|error| error.to_string());
+        }
         AgentAdapterChoice::Candlelight { .. } => {
             return Err("Use the explicit CAN adapter connection option for Candlelight".into());
         }
@@ -2284,7 +2544,8 @@ fn adapter_id(choice: &AgentAdapterChoice) -> String {
         AgentAdapterChoice::ObdLinkSx { port_name } => format!("obdlink-sx:{port_name}"),
         AgentAdapterChoice::Elm327 { address } => format!("elm327:{address}"),
         AgentAdapterChoice::A30 { address } => format!("a30:{address}"),
-        AgentAdapterChoice::OpenPort2 { provider_id } => provider_id.clone(),
+        AgentAdapterChoice::OpenPort2 { provider_id }
+        | AgentAdapterChoice::OpenPort2SubaruSsm { provider_id } => provider_id.clone(),
         AgentAdapterChoice::Candlelight { id, .. } => format!("candlelight:{id}"),
         AgentAdapterChoice::CandlelightObd { id, .. } => format!("candlelight-obd:{id}"),
     }
@@ -2405,6 +2666,7 @@ mod tests {
             },
             protocol: "fixture".into(),
             started_at_unix_ms: 1,
+            operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
             request: lognook_core::DiagnosticRequest::default(),
             reads: vec![read],
             route_restore_error: None,
@@ -2663,6 +2925,7 @@ mod tests {
                 },
                 protocol: "SAE J1979 Mode 01 over 11-bit CAN".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: standard_obd_signals()
                     .into_iter()
                     .filter(|signal| signal.id == "engine_rpm")

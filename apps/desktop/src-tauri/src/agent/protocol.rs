@@ -42,16 +42,40 @@ pub enum AgentRequest {
         offset: usize,
         limit: usize,
     },
+    SearchSubaruCatalog {
+        query: String,
+        model: String,
+        year: Option<i32>,
+        ecu_id: String,
+        protocol_family: String,
+        offset: usize,
+        limit: usize,
+    },
+    GetSubaruCatalogDetail {
+        candidate_id: String,
+    },
     TryOemCandidate {
         candidate_id: String,
+    },
+    OemDiscovery {
+        operation: crate::commands::oem_discovery::OemDiscoveryRequest,
+    },
+    OemLogging {
+        operation: AgentOemLoggingOperation,
     },
     ListMode06Tests,
     TryMode06Test {
         test: AgentMode06Test,
     },
     ReadVehicleDiagnostics {
+        /// This action reads diagnostic data only and cannot clear codes.
         #[serde(default)]
         mode06_test_ids: Vec<u8>,
+    },
+    ClearVehicleDtcs {
+        adapter_id: String,
+        connection_generation: u64,
+        confirm: bool,
     },
     GetTrace {
         after_sequence: u64,
@@ -66,6 +90,12 @@ pub enum AgentRequest {
     },
     VehicleProfiles {
         operation: AgentVehicleProfileOperation,
+    },
+    VehicleProjects {
+        operation: crate::commands::vehicle_projects::VehicleProjectsOperation,
+    },
+    SignalPresets {
+        operation: lognook_core::SignalPresetOperation,
     },
 }
 
@@ -310,6 +340,12 @@ pub struct AgentWorkbenchArgs {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSignalPresetsArgs {
+    pub operation: lognook_core::SignalPresetOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AgentAdapterChoice {
     Simulator,
@@ -323,6 +359,9 @@ pub enum AgentAdapterChoice {
         address: String,
     },
     OpenPort2 {
+        provider_id: String,
+    },
+    OpenPort2SubaruSsm {
         provider_id: String,
     },
     Candlelight {
@@ -501,7 +540,7 @@ pub struct AgentRawCommandResult {
     pub duration_ms: u64,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct AgentSignalSelection {
     pub log_signal_ids: Vec<String>,
     pub graph_signal_ids: Vec<String>,
@@ -545,6 +584,57 @@ pub struct AgentVehicleDiagnosticsArgs {
     pub mode06_test_ids: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentClearVehicleDtcsArgs {
+    pub adapter_id: String,
+    pub connection_generation: u64,
+    /// Must be true to authorize the distinct, one-shot standard Mode 04 action.
+    pub confirm: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AgentOemDiscoveryArgs {
+    pub operation: crate::commands::oem_discovery::OemDiscoveryRequest,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentOemLoggingOperation {
+    Status {},
+    Search {
+        vehicle_id: String,
+        query: String,
+        offset: usize,
+        limit: usize,
+    },
+    Start {
+        vehicle_id: String,
+        candidate_ids: Vec<String>,
+        adapter_id: String,
+        connection_generation: u64,
+    },
+    Stop {
+        adapter_id: String,
+        connection_generation: u64,
+    },
+    StartSubaru {
+        candidate_ids: Vec<String>,
+        adapter_id: String,
+        connection_generation: u64,
+    },
+    StopSubaru {
+        adapter_id: String,
+        connection_generation: u64,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AgentOemLoggingArgs {
+    pub operation: AgentOemLoggingOperation,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub enum AgentMode06Test {
     #[serde(rename = "mode_06_bitmap_00")]
@@ -575,6 +665,22 @@ pub struct AgentOemSearchArgs {
     pub service: Option<String>,
     pub offset: usize,
     pub limit: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentSubaruCatalogSearchArgs {
+    pub query: String,
+    pub model: String,
+    pub year: Option<i32>,
+    pub ecu_id: String,
+    pub protocol_family: String,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AgentSubaruCatalogDetailArgs {
+    pub candidate_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -724,6 +830,10 @@ pub struct AgentStatus {
     pub adapter_id: Option<String>,
     pub adapter_connected: bool,
     #[serde(default)]
+    pub obd_connection_generation: Option<u64>,
+    #[serde(default)]
+    pub diagnostic_capabilities: Option<lognook_core::DiagnosticCapabilities>,
+    #[serde(default)]
     pub obd_connected: bool,
     #[serde(default)]
     pub can_connected: bool,
@@ -797,6 +907,12 @@ pub enum AgentResponse {
     OemCandidates {
         result: AgentOemSearch,
     },
+    SubaruCatalog {
+        result: lognook_core::SubaruCatalogPage,
+    },
+    SubaruCatalogDetail {
+        result: lognook_core::SubaruCatalogDetail,
+    },
     OemCandidateTry {
         result: AgentOemTrySummary,
     },
@@ -809,6 +925,15 @@ pub enum AgentResponse {
     VehicleDiagnostics {
         report: serde_json::Value,
     },
+    VehicleDtcsCleared {
+        report: serde_json::Value,
+    },
+    OemDiscovery {
+        result: serde_json::Value,
+    },
+    OemLogging {
+        result: serde_json::Value,
+    },
     Trace {
         page: AgentTracePage,
     },
@@ -820,6 +945,12 @@ pub enum AgentResponse {
     },
     VehicleProfiles {
         result: AgentVehicleProfileResult,
+    },
+    VehicleProjects {
+        result: crate::commands::vehicle_projects::VehicleProjectsResult,
+    },
+    SignalPresets {
+        result: lognook_core::SignalPresetResult,
     },
     EvidenceExported {
         path: String,
@@ -903,6 +1034,61 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn clear_dtcs_is_a_separate_confirmed_adapter_generation_bound_action() {
+        assert!(matches!(
+            decode_request(br#"{"action":"clear_vehicle_dtcs","adapter_id":"sx","connection_generation":7,"confirm":true}"#).unwrap(),
+            AgentRequest::ClearVehicleDtcs { adapter_id, connection_generation: 7, confirm: true } if adapter_id == "sx"
+        ));
+        assert!(
+            decode_request(
+                br#"{"action":"clear_vehicle_dtcs","adapter_id":"sx","connection_generation":7}"#
+            )
+            .is_err()
+        );
+        assert!(decode_request(
+            br#"{"action":"clear_vehicle_dtcs","adapter_id":"sx","connection_generation":7,"confirm":true,"service":4}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn continuous_oem_operations_are_typed_bound_and_have_no_promotion_override() {
+        assert!(decode_request(br#"{"action":"oem_logging","operation":{"kind":"start","vehicle_id":"ford-test","candidate_ids":["verified"],"adapter_id":"op","connection_generation":3}}"#).is_ok());
+        assert!(decode_request(br#"{"action":"oem_logging","operation":{"kind":"start","vehicle_id":"ford-test","candidate_ids":["verified"],"adapter_id":"op"}}"#).is_err());
+        assert!(decode_request(br#"{"action":"oem_logging","operation":{"kind":"stop","adapter_id":"op","connection_generation":3,"payload":"04"}}"#).is_err());
+        assert!(
+            decode_request(
+                br#"{"action":"oem_logging","operation":{"kind":"status","auto_request":true}}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn oem_discovery_uses_typed_shared_queue_and_rejects_raw_or_unbound_requests() {
+        assert!(matches!(
+            decode_request(br#"{"action":"oem_discovery","operation":{"kind":"enqueue_visible","candidate_ids":["source-row"],"adapter_id":"sx","connection_generation":7}}"#).unwrap(),
+            AgentRequest::OemDiscovery { .. }
+        ));
+        for input in [
+            br#"{"action":"oem_discovery","operation":{"kind":"enqueue_visible","candidate_ids":["source-row"],"adapter_id":"sx"}}"#.as_slice(),
+            br#"{"action":"oem_discovery","operation":{"kind":"enqueue_visible","candidate_ids":["source-row"],"adapter_id":"sx","connection_generation":7,"payload":[46,1,2]}}"#.as_slice(),
+            br#"{"action":"oem_discovery","operation":{"kind":"send_raw","service":46}}"#.as_slice(),
+        ] {
+            assert!(decode_request(input).is_err());
+        }
+        let schema = serde_json::to_string(&schemars::schema_for!(AgentOemDiscoveryArgs)).unwrap();
+        for field in [
+            "enqueue_visible",
+            "try_filtered",
+            "values_first",
+            "connection_generation",
+        ] {
+            assert!(schema.contains(field));
+        }
     }
 
     #[test]
@@ -1026,6 +1212,11 @@ mod tests {
         assert!(decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"apply_resume","preview_id":"profile-p","profile_revision":3,"obd_connection_generation":5,"auto_request":true}}"#).is_err());
         assert!(decode_request(br#"{"action":"vehicle_profiles","operation":{"kind":"apply_resume","preview_id":"profile-p","obd_connection_generation":5}}"#).is_err());
         assert!(matches!(decode_request(br#"{"action":"connect_adapter","choice":{"kind":"simulator"},"log_signal_ids":[],"profile_standby":true}"#).unwrap(), AgentRequest::ConnectAdapter { profile_standby: true, .. }));
+        assert!(matches!(
+            decode_request(br#"{"action":"connect_adapter","choice":{"kind":"open_port2_subaru_ssm","provider_id":"tactrix-openport2"},"log_signal_ids":[],"profile_standby":false}"#).unwrap(),
+            AgentRequest::ConnectAdapter { choice: AgentAdapterChoice::OpenPort2SubaruSsm { provider_id }, .. }
+                if provider_id == "tactrix-openport2"
+        ));
         let schema =
             serde_json::to_string(&schemars::schema_for!(AgentVehicleProfileArgs)).unwrap();
         assert!(schema.contains("apply_resume"));

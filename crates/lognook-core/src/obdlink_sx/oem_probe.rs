@@ -89,7 +89,12 @@ fn one() -> f64 {
 }
 
 pub fn build_oem_candidate_command(spec: &OemCandidateTrySpec) -> Result<String, LogNookError> {
-    validate_candidate(&spec.candidate)?;
+    validate_candidate(spec)?;
+    if spec.candidate.service == "SSM-KWP" {
+        return Err(LogNookError::new(
+            "Subaru SSM-KWP reads use OpenPort's dedicated K-Line connection mode",
+        ));
+    }
     Ok(format!(
         "STPX H:{}, D:{}{}, T:250",
         spec.candidate.request_header.to_ascii_uppercase(),
@@ -98,7 +103,21 @@ pub fn build_oem_candidate_command(spec: &OemCandidateTrySpec) -> Result<String,
     ))
 }
 
-fn validate_candidate(candidate: &OemCandidate) -> Result<(), LogNookError> {
+fn validate_candidate(spec: &OemCandidateTrySpec) -> Result<(), LogNookError> {
+    let candidate = &spec.candidate;
+    if candidate.service == "SSM-KWP" {
+        if spec.local_subaru_catalog_sha256().is_none()
+            || candidate.candidate_id.is_empty()
+            || crate::subaru_catalog::parse_ssm_address(&candidate.identifier).is_none()
+        {
+            return Err(LogNookError::new(
+                "SSM-KWP requires a source-addressed local Subaru catalog definition",
+            ));
+        }
+        crate::subaru_catalog::ssm_route(&candidate.request_header, &candidate.response_header)
+            .map_err(LogNookError::new)?;
+        return Ok(());
+    }
     let id_width = match candidate.service.as_str() {
         "21" => 2,
         "22" => 4,
@@ -118,13 +137,29 @@ fn validate_candidate(candidate: &OemCandidate) -> Result<(), LogNookError> {
         || !valid_hex(&candidate.identifier, id_width)
         || !valid_standard_can_header(&candidate.request_header)
         || !valid_standard_can_header(&candidate.response_header)
-        || candidate.source_blob_sha.is_empty()
+    {
+        return Err(LogNookError::new(
+            "OEM candidate lacks a valid source, service identifier, license, or exact 11-bit CAN route",
+        ));
+    }
+    let local_subaru_source = spec.local_subaru_catalog_sha256().is_some();
+    if local_subaru_source {
+        if !candidate.source_blob_sha.is_empty()
+            || candidate.source_url.is_some()
+            || candidate.license.is_some()
+            || candidate.license_url.is_some()
+        {
+            return Err(LogNookError::new(
+                "Local Subaru evidence cannot supply placeholder source-license metadata",
+            ));
+        }
+    } else if candidate.source_blob_sha.is_empty()
         || candidate.source_url.as_deref().is_none_or(str::is_empty)
         || candidate.license.as_deref().is_none_or(str::is_empty)
         || candidate.license_url.as_deref().is_none_or(str::is_empty)
     {
         return Err(LogNookError::new(
-            "OEM candidate lacks a valid source, service identifier, license, or exact 11-bit CAN route",
+            "OEM candidate source, license, and source revision metadata are required",
         ));
     }
     Ok(())
@@ -134,7 +169,7 @@ pub fn decode_oem_candidate_response(
     spec: &OemCandidateTrySpec,
     raw: &str,
 ) -> OemCandidateResponse {
-    if let Err(error) = validate_candidate(&spec.candidate) {
+    if let Err(error) = validate_candidate(spec) {
         return response(
             OemCandidateOutcome::InvalidCandidate,
             None,
@@ -206,7 +241,7 @@ pub fn decode_oem_candidate_payload(
     responder_header: Option<&str>,
     payload: &[u8],
 ) -> OemCandidateResponse {
-    if let Err(error) = validate_candidate(&spec.candidate) {
+    if let Err(error) = validate_candidate(spec) {
         return response(
             OemCandidateOutcome::InvalidCandidate,
             responder_header.map(str::to_owned),
@@ -214,6 +249,42 @@ pub fn decode_oem_candidate_payload(
             None,
             None,
             Some(error.to_string()),
+        );
+    }
+    if spec.candidate.service == "SSM-KWP" {
+        let expected_tool = crate::subaru_catalog::ssm_route(
+            &spec.candidate.request_header,
+            &spec.candidate.response_header,
+        )
+        .map(|(_, tool)| format!("{tool:02X}"));
+        let Some(responder) = responder_header.filter(|header| {
+            expected_tool
+                .as_ref()
+                .ok()
+                .map(String::as_str)
+                .is_some_and(|expected| header.eq_ignore_ascii_case(expected))
+        }) else {
+            return response(
+                OemCandidateOutcome::WrongResponder,
+                responder_header.map(str::to_owned),
+                payload.to_vec(),
+                None,
+                None,
+                Some("Subaru SSM response does not match the catalogued tool address".into()),
+            );
+        };
+        let (decoded_value, decode_error) =
+            match decode_candidate_value(&spec.candidate, spec.value_format.as_str(), payload) {
+                Ok(value) => (value, None),
+                Err(error) => (None, Some(error)),
+            };
+        return response(
+            OemCandidateOutcome::Positive,
+            Some(responder.to_owned()),
+            payload.to_vec(),
+            decoded_value,
+            decode_error,
+            None,
         );
     }
     let Some(responder) = responder_header
@@ -354,9 +425,10 @@ fn decode_candidate_value(
     let Some(bit_length) = candidate.bit_length.or(decoder.bit_length) else {
         return Ok(None);
     };
-    if decoder
-        .bit_offset
-        .is_some_and(|offset| offset != bit_offset)
+    if (candidate.service != "SSM-KWP"
+        && decoder
+            .bit_offset
+            .is_some_and(|offset| offset != bit_offset))
         || decoder
             .bit_length
             .is_some_and(|length| length != bit_length)

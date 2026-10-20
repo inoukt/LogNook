@@ -1,4 +1,6 @@
-//! Read-only SAE J1979 Mode 01 acquisition over a Candlelight GS_USB channel.
+//! SAE J1979 OBD diagnostics and Mode 01 acquisition over a Candlelight GS_USB channel.
+
+mod oem;
 
 use crate::{
     CanDeviceSelection, CanDirection, CanFrame, CanTransport, CanTransportEvent,
@@ -25,6 +27,8 @@ const FIRST_RESPONSE_ID: u32 = 0x7E8;
 const LAST_RESPONSE_ID: u32 = 0x7EF;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_OBD_RESPONSE_FRAMES: usize = 32;
+const MAX_DIAGNOSTIC_RESPONSE_BYTES: usize = 1024;
+const MAX_DIAGNOSTIC_RESPONSE_FRAMES: usize = 150;
 const EMPTY_CYCLE_BACKOFF: Duration = Duration::from_millis(250);
 
 pub struct CanObdAdapter {
@@ -290,6 +294,279 @@ impl CanObdAdapter {
         Ok(())
     }
 
+    fn read_vehicle_diagnostic(
+        &mut self,
+        query: crate::DiagnosticQueryRequest,
+    ) -> Result<crate::DiagnosticReport, LogNookError> {
+        if self.started.is_none() {
+            return Err(LogNookError::new(
+                "Candlelight OBD adapter is not connected",
+            ));
+        }
+        query.validate().map_err(LogNookError::new)?;
+        let response_id = self
+            .response_id
+            .ok_or_else(|| LogNookError::new("CAN OBD ECU identity is unavailable"))?;
+        let request_id = response_id.checked_sub(8).ok_or_else(|| {
+            LogNookError::new("ECU response ID has no standard OBD request route")
+        })?;
+        let started_at_unix_ms = crate::vehicle_diagnostics::now_unix_ms();
+        let request_started = Instant::now();
+        let payload = query.request_payload();
+        if payload.is_empty() || payload.len() > 7 {
+            return Err(LogNookError::new(
+                "Invalid standard OBD diagnostic request length",
+            ));
+        }
+        let mut frame_data = vec![0u8; 8];
+        frame_data[0] = payload.len() as u8;
+        frame_data[1..=payload.len()].copy_from_slice(payload);
+        let command = format!("CAN 11-bit TX {request_id:03X} {}", hex_bytes(payload));
+        let request_frame = CanFrame {
+            elapsed_ns: 0,
+            wall_time_unix_ns: 0,
+            can_id: request_id,
+            extended: false,
+            direction: CanDirection::Tx,
+            data: frame_data,
+            flags: 0,
+        };
+        let result = self
+            .transport
+            .as_mut()
+            .ok_or_else(|| LogNookError::new("Candlelight transport is not open"))?
+            .transmit(&request_frame)
+            .map_err(|error| LogNookError::new(error.to_string()))
+            .and_then(|_| self.receive_diagnostic_payloads(&query, request_id, response_id));
+        let latency_ms = request_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let route = format!("CAN 11-bit physical {request_id:03X} → {response_id:03X}");
+        let reads = match result {
+            Ok(responses) if !responses.is_empty() => responses
+                .into_iter()
+                .map(|(frames, response, truncated)| {
+                    let mut read = query.report(
+                        Some(format!("{response_id:03X}")),
+                        response,
+                        frames.iter().map(frame_hex).collect::<Vec<_>>().join("\n"),
+                        command.clone(),
+                        started_at_unix_ms,
+                        latency_ms,
+                        truncated,
+                    );
+                    read.route = route.clone();
+                    read
+                })
+                .collect(),
+            Ok(_) => {
+                let mut read = query.no_response(
+                    String::new(),
+                    command,
+                    started_at_unix_ms,
+                    latency_ms,
+                    Some("No ECU response before the standard OBD timeout".into()),
+                );
+                read.ecu_id = Some(format!("{response_id:03X}"));
+                read.route = route;
+                vec![read]
+            }
+            Err(error) if error.is_transient() => {
+                let mut read = query.no_response(
+                    String::new(),
+                    command,
+                    started_at_unix_ms,
+                    latency_ms,
+                    Some(error.to_string()),
+                );
+                read.ecu_id = Some(format!("{response_id:03X}"));
+                read.route = route;
+                vec![read]
+            }
+            Err(error) => {
+                let mut read = query.transport_error(
+                    String::new(),
+                    command,
+                    started_at_unix_ms,
+                    latency_ms,
+                    error.to_string(),
+                );
+                read.ecu_id = Some(format!("{response_id:03X}"));
+                read.route = route;
+                vec![read]
+            }
+        };
+        Ok(crate::DiagnosticReport {
+            report_id: None,
+            connection_generation: None,
+            vehicle_context: None,
+            adapter: DeviceDescriptor {
+                stable_id: format!(
+                    "{}:channel:{}:obd",
+                    self.source_id
+                        .as_deref()
+                        .ok_or_else(|| LogNookError::new("Candlelight identity is unavailable"))?,
+                    self.transport
+                        .as_ref()
+                        .and_then(|transport| transport.target_channel())
+                        .ok_or_else(|| LogNookError::new("Candlelight channel is unavailable"))?
+                ),
+                hardware_family: "Candlelight GS-USB OBD-II".into(),
+                firmware: None,
+                path: Some(self.selection.id.clone()),
+            },
+            protocol: "SAE J1979 over 11-bit CAN at 500 kbit/s".into(),
+            started_at_unix_ms,
+            operation_kind: if query.kind == crate::DiagnosticReadKind::ClearDtcs {
+                crate::DiagnosticReportKind::ClearDtcs
+            } else {
+                crate::DiagnosticReportKind::Snapshot
+            },
+            request: crate::DiagnosticRequest::default(),
+            reads,
+            route_restore_error: None,
+            evidence_saved: false,
+            evidence_save_error: None,
+        })
+    }
+
+    fn receive_diagnostic_payloads(
+        &mut self,
+        query: &crate::DiagnosticQueryRequest,
+        request_id: u32,
+        response_id: u32,
+    ) -> Result<Vec<(Vec<CanFrame>, Vec<u8>, bool)>, LogNookError> {
+        let identifier = query.identifier.into_iter().collect::<Vec<_>>();
+        self.receive_routed_payloads(
+            query.service,
+            &identifier,
+            query.wait_ms,
+            request_id,
+            response_id,
+        )
+    }
+
+    fn receive_routed_payloads(
+        &mut self,
+        service: u8,
+        identifier: &[u8],
+        wait_ms: u64,
+        request_id: u32,
+        response_id: u32,
+    ) -> Result<Vec<(Vec<CanFrame>, Vec<u8>, bool)>, LogNookError> {
+        let deadline = Instant::now() + Duration::from_millis(wait_ms);
+        let mut responses = Vec::new();
+        let mut frames = Vec::new();
+        let mut expected_length = None;
+        let mut next_sequence = 1u8;
+        while Instant::now() < deadline {
+            self.ensure_not_cancelled()?;
+            let timeout = deadline.saturating_duration_since(Instant::now());
+            let event = self
+                .transport
+                .as_mut()
+                .ok_or_else(|| LogNookError::new("Candlelight transport is not open"))?
+                .receive(timeout)
+                .map_err(|error| LogNookError::new(error.to_string()))?;
+            let Some(CanTransportEvent::Rx(frame)) = event else {
+                continue;
+            };
+            if frame.direction != CanDirection::Rx
+                || frame.extended
+                || frame.can_id != response_id
+                || frame.flags != 0
+            {
+                continue;
+            }
+            frame
+                .validate()
+                .map_err(|error| LogNookError::new(error.to_string()))?;
+            let Some(&pci) = frame.data.first() else {
+                continue;
+            };
+            match pci >> 4 {
+                0 => {
+                    let length = usize::from(pci & 0x0F);
+                    if length == 0 || length > frame.data.len().saturating_sub(1) {
+                        continue;
+                    }
+                    let payload = frame.data[1..=length].to_vec();
+                    if !diagnostic_payload_matches(service, identifier, &payload) {
+                        continue;
+                    }
+                    let pending = payload.as_slice() == [0x7F, service, 0x78];
+                    responses.push((vec![frame], payload, false));
+                    if !pending {
+                        break;
+                    }
+                }
+                1 => {
+                    if frame.data.len() < 3
+                        || !diagnostic_payload_matches(service, identifier, &frame.data[2..])
+                    {
+                        continue;
+                    }
+                    let length =
+                        (usize::from(frame.data[0] & 0x0F) << 8) | usize::from(frame.data[1]);
+                    if length <= 6 || length > MAX_DIAGNOSTIC_RESPONSE_BYTES {
+                        responses.push((vec![frame.clone()], frame.data[2..].to_vec(), true));
+                        break;
+                    }
+                    expected_length = Some(length);
+                    frames.clear();
+                    frames.push(frame.clone());
+                    next_sequence = 1;
+                    let flow_control = CanFrame {
+                        elapsed_ns: 0,
+                        wall_time_unix_ns: 0,
+                        can_id: request_id,
+                        extended: false,
+                        direction: CanDirection::Tx,
+                        data: vec![0x30, 0, 0, 0, 0, 0, 0, 0],
+                        flags: 0,
+                    };
+                    self.transport
+                        .as_mut()
+                        .ok_or_else(|| LogNookError::new("Candlelight transport is not open"))?
+                        .transmit(&flow_control)
+                        .map_err(|error| LogNookError::new(error.to_string()))?;
+                }
+                2 if expected_length.is_some() => {
+                    if pci & 0x0F != next_sequence {
+                        frames.push(frame);
+                        let partial = can_isotp_payload_prefix(&frames).unwrap_or_default();
+                        responses.push((std::mem::take(&mut frames), partial, true));
+                        expected_length = None;
+                        break;
+                    }
+                    frames.push(frame);
+                    if frames.len() > MAX_DIAGNOSTIC_RESPONSE_FRAMES {
+                        let partial = can_isotp_payload_prefix(&frames).unwrap_or_default();
+                        responses.push((std::mem::take(&mut frames), partial, true));
+                        expected_length = None;
+                        break;
+                    }
+                    next_sequence = (next_sequence + 1) & 0x0F;
+                    let length = expected_length.expect("checked above");
+                    if let Some(payload) = can_isotp_payload(&frames, length) {
+                        if diagnostic_payload_matches(service, identifier, &payload) {
+                            let pending = payload.as_slice() == [0x7F, service, 0x78];
+                            responses.push((std::mem::take(&mut frames), payload, false));
+                            expected_length = None;
+                            if !pending {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if expected_length.is_some() && !frames.is_empty() {
+            let payload = can_isotp_payload_prefix(&frames).unwrap_or_default();
+            responses.push((std::mem::take(&mut frames), payload, true));
+        }
+        Ok(responses)
+    }
+
     fn connect_inner(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         let sink = self.diagnostic_sink.clone();
         let adapter_id = self.adapter_id();
@@ -348,6 +625,12 @@ impl CanObdAdapter {
             device,
             protocol: "SAE J1979 Mode 01 over 11-bit CAN at 500 kbit/s".into(),
             read_only: true,
+            diagnostics: crate::DiagnosticCapabilities {
+                dtc_snapshot: true,
+                identity: true,
+                mode06: true,
+                clear_dtcs: true,
+            },
             supported_signals,
         })
     }
@@ -367,6 +650,46 @@ impl CanObdAdapter {
     fn supported_pids(&self) -> &[u8] {
         &self.supported_pids
     }
+}
+
+fn diagnostic_payload_matches(service: u8, identifier: &[u8], payload: &[u8]) -> bool {
+    if payload.first() == Some(&0x7F) {
+        return payload.get(1) == Some(&service);
+    }
+    payload.first() == Some(&service.wrapping_add(0x40))
+        && payload.get(1..1 + identifier.len()) == Some(identifier)
+}
+
+fn can_isotp_payload(frames: &[CanFrame], expected_length: usize) -> Option<Vec<u8>> {
+    let payload = can_isotp_payload_prefix(frames)?;
+    (payload.len() >= expected_length).then(|| payload[..expected_length].to_vec())
+}
+
+fn can_isotp_payload_prefix(frames: &[CanFrame]) -> Option<Vec<u8>> {
+    let first = frames.first()?;
+    if first.data.first()? >> 4 != 1 || first.data.len() < 3 {
+        return None;
+    }
+    let mut payload = first.data[2..].to_vec();
+    for frame in frames.iter().skip(1) {
+        if frame.data.first().is_none_or(|byte| byte >> 4 != 2) {
+            return None;
+        }
+        payload.extend_from_slice(&frame.data[1..]);
+    }
+    Some(payload)
+}
+
+fn frame_hex(frame: &CanFrame) -> String {
+    format!("{:03X} {}", frame.can_id, hex_bytes(&frame.data))
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn single_frame_payload(frame: &CanFrame) -> Result<Vec<u8>, String> {
@@ -491,6 +814,51 @@ impl HardwareAdapter for CanObdAdapter {
         }
     }
 
+    fn validate_oem_candidate_poll(
+        &self,
+        spec: &crate::OemCandidateTrySpec,
+    ) -> Result<(), LogNookError> {
+        crate::build_oem_candidate_command(spec)?;
+        if spec
+            .candidate
+            .request_header
+            .eq_ignore_ascii_case(&spec.candidate.response_header)
+        {
+            return Err(LogNookError::new(
+                "OEM request and response CAN IDs must differ",
+            ));
+        }
+        Ok(())
+    }
+
+    fn execute_research_test(
+        &mut self,
+        request: crate::ResearchTestRequest,
+    ) -> Result<crate::ResearchTestResult, LogNookError> {
+        if let crate::ResearchTestRequest::OemCandidate(ref spec) = request {
+            return self
+                .read_oem_candidate(spec)
+                .map(crate::ResearchTestResult::OemCandidate);
+        }
+        let crate::ResearchTestRequest::Diagnostic(query) = request else {
+            return Err(LogNookError::new(
+                "Candlelight OBD supports standard read-only vehicle diagnostics only",
+            ));
+        };
+        if query.kind == crate::DiagnosticReadKind::ClearDtcs {
+            return Err(LogNookError::new(
+                "Mode 04 is available only through the explicit DTC clear operation",
+            ));
+        }
+        self.read_vehicle_diagnostic(query)
+            .map(crate::ResearchTestResult::Diagnostic)
+    }
+
+    fn clear_vehicle_dtcs(&mut self) -> Result<Vec<crate::DiagnosticRead>, LogNookError> {
+        self.read_vehicle_diagnostic(crate::DiagnosticQueryRequest::clear_dtcs())
+            .map(|report| report.reads)
+    }
+
     fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
         if self.started.is_some() {
             return Err(LogNookError::new("CAN OBD adapter is already connected"));
@@ -609,7 +977,7 @@ impl HardwareAdapter for CanObdAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::CanObdAdapter;
+    use super::{CanObdAdapter, hex_bytes};
     use crate::{
         CanDirection, CanFrame, CanTransport, CanTransportError, CanTransportEvent,
         HardwareAdapter, SignalDefinition, standard_obd_signals,
@@ -727,6 +1095,141 @@ mod tests {
             .iter()
             .map(|frame| (frame.can_id, frame.data.clone()))
             .collect()
+    }
+
+    fn diagnostic_query(kind: crate::DiagnosticReadKind) -> crate::DiagnosticQueryRequest {
+        crate::DiagnosticRequest::default()
+            .queries()
+            .unwrap()
+            .into_iter()
+            .find(|query| query.kind == kind)
+            .expect("requested query is part of the standard diagnostic snapshot")
+    }
+
+    #[test]
+    fn continuous_oem_validation_checks_source_and_route_without_can_io() {
+        let (adapter, state) = adapter_with_page00(&[]);
+        let mut spec = crate::oem_test_fixture::candidate_spec();
+        assert!(adapter.validate_oem_candidate_poll(&spec).is_ok());
+        spec.candidate.request_header = spec.candidate.response_header.clone();
+        assert!(adapter.validate_oem_candidate_poll(&spec).is_err());
+        spec = crate::oem_test_fixture::candidate_spec();
+        spec.candidate.source_blob_sha.clear();
+        assert!(adapter.validate_oem_candidate_poll(&spec).is_err());
+        assert!(state.lock().unwrap().transmitted.is_empty());
+    }
+
+    #[test]
+    fn source_oem_reads_use_exact_routes_and_do_not_change_the_mode01_ecu() {
+        for (service, identifier, payload) in [
+            ("21", "01", vec![0x61, 0x01, 0]),
+            ("22", "1234", vec![0x62, 0x12, 0x34, 0]),
+        ] {
+            let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+            adapter.connect().unwrap();
+            let mut spec = crate::oem_test_fixture::candidate_spec();
+            spec.candidate.service = service.into();
+            spec.candidate.identifier = identifier.into();
+            state
+                .lock()
+                .unwrap()
+                .responses
+                .push_back(VecDeque::from([positive_single_frame(0x708, &payload)]));
+            let crate::ResearchTestResult::OemCandidate(result) = adapter
+                .execute_research_test(crate::ResearchTestRequest::OemCandidate(spec.clone()))
+                .unwrap()
+            else {
+                panic!("OEM result expected")
+            };
+            assert_eq!(result.outcome, crate::OemCandidateOutcome::Positive);
+            assert_eq!(result.decoded_value.unwrap().value, Some(0.0));
+            assert_eq!(result.responder_header.as_deref(), Some("708"));
+            assert!(result.raw_response.starts_with("708 "));
+            assert_eq!(adapter.response_id, Some(0x7E8));
+            let requests = request_ids(&state);
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[1].0, 0x700);
+            assert_eq!(requests[1].1[1], u8::from_str_radix(service, 16).unwrap());
+            assert!(!spec.candidate.auto_request);
+        }
+    }
+
+    #[test]
+    fn invalid_oem_candidate_is_rejected_before_can_transmission() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        let mut spec = crate::oem_test_fixture::candidate_spec();
+        for service in ["04", "2E", "27"] {
+            spec.candidate.service = service.into();
+            assert!(adapter.read_oem_candidate(&spec).is_err());
+        }
+        spec.candidate.service = "21".into();
+        spec.candidate.source_blob_sha.clear();
+        assert!(adapter.read_oem_candidate(&spec).is_err());
+        assert_eq!(request_ids(&state).len(), 1);
+    }
+
+    #[test]
+    fn oem_negative_reply_is_preserved_without_retry() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        state
+            .lock()
+            .unwrap()
+            .responses
+            .push_back(VecDeque::from([positive_single_frame(
+                0x708,
+                &[0x7F, 0x21, 0x22],
+            )]));
+        let result = adapter
+            .read_oem_candidate(&crate::oem_test_fixture::candidate_spec())
+            .unwrap();
+        assert_eq!(
+            result.outcome,
+            crate::OemCandidateOutcome::TemporarilyUnavailable
+        );
+        assert_eq!(result.negative_response_code, Some(0x22));
+        assert_eq!(result.response_payload, [0x7F, 0x21, 0x22]);
+        assert_eq!(request_ids(&state).len(), 2);
+    }
+
+    #[test]
+    fn source_mode22_multiframe_reply_uses_the_source_flow_control_route() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        let mut spec = crate::oem_test_fixture::candidate_spec();
+        spec.candidate.service = "22".into();
+        spec.candidate.identifier = "1234".into();
+        {
+            let mut state = state.lock().unwrap();
+            state.responses.push_back(VecDeque::from([rx(
+                0x708,
+                &[0x10, 0x0A, 0x62, 0x12, 0x34, 0, 1, 2],
+            )]));
+            state
+                .responses
+                .push_back(VecDeque::from([rx(0x708, &[0x21, 3, 4, 5, 6, 0, 0, 0])]));
+        }
+        let result = adapter.read_oem_candidate(&spec).unwrap();
+        assert_eq!(result.outcome, crate::OemCandidateOutcome::Positive);
+        assert_eq!(
+            result.response_payload,
+            [0x62, 0x12, 0x34, 0, 1, 2, 3, 4, 5, 6]
+        );
+        let requests = request_ids(&state);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1], (0x700, vec![3, 0x22, 0x12, 0x34, 0, 0, 0, 0]));
+        assert_eq!(requests[2], (0x700, vec![0x30, 0, 0, 0, 0, 0, 0, 0]));
+        assert!(result.raw_response.contains("10 0A 62 12 34"));
+        assert!(result.raw_response.contains("21 03 04 05 06"));
+    }
+
+    fn positive_single_frame(can_id: u32, payload: &[u8]) -> Option<CanTransportEvent> {
+        assert!(!payload.is_empty() && payload.len() <= 7);
+        let mut frame = vec![0; 8];
+        frame[0] = payload.len() as u8;
+        frame[1..=payload.len()].copy_from_slice(payload);
+        rx(can_id, &frame)
     }
 
     #[test]
@@ -933,6 +1436,278 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn diagnostics_read_modes_03_07_and_0a_from_the_discovered_ecu_with_raw_route() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        let capabilities = adapter.connect().unwrap();
+        assert!(capabilities.diagnostics.dtc_snapshot);
+        assert!(capabilities.diagnostics.identity);
+        assert!(capabilities.diagnostics.mode06);
+        assert!(capabilities.diagnostics.clear_dtcs);
+
+        state.lock().unwrap().responses.extend([
+            VecDeque::from([positive_single_frame(0x7E8, &[0x43, 0x01, 0x33])]),
+            VecDeque::from([positive_single_frame(0x7E8, &[0x47, 0x00])]),
+            VecDeque::from([positive_single_frame(0x7E8, &[0x4A, 0x00])]),
+        ]);
+
+        let mut reads = Vec::new();
+        for kind in [
+            crate::DiagnosticReadKind::StoredDtcs,
+            crate::DiagnosticReadKind::PendingDtcs,
+            crate::DiagnosticReadKind::PermanentDtcs,
+        ] {
+            let crate::ResearchTestResult::Diagnostic(report) = adapter
+                .execute_research_test(crate::ResearchTestRequest::Diagnostic(diagnostic_query(
+                    kind,
+                )))
+                .unwrap()
+            else {
+                panic!("diagnostic query returns a diagnostic report")
+            };
+            reads.push(report.reads.into_iter().next().unwrap());
+        }
+
+        assert_eq!(
+            reads.iter().map(|read| read.service).collect::<Vec<_>>(),
+            [0x03, 0x07, 0x0A]
+        );
+        for read in &reads {
+            assert_eq!(read.outcome, crate::DiagnosticOutcome::Positive);
+            assert_eq!(read.ecu_id.as_deref(), Some("7E8"));
+            assert_eq!(read.route, "CAN 11-bit physical 7E0 → 7E8");
+            assert!(read.raw_response.starts_with("7E8 "));
+            assert_eq!(read.request_payload, [read.service]);
+        }
+        assert_eq!(
+            reads[0].values,
+            [crate::DiagnosticValue::DtcList {
+                codes: vec!["P0133".into()]
+            }]
+        );
+        assert_eq!(
+            request_ids(&state)
+                .iter()
+                .map(|(_, frame)| frame[1])
+                .collect::<Vec<_>>(),
+            [0x01, 0x03, 0x07, 0x0A]
+        );
+    }
+
+    #[test]
+    fn mode09_vin_uses_iso_tp_flow_control_and_keeps_each_raw_frame() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        let vin = b"1HGCM82633A004352";
+        let mut payload = vec![0x49, 0x02, 0x01];
+        payload.extend_from_slice(vin);
+        assert_eq!(payload.len(), 20);
+        let first = vec![
+            0x10, 0x14, payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
+        ];
+        let consecutive = [
+            [
+                0x21,
+                payload[6],
+                payload[7],
+                payload[8],
+                payload[9],
+                payload[10],
+                payload[11],
+                payload[12],
+            ],
+            [
+                0x22,
+                payload[13],
+                payload[14],
+                payload[15],
+                payload[16],
+                payload[17],
+                payload[18],
+                payload[19],
+            ],
+        ];
+        {
+            let mut state = state.lock().unwrap();
+            state
+                .responses
+                .push_back(VecDeque::from([rx(0x7E8, &first)]));
+            state.responses.push_back(VecDeque::from(
+                consecutive
+                    .iter()
+                    .map(|frame| rx(0x7E8, frame))
+                    .collect::<Vec<_>>(),
+            ));
+        }
+
+        let crate::ResearchTestResult::Diagnostic(report) = adapter
+            .execute_research_test(crate::ResearchTestRequest::Diagnostic(diagnostic_query(
+                crate::DiagnosticReadKind::Vin,
+            )))
+            .unwrap()
+        else {
+            panic!("VIN query returns a diagnostic report")
+        };
+        let read = report.reads.into_iter().next().unwrap();
+
+        assert_eq!(read.outcome, crate::DiagnosticOutcome::Positive);
+        assert_eq!(read.ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(read.response_payload, payload);
+        assert_eq!(
+            read.values,
+            [crate::DiagnosticValue::Identity {
+                pid: 0x02,
+                label: "VIN".into(),
+                value: "1HGCM82633A004352".into(),
+            }]
+        );
+        let requests = request_ids(&state);
+        assert_eq!(requests[1], (0x7E0, vec![2, 0x09, 0x02, 0, 0, 0, 0, 0]));
+        assert_eq!(requests[2], (0x7E0, vec![0x30, 0, 0, 0, 0, 0, 0, 0]));
+        for frame in [&first, &consecutive[0].to_vec(), &consecutive[1].to_vec()] {
+            assert!(read.raw_response.contains(&hex_bytes(frame)));
+        }
+        assert_eq!(read.route, "CAN 11-bit physical 7E0 → 7E8");
+    }
+
+    #[test]
+    fn incomplete_iso_tp_diagnostic_response_is_preserved_as_malformed() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        let first = [0x10, 0x14, 0x49, 0x02, 0x01, b'1', b'H', b'G'];
+        {
+            let mut state = state.lock().unwrap();
+            state
+                .responses
+                .push_back(VecDeque::from([rx(0x7E8, &first)]));
+            state.responses.push_back(VecDeque::new());
+        }
+        let mut query = diagnostic_query(crate::DiagnosticReadKind::Vin);
+        query.wait_ms = 5;
+
+        let read = adapter
+            .read_vehicle_diagnostic(query)
+            .unwrap()
+            .reads
+            .remove(0);
+
+        assert_eq!(read.outcome, crate::DiagnosticOutcome::MalformedResponse);
+        assert_eq!(read.ecu_id.as_deref(), Some("7E8"));
+        assert!(read.detail.unwrap().contains("truncated"));
+        assert!(read.raw_response.contains("10 14 49 02 01 31 48 47"));
+        assert_eq!(request_ids(&state).last().unwrap().1[0], 0x30);
+    }
+
+    #[test]
+    fn mode06_bitmap_is_read_only_and_decoded_over_the_same_transport() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        state
+            .lock()
+            .unwrap()
+            .responses
+            .push_back(VecDeque::from([positive_single_frame(
+                0x7E8,
+                &[0x46, 0x00, 0, 0, 0, 0x20],
+            )]));
+
+        let crate::ResearchTestResult::Diagnostic(report) = adapter
+            .execute_research_test(crate::ResearchTestRequest::Diagnostic(diagnostic_query(
+                crate::DiagnosticReadKind::Mode06Bitmap,
+            )))
+            .unwrap()
+        else {
+            panic!("Mode 06 query returns a diagnostic report")
+        };
+        let read = report.reads.into_iter().next().unwrap();
+
+        assert_eq!(read.outcome, crate::DiagnosticOutcome::Positive);
+        assert_eq!(read.service, 0x06);
+        assert_eq!(read.identifier, Some(0x00));
+        assert_eq!(request_ids(&state).last().unwrap().1[1..3], [0x06, 0x00]);
+    }
+
+    #[test]
+    fn dtc_clear_is_one_mode04_transmission_even_when_ecu_reports_pending_first() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        state.lock().unwrap().responses.push_back(VecDeque::from([
+            rx(0x7E8, &[0x03, 0x7F, 0x04, 0x78, 0, 0, 0, 0]),
+            positive_single_frame(0x7E8, &[0x44]),
+        ]));
+
+        assert!(
+            adapter
+                .execute_research_test(crate::ResearchTestRequest::Diagnostic(
+                    crate::DiagnosticQueryRequest::clear_dtcs(),
+                ))
+                .is_err()
+        );
+        assert_eq!(
+            request_ids(&state).len(),
+            1,
+            "research scans cannot clear DTCs"
+        );
+
+        let reads = adapter.clear_vehicle_dtcs().unwrap();
+
+        assert_eq!(reads.len(), 2);
+        assert_eq!(reads[0].outcome, crate::DiagnosticOutcome::ResponsePending);
+        assert_eq!(reads[1].outcome, crate::DiagnosticOutcome::Positive);
+        assert_eq!(reads[1].kind, crate::DiagnosticReadKind::ClearDtcs);
+        assert_eq!(
+            reads[1].values,
+            [crate::DiagnosticValue::DtcClearAcknowledgement]
+        );
+        let requests = request_ids(&state);
+        assert_eq!(requests.len(), 2, "Mode 04 is sent once, without retries");
+        assert_eq!(requests[1], (0x7E0, vec![1, 0x04, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(reads[1].ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(reads[1].route, "CAN 11-bit physical 7E0 → 7E8");
+    }
+
+    #[test]
+    fn diagnostics_preserve_negative_and_malformed_response_outcomes() {
+        let (mut adapter, state) = adapter_with_page00(&[0x06, 0x41, 0x00, 0, 0x10, 0, 0]);
+        adapter.connect().unwrap();
+        state.lock().unwrap().responses.extend([
+            VecDeque::from([positive_single_frame(0x7E8, &[0x7F, 0x03, 0x11])]),
+            VecDeque::from([positive_single_frame(0x7E8, &[0x43, 0x01])]),
+            VecDeque::new(),
+        ]);
+        let mut stored = diagnostic_query(crate::DiagnosticReadKind::StoredDtcs);
+        stored.wait_ms = 5;
+        let pending = adapter
+            .read_vehicle_diagnostic(stored.clone())
+            .unwrap()
+            .reads
+            .remove(0);
+        let malformed = adapter
+            .read_vehicle_diagnostic(stored)
+            .unwrap()
+            .reads
+            .remove(0);
+        let mut no_response_query = diagnostic_query(crate::DiagnosticReadKind::StoredDtcs);
+        no_response_query.wait_ms = 5;
+        let no_response = adapter
+            .read_vehicle_diagnostic(no_response_query)
+            .unwrap()
+            .reads
+            .remove(0);
+
+        assert_eq!(pending.outcome, crate::DiagnosticOutcome::NegativeResponse);
+        assert_eq!(pending.negative_response_code, Some(0x11));
+        assert_eq!(pending.ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(
+            malformed.outcome,
+            crate::DiagnosticOutcome::MalformedResponse
+        );
+        assert!(malformed.detail.is_some());
+        assert_eq!(malformed.ecu_id.as_deref(), Some("7E8"));
+        assert_eq!(no_response.outcome, crate::DiagnosticOutcome::NoResponse);
+        assert_eq!(no_response.ecu_id.as_deref(), Some("7E8"));
     }
 
     #[test]

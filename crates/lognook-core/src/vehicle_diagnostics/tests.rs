@@ -249,8 +249,66 @@ fn decodes_counted_dtcs_for_all_modes_and_rejects_truncated_counts() {
             .detail
             .as_deref()
             .unwrap()
-            .contains("declares 2")
+            .contains("complete two-byte")
     );
+}
+
+#[test]
+fn standard_dtc_pair_payloads_decode_without_a_nonstandard_count_byte() {
+    let parsed = parse_adapter_response(
+        &query(vec![0x03], DiagnosticReadKind::StoredDtcs, None),
+        "03".into(),
+        "7E8 05 43 01 33 01 01\r>".into(),
+        10,
+        2,
+    );
+    assert_eq!(parsed[0].outcome, DiagnosticOutcome::Positive);
+    assert_eq!(
+        parsed[0].values,
+        [DiagnosticValue::DtcList {
+            codes: vec!["P0133".into(), "P0101".into()]
+        }]
+    );
+}
+
+#[test]
+fn mode04_acknowledgement_and_negative_response_are_typed_and_exact() {
+    let clear = query(vec![0x04], DiagnosticReadKind::ClearDtcs, None);
+    let positive = clear.report(
+        Some("7E8".into()),
+        vec![0x44],
+        "7E8 01 44".into(),
+        "04".into(),
+        10,
+        2,
+        false,
+    );
+    assert_eq!(positive.outcome, DiagnosticOutcome::Positive);
+    assert_eq!(positive.values, [DiagnosticValue::DtcClearAcknowledgement]);
+
+    let negative = clear.report(
+        Some("7E8".into()),
+        vec![0x7F, 0x04, 0x22],
+        "7E8 03 7F 04 22".into(),
+        "04".into(),
+        10,
+        2,
+        false,
+    );
+    assert_eq!(negative.outcome, DiagnosticOutcome::TemporarilyUnavailable);
+    assert_eq!(negative.negative_response_code, Some(0x22));
+
+    let malformed = clear.report(
+        Some("7E8".into()),
+        vec![0x44, 0x00],
+        "7E8 02 44 00".into(),
+        "04".into(),
+        10,
+        2,
+        false,
+    );
+    assert_eq!(malformed.outcome, DiagnosticOutcome::MalformedResponse);
+    assert!(malformed.detail.unwrap().contains("exactly 44"));
 }
 
 #[test]
@@ -289,6 +347,64 @@ fn mode09_checks_record_counts_and_trims_only_trailing_nul_padding() {
     );
     assert_eq!(bad_name.outcome, DiagnosticOutcome::MalformedResponse);
     assert!(bad_name.detail.as_deref().unwrap().contains("ECU name"));
+}
+
+#[test]
+fn ford_ecu_name_decodes_padded_acronym_without_changing_raw_evidence() {
+    let payload = [vec![0x49, 0x0A, 0x01], b"PCM\0-PowertrainCtrl\0".to_vec()].concat();
+    let read = query(vec![0x09, 0x0A], DiagnosticReadKind::EcuName, Some(0x0A)).report(
+        Some("7E8".into()),
+        payload.clone(),
+        String::new(),
+        "090A".into(),
+        10,
+        2,
+        false,
+    );
+    assert_eq!(read.outcome, DiagnosticOutcome::Positive);
+    assert_eq!(read.response_payload, payload);
+    assert!(matches!(
+        &read.values[0],
+        DiagnosticValue::Identity { value, .. } if value == "PCM-PowertrainCtrl"
+    ));
+}
+
+#[test]
+fn ecu_name_padding_does_not_allow_other_controls_or_change_vin_calibration_rules() {
+    for (pid, kind, bytes) in [
+        (
+            0x0A,
+            DiagnosticReadKind::EcuName,
+            b"PC\x01\0-PowertrainCtrl\0".as_slice(),
+        ),
+        (
+            0x0A,
+            DiagnosticReadKind::EcuName,
+            b"PCM\0-Power\x01rainCtrl\0".as_slice(),
+        ),
+        (
+            0x02,
+            DiagnosticReadKind::Vin,
+            b"1HGCM82633A\0X4352".as_slice(),
+        ),
+        (
+            0x04,
+            DiagnosticReadKind::CalibrationId,
+            b"CAL\0BRATION1234\0".as_slice(),
+        ),
+    ] {
+        let payload = [vec![0x49, pid, 1], bytes.to_vec()].concat();
+        let read = query(vec![0x09, pid], kind, Some(pid)).report(
+            Some("7E8".into()),
+            payload,
+            String::new(),
+            "Mode09".into(),
+            10,
+            2,
+            false,
+        );
+        assert_eq!(read.outcome, DiagnosticOutcome::MalformedResponse);
+    }
 }
 
 #[test]

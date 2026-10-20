@@ -235,6 +235,10 @@ fn decode_payload(query: &DiagnosticQueryRequest, read: &mut DiagnosticRead) {
         | DiagnosticReadKind::EcuName => decode_identity(query, payload),
         DiagnosticReadKind::Mode06Bitmap => decode_bitmap(query, payload),
         DiagnosticReadKind::Mode06Monitor => decode_mode06_monitors(query, payload),
+        DiagnosticReadKind::ClearDtcs if payload.as_slice() == [0x44] => {
+            Ok(vec![DiagnosticValue::DtcClearAcknowledgement])
+        }
+        DiagnosticReadKind::ClearDtcs => Err("Mode 04 acknowledgement must be exactly 44".into()),
     };
     match decoded {
         Ok(values) => {
@@ -246,20 +250,24 @@ fn decode_payload(query: &DiagnosticQueryRequest, read: &mut DiagnosticRead) {
 }
 
 fn decode_dtcs(bytes: &[u8]) -> Result<Vec<String>, String> {
-    let Some((&count, dtc_bytes)) = bytes.split_first() else {
-        return Err("DTC response is missing its declared code count".into());
+    let pairs = if bytes.len() % 2 == 0 {
+        bytes
+    } else if let Some((&count, dtc_bytes)) = bytes.split_first()
+        && dtc_bytes.len() >= usize::from(count) * 2
+        && dtc_bytes[usize::from(count) * 2..]
+            .iter()
+            .all(|byte| *byte == 0)
+    {
+        // Preserve compatibility with older captures that prefixed Mode 03 data
+        // with a record count and padded ISO-TP bytes, while accepting standard
+        // SAE J1979 DTC pairs.
+        &dtc_bytes[..usize::from(count) * 2]
+    } else if bytes == [0] {
+        return Ok(Vec::new());
+    } else {
+        return Err("DTC response does not contain complete two-byte code pairs".into());
     };
-    let expected = usize::from(count) * 2;
-    if dtc_bytes.len() < expected {
-        return Err(format!(
-            "DTC response declares {count} code(s) but contains only {} complete code(s)",
-            dtc_bytes.len() / 2
-        ));
-    }
-    if !dtc_bytes[expected..].iter().all(|byte| *byte == 0) {
-        return Err("DTC response has nonzero bytes beyond its declared code count".into());
-    }
-    Ok(dtc_bytes[..expected]
+    Ok(pairs
         .chunks_exact(2)
         .filter(|pair| *pair != [0, 0])
         .map(|pair| {
@@ -317,7 +325,14 @@ fn decode_identity(
             data.chunks_exact(16).map(clean).collect::<Result<_, _>>()?,
         ),
         0x0A if count == 1 && !data.is_empty() && data.len() <= 20 => {
-            ("ECU name", vec![clean(data)?])
+            // The 20-byte name can contain a padded four-byte acronym, a dash,
+            // and a padded 15-byte description (Ford: PCM\0-PowertrainCtrl\0).
+            let name = if data.len() == 20 && data[4] == b'-' {
+                format!("{}-{}", clean(&data[..4])?, clean(&data[5..])?)
+            } else {
+                clean(data)?
+            };
+            ("ECU name", vec![name])
         }
         0x02 => return Err("Mode 09 VIN must contain one 17-character record".into()),
         0x04 => return Err("Mode 09 calibration count must match complete 16-byte records".into()),

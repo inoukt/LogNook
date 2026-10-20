@@ -15,9 +15,11 @@ pub use sessions::*;
 mod session_share;
 pub use session_share::*;
 mod oem_catalog;
+pub(crate) mod oem_discovery;
 pub use oem_catalog::*;
-pub(crate) use oem_catalog::{execute_candidate_try, execute_obd_read_test};
+pub(crate) use oem_catalog::{execute_candidate_try, execute_obd_read_test, set_oem_logging};
 mod openport2;
+pub mod subaru_catalog;
 pub use openport2::*;
 pub(crate) use openport2::{discover_providers, worker_path};
 mod can;
@@ -31,6 +33,10 @@ pub(crate) mod profile_connection;
 pub use profile_connection::*;
 pub(crate) mod vehicle_profiles;
 pub use vehicle_profiles::*;
+pub(crate) mod signal_presets;
+pub use signal_presets::*;
+pub(crate) mod vehicle_projects;
+pub use vehicle_projects::*;
 
 use crate::AppState;
 use lognook_core::{

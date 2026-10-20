@@ -37,6 +37,7 @@ pub(crate) struct AppState {
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(commands::oem_discovery::OemDiscoveryService::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -133,8 +134,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::oem_discovery::oem_discovery,
             commands::diagnostic_snapshot,
             commands::run_vehicle_diagnostics,
+            commands::clear_vehicle_dtcs,
             commands::agent_access_status,
             commands::configure_agent_pin,
             commands::unlock_agent_access,
@@ -145,6 +148,9 @@ pub fn run() {
             commands::export_support_bundle,
             commands::available_signals,
             commands::search_oem_catalog,
+            commands::subaru_catalog::search_subaru_catalog,
+            commands::subaru_catalog::get_subaru_catalog_detail,
+            commands::subaru_catalog::set_subaru_logging,
             commands::oem_vehicle_profiles,
             commands::search_oem_poll_candidates,
             commands::start_oem_logging,
@@ -166,6 +172,7 @@ pub fn run() {
             commands::available_openport2_providers,
             commands::identify_openport2,
             commands::connect_openport2,
+            commands::connect_openport2_ssm,
             commands::available_can_adapters,
             commands::choose_can_capture_save_path,
             commands::choose_can_capture_open_path,
@@ -227,6 +234,8 @@ pub fn run() {
             commands::apply_profile_resume,
             commands::discard_profile_resume,
             commands::vehicle_profiles_status,
+            commands::signal_presets,
+            commands::vehicle_projects,
             commands::connect_obdlink_sx,
             commands::disconnect,
             commands::disconnect_obd,

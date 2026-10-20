@@ -20,6 +20,7 @@ pub enum ManualVehicleField {
     ModelYear,
     Engine,
     Trim,
+    Transmission,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]

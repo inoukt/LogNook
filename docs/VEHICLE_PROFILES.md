@@ -1,12 +1,16 @@
 # Vehicle/ECU profiles and Resume
 
+For the automatic on-connect VIN project and workspace choice, see
+[VIN vehicle projects](VEHICLE_PROJECTS.md). The strict profile Resume behavior
+below remains available for saved profile selections and ECU verification.
+
 Open **Profiles** in the top bar. Connect normally for a first visit, choose **Recognize vehicle**, select your signals, and **Save profile**. The profile stores separate logging/graph selections, user-defined formulas/CAN fields, and versioned OEM references. Optional catalog-vehicle association is a research reference, not evidence of vehicle identity or validation.
 
 Saving enables **Recognize vehicle before logging on the next Connect**. On subsequent connections, LogNook discovers fresh support and holds polling in standby while identity is read. A unique exact match prepares a preview; choose **Resume selection** to apply the eligible set. No automatic recording or CAN transmission starts.
 
 The preview lists eligible and skipped signals. Skipped selections remain saved. Identity, source/decoder revisions, dependencies and current adapter capabilities are rechecked at Apply, together with the connection generation and profile revision. Changing the vehicle, reconnecting even the same adapter, updating a profile, or cancelling invalidates stale work.
 
-VIN, actual responding ECU, protocol and observed calibration/software evidence determine matching. COM port, provider, adapter identity and vehicle name do not establish the vehicle. Previously observed fields that are now missing require review. OpenPort supports identity-only Mode 09 reads for VIN (02), calibration ID (04), and ECU name (0A); its full DTC and Mode 06 diagnostics remain unsupported. Simulator profiles stay separate from physical vehicle profiles.
+VIN, actual responding ECU, protocol and observed calibration/software evidence determine matching. COM port, provider, adapter identity and vehicle name do not establish the vehicle. Previously observed fields that are now missing require review. OpenPort recognition uses identity-only Mode 09 reads for VIN (02), calibration ID (04), and ECU name (0A). Its separate Vehicle Diagnostics snapshot supports standard DTC and Mode 06 reads. Simulator profiles stay separate from physical vehicle profiles.
 
 OEM automatic logging still requires an exact applicable validated catalog definition, proven physical ECU addressing and unchanged source/decoder references. An identity response does not promote research definitions. Source-backed research graph channels stay graph-only. CAN fields require their saved active source/bitrate context and compatible idle Workbench state; unmatched fields stay saved/skipped.
 
@@ -21,3 +25,9 @@ Profile-store schema v2 migrates v1 transactionally and keeps existing selection
 MCP: use `connect_adapter` with `profile_standby=true` and an empty `log_signal_ids`, then the typed `vehicle_profiles` tool. Operations include `status`, `recognize`, `read_identity`, `get_identity`, `decode_vin_offline`, `set_manual_vehicle_detail`, `link_legacy_vin`, `assign_profile_vin`, `prepare_resume`, `apply_resume`, paginated `list_history`, `get_history_report`, `associate_history_report`, `history_import_status`, `start_history_import`, and `cancel_history_import`. Apply uses the preview ID, profile revision and OBD connection generation. The same tool provides `list`, `get`, `save`, `discard_resume`, `continue_selection` and `cancel`. Generic `read_vehicle_diagnostics` stores full raw VIN evidence locally but masks PID 09 02 VIN values and bytes in its MCP response; use explicit `read_identity`, `get_identity`, or `get_history_report` to request full identity detail. Agent-entered VIN/detail/association data is labeled `agent_access`. Save uses the server's current observed identity; caller-supplied ECU validation is unavailable. Agent Access must be unlocked for every operation.
 
 Software checks use fixtures/fake adapters; these features have not been physically validated on a vehicle.
+# Signal presets
+
+Signal recipes share the profile database for custom recipe and offline picker
+state storage, while remaining distinct from recognized vehicle identities.
+See [SIGNAL_PRESETS.md](SIGNAL_PRESETS.md) for scope, applicability and safety
+rules. Persisted picker context never supplies physical connection evidence.

@@ -250,7 +250,11 @@ test("CAN configuration sections start collapsed", () => {
   for (const section of ["can-trigger-settings", "can-scan-settings", "can-fields-settings", "can-send-settings"]) {
     const tag = panel.match(new RegExp(`<details class="${section}"[^>]*>`))?.[0];
     assert.ok(tag, `find ${section}`);
-    assert.doesNotMatch(tag, /\bopen\b/);
+    assert.doesNotMatch(tag, /\sopen(?:\s|=|>)/);
+    if (section === "can-scan-settings") {
+      assert.match(tag, /bind:open=\{scanSettingsOpen\}/);
+      assert.match(panel, /let scanSettingsOpen = false/);
+    }
   }
 });
 

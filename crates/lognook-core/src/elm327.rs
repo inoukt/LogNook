@@ -349,6 +349,12 @@ impl Elm327Adapter {
             device,
             protocol: "SAE J1979 Mode 01 via ELM327".into(),
             read_only: true,
+            diagnostics: crate::DiagnosticCapabilities {
+                dtc_snapshot: true,
+                identity: true,
+                mode06: true,
+                clear_dtcs: true,
+            },
             supported_signals,
         })
     }
@@ -387,10 +393,21 @@ impl HardwareAdapter for Elm327Adapter {
             crate::ResearchTestRequest::A30ReadTest(_) => Err(LogNookError::new(
                 "ELM327 does not support A30 captured read tests",
             )),
-            crate::ResearchTestRequest::Diagnostic(query) => self
-                .read_vehicle_diagnostic(query)
-                .map(crate::ResearchTestResult::Diagnostic),
+            crate::ResearchTestRequest::Diagnostic(query) => {
+                if query.kind == crate::DiagnosticReadKind::ClearDtcs {
+                    return Err(LogNookError::new(
+                        "Mode 04 is available only through the explicit DTC clear operation",
+                    ));
+                }
+                self.read_vehicle_diagnostic(query)
+                    .map(crate::ResearchTestResult::Diagnostic)
+            }
         }
+    }
+
+    fn clear_vehicle_dtcs(&mut self) -> Result<Vec<crate::DiagnosticRead>, LogNookError> {
+        self.read_vehicle_diagnostic(crate::DiagnosticQueryRequest::clear_dtcs())
+            .map(|report| report.reads)
     }
 
     fn execute_raw_command(
@@ -587,6 +604,7 @@ impl Elm327Adapter {
             adapter,
             protocol: "ISO 15765-4 (CAN 11/500) via ELM327 SPP".into(),
             started_at_unix_ms,
+            operation_kind: crate::DiagnosticReportKind::Snapshot,
             request: crate::DiagnosticRequest::default(),
             reads,
             route_restore_error,
@@ -854,6 +872,7 @@ mod tests {
 
     fn source_candidate() -> OemCandidateTrySpec {
         OemCandidateTrySpec {
+            source_policy: crate::OemCandidateSourcePolicy::IndexedPack,
             value_format: "uint".into(),
             candidate: OemCandidate {
                 candidate_id: "elm-source-candidate".into(),
@@ -954,6 +973,31 @@ mod tests {
         assert_eq!(diagnostic.command, "010C");
         assert!(diagnostic.response.contains("41 0C"));
         assert!(String::from_utf8_lossy(&written.lock().unwrap()).ends_with("ATZ\r010C\r"));
+    }
+
+    #[test]
+    fn elm_explicit_mode04_sends_once_and_research_reads_cannot_clear() {
+        let (mut adapter, capabilities, written) =
+            connected_adapter(&["OK\r>", "7E8 01 44\r>", "OK\r>"]);
+        assert!(capabilities.diagnostics.clear_dtcs);
+        written.lock().unwrap().clear();
+
+        let reads = adapter.clear_vehicle_dtcs().unwrap();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].request_payload, [0x04]);
+        assert_eq!(reads[0].response_payload, [0x44]);
+        assert_eq!(reads[0].outcome, crate::DiagnosticOutcome::Positive);
+        assert_eq!(&*written.lock().unwrap(), b"ATSH7DF\r04\rATSH7DF\r");
+
+        written.lock().unwrap().clear();
+        assert!(
+            adapter
+                .execute_research_test(crate::ResearchTestRequest::Diagnostic(
+                    crate::DiagnosticQueryRequest::clear_dtcs()
+                ))
+                .is_err()
+        );
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]

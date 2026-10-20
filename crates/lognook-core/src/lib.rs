@@ -30,10 +30,14 @@ mod recording;
 mod recording_view;
 mod research;
 mod session;
+pub mod signal_presets;
 mod simulator;
+mod subaru_catalog;
 mod vehicle_diagnostics;
 pub mod vehicle_profiles;
+pub mod vehicle_projects;
 pub use vehicle_profiles::*;
+pub use vehicle_projects::*;
 
 pub use a30::{
     A30Adapter, A30CanReply, A30Decoder, A30Frame, A30GraphValue, A30ReadOutcome, A30ReadTest,
@@ -105,8 +109,8 @@ pub use obdlink_sx_protocol::{
     parse_supported_pid_payload,
 };
 pub use oem_catalog::{
-    OemCandidate, OemCandidateTrySpec, OemCatalog, OemCatalogPage, OemPollPlan, OemVehicleProfile,
-    SCION_XB_BLOB_SHA, ScionMode21ProbeSpec, ScionProbeChannel,
+    OemCandidate, OemCandidateSourcePolicy, OemCandidateTrySpec, OemCatalog, OemCatalogPage,
+    OemPollPlan, OemVehicleProfile, SCION_XB_BLOB_SHA, ScionMode21ProbeSpec, ScionProbeChannel,
 };
 pub use openport2::{
     OpenPort2Adapter, available_openport2_providers,
@@ -122,9 +126,19 @@ pub use research::{
     ResearchRunItem, ResearchRunItemStatus, ResearchRunReport, ResearchTestRequest,
     ResearchTestResult, ResearchTestSelection,
 };
-pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
-pub use vehicle_diagnostics::{
-    DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticRead, DiagnosticReadKind,
-    DiagnosticReport, DiagnosticRequest, DiagnosticValue, supports_profile_identity,
-    supports_vehicle_diagnostics,
+pub use signal_presets::{
+    PresetApplyMode, PresetAvailability, PresetCatalogEvidence, PresetChannel, PresetContext,
+    PresetOrigin, PresetPickerState, PresetResolvedSelection, PresetScope, PresetSize,
+    PresetSkipReason, PresetTaskFamily, PresetVehicleCriteria, SignalPreset, SignalPresetOperation,
+    SignalPresetResult, StagedPresetIntent,
+    builtin_signal_presets, resolve_preset, scope_match_rank,
 };
+pub use simulator::{SimulatedObdAdapter, standard_obd_signals};
+pub use subaru_catalog::{SubaruCatalog, SubaruCatalogDetail, SubaruCatalogPage, SubaruCatalogRow};
+pub use vehicle_diagnostics::{
+    DiagnosticCapabilities, DiagnosticOutcome, DiagnosticQueryRequest, DiagnosticRead,
+    DiagnosticReadKind, DiagnosticReport, DiagnosticReportKind, DiagnosticRequest, DiagnosticValue,
+    supports_profile_identity, supports_vehicle_diagnostics,
+};
+#[cfg(test)]
+mod oem_test_fixture;

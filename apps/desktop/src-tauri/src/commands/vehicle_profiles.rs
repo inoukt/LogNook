@@ -44,9 +44,31 @@ pub(crate) fn save_vehicle_profile_shared(
     state: &AppState,
     args: SaveVehicleProfileArgs,
 ) -> Result<VehicleProfile, String> {
+    save_vehicle_profile_with_workspace_shared(state, args, None, None)
+}
+
+pub(crate) fn save_vehicle_profile_with_workspace_shared(
+    state: &AppState,
+    args: SaveVehicleProfileArgs,
+    workspace: Option<&lognook_core::VehicleProjectWorkspace>,
+    expected_generation: Option<u64>,
+) -> Result<VehicleProfile, String> {
+    let _profile_operation = state.vehicle_profiles.lock_operation()?;
+    save_vehicle_profile_with_workspace_locked_shared(state, args, workspace, expected_generation)
+}
+
+pub(crate) fn save_vehicle_profile_with_workspace_locked_shared(
+    state: &AppState,
+    args: SaveVehicleProfileArgs,
+    workspace: Option<&lognook_core::VehicleProjectWorkspace>,
+    expected_generation: Option<u64>,
+) -> Result<VehicleProfile, String> {
     let mut args = hydrate_oem_references(state, args)?;
+    let current = engine(state)?;
+    if !current.is_obd_connected() { return Err("Connect an OBD adapter before saving the current vehicle selection".into()); }
+    let generation = current.obd_connection_generation();
+    if expected_generation.is_some_and(|expected| expected != generation) { return Err("OBD connection changed before vehicle project save".into()); }
     if !args.selection.can_fields.is_empty() {
-        let current = engine(state)?;
         if let Some(status) = current
             .can_workbench_status()
             .filter(|status| status.connected)
@@ -60,22 +82,9 @@ pub(crate) fn save_vehicle_profile_shared(
             args.selection.can_channel = None;
         }
     }
-    let (generation, scope) = {
-        let current = engine(state)?;
-        if !current.is_obd_connected() {
-            return Err(
-                "Connect an OBD adapter before saving the current vehicle selection".into(),
-            );
-        }
-        let capabilities = current
-            .connection_capabilities()
-            .ok_or_else(|| "OBD connection identity is unavailable".to_owned())?;
-        (
-            current.obd_connection_generation(),
-            connection_scope(&capabilities.device.hardware_family),
-        )
-    };
-    state.vehicle_profiles.save(args, generation, scope)
+    let capabilities = current.connection_capabilities().ok_or_else(|| "OBD connection identity is unavailable".to_owned())?;
+    let scope = connection_scope(&capabilities.device.hardware_family);
+    state.vehicle_profiles.save_with_workspace_locked(args, generation, scope, workspace)
 }
 
 fn hydrate_oem_references(
@@ -218,6 +227,7 @@ pub(crate) fn read_vehicle_identity_shared(
             adapter: capabilities.device.clone(),
             protocol: capabilities.protocol.clone(),
             started_at_unix_ms,
+            operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
             request: DiagnosticRequest::default(),
             reads,
             route_restore_error: None,
@@ -342,11 +352,49 @@ pub(crate) fn prepare_profile_resume_shared(
     Ok(preview)
 }
 
+pub(crate) fn prepare_project_resume_shared(state: &AppState, profile_id: &str, expected_generation: u64) -> Result<ProfileResumePreview, String> {
+    let _operation = state.vehicle_profiles.lock_operation()?;
+    let profile = get_vehicle_profile_shared(state, profile_id)?;
+    let (capabilities, standby, recording, can_status, can_busy) = {
+        let current = engine(state)?;
+        if !current.is_obd_connected() || current.obd_connection_generation() != expected_generation { return Err("OBD connection changed before project restore preview".into()); }
+        let capabilities = current.connection_capabilities().cloned().ok_or("OBD connection identity is unavailable")?;
+        (capabilities, current.is_obd_profile_standby(), current.is_recording(), current.can_workbench_status(), can_operations_busy(state, &current)?)
+    };
+    let observation = state.vehicle_profiles.current_observation(expected_generation).ok_or("Fresh VIN identity is required")?;
+    if profile.vin_digest != observation.vin_digest || profile.scope != observation.scope || observation.conflicting_vin_observations { return Err("Connected VIN does not safely match this project".into()); }
+    let mut eligible_profile = profile.clone();
+    eligible_profile.ecu_variants = observation.ecu_variants.clone();
+    eligible_profile.selection.log_signal_ids.retain(|id| !id.starts_with("oem:"));
+    let mut preview = build_preview(state, &eligible_profile, resolve_profile_match(&eligible_profile, &observation), &capabilities, Some(&observation), can_status.as_ref(), can_busy, expected_generation, standby, recording)?;
+    for id in profile.selection.log_signal_ids.iter().filter(|id| id.starts_with("oem:")) {
+        preview.skipped.push(skip(id, "log", ProfileResumeSkipReason::OemExactCatalogValidationRequired, "Vehicle projects never auto-poll OEM research signals; the saved selection remains available for review"));
+    }
+    preview.preview_id = state.vehicle_profiles.make_preview_id()?;
+    let active_derived_ids = active_derived_ids(&eligible_profile.selection, &preview.eligible_log_refs, &preview.eligible_graph_refs);
+    state.vehicle_profiles.store_preview(StoredPreview { result: preview.clone(), selection: eligible_profile.selection, active_derived_ids, created: Instant::now() })?;
+    Ok(preview)
+}
+
 pub(crate) fn apply_profile_resume_shared(
     state: &AppState,
     preview_id: &str,
     expected_revision: u64,
     expected_generation: u64,
+) -> Result<ProfileResumeApplyResult, String> {
+    apply_profile_resume_mode(state, preview_id, expected_revision, expected_generation, false)
+}
+
+pub(crate) fn apply_project_resume_shared(state: &AppState, preview_id: &str, expected_revision: u64, expected_generation: u64) -> Result<ProfileResumeApplyResult, String> {
+    apply_profile_resume_mode(state, preview_id, expected_revision, expected_generation, true)
+}
+
+fn apply_profile_resume_mode(
+    state: &AppState,
+    preview_id: &str,
+    expected_revision: u64,
+    expected_generation: u64,
+    project_mode: bool,
 ) -> Result<ProfileResumeApplyResult, String> {
     let work_generation = state.vehicle_profiles.work_generation();
     let _operation = state.vehicle_profiles.lock_operation()?;
@@ -360,7 +408,7 @@ pub(crate) fn apply_profile_resume_shared(
     {
         return Err("Profile revision or OBD connection changed after the Resume preview".into());
     }
-    let profile = get_vehicle_profile_shared(state, &stored.result.profile_id)?;
+    let mut profile = get_vehicle_profile_shared(state, &stored.result.profile_id)?;
     if profile.revision != expected_revision {
         return Err("Saved profile changed after the Resume preview; prepare a new preview".into());
     }
@@ -385,11 +433,17 @@ pub(crate) fn apply_profile_resume_shared(
         )
     };
     let observation = state.vehicle_profiles.current_observation(generation);
+    if project_mode {
+        let observation = observation.as_ref().ok_or("Fresh VIN identity is required")?;
+        if profile.vin_digest != observation.vin_digest || profile.scope != observation.scope { return Err("Connected VIN does not match this project".into()); }
+        profile.ecu_variants = observation.ecu_variants.clone();
+        profile.selection.log_signal_ids.retain(|id| !id.starts_with("oem:"));
+    }
     let fresh_match = observation
         .as_ref()
         .map(|observation| resolve_profile_match(&profile, observation))
         .unwrap_or_else(unknown_profile_match);
-    let fresh = build_preview(
+    let mut fresh = build_preview(
         state,
         &profile,
         fresh_match,
@@ -401,6 +455,11 @@ pub(crate) fn apply_profile_resume_shared(
         standby,
         recording,
     )?;
+    if project_mode {
+        for id in get_vehicle_profile_shared(state, &stored.result.profile_id)?.selection.log_signal_ids.iter().filter(|id| id.starts_with("oem:")) {
+            fresh.skipped.push(skip(id, "log", ProfileResumeSkipReason::OemExactCatalogValidationRequired, "Vehicle projects never auto-poll OEM research signals; the saved selection remains available for review"));
+        }
+    }
     if fresh.eligible_log_refs != stored.result.eligible_log_refs
         || fresh.eligible_graph_refs != stored.result.eligible_graph_refs
         || fresh.skipped != stored.result.skipped
@@ -926,7 +985,7 @@ fn build_preview(
     })
 }
 
-fn can_operations_busy(
+pub(crate) fn can_operations_busy(
     state: &AppState,
     engine: &lognook_core::LogNookEngine,
 ) -> Result<bool, String> {
@@ -1167,6 +1226,7 @@ fn identity_state(read: &DiagnosticRead) -> IdentityReadState {
         DiagnosticOutcome::NegativeResponse
         | DiagnosticOutcome::SessionRequired
         | DiagnosticOutcome::SecurityRequired => IdentityReadState::NoResponse,
+        DiagnosticOutcome::Unsupported => IdentityReadState::Unsupported,
     }
 }
 
@@ -1202,6 +1262,7 @@ mod task3_identity_tests {
             },
             protocol: "ISO15765-4 CAN".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: Vec::<SignalDefinition>::new(),
         };
         let mut read = DiagnosticRequest::identity_queries()
@@ -1239,6 +1300,7 @@ mod task3_identity_tests {
             },
             protocol: "ISO15765-4 CAN".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: Vec::<SignalDefinition>::new(),
         };
         let query = DiagnosticRequest::identity_queries().pop_front().unwrap();

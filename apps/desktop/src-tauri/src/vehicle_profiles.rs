@@ -113,11 +113,13 @@ pub(crate) struct VehicleProfileService {
     profile_operation: Mutex<()>,
     observation: Mutex<Option<VehicleIdentityObservation>>,
     preview: Mutex<Option<StoredPreview>>,
+    signal_preset_preview: Mutex<Option<StoredSignalPresetPreview>>,
     active_profile: Mutex<Option<(String, u64, u64)>>,
     recognition_cancel: Mutex<Option<Arc<AtomicBool>>>,
     history_import_cancel: Mutex<Option<Arc<AtomicBool>>>,
     work_generation: AtomicU64,
     next_preview_id: AtomicU64,
+    project_choice: Mutex<Option<(String, u64, String)>>,
 }
 
 #[derive(Clone)]
@@ -125,6 +127,21 @@ pub(crate) struct StoredPreview {
     pub result: ProfileResumePreview,
     pub selection: ProfileSelectionSnapshot,
     pub active_derived_ids: Vec<String>,
+    pub created: Instant,
+}
+
+#[derive(Clone)]
+pub(crate) struct StoredSignalPresetPreview {
+    pub preview_id: String,
+    pub preset_id: String,
+    pub preset_revision: u32,
+    pub context_revision: u64,
+    pub generation: u64,
+    pub mode: lognook_core::PresetApplyMode,
+    pub resolved: lognook_core::PresetResolvedSelection,
+    pub base_selection: crate::agent::protocol::AgentSignalSelection,
+    pub agent_work_generation: Option<u64>,
+    pub can_apply: bool,
     pub created: Instant,
 }
 
@@ -140,11 +157,13 @@ impl VehicleProfileService {
             profile_operation: Mutex::new(()),
             observation: Mutex::new(None),
             preview: Mutex::new(None),
+            signal_preset_preview: Mutex::new(None),
             active_profile: Mutex::new(None),
             recognition_cancel: Mutex::new(None),
             history_import_cancel: Mutex::new(None),
             work_generation: AtomicU64::new(0),
             next_preview_id: AtomicU64::new(1),
+            project_choice: Mutex::new(None),
         }
     }
 
@@ -156,6 +175,70 @@ impl VehicleProfileService {
         self.store()?
             .get(profile_id)
             .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn get_project_workspace(&self, profile_id: &str) -> Result<lognook_core::VehicleProjectWorkspace, String> {
+        self.store()?.get_project_workspace(profile_id).map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn save_project_workspace(&self, profile_id: &str, workspace: &lognook_core::VehicleProjectWorkspace) -> Result<(), String> {
+        self.store()?.save_project_workspace(profile_id, workspace).map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn get_vehicle_project_id(&self, scope: ProfileScope, vin_digest: &str) -> Result<Option<String>, String> {
+        self.store()?.get_vehicle_project_id(scope, vin_digest).map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn register_vehicle_project(&self, scope: ProfileScope, vin_digest: &str, profile_id: &str) -> Result<(), String> {
+        self.store()?.register_vehicle_project(scope, vin_digest, profile_id).map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn set_project_choice(&self, profile_id: String, generation: u64, vin_digest: String) -> Result<(), String> {
+        *self.project_choice.lock().map_err(|_| "Vehicle project choice state is unavailable".to_owned())? = Some((profile_id, generation, vin_digest));
+        Ok(())
+    }
+
+    pub(crate) fn pending_project_choice(&self, generation: u64, vin_digest: &str) -> Result<Option<String>, String> {
+        let mut choice = self.project_choice.lock().map_err(|_| "Vehicle project choice state is unavailable".to_owned())?;
+        if choice.as_ref().is_some_and(|(_, saved_generation, saved_vin)| *saved_generation != generation || saved_vin != vin_digest) { choice.take(); }
+        Ok(choice.as_ref().map(|(id, _, _)| id.clone()))
+    }
+
+    pub(crate) fn finish_project_choice(&self, profile_id: &str, generation: u64) -> Result<(), String> {
+        let mut choice = self.project_choice.lock().map_err(|_| "Vehicle project choice state is unavailable".to_owned())?;
+        if choice.as_ref().is_some_and(|(id, saved_generation, _)| id == profile_id && *saved_generation == generation) { choice.take(); }
+        Ok(())
+    }
+
+    pub(crate) fn list_signal_presets(&self) -> Result<Vec<lognook_core::SignalPreset>, String> {
+        self.store()?.list_signal_presets().map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn get_signal_preset(&self, id: &str) -> Result<Option<lognook_core::SignalPreset>, String> {
+        self.store()?.get_signal_preset(id).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn save_signal_preset(&self, preset: lognook_core::SignalPreset, expected: Option<u64>) -> Result<lognook_core::SignalPreset, String> {
+        let _operation = self.lock_operation()?;
+        self.save_signal_preset_locked(preset, expected)
+    }
+
+    pub(crate) fn save_signal_preset_locked(&self, preset: lognook_core::SignalPreset, expected: Option<u64>) -> Result<lognook_core::SignalPreset, String> {
+        self.store()?.save_signal_preset(preset, expected).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn delete_signal_preset(&self, id: &str, expected: Option<u64>) -> Result<(), String> {
+        let _operation = self.lock_operation()?;
+        self.store()?.delete_signal_preset(id, expected).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn get_preset_picker_state(&self) -> Result<lognook_core::PresetPickerState, String> {
+        self.store()?.get_preset_picker_state().map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn save_preset_picker_state(&self, state: lognook_core::PresetPickerState, expected: Option<u64>) -> Result<lognook_core::PresetPickerState, String> {
+        let _operation = self.lock_operation()?;
+        self.store()?.save_preset_picker_state(state, expected).map_err(|e| e.to_string())
     }
 
     pub(crate) fn get_vehicle_identity(
@@ -436,13 +519,13 @@ impl VehicleProfileService {
         Ok(())
     }
 
-    pub(crate) fn save(
+    pub(crate) fn save_with_workspace_locked(
         &self,
         args: SaveVehicleProfileArgs,
         current_generation: u64,
         current_scope: ProfileScope,
+        workspace: Option<&lognook_core::VehicleProjectWorkspace>,
     ) -> Result<VehicleProfile, String> {
-        let _operation = self.lock_operation()?;
         if args.profile_id.is_some() != args.expected_revision.is_some() {
             return Err(
                 "Profile updates require both the profile ID and its expected revision".into(),
@@ -534,7 +617,7 @@ impl VehicleProfileService {
             }
         };
         let stored = store
-            .save_with_observation(profile, args.expected_revision, observation)
+            .save_with_observation_and_workspace(profile, args.expected_revision, observation, workspace)
             .map_err(|error| error.to_string())?;
         self.preview
             .lock()
@@ -577,6 +660,9 @@ impl VehicleProfileService {
             cancel.store(true, Ordering::Release);
         }
         if let Ok(mut preview) = self.preview.lock() {
+            preview.take();
+        }
+        if let Ok(mut preview) = self.signal_preset_preview.lock() {
             preview.take();
         }
     }
@@ -658,6 +744,24 @@ impl VehicleProfileService {
         {
             slot.take();
         }
+        Ok(())
+    }
+
+    pub(crate) fn store_signal_preset_preview(&self, preview: StoredSignalPresetPreview) -> Result<(), String> {
+        *self.signal_preset_preview.lock().map_err(|_| "Signal preset preview is unavailable".to_owned())? = Some(preview);
+        Ok(())
+    }
+
+    pub(crate) fn current_signal_preset_preview(&self) -> Option<StoredSignalPresetPreview> {
+        self.signal_preset_preview.lock().ok()?.clone().filter(|preview| preview.created.elapsed() <= PREVIEW_TTL)
+    }
+
+    pub(crate) fn discard_signal_preset_preview(&self, preview_id: Option<&str>) -> Result<(), String> {
+        let mut preview = self.signal_preset_preview.lock().map_err(|_| "Signal preset preview is unavailable".to_owned())?;
+        if preview_id.is_some_and(|id| preview.as_ref().is_some_and(|current| current.preview_id != id)) {
+            return Err("Signal preset preview was replaced".into());
+        }
+        *preview = None;
         Ok(())
     }
 

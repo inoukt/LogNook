@@ -978,6 +978,7 @@ mod tests {
                 },
                 protocol: "test".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: vec![],
             },
         ));
@@ -1025,6 +1026,7 @@ mod tests {
                 },
                 protocol: "test".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: lognook_core::standard_obd_signals(),
             },
         ));
@@ -1268,6 +1270,7 @@ mod tests {
                 },
                 protocol: "test".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: vec![],
             },
         ));

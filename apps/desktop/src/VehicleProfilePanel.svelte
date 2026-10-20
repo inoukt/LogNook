@@ -31,6 +31,7 @@
     onApplyResume = (_previewId: string, _revision: number, _generation: number) => {},
     onDiscardResume = (_previewId: string) => {},
     onManualAssociate = (_profileId: string) => {},
+    onManualProjectSelect = (_profileId: string) => {},
     onContinueSelection = () => {},
     onIdentityChanged = () => {},
   }: {
@@ -46,6 +47,7 @@
     onApplyResume?: (previewId: string, revision: number, generation: number) => void;
     onDiscardResume?: (previewId: string) => void;
     onManualAssociate?: (profileId: string) => void;
+    onManualProjectSelect?: (profileId: string) => void;
     onContinueSelection?: () => void;
     onIdentityChanged?: () => void | Promise<void>;
   } = $props();
@@ -245,6 +247,9 @@
           </div>
           <div class="profile-actions">
             <button class="button secondary" type="button" onclick={() => { selectedProfileId = profile.id; onPrepareResume(profile.id); }} disabled={busy || !status?.obd_connected}>Preview</button>
+            {#if status?.obd_connected && (!recognized?.vin_digest || recognized?.conflicting_vin_observations)}
+              <button class="button secondary" type="button" onclick={() => onManualProjectSelect(profile.id)} disabled={busy}>Use as manual project</button>
+            {/if}
             <button class="button secondary" type="button" onclick={() => void toggleIdentityDetails(profile)} disabled={busy}>{identityProfileId === profile.id ? "Hide VIN details" : "VIN details"}</button>
             {#if summary?.profile_match.state === "identity_unavailable"}
               <button class="text-button" type="button" onclick={() => onManualAssociate(profile.id)} disabled={busy}>Associate manually</button>
@@ -295,7 +300,7 @@
                     </ul>
                   {:else}<p class="notice">No owner-entered details.</p>{/if}
                   <form class="manual-detail-form" onsubmit={(event) => { event.preventDefault(); void saveManualDetail(profile); }}>
-                    <label>Field<select bind:value={manualField} disabled={identityBusy}><option value="make">Make</option><option value="model">Model</option><option value="model_year">Model year</option><option value="engine">Engine</option><option value="trim">Trim</option></select></label>
+                    <label>Field<select bind:value={manualField} disabled={identityBusy}><option value="make">Make</option><option value="model">Model</option><option value="model_year">Model year</option><option value="engine">Engine</option><option value="trim">Trim</option><option value="transmission">Transmission</option></select></label>
                     <label>Value<input bind:value={manualValue} maxlength="120" disabled={identityBusy} /></label>
                     <label>Note (optional)<input bind:value={manualNote} maxlength="300" disabled={identityBusy} /></label>
                     <button class="button secondary" type="submit" disabled={identityBusy || !manualValue.trim()}>Save manual detail</button>

@@ -1,0 +1,3 @@
+    Checking lognook-j2534-protocol v0.1.0 (C:\Users\inouk\LogNook-can-event-freeze-frame\crates\lognook-j2534-protocol)
+    Checking lognook-j2534-worker v0.1.0 (C:\Users\inouk\LogNook-can-event-freeze-frame\workers\lognook-j2534-x86)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.56s

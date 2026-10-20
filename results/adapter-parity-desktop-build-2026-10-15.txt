@@ -1,0 +1,4 @@
+   Compiling lognook-j2534-protocol v0.1.0 (C:\Users\inouk\LogNook-can-event-freeze-frame\crates\lognook-j2534-protocol)
+   Compiling lognook-core v0.1.0 (C:\Users\inouk\LogNook-can-event-freeze-frame\crates\lognook-core)
+   Compiling lognook-desktop v0.1.0-beta.1 (C:\Users\inouk\LogNook-can-event-freeze-frame\apps\desktop\src-tauri)
+    Finished `release` profile [optimized] target(s) in 3m 57s

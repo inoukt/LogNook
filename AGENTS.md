@@ -24,6 +24,15 @@ LogNook is a desktop application for capturing, recording, graphing, exporting, 
 
 ## Enhanced diagnostics direction
 
+- OEM catalog discovery may explicitly opt into one-shot source-backed research
+  for visible rows or the full filtered result set. Use one shared serialized
+  service for UI and MCP, bind work to the current adapter and OBD connection
+  generation, deduplicate candidate plus source revision per connection, and stop
+  pending work on cancellation/disconnect. A returned value, including zero,
+  remains research evidence; never change `auto_request`, validation state or
+  ordinary logging presets as a side effect. Agent-started background work must
+  stop when Agent Access locks or expires.
+
 - Treat service 21 and service 22 as separate request forms: service 21 uses a one-byte identifier; service 22 uses a two-byte DID.
 - Separate request discovery from response decoding. A response can be recorded as raw evidence before a decoder exists.
 - In ordinary acquisition, prefer source-backed candidate discovery over numeric scans. Use ranked, relevant candidates and begin useful logging as soon as the configured signal set is available. The separate Test Workbench bench mode has broader operator-directed scan permissions below.
@@ -53,7 +62,7 @@ LogNook is a desktop application for capturing, recording, graphing, exporting, 
 - Serialize exchanges through the existing adapter/ECU request owner. Do not launch independent discovery and logging workers that can transmit concurrently to the same ECU. Measure latency and error rates before changing timeouts, rates, or grouping; do not copy the addon's illustrative 15 ms timeout or request size as a product default.
 - Use typed request outcomes rather than a supported/unsupported boolean. At minimum preserve raw support, decoded support, negative response/NRC, no response, malformed or wrong-length response, temporary unavailability, response-pending, and any session/security requirement as distinct states.
 - Cache useful positive and negative research results per stable vehicle and ECU fingerprint, including source revision and timestamps. Revalidate a matching cache quickly, preserve the previous profile when a refresh fails, and keep cache evidence distinct from vehicle validation.
-- Ordinary acquisition and catalog polling do not change diagnostic sessions, request security access, write data, clear codes, run routines, or operate actuators. The explicit bench-mode raw frame control may send operator-configured CAN bytes without source metadata; keep it manual, visible, serialized, and fully recorded. Do not add automatic programming sequences, adapter/ECU firmware flashing, or background state-changing operations to this CAN Workbench feature.
+- Ordinary acquisition and catalog polling do not change diagnostic sessions, request security access, write data, clear codes, run routines, or operate actuators. Standard Mode 04 is available only as a distinct, capability-gated and explicitly confirmed `clear_vehicle_dtcs` operation in Vehicle Diagnostics or typed Agent Access/MCP. Bind it to the current adapter ID and connection generation, send the fixed `[0x04]` request once with no retry, preserve per-ECU raw outcomes as append-only evidence, and reject Mode 04 through raw payload/terminal commands. A positive `0x44` is an ECU acknowledgement only; a later explicit snapshot establishes current DTC state. Simulator responses must be labeled simulated and never reach hardware. The explicit bench-mode raw frame control may send operator-configured CAN frames without source metadata; keep it manual, visible, serialized, and fully recorded. Do not add automatic programming sequences, adapter/ECU firmware flashing, or background state-changing operations to this CAN Workbench feature.
 
 ## Development workflow
 

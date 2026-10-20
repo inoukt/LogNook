@@ -200,6 +200,7 @@ fn config(listen_only: bool) -> CanWorkbenchConfig {
 
 fn can_oem_candidate(service: &str, identifier: &str) -> OemCandidateTrySpec {
     OemCandidateTrySpec {
+        source_policy: lognook_core::OemCandidateSourcePolicy::IndexedPack,
         candidate: OemCandidate {
             candidate_id: format!("candidate-{service}-{identifier}"),
             source_id: "SCION_SOURCE".into(),

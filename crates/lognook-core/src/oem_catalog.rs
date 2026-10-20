@@ -73,6 +73,45 @@ pub struct ScionMode21ProbeSpec {
 pub struct OemCandidateTrySpec {
     pub candidate: OemCandidate,
     pub value_format: String,
+    #[serde(default)]
+    pub source_policy: OemCandidateSourcePolicy,
+}
+
+impl OemCandidateTrySpec {
+    /// Accepts provenance retained by the local Subaru import without presenting it as a
+    /// third-party license or an upstream source blob.
+    pub fn local_subaru_catalog_sha256(&self) -> Option<&str> {
+        let OemCandidateSourcePolicy::LocalSubaruCatalog { catalog_sha256 } = &self.source_policy
+        else {
+            return None;
+        };
+        let candidate = &self.candidate;
+        let valid_sha = catalog_sha256.len() == 64
+            && catalog_sha256.bytes().all(|byte| byte.is_ascii_hexdigit());
+        (valid_sha
+            && candidate.family == "Subaru OEM catalog"
+            && candidate.source_id.starts_with("SUBARU_OEM_")
+            && candidate.source_blob_sha.is_empty()
+            && candidate.source_url.is_none()
+            && candidate.license.is_none()
+            && candidate.license_url.is_none()
+            && candidate.auto_request == false
+            && candidate.vehicle_validation == "not_tested"
+            && candidate.research_state == "review_required"
+            && candidate.source_scope == format!("owner_supplied_subaru_catalog:{catalog_sha256}"))
+        .then_some(catalog_sha256)
+    }
+}
+
+/// User supplied Subaru research data is kept separate from licensed indexed packs.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum OemCandidateSourcePolicy {
+    #[default]
+    IndexedPack,
+    LocalSubaruCatalog {
+        catalog_sha256: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -125,6 +164,19 @@ impl OemCatalog {
         offset: usize,
         limit: usize,
     ) -> Result<OemCatalogPage, String> {
+        self.search_prioritized(query, brand, model, service, offset, limit, &[])
+    }
+
+    pub fn search_prioritized(
+        &self,
+        query: &str,
+        brand: &str,
+        model: &str,
+        service: Option<&str>,
+        offset: usize,
+        limit: usize,
+        priority_candidate_ids: &[String],
+    ) -> Result<OemCatalogPage, String> {
         let limit = limit.clamp(1, MAX_PAGE_SIZE);
         if offset > MAX_OFFSET {
             return Err(format!("Catalog offset exceeds {MAX_OFFSET}"));
@@ -137,6 +189,8 @@ impl OemCatalog {
         let brand = like_filter(brand);
         let model = like_filter(model);
         let service = service.map(str::to_owned);
+        let priority_candidate_ids =
+            serde_json::to_string(priority_candidate_ids).map_err(|error| error.to_string())?;
         let total = connection
             .query_row(
                 "SELECT COUNT(*) FROM oem_candidates c
@@ -156,13 +210,18 @@ impl OemCatalog {
             .map_err(|error| error.to_string())?;
         let total = usize::try_from(total).map_err(|error| error.to_string())?;
         let mut statement = connection.prepare(
-            "SELECT c.candidate_id,c.source_id,c.family,c.brand,c.model_scope,c.service,c.identifier,
+            "WITH priorities AS (
+               SELECT DISTINCT CAST(value AS TEXT) AS candidate_id
+               FROM json_each(?5)
+             )
+             SELECT c.candidate_id,c.source_id,c.family,c.brand,c.model_scope,c.service,c.identifier,
                     c.request_header,c.response_header,c.frequency_hz,c.module_type,c.category,c.name,
                     c.signal_source_id,c.bit_offset,c.bit_length,c.formula,c.unit,c.year_filter_json,c.ecu_filter,
                     c.source_blob_sha,c.research_state,c.vehicle_validation,c.auto_request,c.confidence,c.notes,
                     s.source_url,s.license,s.license_url,c.decoder_json,c.suggested_metric,c.source_scope,
                     c.applicability_specificity,c.min_value,c.max_value
              FROM oem_candidates c LEFT JOIN source_corpora s ON s.source_id=c.source_id
+             LEFT JOIN priorities p ON p.candidate_id=c.candidate_id
              WHERE (?1 = '%%' OR c.name LIKE ?1 OR c.category LIKE ?1 OR c.unit LIKE ?1
                 OR c.identifier LIKE ?1 OR c.service || c.identifier LIKE ?1
                 OR c.service || ' ' || c.identifier LIKE ?1
@@ -173,13 +232,22 @@ impl OemCatalog {
                AND (?2 = '%%' OR c.brand LIKE ?2)
                AND (?3 = '%%' OR c.model_scope LIKE ?3)
                AND (?4 IS NULL OR c.service = ?4)
-             ORDER BY c.applicability_specificity DESC,c.brand,c.model_scope,c.service,c.identifier,
+             ORDER BY CASE WHEN p.candidate_id IS NULL THEN 1 ELSE 0 END,
+                      c.applicability_specificity DESC,c.brand,c.model_scope,c.service,c.identifier,
                       c.request_header,c.name,c.candidate_id
-             LIMIT ?5 OFFSET ?6",
+             LIMIT ?6 OFFSET ?7",
         ).map_err(|error| error.to_string())?;
         let candidates = statement
             .query_map(
-                params![query, brand, model, service, limit as i64, offset as i64],
+                params![
+                    query,
+                    brand,
+                    model,
+                    service,
+                    priority_candidate_ids,
+                    limit as i64,
+                    offset as i64
+                ],
                 read_candidate,
             )
             .map_err(|error| error.to_string())?;
@@ -245,7 +313,38 @@ impl OemCatalog {
         Ok(OemCandidateTrySpec {
             candidate,
             value_format,
+            source_policy: OemCandidateSourcePolicy::IndexedPack,
         })
+    }
+
+    pub fn candidate_for_discovery(&self, candidate_id: &str) -> Result<OemCandidate, String> {
+        let candidate_id = candidate_id.trim();
+        if candidate_id.is_empty() || candidate_id.len() > 128 {
+            return Err("Choose a valid OEM candidate".into());
+        }
+        let connection = open_read_only(&self.path)?;
+        let mut statement = connection.prepare(
+            "SELECT c.candidate_id,c.source_id,c.family,c.brand,c.model_scope,c.service,c.identifier,
+                    c.request_header,c.response_header,c.frequency_hz,c.module_type,c.category,c.name,
+                    c.signal_source_id,c.bit_offset,c.bit_length,c.formula,c.unit,c.year_filter_json,c.ecu_filter,
+                    c.source_blob_sha,c.research_state,c.vehicle_validation,c.auto_request,c.confidence,c.notes,
+                    s.source_url,s.license,s.license_url,c.decoder_json,c.suggested_metric,c.source_scope,
+                    c.applicability_specificity,c.min_value,c.max_value
+             FROM oem_candidates c LEFT JOIN source_corpora s ON s.source_id=c.source_id
+             WHERE c.candidate_id=?1",
+        ).map_err(|error| error.to_string())?;
+        let mut rows = statement
+            .query([candidate_id])
+            .map_err(|error| error.to_string())?;
+        let row = rows
+            .next()
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "OEM candidate is unavailable".to_owned())?;
+        let candidate = read_candidate(row).map_err(|error| error.to_string())?;
+        if rows.next().map_err(|error| error.to_string())?.is_some() {
+            return Err("OEM candidate ID is ambiguous in the source catalog".into());
+        }
+        Ok(candidate)
     }
 
     pub fn vehicle_profiles(&self) -> Result<Vec<OemVehicleProfile>, String> {
@@ -773,6 +872,45 @@ mod tests {
     }
 
     #[test]
+    fn prioritized_catalog_search_applies_value_order_across_pages() {
+        let db = TestDatabase::new();
+        let catalog = OemCatalog::new(&db.0);
+        let first = catalog
+            .search_prioritized(
+                "",
+                "",
+                "",
+                None,
+                0,
+                2,
+                &["other-2".into(), "scion-1".into()],
+            )
+            .unwrap();
+        let second = catalog
+            .search_prioritized(
+                "",
+                "",
+                "",
+                None,
+                2,
+                2,
+                &["other-2".into(), "scion-1".into()],
+            )
+            .unwrap();
+
+        assert_eq!(first.candidates[0].candidate_id, "scion-1");
+        assert_eq!(first.candidates[1].candidate_id, "other-2");
+        assert!(
+            !second
+                .candidates
+                .iter()
+                .any(|candidate| candidate.candidate_id == "other-2"
+                    || candidate.candidate_id == "scion-1")
+        );
+        assert_eq!(first.total, second.total);
+    }
+
+    #[test]
     fn scion_probe_definition_requires_exact_source_route_and_channels() {
         let db = TestDatabase::new();
         let spec = OemCatalog::new(&db.0).scion_xb_mode21_probe().unwrap();
@@ -801,6 +939,25 @@ mod tests {
         assert_eq!(spec.candidate.source_blob_sha, SCION_XB_BLOB_SHA);
         assert_eq!(spec.value_format, "uint");
         assert!(!spec.candidate.auto_request);
+    }
+
+    #[test]
+    fn discovery_lookup_keeps_candidate_provenance_visible_when_try_validation_fails() {
+        let db = TestDatabase::new();
+        let connection = Connection::open(&db.0).unwrap();
+        connection
+            .execute(
+                "UPDATE oem_candidates SET source_blob_sha='stale-revision' WHERE candidate_id='scion-0'",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let catalog = OemCatalog::new(&db.0);
+        let candidate = catalog.candidate_for_discovery("scion-0").unwrap();
+        assert_eq!(candidate.candidate_id, "scion-0");
+        assert_eq!(candidate.source_blob_sha, "stale-revision");
+        assert!(catalog.candidate_for_try("scion-0").is_err());
     }
 
     #[test]

@@ -16,12 +16,17 @@
   import { mergeDiagnostics, supportBundleArgs } from "./diagnostics";
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
+  import { prepareSubaruWorkbench, type SubaruWorkbenchCandidate, type SubaruWorkbenchSelection } from "./subaruWorkbench";
+import type { SubaruCatalogRow } from "./subaruCatalog";
   import ResearchRunResults from "./ResearchRunResults.svelte";
   import CanTrafficPanel from "./CanTrafficPanel.svelte";
   import CanWorkbenchPanel from "./CanWorkbenchPanel.svelte";
   import CanHelp from "./CanHelp.svelte";
   import VehicleDiagnosticsPanel from "./VehicleDiagnosticsPanel.svelte";
   import VehicleProfilePanel from "./VehicleProfilePanel.svelte";
+  import PresetPicker from "./PresetPicker.svelte";
+  import VehicleProjectPrompt from "./VehicleProjectPrompt.svelte";
+  import { vehicleProjects, normalizeVehicleProjectWorkspace, type VehicleProject, type VehicleProjectStatus, type VehicleProjectsResult, type VehicleProjectUpdatedEvent } from "./vehicleProjects";
   import VehicleHistoryPanel from "./VehicleHistoryPanel.svelte";
   import {
     listVehicleProfiles, saveVehicleProfile, recognizeVehicle, prepareProfileResume,
@@ -53,7 +58,7 @@
     A30GraphValue, AgentAccessStatus, AgentSignalSelection, BluetoothSppDevice, CanFrame, CanIdReplayStatus, CanLiveEventSnapshot, CanScanResult, CanSignalDefinition, CanTransportError,
     CanDeviceCandidate, CanDeviceSelection, CanTriggerCaptureResult, CanTxStatus,
     CanWorkbenchStatus, ChartTrace, DiagnosticRecord, ConnectionCapabilities, DeviceDescriptor, EngineEvent, Marker, PlaybackState,
-    J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, RecordingInfo, ResearchRunViewState,
+    J2534Provider, J2534ProviderDiscovery, OemCandidateTrySpec, OemPollingStatus, RecordingInfo, ResearchRunViewState,
     Sample, SignalDefinition,
   } from "./types";
   import {
@@ -95,6 +100,7 @@
   let openPortProviders: J2534Provider[] = [];
   let openPortProviderDiagnostics: string[] = [];
   let selectedOpenPortProvider = "";
+  let openPortMode: "obd_can" | "subaru_ssm" = "obd_can";
   let openPortIdentity: DeviceDescriptor | undefined;
   let canObdAdapters: CanDeviceCandidate[] = [];
   let selectedCanObdDeviceId = "";
@@ -106,11 +112,14 @@
   let canObdDiscoveryError = "";
   let selectedAdapter: AdapterKind = "simulator";
   let activeAdapterDescriptor: DeviceDescriptor | null = null;
+  let activeConnectionCapabilities: ConnectionCapabilities | null = null;
   let logSignalIds = [...defaultWorkspacePreferences.logSignalIds];
   let graphSignalIds = [...logSignalIds];
   let latest: Record<string, Sample> = {};
   let series: Record<string, Sample[]> = {};
   let liveCsvBufferVersion = 0;
+  let pendingLiveSamples: Sample[] = [];
+  let liveSampleFlushFrame: number | undefined;
   let sessionSeries: Record<string, Sample[]> = {};
   let sessionAverages: Record<string, number> = {};
   let signalColors: Record<string, string> = {};
@@ -140,6 +149,39 @@
   let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
   let pidPickerView: "signals" | "oem" | "can" = "signals";
+  let subaruWorkbenchSelection: SubaruWorkbenchSelection | null = null;
+  let subaruSelectionToken = 0;
+
+  function selectSubaruRequest(row: SubaruWorkbenchCandidate) {
+    if (busy || replaying || session !== null || canScanRunning || canIdReplayActive || researchRunView.running) return;
+    const prepared = prepareSubaruWorkbench(row, ++subaruSelectionToken);
+    if (!prepared) { showError(row.manual_read_reason || "This entry needs protocol/request mapping review before a CAN test."); return; }
+    subaruWorkbenchSelection = prepared;
+    pidPickerView = "can";
+  }
+  let subaruLoggingBusy = false;
+  let subaruLoggingRequest = 0;
+
+  function addSubaruSignal(row: SubaruCatalogRow) {
+    const id = `subaru:${row.id}`;
+    const name = row.name.trim() || `${row.request_service} ${row.request_identifier}`;
+    const readSource = row.protocol === "SSM-KWP"
+      ? `SSM memory ${row.source_did || row.request_identifier}`
+      : `Service ${row.request_service} ${row.request_identifier}`;
+    const rawCode = row.protocol === "SSM-KWP" && !row.decoder_supported;
+    researchSignalOptions = upsertResearchSignalOption(researchSignalOptions, {
+      id,
+      name,
+      unit: rawCode ? "code" : row.unit || "code",
+      description: `Subaru OEM catalog · ${readSource}${rawCode ? " · raw code (source conversion not supported)" : ""} · ${row.request_header} → ${row.response_header} · ${row.ecu_name} · ${row.source_id} ${row.source_revision} · catalog SHA-256 ${row.catalog_sha256} · not vehicle verified`,
+      formula: rawCode ? `raw SSM code at ${row.source_did}` : row.protocol === "SSM-KWP" ? `SSM-KWP memory ${row.source_did}` : row.request_hint,
+      research: true,
+    });
+    workbenchGraphSignalIds = rememberWorkbenchGraphSignalId(workbenchGraphSignalIds, id);
+    signalSearch = name;
+    pidPickerView = "signals";
+    status = `Added ${name} to Live signals · select Log to start read-only polling`;
+  }
   let canWorkbenchStatus: CanWorkbenchStatus | null = null;
   let canIdReplayStatus: CanIdReplayStatus | null = null;
   let canIdReplayStartPending = false;
@@ -181,15 +223,31 @@
   let diagnosticsOpen = false;
   let vehicleDiagnosticsOpen = false;
   let vehicleProfilesOpen = false;
+  let presetsOpen = false;
   let vehicleHistoryOpen = false;
   let vehicleProfilesDialog: HTMLDialogElement | undefined;
+  let presetsDialog: HTMLDialogElement | undefined;
   let vehicleProfileMode = false;
   let vehicleProfileBusy = false;
   let vehicleProfileError = "";
   let savedVehicleProfiles: VehicleProfile[] = [];
+  let activeVehicleProject: VehicleProject | null = null;
+  let vehicleProjectStatus: VehicleProjectStatus | null = null;
+  let vehicleProjectPromptOpen = false;
+  let vehicleProjectBusy = false;
+  let vehicleProjectError = "";
+  let vehicleProjectSaveTimer: number | undefined;
+  let vehicleProjectSaveInFlight: Promise<void> | null = null;
+  let lastVehicleProjectSaveSignature = "";
+  let vehicleProjectManualMode = false;
+  let unavailableProjectSignalIds = new Set<string>();
+  let vehicleCatalogFilters: Record<string, unknown> = {};
+  let vehicleCurrentPresetId: string | null = null;
+  let vehicleWorkspaceRestoreToken = 0;
   let vehicleProfileStatus: VehicleProfileStatus | null = null;
   let vehicleProfilePreview: ProfileResumePreview | null = null;
   let vehicleProfileSelectionUnlisten: UnlistenFn | undefined;
+  let vehicleProjectUnlisten: UnlistenFn | undefined;
   let lastAppliedProfilePreviewId: string | null = null;
   let vehicleProfileCatalogVehicles: { vehicle_id: string; brand: string; model: string; model_year: number | null; engine: string }[] = [];
   let diagnosticRecords: DiagnosticRecord[] = [];
@@ -255,11 +313,12 @@
     recording,
     replaying,
     hasSignals: logSignalIds.length > 0 && requestedAdapterSignals().length > 0,
-    profileStandby: vehicleProfileMode && selectedAdapter !== "candlelight_obd",
+    profileStandby: (selectedAdapter !== "simulator" && selectedAdapter !== "candlelight_obd" && !(selectedAdapter === "openport2" && openPortMode === "subaru_ssm")) || (selectedAdapter === "simulator" && vehicleProfileMode),
     sxPort: selectedSxPort,
     sxIdentityMatches: sxIdentity?.path === selectedSxPort,
     openPortProvider: selectedOpenPortProvider,
     openPortIdentityMatches: openPortIdentity?.stable_id === selectedOpenPortProvider,
+    openPortMode,
     bluetoothAddress: selectedBluetoothAddress,
     bluetoothIdentityMatches,
     canObdDevice: selectedCanObdDeviceId,
@@ -354,6 +413,11 @@
   $: if (workspacePreferencesReady && isTauri()) {
     invoke("agent_sync_signal_selection", { logSignalIds, graphSignalIds }).catch(() => {});
   }
+  $: if (workspacePreferencesReady && activeVehicleProject && vehicleProjectStatus?.state === "ready" && !vehicleProjectPromptOpen && !vehicleProjectManualMode && obdConnected) {
+    logSignalIds; graphSignalIds; derivedSignalDefinitions; canSignalDefinitions; signalColors;
+    vehicleCatalogFilters; vehicleCurrentPresetId; graphMode; signalPickerVisible; statusHeight;
+    queueVehicleProjectSave();
+  }
   $: if (workspacePreferencesReady) {
     try { localStorage.setItem("lognook.vehicle-profile-mode.v1", JSON.stringify(vehicleProfileMode)); }
     catch { /* Optional UI preference; backend profiles remain authoritative. */ }
@@ -361,6 +425,10 @@
   $: if (vehicleProfilesDialog) {
     if (vehicleProfilesOpen && !vehicleProfilesDialog.open) vehicleProfilesDialog.showModal();
     else if (!vehicleProfilesOpen && vehicleProfilesDialog.open) vehicleProfilesDialog.close();
+  }
+  $: if (presetsDialog) {
+    if (presetsOpen && !presetsDialog.open) presetsDialog.showModal();
+    else if (!presetsOpen && presetsDialog.open) presetsDialog.close();
   }
   $: if (workspacePreferencesReady && isTauri()) {
     getCurrentWebview().setZoom(uiScale / 100).catch(showError);
@@ -377,6 +445,8 @@
   onMount(() => {
     let disposed = false;
     let agentStatusTimer: number | undefined;
+    const graphPreferencesChanged = () => queueVehicleProjectSave();
+    window.addEventListener("lognook-graph-preferences-changed", graphPreferencesChanged);
     const refreshAgentAccess = () => {
       if (isTauri()) void invoke<AgentAccessStatus>("agent_access_status").then((value) => agentAccessStatus = value).catch(() => {});
     };
@@ -408,6 +478,9 @@
       listen<ProfileResumeApplyResult>("vehicle-profile-resumed", ({ payload }) => {
         void installResumedVehicleProfile(payload).catch((reason) => vehicleProfileError = String(reason));
       }).then((stop) => disposed ? stop() : vehicleProfileSelectionUnlisten = stop).catch(showError);
+      listen<VehicleProjectUpdatedEvent>("vehicle-project-updated", ({ payload }) => {
+        void applyVehicleProjectUpdate(payload).catch((reason) => vehicleProjectError = String(reason));
+      }).then((stop) => disposed ? stop() : vehicleProjectUnlisten = stop).catch(showError);
       listen<AgentSignalSelection>("agent-signal-selection", ({ payload }) => {
         logSignalIds = payload.log_signal_ids;
         graphSignalIds = payload.graph_signal_ids;
@@ -483,14 +556,18 @@
       .catch(() => {});
     return () => {
       disposed = true;
+      if (liveSampleFlushFrame !== undefined) window.cancelAnimationFrame(liveSampleFlushFrame);
+      pendingLiveSamples = [];
       if (sxPortRefreshTimer !== undefined) window.clearInterval(sxPortRefreshTimer);
       if (agentStatusTimer !== undefined) window.clearInterval(agentStatusTimer);
       window.removeEventListener("focus", refreshSelectedSx);
       document.removeEventListener("visibilitychange", refreshSelectedSx);
+      window.removeEventListener("lognook-graph-preferences-changed", graphPreferencesChanged);
       unlisten?.();
       agentSelectionUnlisten?.();
       diagnosticsUnlisten?.();
       vehicleProfileSelectionUnlisten?.();
+      vehicleProjectUnlisten?.();
     };
   });
 
@@ -607,7 +684,10 @@
       }
       canWorkbenchStatus = event.payload;
       canConnected = event.payload.connected;
-      if (!obdConnected) activeAdapterDescriptor = null;
+      if (!obdConnected) {
+        activeAdapterDescriptor = null;
+        activeConnectionCapabilities = null;
+      }
       if (event.payload.connected) {
         pidPickerView = "can";
         const canStatus = `Candlelight CAN · ${event.payload.bitrate.toLocaleString()} bit/s · ${event.payload.listen_only ? "listen-only" : "active"}`;
@@ -681,9 +761,8 @@
       if (sample.origin === "live") {
         if (!session) {
           liveCsvBuffer.append(sample);
-          liveCsvBufferVersion++;
-          latest = { ...latest, [sample.signal_id]: sample };
-          series = { ...series, [sample.signal_id]: appendLiveGraphSample(series[sample.signal_id] ?? [], sample) };
+          pendingLiveSamples.push(sample);
+          if (liveSampleFlushFrame === undefined) liveSampleFlushFrame = window.requestAnimationFrame(flushLiveSamples);
         }
       }
     } else if (event.type === "playbackMarker") {
@@ -709,6 +788,7 @@
         recording = false;
       }
     } else if (event.type === "connected") {
+      vehicleProfileStatus = null;
       void refreshVehicleProfileView();
       if (!canConnected && !obdConnected) {
         if (session) void clearSession();
@@ -716,6 +796,7 @@
       }
       obdConnected = true;
       activeAdapterDescriptor = event.payload.device;
+      activeConnectionCapabilities = event.payload;
       const family = event.payload.device.hardware_family.toLowerCase();
       if (family.includes("simulator")) selectedAdapter = "simulator";
       else if (family.includes("obdlink sx")) {
@@ -750,10 +831,12 @@
         : obdStatus;
     } else if (event.type === "disconnected") {
       obdConnected = false;
+      logSignalIds = logSignalIds.filter((id) => !id.startsWith("subaru:"));
       vehicleProfileStatus = null;
       vehicleProfilePreview = null;
       lastAppliedProfilePreviewId = null;
       activeAdapterDescriptor = null;
+      activeConnectionCapabilities = null;
       if (!canConnected) recording = false;
       status = canConnected && canWorkbenchStatus
         ? `Candlelight CAN · ${canWorkbenchStatus.bitrate.toLocaleString()} bit/s · ${canWorkbenchStatus.listen_only ? "listen-only" : "active"}`
@@ -817,9 +900,28 @@
   }
 
   function resetLiveHistory() {
+    if (liveSampleFlushFrame !== undefined) window.cancelAnimationFrame(liveSampleFlushFrame);
+    liveSampleFlushFrame = undefined;
+    pendingLiveSamples = [];
     latest = {};
     series = {};
     liveCsvBuffer.clear();
+    liveCsvBufferVersion++;
+  }
+
+  function flushLiveSamples() {
+    liveSampleFlushFrame = undefined;
+    const incoming = pendingLiveSamples;
+    pendingLiveSamples = [];
+    if (session || !incoming.length) return;
+    const nextSeries = { ...series };
+    const nextLatest = { ...latest };
+    for (const sample of incoming) {
+      nextSeries[sample.signal_id] = appendLiveGraphSample(nextSeries[sample.signal_id] ?? [], sample);
+      nextLatest[sample.signal_id] = sample;
+    }
+    series = nextSeries;
+    latest = nextLatest;
     liveCsvBufferVersion++;
   }
 
@@ -894,6 +996,7 @@
       });
       const capabilities = await invoke<ConnectionCapabilities>("connect_simulator", { signalIds: requested });
       activeAdapterDescriptor = capabilities.device;
+      activeConnectionCapabilities = capabilities;
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -913,6 +1016,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
+      activeConnectionCapabilities = capabilities;
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -921,6 +1025,17 @@
 
   function connectOpenPort() {
     return run(async () => {
+      if (openPortMode === "subaru_ssm") {
+        const capabilities = await invoke<ConnectionCapabilities>("connect_openport2_ssm", {
+          providerId: selectedOpenPortProvider,
+        });
+        activeAdapterDescriptor = capabilities.device;
+        activeConnectionCapabilities = capabilities;
+        logSignalIds = logSignalIds.filter((id) => id.startsWith("subaru:"));
+        graphSignalIds = graphSignalIds.filter((id) => id.startsWith("subaru:"));
+        status = "Connected · Subaru SSM K-Line · select SSM-KWP catalog signals to log";
+        return;
+      }
       const requested = requestedAdapterSignals();
       if (!requested.length) throw new Error("Select at least one supported engine signal first");
       await invoke("configure_derived_signals", {
@@ -932,6 +1047,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
+      activeConnectionCapabilities = capabilities;
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -952,6 +1068,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
+      activeConnectionCapabilities = capabilities;
       const availableIds = new Set([...capabilities.supported_signals.map(({ id }) => id), ...derivedSignalDefinitions.map(({ id }) => id), ...canSignalDefinitions.map(({ id }) => id)]);
       logSignalIds = logSignalIds.filter((id) => availableIds.has(id));
       graphSignalIds = graphSignalIds.filter((id) => availableIds.has(id));
@@ -988,6 +1105,7 @@
         signalIds: requested,
       });
       activeAdapterDescriptor = capabilities.device;
+      activeConnectionCapabilities = capabilities;
       const availableIds = new Set([
         ...capabilities.supported_signals.map(({ id }) => id),
         ...derivedSignalDefinitions.map(({ id }) => id),
@@ -1011,16 +1129,17 @@
 
   function connectSelectedAdapter() {
     if (selectedAdapter === "candlelight_obd") return connectCanObd();
+    if (selectedAdapter === "openport2" && openPortMode === "subaru_ssm") return connectOpenPort();
+    if (selectedAdapter !== "simulator") return connectSelectedProfileAdapter();
     if (vehicleProfileMode) return connectSelectedProfileAdapter();
-    if (selectedAdapter === "obdlink_sx") return connectSx();
-    if (selectedAdapter === "openport2") return connectOpenPort();
-    if (selectedAdapter === "elm327" || selectedAdapter === "a30") return connectBluetooth();
     return connect();
   }
 
   function selectedProfileAdapterChoice() {
     if (selectedAdapter === "obdlink_sx") return { kind: "obd_link_sx", port_name: selectedSxPort };
-    if (selectedAdapter === "openport2") return { kind: "open_port2", provider_id: selectedOpenPortProvider };
+    if (selectedAdapter === "openport2") return openPortMode === "subaru_ssm"
+      ? { kind: "open_port2_subaru_ssm", provider_id: selectedOpenPortProvider }
+      : { kind: "open_port2", provider_id: selectedOpenPortProvider };
     if (selectedAdapter === "a30") return { kind: "a30", address: selectedBluetoothAddress };
     if (selectedAdapter === "elm327") return { kind: "elm327", address: selectedBluetoothAddress };
     if (selectedAdapter === "candlelight_obd") {
@@ -1032,10 +1151,16 @@
 
   function connectSelectedProfileAdapter() {
     return run(async () => {
+      activeVehicleProject = null;
+      vehicleProjectStatus = null;
+      vehicleProjectPromptOpen = false;
+      vehicleProjectManualMode = false;
+      lastVehicleProjectSaveSignature = "";
+      unavailableProjectSignalIds = new Set();
       const capabilities = await invoke<ConnectionCapabilities>("connect_profile_adapter", { choice: selectedProfileAdapterChoice() });
       activeAdapterDescriptor = capabilities.device;
+      activeConnectionCapabilities = capabilities;
       await refreshVehicleProfileView();
-      vehicleProfilesOpen = true;
       await recognizeVehicleProfile(true);
     });
   }
@@ -1057,6 +1182,11 @@
     catch { /* Catalog association is optional; generic profiles remain usable. */ }
   }
 
+  async function openSignalPresets() {
+    presetsOpen = true;
+    await refreshVehicleProfileView();
+  }
+
   async function recognizeVehicleProfile(autoPrepare = false) {
     if (vehicleProfileBusy) return;
     vehicleProfileBusy = true;
@@ -1065,12 +1195,259 @@
       const current = await vehicleProfilesStatus();
       await recognizeVehicle(current.obd_connection_generation);
       await refreshVehicleProfileView();
-      const exact = vehicleProfileStatus?.profile_matches.filter((match) => match.profile_match.state === "exact") ?? [];
-      if (autoPrepare && exact.length === 1 && vehicleProfileStatus?.profile_standby) {
-        vehicleProfilePreview = await prepareProfileResume(exact[0].profile_id, vehicleProfileStatus.obd_connection_generation);
+      if (autoPrepare) {
+        const prepared = await vehicleProjects({ op: "prepare_on_connect", expected_generation: current.obd_connection_generation }) as Extract<VehicleProjectsResult, { kind: "prepared" }>;
+        activeVehicleProject = prepared.project;
+        vehicleProjectStatus = await vehicleProjects({ op: "status" }) as VehicleProjectStatus;
+        vehicleProjectPromptOpen = prepared.choice_required;
+        if (prepared.state === "created" && prepared.project) {
+          activeVehicleProject = prepared.project;
+          await applyProjectWorkspace(prepared.project, null);
+        }
+        if (prepared.state === "unknown_vin") {
+          vehicleProjectPromptOpen = false;
+          await continueGenericProfileSelection(current.obd_connection_generation);
+        }
+        if (!prepared.project) activeVehicleProject = null;
+        await refreshVehicleProfileView();
       }
-    } catch (reason) { vehicleProfileError = String(reason); }
+    } catch (reason) {
+      vehicleProfileError = String(reason);
+      if (autoPrepare) {
+        activeVehicleProject = null;
+        vehicleProjectPromptOpen = false;
+        try {
+          const current = await vehicleProfilesStatus();
+          vehicleProjectStatus = { state: "unknown_vin", connection_generation: current.obd_connection_generation, project_id: null, project: null, choice_required: false };
+          await continueGenericProfileSelection(current.obd_connection_generation);
+        } catch (fallbackError) { showError(`VIN read failed; generic logging could not resume: ${String(fallbackError)}`); }
+      }
+    }
     finally { vehicleProfileBusy = false; }
+  }
+
+  async function applyProjectWorkspace(project: VehicleProject, selection: ProfileSelectionSnapshot | null) {
+    vehicleWorkspaceRestoreToken++;
+    activeVehicleProject = project;
+    const restored = selection ?? project.profile.selection;
+    derivedSignalDefinitions = restored.derived_definitions;
+    canSignalDefinitions = restored.can_fields;
+    logSignalIds = [...restored.log_signal_ids];
+    graphSignalIds = [...restored.graph_signal_ids];
+    const workspace = normalizeVehicleProjectWorkspace(project.workspace);
+    if (workspace.graph_preferences) {
+      localStorage.setItem("lognook.graph-preferences.v1", JSON.stringify(workspace.graph_preferences));
+      window.dispatchEvent(new CustomEvent("lognook-graph-preferences-restored", { detail: workspace.graph_preferences }));
+      const colors = (workspace.graph_preferences as unknown as { signal_colors?: unknown }).signal_colors;
+      if (colors && typeof colors === "object" && !Array.isArray(colors)) signalColors = colors as Record<string, string>;
+    } else {
+      localStorage.removeItem("lognook.graph-preferences.v1");
+      window.dispatchEvent(new CustomEvent("lognook-graph-preferences-restored", { detail: null }));
+      signalColors = {};
+    }
+    const layout = workspace.layout_preferences;
+    graphMode = layout?.graphMode === "separate" ? "separate" : "overlay";
+    signalPickerVisible = typeof layout?.signalPickerVisible === "boolean" ? layout.signalPickerVisible : true;
+    if (Number.isFinite(layout?.statusHeight)) statusHeight = Math.max(36, Math.min(window.innerHeight * 0.3, Number(layout?.statusHeight)));
+    vehicleCatalogFilters = workspace.catalog_filters;
+    vehicleCurrentPresetId = workspace.current_preset_id;
+    vehicleProjectStatus = await vehicleProjects({ op: "status" }) as VehicleProjectStatus;
+    if (vehicleProjectStatus.state === "ready") lastVehicleProjectSaveSignature = vehicleProjectSaveSignature();
+  }
+
+  async function applyVehicleProjectUpdate(event: VehicleProjectUpdatedEvent) {
+    if (!obdConnected) return;
+    const currentProfileStatus = await vehicleProfilesStatus();
+    if (currentProfileStatus.obd_connection_generation !== event.connection_generation || !currentProfileStatus.obd_connected) return;
+    const currentProjectStatus = await vehicleProjects({ op: "status" }) as VehicleProjectStatus;
+    if (currentProjectStatus.connection_generation !== event.connection_generation) return;
+    vehicleProfileStatus = currentProfileStatus;
+    vehicleProjectStatus = currentProjectStatus;
+    const result = event.result;
+    switch (result.kind) {
+      case "prepared":
+        activeVehicleProject = result.project;
+        vehicleProjectPromptOpen = result.choice_required;
+        if (result.state === "created" && result.project) {
+          vehicleProjectManualMode = false;
+          unavailableProjectSignalIds = new Set();
+          await applyProjectWorkspace(result.project, null);
+        } else if (!result.project) {
+          vehicleProjectPromptOpen = false;
+          activeVehicleProject = null;
+        }
+        break;
+      case "loaded":
+        vehicleProjectManualMode = false;
+        unavailableProjectSignalIds = new Set(result.applied.skipped.map(({ reference }) => reference));
+        await applyProjectWorkspace(result.project, result.applied.selection);
+        vehicleProjectPromptOpen = false;
+        break;
+      case "fresh":
+        vehicleProjectManualMode = false;
+        unavailableProjectSignalIds = new Set();
+        await applyProjectWorkspace(result.project, result.selection);
+        vehicleProjectPromptOpen = false;
+        break;
+      case "manual_selected":
+        vehicleProjectManualMode = true;
+        unavailableProjectSignalIds = new Set(result.skipped_refs);
+        await applyProjectWorkspace(result.project, result.selection);
+        vehicleProjectStatus = { ...vehicleProjectStatus!, state: "unknown_vin", project_id: result.project.profile.id, project: result.project, choice_required: false };
+        vehicleProjectPromptOpen = false;
+        status = `Manual vehicle project selected · ${result.project.profile.name} · ECU compatibility not established`;
+        break;
+      case "saved":
+        if (activeVehicleProject?.profile.id === result.project.profile.id && vehicleProjectStatus.connection_generation === event.connection_generation) {
+          activeVehicleProject = { ...activeVehicleProject, profile: { ...activeVehicleProject.profile, revision: result.project.profile.revision } };
+        }
+        break;
+      default:
+        return;
+    }
+    await refreshVehicleProfileView();
+  }
+
+  async function chooseVehicleProject(choice: "load_last_state" | "start_fresh") {
+    const project = activeVehicleProject;
+    const generation = vehicleProjectStatus?.connection_generation;
+    if (!project || generation === undefined || generation === null || vehicleProjectBusy) return;
+    vehicleProjectBusy = true;
+    vehicleProjectError = "";
+    try {
+      const result = await vehicleProjects({ op: choice, project_id: project.profile.id, expected_revision: project.profile.revision, expected_generation: generation }) as Extract<VehicleProjectsResult, { kind: "loaded" | "fresh" }>;
+      vehicleProjectManualMode = false;
+      unavailableProjectSignalIds = result.kind === "loaded" ? new Set(result.applied.skipped.map(({ reference }) => reference)) : new Set();
+      await applyProjectWorkspace(result.project, result.kind === "loaded" ? result.applied.selection : result.selection);
+      vehicleProjectPromptOpen = false;
+      await refreshVehicleProfileView();
+      if (result.kind === "loaded" && result.applied.skipped.length) status = `Vehicle workspace loaded · ${result.applied.skipped.length} saved signal selection(s) unavailable and retained`;
+      else status = choice === "load_last_state" ? "Vehicle workspace loaded" : "Started fresh with supported generic signals";
+    } catch (reason) { vehicleProjectError = String(reason); }
+    finally { vehicleProjectBusy = false; }
+  }
+
+  function queueVehicleProjectSave() {
+    if (!activeVehicleProject || vehicleProjectStatus?.state !== "ready" || vehicleProjectPromptOpen || !obdConnected) return;
+    if (vehicleProjectSaveSignature() === lastVehicleProjectSaveSignature) return;
+    if (vehicleProjectSaveTimer !== undefined) window.clearTimeout(vehicleProjectSaveTimer);
+    vehicleProjectSaveTimer = window.setTimeout(() => {
+      vehicleProjectSaveTimer = undefined;
+      void flushVehicleProjectSave().catch((reason) => {
+        vehicleProjectError = `Workspace autosave failed: ${String(reason)}`;
+        showError(vehicleProjectError);
+      });
+    }, 700);
+  }
+
+  async function flushVehicleProjectSave() {
+    if (vehicleProjectSaveInFlight) await vehicleProjectSaveInFlight;
+    if (vehicleProjectSaveSignature() === lastVehicleProjectSaveSignature) return;
+    const project = activeVehicleProject;
+    const generation = vehicleProjectStatus?.connection_generation;
+    if (!project || generation === undefined || generation === null || vehicleProjectStatus?.state !== "ready" || vehicleProjectPromptOpen) return;
+    const workspace = normalizeVehicleProjectWorkspace(project.workspace);
+    const uiSignature = vehicleProjectSaveSignature();
+    workspace.graph_preferences = (() => {
+      try {
+        const stored = JSON.parse(localStorage.getItem("lognook.graph-preferences.v1") ?? "null");
+        return stored && typeof stored === "object" ? { ...stored, signal_colors: signalColors } : stored;
+      }
+      catch { return null; }
+    })();
+    workspace.layout_preferences = { graphMode, signalPickerVisible, statusHeight };
+    workspace.catalog_filters = vehicleCatalogFilters;
+    workspace.current_preset_id = vehicleCurrentPresetId;
+    const current = currentVehicleSelection();
+    current.log_signal_ids = [...new Set([...current.log_signal_ids, ...project.profile.selection.log_signal_ids.filter((id) => unavailableProjectSignalIds.has(id))])];
+    current.graph_signal_ids = [...new Set([...current.graph_signal_ids, ...project.profile.selection.graph_signal_ids.filter((id) => unavailableProjectSignalIds.has(id))])];
+    current.derived_definitions = [...current.derived_definitions, ...project.profile.selection.derived_definitions.filter(({ id }) => unavailableProjectSignalIds.has(id) && !current.derived_definitions.some((item) => item.id === id))];
+    current.can_fields = [...current.can_fields, ...project.profile.selection.can_fields.filter(({ id }) => unavailableProjectSignalIds.has(id) && !current.can_fields.some((item) => item.id === id))];
+    const projectId = project.profile.id;
+    const resultPromise = vehicleProjects({ op: "save", project_id: projectId, expected_revision: project.profile.revision, expected_generation: generation, selection: { ...current, oem_references: project.profile.selection.oem_references }, workspace })
+      .then((value) => {
+        const result = value as Extract<VehicleProjectsResult, { kind: "saved" }>;
+        if (activeVehicleProject?.profile.id === projectId && vehicleProjectStatus?.connection_generation === generation) {
+          activeVehicleProject = result.project;
+          lastVehicleProjectSaveSignature = uiSignature;
+          if (vehicleProjectSaveSignature() !== uiSignature) queueVehicleProjectSave();
+        }
+      });
+    vehicleProjectSaveInFlight = resultPromise;
+    try { await resultPromise; }
+    finally { vehicleProjectSaveInFlight = null; }
+  }
+
+  function vehicleProjectSaveSignature() {
+    if (!activeVehicleProject) return "";
+    return JSON.stringify({
+      selection: currentVehicleSelection(),
+      graph: localStorage.getItem("lognook.graph-preferences.v1"),
+      colors: signalColors,
+      filters: vehicleCatalogFilters,
+      currentPresetId: vehicleCurrentPresetId,
+      layout: { graphMode, signalPickerVisible, statusHeight },
+    });
+  }
+
+  function updateVehicleProjectFilters(filters: Record<string, unknown>) {
+    vehicleCatalogFilters = filters;
+  }
+
+  function updateVehicleProjectPreset(presetId: string | null) {
+    vehicleCurrentPresetId = presetId;
+    if (activeVehicleProject) {
+      const workspace = normalizeVehicleProjectWorkspace(activeVehicleProject.workspace);
+      activeVehicleProject = { ...activeVehicleProject, workspace: { ...workspace, current_preset_id: presetId } };
+    }
+    queueVehicleProjectSave();
+  }
+
+  async function selectManualVehicleProject(profileId: string) {
+    if (!vehicleProfileStatus?.obd_connected || vehicleProjectBusy) return;
+    const profile = savedVehicleProfiles.find(({ id }) => id === profileId);
+    if (!profile) return;
+    vehicleProjectBusy = true;
+    vehicleProjectError = "";
+    try {
+      const result = await vehicleProjects({ op: "select_manual", project_id: profileId, expected_generation: vehicleProfileStatus.obd_connection_generation }) as Extract<VehicleProjectsResult, { kind: "manual_selected" }>;
+      vehicleProjectManualMode = true;
+      unavailableProjectSignalIds = new Set(result.skipped_refs);
+      await applyProjectWorkspace(result.project, result.selection);
+      vehicleProjectStatus = { ...vehicleProjectStatus!, state: "unknown_vin", project_id: result.project.profile.id, project: result.project, choice_required: false };
+      status = `Manual vehicle project selected · ${result.project.profile.name} · ECU compatibility not established`;
+    } catch (reason) { vehicleProjectError = String(reason); }
+    finally { vehicleProjectBusy = false; }
+  }
+
+  async function continueWithoutVin() {
+    if (vehicleProjectBusy) return;
+    vehicleProjectBusy = true;
+    vehicleProjectError = "";
+    try {
+      const generation = vehicleProjectStatus?.connection_generation ?? 0;
+      await continueGenericProfileSelection(generation);
+      vehicleProjectPromptOpen = false;
+      await refreshVehicleProfileView();
+    } catch (reason) { vehicleProjectError = String(reason); }
+    finally { vehicleProjectBusy = false; }
+  }
+
+  async function continueGenericProfileSelection(generation: number) {
+    const supportedIds = new Set(activeConnectionCapabilities?.supported_signals.map(({ id }) => id) ?? []);
+    const requested = logSignalIds.filter((id) => supportedIds.has(id));
+    const usable = requested.length ? requested : ["engine_rpm", "vehicle_speed", "coolant_temp", "intake_temp", "throttle_pos"].filter((id) => supportedIds.has(id));
+    if (!usable.length) throw new Error("This adapter reported no supported generic signals to continue with.");
+    const graphSelection = graphSignalIds.filter((id) => usable.includes(id));
+    await invoke("continue_profile_selection", {
+      logSignalIds: usable,
+      graphSignalIds: graphSelection.length ? graphSelection : usable,
+      derivedDefinitions: derivedSignalDefinitions,
+      expectedObdGeneration: generation,
+    });
+    logSignalIds = usable;
+    graphSignalIds = graphSelection.length ? graphSelection : usable;
+    status = "VIN unavailable · continued generic supported logging";
   }
 
   function currentVehicleSelection(): ProfileSelectionSnapshot {
@@ -1246,9 +1623,21 @@
 
   function disconnect() {
     return run(async () => {
+      if (vehicleProjectSaveTimer !== undefined) window.clearTimeout(vehicleProjectSaveTimer);
+      vehicleProjectSaveTimer = undefined;
+      try { await flushVehicleProjectSave(); }
+      catch (reason) {
+        vehicleProjectError = `Workspace save before disconnect failed: ${String(reason)}`;
+        showError(vehicleProjectError);
+      }
       await invoke("disconnect_obd");
       obdConnected = false;
+      activeVehicleProject = null;
+      vehicleProjectStatus = null;
+      vehicleProjectPromptOpen = false;
+      vehicleProjectManualMode = false;
       activeAdapterDescriptor = null;
+      activeConnectionCapabilities = null;
       if (!canConnected) recording = false;
       status = canConnected && canWorkbenchStatus
         ? `Candlelight CAN · ${canWorkbenchStatus.bitrate.toLocaleString()} bit/s · ${canWorkbenchStatus.listen_only ? "listen-only" : "active"}`
@@ -1500,7 +1889,44 @@
   }
 
   function toggleLogSignal(signalId: string, enabled: boolean) {
+    const previousLogSignalIds = logSignalIds;
+    const previousGraphSignalIds = graphSignalIds;
     ({ logSignalIds, graphSignalIds } = setLogSignal(logSignalIds, graphSignalIds, signalId, enabled));
+    if (!signalId.startsWith("subaru:")) return;
+    const request = ++subaruLoggingRequest;
+    if (!obdConnected || !activeAdapterDescriptor || !isTauri()) {
+      logSignalIds = previousLogSignalIds;
+      graphSignalIds = previousGraphSignalIds;
+      showError("Connect an OBD adapter before logging a Subaru catalog signal.");
+      return;
+    }
+    subaruLoggingBusy = true;
+    void (async () => {
+      try {
+        const current = await vehicleProfilesStatus();
+        const candidateIds = logSignalIds
+          .filter((id) => id.startsWith("subaru:"))
+          .map((id) => id.slice("subaru:".length));
+        const result = await invoke<OemPollingStatus>("set_subaru_logging", {
+          candidateIds,
+          adapterId: activeAdapterDescriptor!.stable_id,
+          connectionGeneration: current.obd_connection_generation,
+        });
+        if (request === subaruLoggingRequest) {
+          status = result.active
+            ? `Subaru OEM research logging · ${result.signal_count} selected · reads are unverified`
+            : "Subaru OEM research logging stopped";
+        }
+      } catch (reason) {
+        if (request === subaruLoggingRequest) {
+          logSignalIds = previousLogSignalIds;
+          graphSignalIds = previousGraphSignalIds;
+          showError(reason);
+        }
+      } finally {
+        if (request === subaruLoggingRequest) subaruLoggingBusy = false;
+      }
+    })();
   }
 
   function requestedAdapterSignals() {
@@ -1866,6 +2292,7 @@
     />
     <button class="button secondary" title="Vehicle diagnostics: DTCs, identity and Mode 06" onclick={() => vehicleDiagnosticsOpen = true}>Diagnostics</button>
     <button class="button secondary" title="Saved vehicle and ECU signal selections" onclick={openVehicleProfiles}>Profiles</button>
+    <button class="button secondary" title="Browse diagnostic signal recipes" onclick={openSignalPresets}>Presets</button>
     <div class="session-tools">
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
         <summary aria-label="Browse saved sessions" title="Browse saved sessions">Browse saved sessions</summary>
@@ -1892,6 +2319,21 @@
   {/if}
 
   <SessionShare path={sharePath} onClose={() => sharePath = ""} onSaved={(message) => status = message} />
+  {#if vehicleProjectPromptOpen}
+    <VehicleProjectPrompt
+      project={activeVehicleProject}
+      busy={vehicleProjectBusy}
+      error={vehicleProjectError}
+      onLoad={() => void chooseVehicleProject("load_last_state")}
+      onFresh={() => void chooseVehicleProject("start_fresh")}
+      onClose={continueWithoutVin}
+    />
+  {/if}
+  {#if unavailableProjectSignalIds.size && activeVehicleProject}
+    <aside class="vehicle-project-unavailable" role="status">
+      Saved selections unavailable on this connection (kept in {activeVehicleProject.profile.name}): {Array.from(unavailableProjectSignalIds).join(", ")}
+    </aside>
+  {/if}
 
   <DiagnosticsPanel
     open={diagnosticsOpen}
@@ -1907,14 +2349,33 @@
     open={vehicleDiagnosticsOpen}
     adapterFamily={obdConnected ? activeAdapterDescriptor?.hardware_family ?? null : null}
     adapterId={obdConnected ? activeAdapterDescriptor?.stable_id ?? null : null}
+    connectionGeneration={obdConnected ? vehicleProfileStatus?.obd_connection_generation ?? null : null}
+    diagnosticCapabilities={obdConnected ? activeConnectionCapabilities?.diagnostics ?? null : null}
     onClose={() => vehicleDiagnosticsOpen = false}
   />
+  <dialog class="vehicle-profiles-dialog" aria-label="Signal presets" bind:this={presetsDialog} onclose={() => presetsOpen = false}>
+    <PresetPicker
+      open={presetsOpen}
+      connected={obdConnected}
+      generation={vehicleProfileStatus?.obd_connection_generation ?? 0}
+      logIds={logSignalIds}
+      graphIds={graphSignalIds}
+      definitions={signalCatalog}
+      profiles={savedVehicleProfiles}
+      profileMatches={vehicleProfileStatus?.profile_matches ?? []}
+      selectionSnapshot={currentVehicleSelection()}
+      selectedPresetId={vehicleCurrentPresetId}
+      onSelectedPresetId={updateVehicleProjectPreset}
+      onClose={() => presetsOpen = false}
+      onApply={(selection) => { logSignalIds = selection.log_signal_ids; graphSignalIds = selection.graph_signal_ids; status = "Preset selection applied through the connected acquisition owner"; }}
+    />
+  </dialog>
   <main>
     <dialog class="vehicle-profiles-dialog" aria-labelledby="vehicle-profiles-title" bind:this={vehicleProfilesDialog}
       onclose={() => vehicleProfilesOpen = false}
       oncancel={() => { vehicleProfilesOpen = false; if (vehicleProfileBusy) void cancelVehicleProfileOperation(); }}>
       <div class="vehicle-profile-dialog-bar">
-        <label><input type="checkbox" bind:checked={vehicleProfileMode} /> Recognize vehicle before logging on the next Connect</label>
+        <label><input type="checkbox" bind:checked={vehicleProfileMode} /> Use saved profiles when connecting the simulator</label>
         <button class="button secondary" type="button" onclick={() => vehicleHistoryOpen = !vehicleHistoryOpen}>{vehicleHistoryOpen ? "Vehicle profiles" : "Vehicle history"}</button>
         <button class="button secondary" type="button" onclick={() => vehicleProfilesOpen = false}>Close</button>
       </div>
@@ -1932,6 +2393,7 @@
         onSave={(name, manualAssociation, catalogVehicleId) => void saveCurrentVehicleProfile(name, manualAssociation, catalogVehicleId)}
         onPrepareResume={(id) => void previewVehicleProfile(id)}
         onManualAssociate={(id) => void previewVehicleProfile(id)}
+        onManualProjectSelect={(id) => void selectManualVehicleProject(id)}
         onApplyResume={(id, revision, generation) => void resumeVehicleProfile(id, revision, generation)}
         onDiscardResume={(id) => void discardVehicleProfilePreview(id)}
         onContinueSelection={() => void continueVehicleProfileSelection()}
@@ -1983,6 +2445,10 @@
               <select class="text-input provider-select" bind:value={selectedOpenPortProvider} onchange={() => openPortIdentity = undefined} aria-label="OpenPort J2534 provider" disabled={busy || recording || openPortProviders.length === 0 || replaying || researchRunView.running}>
                 {#if openPortProviders.length === 0}<option value="">No OpenPort provider</option>{/if}
                 {#each openPortProviders as provider}<option value={provider.id}>{provider.name}</option>{/each}
+              </select>
+              <select class="text-input protocol-select" bind:value={openPortMode} aria-label="OpenPort protocol mode" disabled={busy || recording || replaying || researchRunView.running}>
+                <option value="obd_can">OBD-II CAN</option>
+                <option value="subaru_ssm">Subaru SSM K-Line</option>
               </select>
               <button class="button secondary adapter-refresh" onclick={refreshOpenPortProviders} disabled={busy || recording || replaying || researchRunView.running} title="Refresh registered 32-bit J2534 providers" aria-label="Refresh OpenPort providers">↻</button>
             {:else if selectedAdapter === "elm327" || selectedAdapter === "a30"}
@@ -2089,9 +2555,9 @@
                 <input class="signal-color" type="color" value={signalColorFor(signal)} aria-label={`Color for ${signal.name}`} onchange={(event) => updateSignalColor(signal.id, event.currentTarget.value)} />
                 <span class="signal-copy">
                   <span class="signal-name-row"><span title={signal.name}>{signal.name}</span><strong>{formatSignalValue(latest[signal.id]?.value, signal.unit)}</strong></span>
-                  <small title={signal.description}>{signal.research ? "RESEARCH" : signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
+                  <small title={signal.description}>{signal.id.startsWith("subaru:") ? "SUBARU · UNVERIFIED" : signal.research ? "RESEARCH" : signal.pid === undefined ? signal.id : `PID ${signal.pid.toString(16).toUpperCase().padStart(2, "0")}`} · avg {formatSignalValue(signalAverages[signal.id], signal.unit)}</small>
                 </span>
-                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || (obdConnected && !vehicleProfileStatus?.profile_standby) || recording || busy || researchSignalOptions.some((research) => research.id === signal.id)} />
+                <input type="checkbox" aria-label={`Log ${signal.name}`} checked={session ? true : logSignalIds.includes(signal.id)} onchange={(event) => toggleLogSignal(signal.id, event.currentTarget.checked)} disabled={session !== null || (!signal.id.startsWith("subaru:") && obdConnected && !vehicleProfileStatus?.profile_standby) || (signal.id.startsWith("subaru:") && vehicleProfileStatus?.profile_standby === true) || recording || busy || (subaruLoggingBusy && signal.id.startsWith("subaru:")) || (signal.id.startsWith("subaru:") && !obdConnected) || (researchSignalOptions.some((research) => research.id === signal.id) && !signal.id.startsWith("subaru:"))} />
                 <input type="checkbox" aria-label={`Graph ${signal.name}`} checked={graphSignalIds.includes(signal.id)} onchange={(event) => toggleGraphSignal(signal.id, event.currentTarget.checked)} disabled={busy || (!session && !logSignalIds.includes(signal.id) && !researchSignalOptions.some((research) => research.id === signal.id) && !workbenchGraphSignalIds.includes(signal.id))} />
               </div>
             {:else}
@@ -2100,11 +2566,18 @@
           </div>
           <p class="panel-hint">{session ? "Recorded signals are fixed; Graph controls visibility." : "Logging acquires the PID and adds it to Graph. Hide a trace while continuing to log it."}</p>
         {:else if pidPickerView === "oem"}
+        {#key vehicleWorkspaceRestoreToken}
         <OemCatalogPanel
+          savedWorkspaceFilters={vehicleCatalogFilters}
+          onWorkspaceFiltersChange={updateVehicleProjectFilters}
+          subaruDisabled={busy || replaying || session !== null || canScanRunning || canIdReplayActive || researchRunView.running}
+          onSubaruSelect={selectSubaruRequest}
+          onAddSubaruSignal={addSubaruSignal}
           selectedPort={selectedAdapter === "obdlink_sx" ? selectedSxPort : ""}
           selectedBluetoothAddress={selectedAdapter === "a30" || selectedAdapter === "elm327" ? selectedBluetoothAddress : ""}
           {selectedAdapter}
           activeAdapter={activeAdapterDescriptor}
+          connectionGeneration={obdConnected ? vehicleProfileStatus?.obd_connection_generation ?? null : null}
           onGraphCandidate={graphResearchCandidate}
           onGraphReadValue={graphA30ReadValue}
           onRunUpdate={updateResearchRunView}
@@ -2113,8 +2586,10 @@
           onTryCanCandidate={startCanOemCandidate}
           disabled={busy || !obdConnected || !activeAdapterDescriptor || replaying || session !== null}
         />
+        {/key}
         {/if}
         <CanWorkbenchPanel
+          subaruSelection={subaruWorkbenchSelection}
           hidden={session !== null || pidPickerView !== "can"}
           workspaceBusy={busy || replaying || researchRunView.running || session !== null}
           {recording}
@@ -2172,6 +2647,8 @@
               onToggleGraphSignal={toggleGraphSignal}
               onSeek={session ? seek : undefined}
               onWheelScrub={session && wheelScrubbing ? scrubWheel : undefined}
+              onZoomTime={session ? zoom : undefined}
+              onResetTimeZoom={session ? resetZoom : undefined}
               live={!session && connected}
               timeWindow={session ? timeWindow : undefined}
               markers={session ? markers : []}
@@ -2206,7 +2683,7 @@
       {#if selectedAdapter === "candlelight_obd"}
         {#if canObdDiscoveryError}<span class="status-error" role="alert">Candlelight discovery failed: {canObdDiscoveryError}</span>{/if}
         <span class="status-info">Identify checks USB identity only and sends no CAN frame. Connect discovers generic Mode 01 support over 11-bit CAN at 500 kbit/s.</span>
-        {#if vehicleProfileMode}<span class="status-info">Candlelight OBD does not provide vehicle/VIN recognition yet. Connect uses the selected generic signals through normal live logging.</span>{/if}
+        <span class="status-info">Candlelight OBD does not provide vehicle/VIN recognition yet. Connect uses supported generic signals; choose a vehicle project manually from Profiles if needed.</span>
         {#if canObdIdentityMatches}<span class="status-success">Identified {canObdIdentity?.device.hardware_family} · channel {canObdChannel}</span>{/if}
       {/if}
       {#if sxIdentity}<span class="status-success">Identified {sxIdentity.hardware_family} · {sxIdentity.firmware} · serial {sxIdentity.stable_id}</span>{/if}

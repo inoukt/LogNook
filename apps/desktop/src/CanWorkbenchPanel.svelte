@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import type { SubaruWorkbenchSelection } from "./subaruWorkbench";
   import { canHelpBubblesEnabled } from "./canHelp";
   import SavedCanReplayPanel from "./SavedCanReplayPanel.svelte";
   import type { SavedCanReplayPreviewView } from "./savedCanReplay";
@@ -18,6 +19,10 @@
   } from "./types";
 
   export let hidden = false;
+  export let subaruSelection: SubaruWorkbenchSelection | null = null;
+  let appliedSubaruToken: number | null = null;
+  let selectedSubaruNote = "";
+  let scanSettingsOpen = false;
   export let workspaceBusy = false;
   export let recording = false;
   export let status: CanWorkbenchStatus | null = null;
@@ -100,6 +105,18 @@
     ? "Enter valid, different request and response CAN IDs."
     : "Enter a valid route and hexadecimal identifier range.";
   $: if (!hidden && !adaptersLoaded && !refreshing) void refreshAdapters();
+  $: if (subaruSelection && subaruSelection.token !== appliedSubaruToken && !busy && !workspaceBusy && !scanRunning && !canIdReplayRunning) {
+    requestId = subaruSelection.requestId;
+    responseId = subaruSelection.responseId;
+    extended = subaruSelection.extended;
+    scanKind = subaruSelection.kind;
+    scanStart = subaruSelection.identifier;
+    scanEnd = subaruSelection.identifier;
+    selectedSubaruNote = `${subaruSelection.name} · ${subaruSelection.protocol} · ${subaruSelection.id}. Inferred request mapping; review the route and start the test explicitly.`;
+    scanStatus = "Subaru request prepared; nothing sent";
+    scanSettingsOpen = true;
+    appliedSubaruToken = subaruSelection.token;
+  }
 
   async function refreshAdapters() {
     refreshing = true;
@@ -443,6 +460,7 @@
 </script>
 
 <section class="can-workbench" hidden={hidden} aria-label="CAN Workbench">
+  {#if selectedSubaruNote}<p class="can-muted" role="status">{selectedSubaruNote}</p>{/if}
   <div class="can-connection">
     <div class="can-adapter-row">
       <label>GS_USB / Candlelight
@@ -524,7 +542,7 @@
     {/if}
   </details>
 
-  <details class="can-scan-settings">
+  <details class="can-scan-settings" bind:open={scanSettingsOpen}>
     <summary title={$canHelpBubblesEnabled ? "Configure a user-started CAN ID, Mode 01, Mode 21, or Mode 22 scan." : undefined}>Scan configuration</summary>
     <div class="can-scan-form">
       <label>Test

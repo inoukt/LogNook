@@ -5,7 +5,7 @@ export type IdentityReadState = "positive" | "unsupported" | "no_response" | "ma
 export type ProfileMatchState = "exact" | "review_required" | "identity_unavailable" | "conflict";
 export type VehicleIdentitySource = "report_ecu" | "same_generation_recognition" | "manual_profile" | "conflict" | "unassigned";
 export type VinOrigin = "ecu_report" | "ecu_recognition" | "legacy_report_import" | "owner_entered" | "agent_entered";
-export type ManualVehicleField = "make" | "model" | "model_year" | "engine" | "trim";
+export type ManualVehicleField = "make" | "model" | "model_year" | "engine" | "trim" | "transmission";
 export type ManualDetailActor = "owner_ui" | "agent_access";
 export type VinCheckDigitStatus = "match" | "mismatch_warning" | "unknown_scope";
 

@@ -58,6 +58,18 @@ pub(crate) enum Message {
 pub(crate) struct SampleSender(SyncSender<Message>, Arc<AtomicUsize>);
 
 impl SampleSender {
+    pub(crate) fn set_derived_signals(
+        &self,
+        signals: Vec<CompiledDerivedSignal>,
+    ) -> Result<(), LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.0.send(Message::SetDerivedSignals(signals, reply))
+            .map_err(|_| LogNookError::new("Sample pipeline has stopped"))?;
+        response.recv()
+            .map_err(|_| LogNookError::new("Sample pipeline did not acknowledge derived signals"))?
+            .map_err(LogNookError::new)
+    }
+
     pub(crate) fn send_sample(&self, sample: Sample) -> Result<(), LogNookError> {
         self.0
             .send(Message::Sample(sample))

@@ -139,7 +139,16 @@ impl LogNookEngine {
         adapter: Box<dyn HardwareAdapter>,
         signal_ids: &[String],
     ) -> Result<ConnectionCapabilities, LogNookError> {
-        self.connect_adapter_mode(adapter, signal_ids, false)
+        self.connect_adapter_mode(adapter, signal_ids, false, false)
+    }
+
+    /// Connect a specialized transport whose live samples arrive through an explicit plan
+    /// instead of the standard OBD signal loop.
+    pub fn connect_adapter_without_standard_signals(
+        &mut self,
+        adapter: Box<dyn HardwareAdapter>,
+    ) -> Result<ConnectionCapabilities, LogNookError> {
+        self.connect_adapter_mode(adapter, &[], false, true)
     }
 
     /// Connect with fresh support discovery while keeping the single acquisition owner idle.
@@ -147,7 +156,7 @@ impl LogNookEngine {
         &mut self,
         adapter: Box<dyn HardwareAdapter>,
     ) -> Result<ConnectionCapabilities, LogNookError> {
-        self.connect_adapter_mode(adapter, &[], true)
+        self.connect_adapter_mode(adapter, &[], true, false)
     }
 
     fn connect_adapter_mode(
@@ -155,6 +164,7 @@ impl LogNookEngine {
         mut adapter: Box<dyn HardwareAdapter>,
         signal_ids: &[String],
         profile_standby: bool,
+        allow_empty_signal_selection: bool,
     ) -> Result<ConnectionCapabilities, LogNookError> {
         if self.pipeline.is_recording() {
             return Err(LogNookError::new(
@@ -172,7 +182,7 @@ impl LogNookEngine {
         if let Some(mut old) = self.acquisition.take() {
             old.stop()?;
         }
-        if signal_ids.is_empty() && !profile_standby {
+        if signal_ids.is_empty() && !profile_standby && !allow_empty_signal_selection {
             return Err(LogNookError::new("Select at least one signal"));
         }
         if profile_standby && !signal_ids.is_empty() {
@@ -246,7 +256,7 @@ impl LogNookEngine {
                 }
             }
         }
-        let signals = if profile_standby {
+        let signals = if profile_standby || allow_empty_signal_selection {
             Vec::new()
         } else {
             match select_signals(&capabilities, &requested_source_ids) {
@@ -707,6 +717,41 @@ impl LogNookEngine {
             .queue_profile_identity_query(query, cancelled)
     }
 
+    pub fn queue_clear_vehicle_dtcs(
+        &self,
+        expected_adapter_id: &str,
+        expected_generation: u64,
+    ) -> Result<
+        std::sync::mpsc::Receiver<Result<Vec<crate::DiagnosticRead>, LogNookError>>,
+        LogNookError,
+    > {
+        if !self.is_obd_connected() || expected_generation != self.obd_connection_generation {
+            return Err(LogNookError::new(
+                "OBD connection changed before the DTC clear request",
+            ));
+        }
+        let capabilities = self
+            .connection_capabilities
+            .as_ref()
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?;
+        if capabilities.device.stable_id != expected_adapter_id {
+            return Err(LogNookError::new(
+                "The connected adapter changed before the DTC clear request",
+            ));
+        }
+        if !capabilities.diagnostics.clear_dtcs {
+            return Err(LogNookError::new(format!(
+                "{} does not support standard Mode 04 DTC clearing",
+                capabilities.device.hardware_family
+            )));
+        }
+        self.acquisition
+            .as_ref()
+            .filter(|acquisition| acquisition.is_running())
+            .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?
+            .queue_clear_vehicle_dtcs()
+    }
+
     /// Replace a staged profile selection through the current serialized adapter owner.
     pub fn replace_profile_signals(
         &mut self,
@@ -742,14 +787,55 @@ impl LogNookEngine {
         oem_plan: Option<OemPollPlan>,
         expected_generation: u64,
     ) -> Result<(), LogNookError> {
-        if expected_generation != self.obd_connection_generation {
-            return Err(LogNookError::new(
-                "OBD connection changed before the profile selection was applied",
-            ));
-        }
         if !self.is_obd_profile_standby() {
             return Err(LogNookError::new(
                 "Profile selections can only replace a staged standby connection",
+            ));
+        }
+        self.replace_selection_with_oem(
+            signal_ids,
+            derived_definitions,
+            active_derived_ids,
+            oem_plan,
+            expected_generation,
+        )
+    }
+
+    /// Switch an idle live OBD selection through the existing acquisition owner.
+    /// The worker ACKs only after any in-flight exchange completes.
+    pub fn replace_live_selection_with_oem(
+        &mut self,
+        signal_ids: Vec<String>,
+        derived_definitions: Vec<DerivedSignalDefinition>,
+        active_derived_ids: Vec<String>,
+        oem_plan: Option<OemPollPlan>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        if !self.is_obd_connected() {
+            return Err(LogNookError::new(
+                "A live preset switch requires an active OBD connection",
+            ));
+        }
+        self.replace_selection_with_oem(
+            signal_ids,
+            derived_definitions,
+            active_derived_ids,
+            oem_plan,
+            expected_generation,
+        )
+    }
+
+    fn replace_selection_with_oem(
+        &mut self,
+        signal_ids: Vec<String>,
+        derived_definitions: Vec<DerivedSignalDefinition>,
+        active_derived_ids: Vec<String>,
+        oem_plan: Option<OemPollPlan>,
+        expected_generation: u64,
+    ) -> Result<(), LogNookError> {
+        if expected_generation != self.obd_connection_generation {
+            return Err(LogNookError::new(
+                "OBD connection changed before the profile selection was applied",
             ));
         }
         if signal_ids.is_empty() && oem_plan.as_ref().is_none_or(|plan| plan.groups.is_empty()) {
@@ -835,36 +921,14 @@ impl LogNookEngine {
         } else {
             select_signals(capabilities, &source_ids)?
         };
-        let prior_compiled = compile_derived_signals(
-            &self.derived_signal_definitions,
-            &crate::standard_obd_signals(),
-        )?;
-        let prior_active = prior_compiled
-            .into_iter()
-            .filter(|signal| {
-                self.active_derived_signal_ids
-                    .contains(&signal.definition.id)
-            })
-            .collect();
         let next_active = compiled
             .into_iter()
             .filter(|signal| active_derived.contains(&signal.definition.id))
             .collect();
-        self.pipeline.set_derived_signals(next_active)?;
-        if let Err(error) = self
-            .acquisition
+        self.acquisition
             .as_ref()
             .ok_or_else(|| LogNookError::new("No OBD adapter is connected"))?
-            .replace_signals(signals.clone(), oem_plan)
-        {
-            let rollback = self.pipeline.set_derived_signals(prior_active);
-            return match rollback {
-                Ok(()) => Err(error),
-                Err(rollback) => Err(LogNookError::new(format!(
-                    "{error}; previous derived pipeline could not be restored: {rollback}"
-                ))),
-            };
-        }
+            .replace_signals(signals.clone(), oem_plan, next_active)?;
         self.derived_signal_definitions = derived_definitions;
         self.active_derived_signal_ids = active_derived;
         self.selected_signal_ids = signals
@@ -1285,6 +1349,7 @@ mod tests {
                 },
                 protocol: "SAE J1979 Mode 01".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: standard_obd_signals()
                     .into_iter()
                     .filter(|signal| signal.id == "engine_rpm")
@@ -1304,8 +1369,70 @@ mod tests {
         }
     }
 
+    #[test]
+    fn specialized_adapter_can_connect_idle_without_standard_signal_selection() {
+        let disconnected = Arc::new(AtomicBool::new(false));
+        let mut engine = LogNookEngine::new(|_| {});
+        let capabilities = engine
+            .connect_adapter_without_standard_signals(Box::new(EmptyAdapter {
+                disconnected: disconnected.clone(),
+            }))
+            .unwrap();
+        assert_eq!(capabilities.device.stable_id, "fixture-sx");
+        assert!(engine.is_obd_connected());
+        engine.disconnect().unwrap();
+        assert!(disconnected.load(Ordering::Acquire));
+    }
+
     struct IdentityOpenPortAdapter {
         reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    struct ClearFixtureAdapter {
+        clears: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl HardwareAdapter for ClearFixtureAdapter {
+        fn connect(&mut self) -> Result<ConnectionCapabilities, LogNookError> {
+            Ok(ConnectionCapabilities {
+                device: DeviceDescriptor {
+                    stable_id: "clear-fixture".into(),
+                    hardware_family: "OBDLink SX".into(),
+                    firmware: None,
+                    path: Some("fixture".into()),
+                },
+                protocol: "fixture".into(),
+                read_only: true,
+                diagnostics: crate::DiagnosticCapabilities {
+                    dtc_snapshot: true,
+                    identity: true,
+                    mode06: true,
+                    clear_dtcs: true,
+                },
+                supported_signals: standard_obd_signals().into_iter().take(1).collect(),
+            })
+        }
+
+        fn read_samples(
+            &mut self,
+            _signals: &[SignalDefinition],
+        ) -> Result<Vec<Sample>, LogNookError> {
+            Ok(Vec::new())
+        }
+
+        fn clear_vehicle_dtcs(&mut self) -> Result<Vec<crate::DiagnosticRead>, LogNookError> {
+            self.clears.fetch_add(1, Ordering::AcqRel);
+            let query = crate::DiagnosticQueryRequest::clear_dtcs();
+            Ok(vec![query.report(
+                Some("7E8".into()),
+                vec![0x44],
+                "7E8 01 44".into(),
+                "fixture one-shot Mode 04".into(),
+                10,
+                1,
+                false,
+            )])
+        }
     }
 
     impl HardwareAdapter for IdentityOpenPortAdapter {
@@ -1319,6 +1446,7 @@ mod tests {
                 },
                 protocol: "SAE J1979 Mode 01".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: standard_obd_signals().into_iter().take(1).collect(),
             })
         }
@@ -1359,6 +1487,7 @@ mod tests {
                 adapter: self.connect()?.device,
                 protocol: "SAE J1979 Mode 09".into(),
                 started_at_unix_ms: 10,
+                operation_kind: crate::DiagnosticReportKind::Snapshot,
                 request: DiagnosticRequest::default(),
                 reads: vec![read],
                 report_id: None,
@@ -1440,6 +1569,50 @@ mod tests {
     }
 
     #[test]
+    fn clear_is_bound_to_active_adapter_generation_and_runs_once_on_its_owner() {
+        let clears = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut engine = LogNookEngine::new(|_| {});
+        engine
+            .connect_adapter(
+                Box::new(ClearFixtureAdapter {
+                    clears: clears.clone(),
+                }),
+                &["engine_rpm".into()],
+            )
+            .unwrap();
+        let generation = engine.obd_connection_generation();
+
+        assert!(
+            engine
+                .queue_clear_vehicle_dtcs("other-adapter", generation)
+                .is_err()
+        );
+        assert!(
+            engine
+                .queue_clear_vehicle_dtcs("clear-fixture", generation + 1)
+                .is_err()
+        );
+        assert_eq!(clears.load(Ordering::Acquire), 0);
+
+        let reads = engine
+            .queue_clear_vehicle_dtcs("clear-fixture", generation)
+            .unwrap()
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].request_payload, [0x04]);
+        assert_eq!(reads[0].outcome, DiagnosticOutcome::Positive);
+        assert_eq!(clears.load(Ordering::Acquire), 1);
+
+        let request =
+            crate::ResearchTestRequest::Diagnostic(crate::DiagnosticQueryRequest::clear_dtcs());
+        assert!(engine.execute_research_test(request).is_err());
+        assert_eq!(clears.load(Ordering::Acquire), 1);
+        engine.disconnect().unwrap();
+    }
+
+    #[test]
     fn selection_uses_only_the_signals_the_connected_ecu_supports() {
         let supported = standard_obd_signals()
             .into_iter()
@@ -1454,6 +1627,7 @@ mod tests {
             },
             protocol: "fixture".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: supported,
         };
 

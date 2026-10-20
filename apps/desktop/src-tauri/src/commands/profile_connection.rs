@@ -28,6 +28,7 @@ pub(crate) fn connect_profile_adapter_shared(
             format!("openport2:{provider_id}"),
             Box::new(OpenPort2Adapter::new(super::worker_path()?, provider_id)),
         ),
+        AgentAdapterChoice::OpenPort2SubaruSsm { .. } => return Err("Subaru SSM K-Line is a measurement connection; use connect_adapter instead of vehicle-profile recognition".into()),
         AgentAdapterChoice::Candlelight { .. } => return Err("Vehicle recognition uses an OBD connection; choose a manual CAN profile for CAN-only work".into()),
         AgentAdapterChoice::CandlelightObd { .. } => return Err("Candlelight OBD currently supports generic Mode 01 logging but not VIN or vehicle profile recognition; connect with the selected signals instead".into()),
     };

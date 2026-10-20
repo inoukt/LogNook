@@ -26,7 +26,7 @@ pub use resolve::{
 };
 pub use store::{ProfileStoreError, VehicleProfileStore};
 
-pub const VEHICLE_PROFILE_SCHEMA_VERSION: u32 = 2;
+pub const VEHICLE_PROFILE_SCHEMA_VERSION: u32 = 4;
 pub const MAX_PROFILE_NAME_CHARS: usize = 120;
 pub const MAX_PROFILE_SELECTION_REFS: usize = 500;
 

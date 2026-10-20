@@ -19,7 +19,11 @@ fn connected_capabilities(state: &AppState) -> Result<ConnectionCapabilities, St
     let capabilities = engine.connection_capabilities().cloned().ok_or_else(|| {
         "Connect a supported OBD adapter before reading vehicle diagnostics".to_owned()
     })?;
-    if !supports_vehicle_diagnostics(Some(&capabilities.device.hardware_family)) {
+    if !supports_vehicle_diagnostics(Some(&capabilities.device.hardware_family))
+        || !(capabilities.diagnostics.dtc_snapshot
+            || capabilities.diagnostics.identity
+            || capabilities.diagnostics.mode06)
+    {
         return Err(format!(
             "Vehicle diagnostics are not supported by {}",
             capabilities.device.hardware_family
@@ -47,6 +51,13 @@ fn queue_query(
             capabilities.device.hardware_family
         ));
     }
+    if !capabilities.diagnostics.supports_query(&query) {
+        return Err(format!(
+            "{} does not support Mode {:02X} reads",
+            capabilities.device.hardware_family,
+            query.request_payload().first().copied().unwrap_or_default()
+        ));
+    }
     let receiver = engine
         .queue_research_test(ResearchTestRequest::Diagnostic(query))
         .map_err(|error| error.to_string())?;
@@ -65,12 +76,78 @@ fn report_for(
         adapter: capabilities.device.clone(),
         protocol: capabilities.protocol.clone(),
         started_at_unix_ms: now_unix_ms(),
+        operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
         request,
         reads: Vec::new(),
         route_restore_error: None,
         evidence_saved: false,
         evidence_save_error: None,
     }
+}
+
+pub(crate) fn execute_vehicle_dtc_clear(
+    state: &AppState,
+    expected_adapter_id: String,
+    expected_generation: u64,
+) -> Result<DiagnosticReport, String> {
+    let (capabilities, scope, recognition, receiver) = {
+        let current = engine(state)?;
+        if !current.is_obd_connected() {
+            return Err("Connect an OBD adapter before clearing DTCs".into());
+        }
+        let capabilities = current
+            .connection_capabilities()
+            .cloned()
+            .ok_or_else(|| "No OBD adapter is connected".to_owned())?;
+        if capabilities.device.stable_id != expected_adapter_id
+            || current.obd_connection_generation() != expected_generation
+        {
+            return Err("The OBD connection changed; review the adapter and confirm again".into());
+        }
+        if !capabilities.diagnostics.clear_dtcs {
+            return Err(format!(
+                "{} does not support standard Mode 04 DTC clearing",
+                capabilities.device.hardware_family
+            ));
+        }
+        let receiver = current
+            .queue_clear_vehicle_dtcs(&expected_adapter_id, expected_generation)
+            .map_err(|error| error.to_string())?;
+        (
+            capabilities.clone(),
+            super::vehicle_profiles::connection_scope(&capabilities.device.hardware_family),
+            state
+                .vehicle_profiles
+                .current_observation(expected_generation),
+            receiver,
+        )
+    };
+    let operation = state.diagnostics.begin_operation(
+        Some(expected_adapter_id.clone()),
+        "vehicle_dtc_clear",
+        Vec::new(),
+    );
+    let result = receiver
+        .recv()
+        .map_err(|_| "Acquisition worker did not complete the DTC clear operation".to_owned())
+        .and_then(|result| result.map_err(|error| error.to_string()))
+        .map(|reads| {
+            let mut report = report_for(&capabilities, DiagnosticRequest::default());
+            report.operation_kind = lognook_core::DiagnosticReportKind::ClearDtcs;
+            report.connection_generation = Some(expected_generation);
+            report.reads = reads;
+            crate::vehicle_reads::append_vehicle_report(
+                state,
+                &mut report,
+                scope,
+                expected_generation,
+                VinOrigin::EcuReport,
+                recognition.as_ref(),
+            );
+            report
+        });
+    operation.finish_result(&result);
+    result
 }
 
 fn add_transport_error(
@@ -122,6 +199,14 @@ fn collect_sync(
     let capabilities = connected_capabilities(state)?;
     let mut report = report_for(&capabilities, request);
     while let Some(query) = queries.pop_front() {
+        if !capabilities.diagnostics.supports_query(&query) {
+            report.reads.push(query.unsupported(format!(
+                "{} does not support Mode {:02X} reads; no request was sent",
+                capabilities.device.hardware_family,
+                query.request_payload().first().copied().unwrap_or_default()
+            )));
+            continue;
+        }
         let receiver = match queue_query(state, query.clone(), &report.adapter.stable_id) {
             Ok(receiver) => receiver,
             Err(error) => {
@@ -184,6 +269,7 @@ pub(crate) fn execute_vehicle_diagnostic(
             .begin_operation(adapter_id, "vehicle_diagnostics", signal_ids);
     let mut result = collect_sync(state, request);
     if let Ok(report) = &mut result {
+        report.connection_generation = Some(generation);
         crate::vehicle_reads::append_vehicle_report(
             state,
             report,
@@ -213,6 +299,20 @@ pub async fn run_vehicle_diagnostics(
     })
     .await
     .map_err(|error| format!("Vehicle diagnostic worker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn clear_vehicle_dtcs(
+    app: tauri::AppHandle,
+    expected_adapter_id: String,
+    expected_generation: u64,
+) -> Result<DiagnosticReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        execute_vehicle_dtc_clear(&state, expected_adapter_id, expected_generation)
+    })
+    .await
+    .map_err(|error| format!("Vehicle DTC clear worker failed: {error}"))?
 }
 
 fn now_unix_ms() -> u64 {

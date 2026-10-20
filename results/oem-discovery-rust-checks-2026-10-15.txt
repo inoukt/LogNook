@@ -1,0 +1,912 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.54s
+     Running unittests src\lib.rs (target\debug\deps\lognook_core-f7f3124a81f4e382.exe)
+
+running 274 tests
+test a30::tests::decoder_handles_split_magic_and_coalesced_ack_frames ... ok
+test a30::tests::decoder_rejects_checksum_corruption_and_oversized_payloads ... ok
+test a30::tests::connected_a30_rejects_invalid_candidates_before_transmitting ... ok
+test a30::tests::adapter_discovers_mode01_pages_and_emits_live_samples ... ok
+test a30::tests::a30_returns_a_matched_physical_oem_reply_without_waiting_for_timeout ... ok
+test a30::tests::connected_captured_reads_cover_mode03_mode07_and_mode0a ... ok
+test a30::tests::host_setup_frame_matches_the_captured_bytes_and_xor ... ok
+test a30::tests::a30_candidate_and_captured_read_reuse_open_session ... ok
+test a30::tests::long_record_blocks_keep_single_response_payloads_together ... ok
+test a30::tests::identify_stages_do_not_discover_pids ... ok
+test a30::tests::missing_announcement_fails_the_announcement_stage ... ok
+test a30::tests::notify_record_trims_padding_and_keeps_the_responder_id ... ok
+test a30::tests::mode01_multiple_ecu_replies_are_preserved_but_not_graphed ... ok
+test a30::tests::a30_rpm_samples_flow_through_the_shared_engine_pipeline ... ok
+test a30::tests::mode01_and_multiple_mode06_results_are_graphable ... ok
+test a30::tests::mode01_pid_read_returns_the_capture_decoded_response ... ok
+test a30::tests::record_window_block_reassembles_the_captured_mode21_response ... ok
+test a30::tests::open_runs_the_captured_status_poll_and_configuration_sequence ... ok
+test a30::tests::legacy_a30_identify_wrapper_preserves_invalid_address_error ... ok
+test a30::tests::a30_does_not_decode_a_reply_with_the_wrong_outer_sequence ... ok
+test a30::tests::one_a30_pid_failure_keeps_other_samples_and_signal_diagnostics ... ok
+test a30::tests::source_backed_mode21_candidate_runs_over_a30_and_decodes_numeric_data ... ok
+test a30::tests::source_backed_mode22_did_can_be_tried_over_a30 ... ok
+test acquisition::tests::oem_poll_pacing_targets_twenty_hz_and_backs_off_then_recovers ... ok
+test a30::tests::read_mode_test_covers_freeze_frame_mode06_raw_counts_and_vin ... ok
+test acquisition::tests::adapter_read_failure_reports_disconnected_and_clears_running_state ... ok
+test acquisition::tests::raw_command_runs_on_the_existing_serialized_acquisition_owner ... ok
+test a30::tests::a30_trace_contains_exact_frame_exchange ... ok
+test acquisition::tests::continuous_oem_poll_shares_one_request_and_publishes_each_channel ... ok
+test acquisition::tests::unsupported_adapter_rejects_oem_plan_before_transmitting ... ok
+test adapter::tests::one_signal_failure_does_not_discard_other_readings ... ok
+test adapter::tests::raw_adapter_commands_keep_terminal_text_and_format_diagnostic_bytes ... ok
+test adapter::tests::raw_adapter_terminal_rejects_line_breaks_and_empty_payload ... ok
+test adapter::tests::raw_command_paths_cannot_send_mode04_clear_requests ... ok
+test adapter::tests::session_failure_still_aborts_the_read_cycle ... ok
+test bluetooth_spp::tests::bluetooth_address_rejects_bad_length_and_non_hex_input ... ok
+test bluetooth_spp::tests::bluetooth_address_round_trips_windows_and_capture_mac_formats ... ok
+test bluetooth_spp::tests::uses_the_standard_bluetooth_serial_port_service_uuid ... ok
+test can_capture::tests::header_initialization_failure_removes_only_the_new_capture_file ... ok
+test acquisition::tests::research_request_runs_on_acquisition_owner ... ok
+test acquisition::tests::fast_oem_poll_runs_between_slow_live_sample_cycles ... ok
+test acquisition::tests::research_request_waits_for_live_poll ... ok
+test acquisition::tests::continuous_oem_request_errors_do_not_stop_standard_polling ... ok
+test can_obd::tests::discovery_keeps_listening_after_an_empty_poll_and_rejects_multiple_ecus ... ok
+test acquisition::tests::oem_polling_uses_the_capture_speed_instead_of_a_fixed_one_second_delay ... ok
+test acquisition::tests::research_request_error_returns_without_overlapping_poll ... ok
+test acquisition::tests::transient_read_timeout_retries_and_keeps_the_session_connected ... ok
+test acquisition::tests::research_request_progresses_when_live_poll_exceeds_interval ... ok
+test a30::tests::connected_mode01_reads_return_on_the_identified_ecu_reply ... ok
+test acquisition::tests::three_consecutive_transient_read_timeouts_end_the_session ... ok
+test a30::tests::a30_explicit_mode04_uses_one_captured_record_and_keeps_research_read_only ... ok
+test can_obd::tests::diagnostics_preserve_negative_and_malformed_response_outcomes ... ok
+test can_obd::tests::diagnostics_read_modes_03_07_and_0a_from_the_discovered_ecu_with_raw_route ... ok
+test can_obd::tests::discovery_follows_advertised_continuation_and_targets_the_unique_ecu ... ok
+test can_obd::tests::discovery_ignores_tx_echoes_extended_frames_flags_and_unrelated_ids ... ok
+test can_obd::tests::discovery_stops_at_page_e0_even_if_its_continuation_bit_is_set ... ok
+test can_obd::tests::dtc_clear_is_one_mode04_transmission_even_when_ecu_reports_pending_first ... ok
+test can_obd::tests::incomplete_iso_tp_diagnostic_response_is_preserved_as_malformed ... ok
+test can_obd::tests::invalid_oem_candidate_is_rejected_before_can_transmission ... ok
+test can_workbench::tests::candlelight_error_adaptation_preserves_the_exact_usb_packet ... ok
+test can_workbench::tests::transport_error_classification_stops_bus_off_and_removal_but_skips_unsupported_frames ... ok
+test can_workbench::worker::tests::failed_capture_session_does_not_finalize_as_successful ... ok
+test can_workbench::worker::tests::journal_refuses_to_claim_success_after_a_prior_write_failure ... ok
+test can_workbench::worker::tests::replay_counts_a_successful_transport_submission_when_tx_evidence_fails ... ok
+test can_workbench::worker::tests::saved_replay_source_evidence_failure_prevents_any_tx ... ok
+test can_workbench::worker::tests::stop_scan_propagates_a_failed_journal_write ... ok
+test can_workbench::worker::tests::successful_capture_finish_appends_a_clean_close_record ... ok
+test can_workbench::worker::tests::terminal_worker_drops_queued_capture_command_without_acknowledging_success ... ok
+test candlelight::channel_ownership_tests::one_owner_per_interface_channel_and_drop_releases_the_claim ... ok
+test communication_trace::tests::trace_cursor_returns_ordered_events ... ok
+test can_obd::tests::live_read_waits_for_response_pending_then_returns_the_final_measurement ... ok
+test communication_trace::tests::trace_ring_reports_eviction ... ok
+test communication_trace::tests::trace_export_round_trips_raw_bytes ... ok
+test communication_trace::tests::trace_slow_subscriber_reports_gap_without_blocking ... ok
+test communication_trace::tests::trace_write_error_is_marked_as_capture_finalization_failure ... ok
+test derived::tests::expression_errors_cover_unknown_inputs_divide_by_zero_and_non_finite_results ... ok
+test derived::tests::expression_evaluation_uses_arithmetic_precedence_and_parentheses ... ok
+test diagnostics::tests::diagnostic_error_redacts_adapter_traffic_and_untrusted_identity ... ok
+test diagnostics::tests::diagnostic_error_redacts_elm_request_and_preserves_safe_error_context ... ok
+test diagnostics::tests::unexpected_openport_response_detail_redacts_the_debug_payload ... ok
+test diagnostics::tests::wrapped_transient_error_redacts_embedded_request_and_parser_detail ... ok
+test elm327::tests::a_wrong_positive_pid_echo_is_rejected ... ok
+test elm327::tests::diagnostics_follow_connect_and_selected_read_stages ... ok
+test elm327::tests::elm_candidate_reuses_paired_stream ... ok
+test elm327::tests::elm_explicit_mode04_sends_once_and_research_reads_cannot_clear ... ok
+test communication_trace::tests::trace_storage_error_is_reported ... ok
+test elm327::tests::elm_trace_contains_prompt_exchange ... ok
+test elm327::tests::identifies_elm327_and_discovers_supported_pid_continuations ... ok
+test elm327::tests::identify_progress_does_not_send_vehicle_queries ... ok
+test elm327::tests::legacy_identify_wrapper_preserves_invalid_address_error ... ok
+test elm327::tests::negative_or_wrong_pid_reply_does_not_emit_a_sample ... ok
+test elm327::tests::one_negative_response_keeps_other_pid_samples_in_the_poll ... ok
+test elm327::tests::raw_terminal_and_diagnostic_commands_share_the_elm_exchange ... ok
+test elm327::tests::selected_mode01_pid_emits_timestamped_sample_through_the_adapter ... ok
+test elm327::tests::source_backed_service21_candidate_can_be_tried_over_elm_bluetooth ... ok
+test elm327::tests::source_backed_service22_did_can_be_tried_over_elm_bluetooth ... ok
+test elm327::tests::the_text_protocol_cannot_send_clear_write_or_arbitrary_requests ... ok
+test engine::tests::clear_is_bound_to_active_adapter_generation_and_runs_once_on_its_owner ... ok
+test engine::tests::generic_adapter_connection_starts_the_shared_pipeline_and_disconnects_it ... ok
+test engine::tests::openport_profile_standby_runs_identity_reads_through_the_serialized_owner ... ok
+test engine::tests::research_measurements_enter_the_shared_sample_event_pipeline ... ok
+test engine::tests::research_test_requires_an_active_acquisition_adapter ... ok
+test engine::tests::selection_uses_only_the_signals_the_connected_ecu_supports ... ok
+test engine::tests::suspect_research_values_remain_graphable_without_validation_promotion ... ok
+test engine::tests::timestamped_publication_preserves_receive_time_and_monotonic_markers ... ok
+test engine::tests::timestamped_publication_rejects_non_live_non_finite_and_negative_time ... ok
+test graph_window::tests::recording_sample_query_filters_time_and_signal_and_caps_rows ... ok
+test obdlink_sx::oem_probe::tests::a30_graph_value_reads_legacy_json_without_a_response_payload ... ok
+test obdlink_sx::oem_probe::tests::connected_candidate_propagates_serial_transport_failure ... ok
+test obdlink_sx::oem_probe::tests::ecu_no_response_text_remains_a_typed_candidate_outcome ... ok
+test obdlink_sx::oem_probe::tests::sx_candidate_reuses_connected_session ... ok
+test obdlink_sx::oem_probe::tests::sx_mode02_freeze_frame_rpm_uses_the_functional_route_and_shared_graph_value ... ok
+test obdlink_sx::oem_probe::tests::sx_mode02_uses_a_final_reply_after_pending_and_keeps_pending_only_typed ... ok
+test obdlink_sx::oem_probe::tests::sx_mode06_monitor_requires_the_requested_tid_and_graphs_raw_counts ... ok
+test obdlink_sx::oem_probe::tests::sx_one_shot_sends_one_catalog_command_and_restores_adapter_settings ... ok
+test obdlink_sx::oem_probe::tests::sx_quick_test_keeps_a_valid_reply_when_no_data_text_follows ... ok
+test obdlink_sx::oem_probe::tests::sx_quick_test_preserves_negative_responses_and_multiple_ecus_without_graphing ... ok
+test obdlink_sx::oem_probe::tests::sx_quick_test_records_no_data_and_propagates_fatal_serial_errors ... ok
+test obdlink_sx::oem_probe::tests::sx_quick_test_rejects_wrong_echo_and_truncated_isotp ... ok
+test obdlink_sx::oem_probe::tests::sx_quick_test_reports_decoded_vin_dtcs_and_bitmap_details ... ok
+test obdlink_sx::oem_probe::tests::sx_quick_tests_send_the_15_functional_standard_requests ... ok
+test obdlink_sx::serial::communication_trace_tests::sx_oversized_response_trace_marks_prefix_as_truncated ... ok
+test can_obd::tests::live_reads_use_standard_decoder_and_preserve_ecu_and_raw_can_bytes ... ok
+test obdlink_sx::serial::communication_trace_tests::sx_trace_contains_exact_serial_exchange ... ok
+test obdlink_sx::serial::tests::command_echo_is_not_mistaken_for_a_partial_vehicle_response ... ok
+test obdlink_sx::tests::all_35_seeded_signals_pack_into_seven_two_frame_response_groups ... ok
+test obdlink_sx::tests::can_connection_uses_stpx_stuffing_and_restores_volatile_adapter_settings ... ok
+test obdlink_sx::tests::connects_to_idle_sx_without_unsolicited_startup_banner ... ok
+test obdlink_sx::tests::empty_startup_prompt_is_tolerated_before_firmware_reply ... ok
+test obdlink_sx::tests::grouped_read_failure_reports_all_requested_signals ... ok
+test obdlink_sx::tests::grouped_read_keeps_valid_samples_when_one_pid_is_rejected ... ok
+test obdlink_sx::tests::identity_only_physical_fixture_sends_no_vehicle_query ... ok
+test obdlink_sx::tests::incomplete_initial_reply_stops_without_a_reset_or_vehicle_query ... ok
+test obdlink_sx::tests::legacy_sx_identify_wrapper_preserves_missing_port_error ... ok
+test obdlink_sx::tests::only_the_exact_sx_vid_pid_pair_is_enumerated ... ok
+test obdlink_sx::tests::prompt_reader_rejects_a_buffer_larger_than_its_limit ... ok
+test obdlink_sx::tests::raw_terminal_and_diagnostic_commands_use_the_serial_command_owner ... ok
+test obdlink_sx::tests::read_samples_sends_only_selected_supported_pid_and_keeps_raw_response ... ok
+test obdlink_sx::tests::read_samples_stuffs_five_supported_pids_into_one_complete_can_response ... ok
+test obdlink_sx::tests::scion_one_shot_command_and_response_are_source_scoped ... ok
+test obdlink_sx::tests::scion_one_shot_refuses_any_changed_service_address_or_decoder ... ok
+test obdlink_sx::tests::scion_one_shot_reports_negative_truncated_and_wrong_ecu_responses ... ok
+test obdlink_sx::tests::scion_probe_accepts_the_captured_28_byte_mode21_response ... ok
+test obdlink_sx::tests::scion_probe_uses_one_exact_request_after_sx_identity_and_can_check ... ok
+test obdlink_sx::tests::selected_com_port_must_still_match_the_sx_usb_identity ... ok
+test obdlink_sx::tests::silent_initial_reply_sends_only_read_only_firmware_query ... ok
+test obdlink_sx::tests::startup_banner_is_optional_and_reply_prompts_sequence_queries ... ok
+test obdlink_sx::tests::sx_explicit_mode04_sends_one_fixed_request_and_research_reads_reject_it ... ok
+test obdlink_sx::tests::unexpected_initial_firmware_stops_before_other_queries ... ok
+test obdlink_sx::tests::unsupported_pid_is_rejected_before_any_vehicle_request ... ok
+test obdlink_sx::tests::usb_only_identity_probe_sends_no_vehicle_request ... ok
+test obdlink_sx::tests::wrong_device_identity_stops_before_serial_or_vehicle_queries ... ok
+test obdlink_sx_protocol::tests::advertised_signal_decoders_match_seed_formulas_and_raw_codes ... ok
+test obdlink_sx_protocol::tests::binary_mode01_payload_keeps_ecu_raw_bytes_and_decodes_rpm ... ok
+test obdlink_sx_protocol::tests::binary_mode01_payload_rejects_wrong_service_pid_and_truncated_data ... ok
+test obdlink_sx_protocol::tests::binary_supported_pid_bitmap_decodes_reported_pid_and_continuation ... ok
+test obdlink_sx_protocol::tests::every_later_mode01_supported_bitmap_range_uses_four_data_bytes ... ok
+test obdlink_sx_protocol::tests::headered_pid_60_bitmap_from_scion_is_parsed_after_can_discovery ... ok
+test obdlink_sx_protocol::tests::malformed_or_missing_payload_is_rejected ... ok
+test obdlink_sx_protocol::tests::multiple_ecu_responses_on_one_line_remain_separate ... ok
+test obdlink_sx_protocol::tests::multiple_ecu_responses_remain_separate ... ok
+test obdlink_sx_protocol::tests::negative_mode01_responses_report_the_echoed_service_and_nrc ... ok
+test obdlink_sx_protocol::tests::rpm_response_keeps_ecu_and_raw_bytes_and_decodes_to_1726_rpm ... ok
+test obdlink_sx_protocol::tests::signal_catalog_contains_all_35_advertised_seed_candidates ... ok
+test obdlink_sx_protocol::tests::standard_pid_values_use_the_existing_signal_formulas ... ok
+test obdlink_sx_protocol::tests::stuffed_iso_tp_response_decodes_each_requested_pid ... ok
+test obdlink_sx_protocol::tests::supported_bitmap_selects_only_the_reported_generic_pids ... ok
+test obdlink_sx_protocol::tests::supported_pid_continuation_bitmap_maps_the_next_range ... ok
+test obdlink_sx_protocol::tests::supported_pid_discovery_rejects_multiple_ecu_bitmaps ... ok
+test obdlink_sx_protocol::tests::truncated_isotp_response_does_not_accept_the_first_pid_as_complete ... ok
+test obdlink_sx_protocol::tests::unknown_trailing_pid_does_not_discard_the_requested_response ... ok
+test can_obd::tests::mode06_bitmap_is_read_only_and_decoded_over_the_same_transport ... ok
+test can_obd::tests::mode09_vin_uses_iso_tp_flow_control_and_keeps_each_raw_frame ... ok
+test oem_catalog::tests::catalog_search_is_read_only_filtered_and_paged ... ok
+test can_obd::tests::discovery_rejects_timeout_and_malformed_support_response ... ok
+test oem_catalog::tests::discovery_lookup_keeps_candidate_provenance_visible_when_try_validation_fails ... ok
+test can_obd::tests::oem_negative_reply_is_preserved_without_retry ... ok
+test can_obd::tests::source_mode22_multiframe_reply_uses_the_source_flow_control_route ... ok
+test oem_catalog::tests::continuous_oem_plan_requires_enabled_candidate_and_physical_validation_for_vehicle ... ok
+test oem_catalog::tests::prioritized_catalog_search_applies_value_order_across_pages ... ok
+test oem_catalog::tests::scion_probe_definition_requires_exact_source_route_and_channels ... ok
+test openport2::tests::adapter_discovers_supported_pids_and_emits_timestamped_rpm_samples ... ok
+test can_obd::tests::failed_discovery_releases_transport_and_a_new_adapter_can_reconnect ... ok
+test openport2::tests::adapter_rejects_unsupported_signal_ids_before_worker_read ... ok
+test openport2::tests::adapter_progress_keeps_connect_and_acquisition_context_without_payloads ... ok
+test openport2::tests::discovery_and_identify_helpers_use_progress_aware_session ... ok
+test openport2::tests::discovery_rejects_multiple_ecu_responders_without_merging_capabilities ... ok
+test openport2::tests::discovery_result_observations_are_bounded_without_changing_returned_inventory ... ok
+test openport2::tests::discovery_result_observations_preserve_ids_and_safe_reasons_without_paths ... ok
+test openport2::tests::identity_uses_provider_id_and_returns_j2534_identity ... ok
+test openport2::tests::malformed_j2534_peer_keeps_full_frame_between_positive_vin_responders ... ok
+test openport2::tests::negative_and_malformed_mode09_outcomes_keep_their_typed_results ... ok
+test openport2::tests::one_bad_pid_keeps_good_openport_samples_in_the_same_poll ... ok
+test openport2::tests::openport_clear_is_one_separate_typed_mode04_operation ... ok
+test openport2::tests::openport_clear_negative_nrc_is_not_success_and_is_not_retried ... ok
+test openport2::tests::openport_dtc_read_keeps_malformed_frame_and_partial_worker_failure ... ok
+test openport2::tests::discovery_follows_only_supported_pid_pages_and_rejects_a_missing_continuation ... ok
+test openport2::tests::openport_identity_read_keeps_responder_route_raw_bytes_and_latency ... ok
+test oem_catalog::tests::try_candidate_accepts_source_backed_two_byte_service_22_did ... ok
+test openport2::tests::openport_rejects_clear_and_mode06_diagnostic_queries_before_worker_io ... ok
+test openport2::tests::openport_rejects_unprovenanced_candidates_and_keeps_continuous_oem_unsupported ... ok
+test openport2::tests::openport_samples_flow_through_the_shared_engine_pipeline ... ok
+test openport2::tests::openport_oem_failure_is_a_single_no_response_outcome ... ok
+test openport2::tests::openport_oem_pending_then_positive_preserves_both_raw_frames ... ok
+test openport2::tests::openport_oem_candidate_reads_use_exact_source_route_and_shared_decoder_once ... ok
+test openport2::tests::openport_standard_dtc_reads_preserve_multiple_ecus_and_use_typed_services ... ok
+test openport2::tests::provider_listing_uses_only_typed_worker_provider_response ... ok
+test openport2::tests::read_rejects_ecu_mismatch_and_never_emits_a_sample ... ok
+test openport2::tests::research_diagnostic_read_rejects_mode04_before_worker_io ... ok
+test openport2::tests::read_rejects_multiple_ecu_responses_and_malformed_payloads ... ok
+test openport2::tests::stale_or_wrong_mode_response_is_malformed_and_keeps_its_raw_bytes_separate ... ok
+test openport2::tests::timed_out_worker_request_returns_error_and_shutdown_cleans_up_session ... ok
+test openport2::tests::unavailable_identity_pid_does_not_hide_later_identity_read ... ok
+test openport2::tests::worker_errors_report_the_openport_operation_stage ... ok
+test openport2::worker_client::tests::mode09_trace_route_records_the_functional_standard_header ... ok
+test oem_catalog::tests::try_candidate_loads_the_exact_row_and_checks_its_source_revision ... ok
+test openport2::worker_client::tests::output_reader_discards_oversized_lines_and_keeps_next_message ... ok
+test openport2::tests::selected_openport_reads_emit_real_completion_timing_without_extra_requests ... ok
+test oem_catalog::tests::packaged_catalog_contains_the_scoped_scion_xb_mode21_candidates ... ok
+test openport2::worker_client::tests::standard_dtc_worker_trace_is_typed_and_names_the_service ... ok
+test openport2::worker_client::tests::worker_timeout_kills_the_stuck_child_process ... ok
+test openport2::worker_client::tests::worker_timeout_names_the_openport_request_stage ... ok
+test pipeline_worker::tests::automatic_trigger_uses_refreshed_context_at_fire_and_excludes_same_time_prehistory ... ok
+test openport2::worker_client::tests::openport_trace_records_worker_and_frame_outcomes ... ok
+test pipeline_worker::tests::disconnect_disarms_trigger_and_drops_samples_from_the_previous_connection ... ok
+test pipeline_worker::tests::invalid_sample_stops_recording_and_keeps_partial_session_readable ... ok
+test pipeline_worker::tests::normal_recording_freezes_current_context_at_nonzero_sample_time ... ok
+test openport2::worker_client::tests::oversized_progress_stops_worker ... ok
+test pipeline_worker::tests::record_from_connect_excludes_equal_time_backfill_by_stored_row_index ... ok
+test openport2::worker_client::tests::openport_trace_does_not_claim_request_sent_after_pipe_write_failure ... ok
+test pipeline_worker::tests::retained_sample_batch_rolls_back_rows_and_summary_on_error ... ok
+test oem_catalog::tests::try_candidate_rejects_invalid_service_identifier_route_and_provenance ... ok
+test pipeline_worker::trigger::tests::leaving_hysteresis_band_resets_the_hold_candidate ... ok
+test pipeline_worker::trigger::tests::threshold_hold_uses_sample_time_and_hysteresis_keeps_candidate_alive ... ok
+test pipeline_worker::tests::stale_generation_cannot_replace_cleared_pipeline_context ... ok
+test pipeline_worker::tests::retrospective_history_survives_trigger_disarm_and_one_source_disconnect_only ... ok
+test pipeline_worker::tests::retrospective_recording_backfills_once_then_records_live_samples ... ok
+test recording::tests::recording_context_round_trips_without_changing_raw_sample_bytes ... ok
+test research::tests::research_result_round_trips_with_tagged_variant ... ok
+test research::tests::unsupported_adapter_does_not_transmit ... ok
+test simulator::oem::tests::simulated_source_candidate_has_zero_value_and_an_explicit_simulation_label ... ok
+test recording_view::tests::finalized_recording_inspection_uses_cached_sample_summary ... ok
+test simulator::tests::simulator_returns_a_labeled_local_mode04_acknowledgement ... ok
+test vehicle_diagnostics::model::tests::clear_query_is_fixed_separate_from_read_only_snapshot_queries ... ok
+test vehicle_diagnostics::model::tests::legacy_connection_capabilities_default_diagnostics_to_unsupported ... ok
+test vehicle_diagnostics::model::tests::profile_identity_capability_includes_openport_without_full_diagnostics ... ok
+test simulator::tests::simulator_returns_samples_for_new_generic_signals ... ok
+test vehicle_diagnostics::tests::bitmap_followup_occurs_only_when_the_ecu_advertises_continuation ... ok
+test vehicle_diagnostics::tests::decodes_counted_dtcs_for_all_modes_and_rejects_truncated_counts ... ok
+test vehicle_diagnostics::model::tests::report_capture_metadata_round_trips_while_legacy_metadata_defaults ... ok
+test vehicle_diagnostics::tests::diagnostic_query_validation_blocks_mismatched_service_payloads ... ok
+test vehicle_diagnostics::tests::ecu_name_padding_does_not_allow_other_controls_or_change_vin_calibration_rules ... ok
+test vehicle_diagnostics::tests::diagnostic_response_keeps_each_ecu_and_decodes_dtc_identity_and_bitmap ... ok
+test vehicle_diagnostics::tests::ford_ecu_name_decodes_padded_acronym_without_changing_raw_evidence ... ok
+test vehicle_diagnostics::tests::interleaved_iso_tp_replies_are_parsed_per_ecu_and_keep_a_malformed_peer ... ok
+test vehicle_diagnostics::tests::mode04_acknowledgement_and_negative_response_are_typed_and_exact ... ok
+test recording::tests::missing_or_unknown_optional_context_does_not_block_legacy_playback ... ok
+test vehicle_diagnostics::tests::mode09_checks_record_counts_and_trims_only_trailing_nul_padding ... ok
+test vehicle_diagnostics::tests::mode06_reports_raw_uasid_limits_and_distinct_malformed_and_negative_results ... ok
+test vehicle_diagnostics::tests::request_deduplicates_ids_and_rejects_bitmap_pages_and_oversized_lists ... ok
+test vehicle_diagnostics::tests::standard_dtc_pair_payloads_decode_without_a_nonstandard_count_byte ... ok
+test vehicle_diagnostics::tests::unexpected_can_response_id_is_preserved_as_wrong_responder ... ok
+test vehicle_profiles::history::tests::old_report_detail_payload_defaults_new_history_metadata ... ok
+test vehicle_profiles::merge_tests::partial_ecu_refresh_preserves_missing_calibration_and_disappeared_modules ... ok
+test vehicle_profiles::vin_decode::tests::unknown_scope_foreign_passenger_car_keeps_year_ambiguous ... ok
+test recording_view::tests::legacy_recording_is_summarized_and_indexed_once ... ok
+test openport2::worker_client::tests::ordered_progress_returns_only_terminal_success_or_typed_error ... ok
+test can_obd::tests::source_oem_reads_use_exact_routes_and_do_not_change_the_mode01_ecu ... ok
+test can_obd::tests::normal_engine_acquisition_records_and_exports_can_obd_samples ... ok
+test openport2::worker_client::tests::progress_does_not_extend_deadline_and_timeout_stops_worker ... ok
+test elm327::tests::elm_timeout_trace_keeps_partial_response_bytes ... ok
+test obdlink_sx::serial::communication_trace_tests::sx_timeout_trace_keeps_partial_response_bytes ... ok
+test pipeline_worker::tests::retrospective_recording_reports_evicted_history_and_supports_empty_buffer ... ok
+test can_obd::tests::live_reads_ignore_unrelated_frames_and_return_no_sample_for_timeout_or_bad_reply ... ok
+
+test result: ok. 274 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.41s
+
+     Running tests\acquisition.rs (target\debug\deps\acquisition-2aa88706dae1ae05.exe)
+
+running 1 test
+test simulator_emits_monotonic_samples_for_selected_obd_signals ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\automatic_trigger.rs (target\debug\deps\automatic_trigger-5a074d0cfc37c0f3.exe)
+
+running 3 tests
+test automatic_trigger_requires_an_acquired_live_signal ... ok
+test failed_adapter_finalizes_its_partial_recording_before_reconnecting ... ok
+test automatic_trigger_records_original_pretrigger_samples_and_a_marker ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests\can_analysis.rs (target\debug\deps\can_analysis-8b826fbf40ef68d4.exe)
+
+running 22 tests
+test every_frame_at_the_trigger_post_boundary_is_retained ... ok
+test correlation_uses_explicit_field_and_actual_sample_timestamps ... ok
+test capture_comparison_reports_id_and_per_byte_value_count_differences ... ok
+test diagnostic_rows_are_bounded_even_when_pending_repeats ... ok
+test new_request_cannot_complete_a_previous_partial_reply ... ok
+test census_keeps_rates_periods_and_tentative_byte_statistics ... ok
+test event_candidates_count_unchanged_observed_trials_in_their_denominator ... ok
+test segmented_reply_keeps_payload_and_rejects_wrong_sequence ... ok
+test dbc_skeleton_marks_all_placeholder_signal_layouts_unverified ... ok
+test memory_is_bounded_and_invalid_frames_do_not_enter_census ... ok
+test dbc_zero_dlc_message_omits_payload_signal_and_explains_the_unverified_layout ... ok
+test event_ranking_prefers_recurrence_over_a_higher_raw_change_count ... ok
+test explicit_routes_pair_positive_pending_and_negative_replies ... ok
+test repeated_manual_event_marks_rank_the_message_that_changes_at_each_mark ... ok
+test segmented_request_latency_starts_at_first_observed_frame ... ok
+test short_isotp_first_frame_cannot_become_a_positive_reply ... ok
+test short_nonfinal_isotp_consecutive_frame_is_malformed ... ok
+test sum_checksum_stays_hypothesis_and_out_of_order_frames_are_rejected ... ok
+test timed_out_partial_reply_retains_bytes_and_is_not_silence ... ok
+test trigger_completes_at_post_boundary_without_needing_an_extra_frame ... ok
+test trigger_includes_exact_window_and_reports_capacity_truncation ... ok
+test wrong_echo_and_timeout_remain_distinct ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\can_capture.rs (target\debug\deps\can_capture-333f942feef1957a.exe)
+
+running 13 tests
+test capture_surfaces_final_flush_failure ... ok
+test capture_surfaces_storage_write_failure ... ok
+test broken_quote_and_non_utf8_row_cannot_swallow_next_frame ... ok
+test embedded_carriage_return_in_header_cannot_hide_extra_content ... ok
+test embedded_carriage_return_in_frame_is_an_error_and_recovery_continues ... ok
+test rejects_invalid_header_and_frame_before_writing ... ok
+test csv_round_trip_preserves_raw_frames_and_order ... ok
+test terminal_crlf_remains_valid_for_headers_and_frames ... ok
+test malformed_rows_report_line_and_allow_later_valid_rows ... ok
+test replay_uses_analyzer_and_decoder_and_surfaces_row_errors ... ok
+test oversized_header_is_rejected_by_the_line_bound ... ok
+test oversized_rows_are_discarded_and_later_valid_frames_survive ... ok
+test create_new_preserves_existing_capture ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\can_signals.rs (target\debug\deps\can_signals-c9e0fc6d19b4e0c7.exe)
+
+running 10 tests
+test classic_can_dlc_matches_payload ... ok
+test intel_extracts_unaligned_lsb_first_fields ... ok
+test unsigned_scaling_and_full_width_fields ... ok
+test non_finite_scaling_or_results_are_rejected ... ok
+test samples_preserve_source_signal_frame_bytes_and_receive_timestamps ... ok
+test short_frames_and_invalid_definitions_are_rejected ... ok
+test unrelated_id_format_or_transmitted_frame_is_not_a_received_signal ... ok
+test motorola_extracts_sawtooth_cross_byte_fields ... ok
+test classic_can_id_and_payload_bounds ... ok
+test signed_scaling_sign_extends_before_scaling ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\can_workbench.rs (target\debug\deps\can_workbench-40175db76c217fe1.exe)
+
+running 43 tests
+test can_id_replay_rejects_invalid_or_unbounded_source_sequences_before_transmit ... ok
+test active_send_and_scan_are_rejected_without_a_capture_journal ... ok
+test can_id_replay_clamps_submillisecond_source_gaps_to_one_millisecond ... ok
+test can_id_replay_failure_cancels_the_rest_and_records_the_reason ... ok
+test deserialized_scan_config_cannot_claim_catalog_provenance ... ok
+test communication_trace_and_can_capture_share_the_workbench_owner_frames ... ok
+test a_single_worker_owns_io_and_decoded_rx_samples_enter_the_recording_pipeline ... ok
+test agent_access_revocation_reason_is_kept_in_scan_evidence ... ok
+test disarming_a_marked_trigger_emits_an_incomplete_window_and_early_end_evidence ... ok
+test capture_stop_and_disconnect_publish_terminal_replay_status ... ok
+test a_frame_burst_is_written_in_order_without_dropping_capture_rows ... ok
+test can_id_replay_stop_cancels_remaining_frames_and_records_terminal_status ... ok
+test disarming_before_a_trigger_mark_cancels_without_a_window_or_terminal_record ... ok
+test failed_csv_creation_rolls_back_the_new_sidecar ... ok
+test can_id_replay_ids_are_unique_across_worker_reconnects ... ok
+test can_id_replay_uses_recorded_intervals_and_audits_the_original_source_frames ... ok
+test fatal_bus_off_transmit_stops_the_remaining_scan_range ... ok
+test delayed_echo_from_closed_capture_is_not_written_into_the_next_capture ... ok
+test malformed_known_width_mode01_reply_is_not_reported_as_positive ... ok
+test known_width_mode01_without_decoder_accepts_a_valid_raw_reply ... ok
+test catalog_backed_can_mode21_and_mode22_reads_decode_and_record_samples ... ok
+test mode01_support_scan_reports_only_pids_from_the_explicit_response ... ok
+test mode21_scan_keeps_exact_tx_rx_frames_and_typed_positive_result ... ok
+test pending_scan_gets_a_typed_terminal_result_on_device_removal ... ok
+test manual_trigger_is_marked_on_the_owner_and_returns_a_bounded_window ... ok
+test multi_frame_mode22_reply_gets_serialized_flow_control_and_keeps_raw_frames ... ok
+test natural_scan_completion_has_its_own_event_and_journal_record ... ok
+test can_id_replay_requires_active_capture_and_exclusive_worker_access ... ok
+test saved_replay_from_an_old_connection_generation_cannot_enter_reconnected_worker ... ok
+test stopping_capture_after_a_trigger_mark_finalizes_it_as_capture_stopped ... ok
+test temporary_capture_paths_are_unique_when_created_concurrently ... ok
+test live_event_results_use_worker_frames_and_clear_without_removing_capture_evidence ... ok
+test submitted_tx_is_unconfirmed_until_echo_and_transport_raw_bytes_are_evidence ... ok
+test worker_shutdown_after_a_trigger_mark_emits_and_journals_a_partial_window ... ok
+test selected_mode01_pid_sample_uses_the_response_timestamp_and_recording_pipeline ... ok
+test rx_then_fast_next_scan_tx_stays_ordered_across_slow_transport_startup ... ok
+test unknown_width_mode01_positive_reply_stays_positive_raw_evidence ... ok
+test unsupported_receive_error_keeps_pending_scan_capture_and_session_alive ... ok
+test scan_uses_the_configured_id_range_and_stop_cancels_before_the_next_send ... ok
+test stopping_capture_cancels_repeated_manual_transmissions ... ok
+test stopping_capture_cancels_pending_scan_transmissions ... ok
+test excessive_scan_response_storage_is_bounded_while_raw_frames_are_kept ... ok
+test saved_replay_exceeds_live_limit_and_flushes_provenance_chunks_before_tx ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.70s
+
+     Running tests\candlelight_protocol.rs (target\debug\deps\candlelight_protocol-3fd7c5fe6bcf4334.exe)
+
+running 15 tests
+test bulk_packet_size_can_be_smaller_than_the_can_frame ... ok
+test endpoints_come_from_interface_descriptors_not_firmware_defaults ... ok
+test bitrate_uses_advertised_clock_and_bounds_and_encodes_little_endian ... ok
+test malformed_usb_packets_keep_raw_evidence_and_typed_diagnostics ... ok
+test bus_off_retains_raw_usb_evidence_and_is_distinct_from_timeout_and_removal ... ok
+test receives_standard_and_extended_identifiers_and_preserves_overflow ... ok
+test malformed_frames_and_unsupported_fd_or_remote_frames_fail_explicitly ... ok
+test transmit_echo_is_not_an_rx_measurement_and_header_only_echo_is_valid ... ok
+test passive_mode_requires_advertised_listen_only_and_never_falls_back ... ok
+test tx_echo_accepts_partial_unused_payload_between_header_and_dlc ... ok
+test transmit_header_is_little_endian_with_assigned_echo_and_extended_flag ... ok
+test tx_echo_ignores_unused_can_fields_instead_of_reporting_rx_bus_off ... ok
+test tx_echo_preserves_overflow_without_validating_unused_can_fields ... ok
+test usb_ids_are_detection_hints_and_identity_requires_valid_control_replies ... ok
+test vendor_interface_controls_keep_channel_in_value_and_interface_in_index ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\csv_import.rs (target\debug\deps\csv_import-01d62a017148186d.exe)
+
+running 10 tests
+test empty_csv_is_rejected ... ok
+test unknown_event_type_reports_row ... ok
+test imports_sample_only_csv_without_event_type ... ok
+test failed_import_removes_temp_and_preserves_target ... ok
+test inspect_recording_reports_duration_and_signals ... ok
+test inline_markers_take_precedence_over_sidecar ... ok
+test imports_legacy_marker_sidecar_once ... ok
+test imports_forscan_semicolon_wide_csv_as_numeric_samples ... ok
+test mixed_event_csv_round_trip_preserves_raw_samples_and_markers ... ok
+test malformed_mixed_rows_and_negative_times_report_the_csv_row ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests\csv_roundtrip.rs (target\debug\deps\csv_roundtrip-ec51d28bda531ccc.exe)
+
+running 2 tests
+test imports_legacy_sample_csv_without_event_type_column ... ok
+test long_csv_round_trip_preserves_async_values_and_escapes_fields ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\derived_signals.rs (target\debug\deps\derived_signals-adb6460644cd7255.exe)
+
+running 4 tests
+test definitions_reject_unknown_inputs_and_non_finite_tare_offsets ... ok
+test connection_rejects_a_derived_formula_when_an_input_is_not_acquired ... ok
+test runtime_division_by_zero_emits_an_error_and_no_derived_sample ... ok
+test engine_acquires_formula_inputs_and_records_derived_rows_without_changing_sources ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests\diagnostics.rs (target\debug\deps\diagnostics-7b4b3c5fa3af291d.exe)
+
+running 5 tests
+test diagnostic_progress_round_trips_without_payload_fields ... ok
+test engine_installs_diagnostic_sink_before_adapter_connect ... ok
+test default_adapter_diagnostic_sink_is_noop ... ok
+test acquisition_redacts_openport_parser_payload_without_changing_engine_error ... ok
+test acquisition_emits_poll_start_and_finish_without_changing_samples ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\dual_adapters.rs (target\debug\deps\dual_adapters-e4e0bace5f86d526.exe)
+
+running 5 tests
+test terminal_failure_of_last_source_finalizes_recording ... ok
+test terminal_source_failures_leave_the_peer_and_recording_running ... ok
+test terminal_can_failure_keeps_obd_acquisition_and_recording_running ... ok
+test disconnecting_one_source_keeps_the_other_recording ... ok
+test obd_and_can_share_a_recording_timeline_in_either_connection_order ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+     Running tests\graph_window.rs (target\debug\deps\graph_window-8fe72862f33a75b0.exe)
+
+running 4 tests
+test query_values_at_returns_latest_selected_samples_before_playhead ... ok
+test query_window_keeps_extrema_and_caps_output ... ok
+test query_averages_returns_per_signal_mean_for_visible_time_window ... ok
+test query_window_clamps_bounds_and_caps_output ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests\live_can_events.rs (target\debug\deps\live_can_events-8e36bf0d949f10bc.exe)
+
+running 13 tests
+test completed_window_with_no_frames_is_empty ... ok
+test clearing_results_keeps_the_pre_event_receive_history ... ok
+test live_correlation_counts_unchanged_trials_in_the_recurrence_denominator ... ok
+test live_candidates_keep_an_exact_rx_frame_for_the_visual_editor ... ok
+test live_candidate_marks_incrementing_and_sum_checksum_bytes_as_noise_hints ... ok
+test completed_window_orders_standard_ids_before_extended_ids ... ok
+test live_mark_publishes_pending_then_completed_window_with_latest_rx_summaries ... ok
+test overlapping_live_windows_keep_standard_and_extended_ids_separate_and_match_replay ... ok
+test sequence_continues_after_clearing_results ... ok
+test live_window_finishes_on_time_without_a_later_frame_and_close_marks_pending_incomplete ... ok
+test completed_window_caps_ids_and_orders_by_count_then_width_and_id ... ok
+test truncated_and_stopped_windows_are_incomplete ... ok
+test mark_with_lost_receive_history_is_incomplete ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\oem_candidate_try.rs (target\debug\deps\oem_candidate_try-9325372afc0712fb.exe)
+
+running 8 tests
+test malformed_candidate_metadata_is_reported_without_panicking ... ok
+test one_shot_command_preserves_service_width_and_catalog_route ... ok
+test service22_positive_response_echoes_both_did_bytes ... ok
+test negative_response_codes_keep_pending_temporary_session_and_security_states_distinct ... ok
+test service21_positive_response_checks_echo_and_decodes_the_selected_channel ... ok
+test one_shot_rejects_can_ids_outside_the_standard_11_bit_range ... ok
+test unknown_value_format_keeps_the_positive_raw_response_without_unsigned_decode ... ok
+test one_shot_response_keeps_negative_no_response_and_wrong_route_distinct ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\pipeline.rs (target\debug\deps\pipeline-4a5d21fbf3b42088.exe)
+
+running 1 test
+test live_recording_and_replay_share_the_sample_event_pipeline ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests\playback.rs (target\debug\deps\playback-1b156815f2ba4da9.exe)
+
+running 11 tests
+test invalid_replay_speed_does_not_change_state ... ok
+test playback_marker_persists_at_playhead ... ok
+test deleting_late_marker_updates_playback_duration ... ok
+test deleting_late_marker_during_playback_clamps_without_restarting ... ok
+test seek_restarts_at_or_after_target ... ok
+test replay_events_carry_the_loaded_session_identity ... ok
+test fast_replay_coalesces_readouts_but_preserves_latest_values_and_markers ... ok
+test pause_returns_before_pending_delay ... ok
+test stop_does_not_report_natural_completion ... ok
+test speed_change_updates_pending_delay ... ok
+test close_session_unloads_replay_without_deleting_recording ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+     Running tests\profile_resume.rs (target\debug\deps\profile_resume-7c074896b0a2e056.exe)
+
+running 4 tests
+test identity_queries_are_only_vin_calibration_and_ecu_name_reads ... ok
+test stale_profile_generation_and_unsupported_selection_cannot_replace_the_standby_state ... ok
+test profile_connection_stays_in_worker_owned_standby_until_acknowledged_selection_replacement ... ok
+test ordinary_connection_recognizes_through_same_owner_and_returns_to_normal_polling_between_reads ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests\recording.rs (target\debug\deps\recording-dc4cec86d17d7c8a.exe)
+
+running 5 tests
+test csv_export_refuses_to_overwrite_the_source_recording ... ok
+test sqlite_recording_preserves_async_sample_times_and_markers ... ok
+test recording_export_contains_samples_and_markers_inline ... ok
+test equal_timestamp_events_are_retained_and_ordered ... ok
+test marker_ids_are_unique_and_crud_persists ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests\saved_can_replay.rs (target\debug\deps\saved_can_replay-8ee2e928d13e2073.exe)
+
+running 10 tests
+test live_snapshot_plan_retains_the_existing_400_frame_cap ... ok
+test oversized_file_and_cancelled_preparation_are_rejected ... ok
+test malformed_row_outside_selection_rejects_the_entire_capture ... ok
+test duplicate_timestamps_keep_row_order_and_use_one_millisecond_floor ... ok
+test selects_exact_format_inclusive_range_and_excludes_tx_and_flagged_rows ... ok
+test empty_selection_and_invalid_ranges_are_rejected ... ok
+test prepared_plan_and_digest_do_not_change_when_source_file_is_replaced ... ok
+test decreasing_matching_timestamps_reject_instead_of_sorting ... ok
+test source_and_paced_duration_and_per_frame_gaps_are_bounded ... ok
+test exact_10000_frame_limit_is_accepted_and_10001_is_rejected ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+
+     Running tests\vehicle_history.rs (target\debug\deps\vehicle_history-2bad38564ca4385a.exe)
+
+running 6 tests
+test locator_path_aliases_cannot_index_overlapping_bytes_twice ... ok
+test locator_accepts_one_mib_and_rejects_oversize_and_unrepresentable_ranges ... ok
+test locator_round_trips_and_conflicting_duplicate_does_not_replace_evidence ... ok
+test history_import_checkpoint_keeps_source_cursor_and_partial_line_across_reopen ... ok
+test manual_association_preserves_conflict_and_rejects_cross_scope_link ... ok
+test history_filters_and_pages_by_scope_vehicle_date_and_ecu_stably ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests\vehicle_profiles.rs (target\debug\deps\vehicle_profiles-43d1234017549656.exe)
+
+running 15 tests
+test scopes_and_manual_association_never_claim_an_exact_live_identity ... ok
+test functional_request_and_actual_responder_can_match_generic_profile_without_proving_oem_route ... ok
+test resolver_requires_vin_and_prior_ecu_identity_but_ignores_adapter_port_and_extra_modules ... ok
+test vin_digest_is_validated_masked_and_fingerprint_is_order_independent ... ok
+test first_full_vin_cannot_be_saved_without_origin_evidence ... ok
+test profile_validation_bounds_and_reference_deduplication ... ok
+test manual_vehicle_details_append_owner_and_agent_provenance ... ok
+test store_rejects_newer_schema_without_replacing_it ... ok
+test manual_vin_assignment_only_fills_matching_nonconflicting_manual_profile ... ok
+test identity_cas_keeps_prior_vin_decoder_and_append_only_provenance ... ok
+test same_vin_is_isolated_across_profile_scopes ... ok
+test manual_vin_assignment_rejects_nonmanual_profiles_and_conflicting_observations ... ok
+test store_round_trips_profiles_checks_revisions_and_keeps_snapshot_on_failed_refresh ... ok
+test v1_migration_preserves_all_profile_data_and_creates_hash_only_identity ... ok
+test legacy_vin_link_requires_exact_digest_and_records_actor_without_profile_change ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests\vin_decode.rs (target\debug\deps\vin_decode-a56381c119ab1b7b.exe)
+
+running 12 tests
+test rejects_a_missing_vin ... ok
+test rejects_each_prohibited_vin_letter ... ok
+test does_not_fall_back_to_a_three_character_wmi_for_position_three_nine ... ok
+test applies_the_published_section_565_15_check_digit_vector ... ok
+test accepts_and_normalizes_a_valid_17_character_vin ... ok
+test resolves_a_passenger_car_year_cycle_from_position_seven ... ok
+test leaves_a_checksum_unassessed_when_wmi_scope_is_unknown ... ok
+test leaves_the_30_year_model_year_cycle_unresolved_without_a_supporting_class ... ok
+test requires_an_exact_six_character_low_volume_wmi_match ... ok
+test warns_without_rejecting_a_check_digit_mismatch_in_known_scope ... ok
+test reports_an_unknown_but_structurally_valid_wmi ... ok
+test reports_the_hash_of_the_bundled_wmi_data ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\lognook_desktop_lib-2805d55432c15ab3.exe)
+
+running 157 tests
+test agent::ipc::tests::ipc_allows_one_agent_host ... ok
+test agent::ipc::tests::ipc_does_not_report_success_while_listener_is_stopping ... ok
+test agent::ipc::tests::ipc_requires_unlocked_session ... ok
+test agent::ipc::tests::ipc_reports_missing_app_endpoint ... ok
+test agent::log_data::tests::a_second_source_preserves_logs_and_a_new_session_clears_them ... ok
+test agent::log_data::tests::can_replay_query_rejects_empty_selection_and_gaps_over_sixty_seconds ... ok
+test agent::log_data::tests::can_replay_query_filters_identity_direction_flags_and_frame_cap ... ok
+test agent::log_data::tests::live_can_query_filters_time_and_identifier ... ok
+test agent::log_data::tests::can_replay_source_resets_on_disconnect_and_new_source_while_obd_stays_connected ... ok
+test agent::log_data::tests::live_pid_query_filters_time_and_signal_and_reports_truncation ... ok
+test agent::log_data::tests::mixed_source_results_have_sorted_time_bounds ... ok
+test agent::protocol::tests::agent_log_query_is_typed_and_keeps_the_requested_range ... ok
+test agent::protocol::tests::clear_dtcs_is_a_separate_confirmed_adapter_generation_bound_action ... ok
+test agent::access::tests::invalid_pin_format_is_rejected_without_saving_a_verifier ... ok
+test agent::protocol::tests::diagnostic_monitors_are_byte_sized_and_do_not_accept_raw_commands ... ok
+test agent::protocol::tests::get_status_is_a_typed_request ... ok
+test agent::access::tests::agent_access_starts_locked ... ok
+test agent::protocol::tests::ipc_rejects_oversized_message ... ok
+test agent::protocol::tests::ipc_rejects_unknown_action ... ok
+test agent::protocol::tests::candlelight_obd_operations_are_typed_for_the_full_normal_logging_flow ... ok
+test agent::protocol::tests::individual_disconnect_requires_an_explicit_known_source ... ok
+test agent::protocol::tests::oem_discovery_uses_typed_shared_queue_and_rejects_raw_or_unbound_requests ... ok
+test agent::protocol::tests::raw_adapter_terminal_command_is_one_typed_operation ... ok
+test agent::protocol::tests::offline_vin_and_history_operations_are_typed_and_do_not_accept_provenance_claims ... ok
+test agent::protocol::tests::profile_resume_is_typed_and_bound_to_revision_and_connection ... ok
+test agent::protocol::tests::stop_operation_is_a_typed_top_level_action ... ok
+test agent::protocol::tests::workbench_frame_action_is_typed_and_rejects_unknown_fields ... ok
+test agent::tools::tests::agent_mode06_lists_adapter_capabilities ... ok
+test agent::protocol::tests::replay_can_id_workbench_action_is_typed_and_schema_describes_the_selected_range ... ok
+test agent::protocol::tests::saved_replay_requires_a_source_preview_and_connection_generation ... ok
+test agent::tools::tests::agent_mode06_rejects_unsupported_adapter ... ok
+test agent::tools::tests::agent_oem_try_returns_nrc_and_timeout_distinctly ... ok
+test agent::tools::tests::agent_connect_reuses_existing_engine ... ok
+test agent::tools::tests::agent_status_tracks_owned_workbench_operation ... ok
+test agent::tools::tests::agent_workbench_rejects_invalid_scan_before_transport ... ok
+test agent::tools::tests::agent_status_reports_adapter_capabilities ... ok
+test agent::tools::tests::agent_rejects_log_selection_change_while_connected ... ok
+test agent::tools::tests::can_obd_selection_guard_only_accepts_its_own_connection_family ... ok
+test agent::mcp::tests::mcp_detects_when_the_lognook_app_disconnects ... ok
+test agent::log_data::tests::recorded_can_query_returns_the_latest_matching_range ... ok
+test agent::tools::tests::failed_scan_start_clears_agent_scan_state ... ok
+test agent::mcp::tests::mcp_lists_status_tool_for_stdio_server ... ok
+test agent::tools::tests::raw_hex_payload_accepts_spacing_and_rejects_bad_input ... ok
+test agent::tools::tests::invalid_connect_selection_does_not_replace_the_existing_agent_selection ... ok
+test agent::tools::tests::generic_mcp_diagnostics_redact_full_vin_but_keep_masked_vehicle_context ... ok
+test agent::tools::tests::replay_time_range_checks_order_and_nanosecond_conversion_overflow ... ok
+test agent::tools::tests::scan_that_finishes_during_startup_stays_inactive ... ok
+test agent::tools::tests::scan_events_clear_agent_scan_state_without_workbench_lock ... ok
+test can_replay_previews::tests::discard_cancels_an_in_flight_preparation_token ... ok
+test can_replay_previews::tests::missing_source_sidecar_permits_unknown_bitrate ... ok
+test can_replay_previews::tests::expired_preview_tokens_cannot_be_inspected_or_started ... ok
+test can_replay_previews::tests::sidecar_session_metadata_provides_only_the_recorded_bitrate ... ok
+test can_replay_previews::tests::registration_rejects_non_capture_paths_and_source_path_aliases_are_detected ... ok
+test commands::agent_access::tests::can_field_changes_do_not_change_the_obd_poll_selection ... ok
+test commands::can::tests::can_signal_export_saves_one_valid_definition_as_json ... ok
+test commands::can::tests::can_signal_export_suggests_a_sanitized_individual_filename ... ok
+test can_replay_previews::tests::target_view_blocks_passive_capture_alias_and_bitrate_mismatch ... ok
+test can_replay_previews::tests::prepare_keeps_a_frozen_snapshot_and_new_previews_replace_old_tokens ... ok
+test commands::can::tests::replay_ranks_messages_that_change_at_repeated_manual_event_marks ... ok
+test commands::can::tests::replay_report_counts_disarmed_partial_trigger_as_early_not_complete ... ok
+test commands::can::tests::oversized_journal_lines_are_skipped_and_later_records_are_read ... ok
+test commands::can::tests::replay_report_distinguishes_clean_close_from_interrupted_capture ... ok
+test agent::tools::tests::registered_saved_can_source_is_discoverable_and_queryable_offline ... ok
+test agent::tools::tests::can_obd_status_reports_connecting_without_waiting_for_the_engine_lock ... ok
+test commands::can::tests::replay_report_pairs_only_journal_routes_and_preserves_nrc_and_raw_payloads ... ok
+test commands::can::tests::sidecar_open_errors_only_classify_not_found_as_absent ... ok
+test commands::can::tests::replay_report_summarizes_the_paired_readable_journal ... ok
+test commands::can_obd::tests::cancellation_needs_no_engine_lock_and_operation_slot_reopens ... ok
+test commands::can_obd::tests::each_connect_uses_a_fresh_cancel_token ... ok
+test commands::can::tests::saved_report_is_deterministic_and_correlates_explicit_timestamped_obd_samples ... ok
+test commands::can_obd::tests::finished_operation_drop_cannot_clear_a_newer_connect ... ok
+test commands::can::tests::saved_capture_comparison_includes_ids_present_on_either_side_and_byte_counts ... ok
+test commands::can::tests::triggered_window_export_writes_a_paired_csv_and_clean_provenance_sidecar ... ok
+test commands::diagnostics::tests::bundle_metadata_contains_only_application_and_os_fields ... ok
+test commands::diagnostics::tests::bundle_includes_only_the_selected_recording ... ok
+test commands::diagnostics::tests::bundle_includes_neutral_obd_read_test_evidence ... ok
+test commands::diagnostics::tests::bundle_omits_recording_by_default ... ok
+test commands::diagnostics::tests::bundle_contains_metadata_diagnostics_and_oem_evidence ... ok
+test commands::diagnostics::tests::bundle_rejects_invalid_recording_selection ... ok
+test commands::diagnostics::tests::failed_bundle_write_removes_partial_file ... ok
+test commands::diagnostics::tests::bundle_sources_include_existing_rotations_and_only_jsonl_evidence ... ok
+test commands::diagnostics::tests::bundle_refuses_overwrite ... ok
+test commands::diagnostics::tests::streamed_bundle_entries_use_zip64_and_round_trip ... ok
+test agent::tools::tests::agent_oem_search_preserves_source_and_route ... ok
+test commands::exports::tests::exports_the_live_buffer_as_csv_without_overwriting_existing_files ... ok
+test commands::diagnostics_tests::connect_failure_preserves_error_and_logs_redacted_start_and_terminal ... ok
+test commands::diagnostics_tests::provider_discovery_logs_missing_worker_failure ... ok
+test commands::exports::tests::live_csv_rejects_empty_replay_and_invalid_samples ... ok
+test commands::oem_catalog::tests::a30_read_test_evidence_keeps_the_request_and_raw_frame ... ok
+test commands::exports::tests::run_report_json_round_trips_and_never_overwrites ... ok
+test commands::oem_catalog::tests::candidate_try_evidence_appends_source_request_and_raw_result ... ok
+test commands::oem_catalog::tests::read_test_rejects_disconnected_unsupported_and_wrong_result_types ... ok
+test agent::tools::tests::can_disconnect_cancels_active_replay_but_leaves_unrelated_trace_open ... ok
+test commands::oem_catalog::tests::bound_candidate_try_rejects_stale_adapter_and_generation_before_sending ... ok
+test commands::oem_catalog::tests::sx_read_tests_use_neutral_evidence_and_publish_ordered_samples ... ok
+test commands::oem_discovery::tests::auto_try_ownership_prevents_ui_and_agent_runs_from_mixing ... ok
+test commands::oem_discovery::tests::candidates_deduplicate_by_id_and_source_revision ... ok
+test commands::oem_discovery::tests::reconnect_resets_master_queue_and_prior_results ... ok
+test commands::oem_discovery::tests::request_rejects_unknown_action_and_filter_fields ... ok
+test commands::oem_discovery::tests::simulator_results_explicitly_say_no_vehicle_transmission_occurred ... ok
+test commands::oem_discovery::tests::stop_clears_pending_work_but_keeps_completed_results ... ok
+test commands::oem_discovery::tests::value_priority_includes_zero_and_ignores_non_finite_values ... ok
+test commands::oem_discovery::tests::zero_is_a_numeric_value_and_non_positive_outcomes_keep_their_state ... ok
+test commands::player::tests::open_csv_cancel_returns_without_changing_session ... ok
+test commands::session_share::tests::accepts_only_native_files_inside_managed_recordings_directory ... ok
+test commands::session_share::tests::checks_provider_http_status_and_plain_text_link ... ok
+test commands::session_share::tests::enforces_provider_size_limit ... ok
+test commands::session_share::tests::refuses_snapshot_while_sqlite_sidecar_data_exists ... ok
+test commands::can::tests::replay_counts_and_decodes_valid_rows_after_census_capacity ... ok
+test commands::session_share::tests::serializes_share_link_fields_as_snake_case ... ok
+test commands::session_share::tests::sends_catbox_multipart_to_local_mock ... ok
+test commands::session_share::tests::temp_copy_directory_is_removed_on_drop ... ok
+test commands::session_share::tests::validates_catbox_https_link_without_credentials_or_extra_parts ... ok
+test commands::sessions::tests::directory_comparison_ignores_windows_path_casing ... ok
+test commands::oem_catalog::tests::research_graph_publication_records_only_successful_finite_measurements ... ok
+test commands::oem_catalog::tests::research_evidence_records_run_order ... ok
+test commands::sessions::tests::opens_native_recordings_inside_the_app_directory ... ok
+test commands::sessions::tests::rejects_windows_reserved_and_path_like_names ... ok
+test commands::oem_catalog::tests::candidate_is_reloaded_before_active_session_request ... ok
+test commands::diagnostics_tests::overlapping_connects_keep_the_successful_commands_signal_selection ... ok
+test commands::sessions::tests::opens_native_recordings_outside_the_app_directory ... ok
+test commands::vehicle_profiles::task3_identity_tests::a_positive_vin_remains_positive_when_another_ecu_does_not_respond ... ok
+test commands::vehicle_profiles::task3_identity_tests::malformed_vin_read_values_are_not_identity_evidence ... ok
+test diagnostics::tests::acquisition_aggregates_success_and_routes_failures_to_distinct_session ... ok
+test diagnostics::tests::attempted_pids_without_any_samples_still_have_a_final_summary ... ok
+test commands::sessions::tests::save_as_copies_a_native_recording_without_changing_the_source ... ok
+test commands::sessions::tests::renames_and_deletes_only_valid_inactive_native_recordings ... ok
+test diagnostics::tests::jsonl_orders_operation_success_and_failure_with_duration ... ok
+test commands::sessions::tests::lists_valid_native_recordings_newest_first_with_sample_counts ... ok
+test diagnostics::tests::research_sample_for_selected_signal_is_not_an_acquisition_response ... ok
+test commands::sessions::tests::refuses_to_mutate_loaded_recordings_or_sqlite_files_with_sidecars ... ok
+test diagnostics::tests::history_retains_only_latest_500_records ... ok
+test diagnostics::tests::retained_adapter_sink_routes_explicit_disconnect_to_its_command ... ok
+test diagnostics::tests::reliability_entries_are_limited_to_500_with_visible_limit_feedback ... ok
+test diagnostics::tests::selected_pids_are_summarized_even_when_disconnect_precedes_the_first_poll ... ok
+test diagnostics::tests::saturated_queue_returns_promptly_and_surfaces_omissions ... ok
+test diagnostics::tests::storage_failure_preserves_live_records_and_counts_omissions ... ok
+test diagnostics::tests::storage_open_failure_keeps_command_outcomes_live ... ok
+test diagnostics::tests::restarting_preserves_jsonl_sequence_order ... ok
+test diagnostics::tests::unselected_research_samples_do_not_grow_pid_reliability_history ... ok
+test commands::sessions::tests::share_csv_exports_the_selected_session_and_rejects_external_sources ... ok
+test vehicle_profiles::identity_assignment_tests::active_conflicting_ecu_vin_blocks_manual_identity_assignment ... ok
+test agent::access::tests::pin_verifier_does_not_contain_pin ... ok
+test vehicle_reads::tests::legacy_vin_recovery_requires_a_positive_mode09_pid02_payload_or_decoded_value ... ok
+test diagnostics::tests::rotation_keeps_two_prior_files_with_size_bound ... ok
+test vehicle_reads::tests::report_append_assigns_id_and_separates_a_partial_jsonl_tail ... ok
+test vehicle_reads::tests::history_import_cancellation_saves_a_resumable_cancelled_checkpoint ... ok
+test vehicle_profiles::identity_assignment_tests::active_matching_ecu_vin_allows_manual_assignment_without_claiming_ecu_origin ... ok
+test vehicle_reads::tests::retry_repairs_vin_provenance_when_the_report_locator_already_exists ... ok
+test vehicle_reads::tests::history_import_counts_malformed_and_oversized_lines_without_storing_them ... ok
+test vehicle_reads::tests::history_import_resumes_a_partial_trailing_line_and_is_idempotent ... ok
+test diagnostics::tests::pid_reliability_counts_attempts_and_only_attributable_errors_without_values ... ok
+test agent::access::tests::wrong_pin_does_not_unlock ... ok
+test agent::access::tests::agent_access_expires_after_fifteen_minutes_without_action ... ok
+test agent::tools::tests::can_obd_agent_action_is_denied_locked_and_allowed_after_unlock ... ok
+test commands::diagnostics_tests::real_simulator_connect_and_disconnect_use_command_and_session_ids ... ok
+test agent::access::tests::five_failed_attempts_trigger_a_thirty_second_lockout ... ok
+
+test result: ok. 157 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.39s
+
+     Running unittests src\main.rs (target\debug\deps\lognook_desktop-c4218937ce02695d.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\lognook_j2534_protocol-dae541608d3dd4e5.exe)
+
+running 9 tests
+test tests::oem_candidate_responses_are_bounded_to_one_raw_outcome ... ok
+test tests::standard_dtc_response_round_trips_each_responder_and_outcome_kind ... ok
+test tests::standard_dtc_services_are_a_closed_typed_allow_list ... ok
+test tests::source_backed_oem_candidate_requests_round_trip_with_exact_routes_and_widths ... ok
+test tests::mode09_request_and_response_round_trip_for_identity_pids ... ok
+test tests::oem_candidate_request_rejects_unverifiable_sources_routes_and_identifier_widths ... ok
+test tests::mode09_rejects_non_identity_pids_and_malformed_or_unknown_fields ... ok
+test tests::mode09_full_j2534_frame_fits_compact_wire_encoding ... ok
+test tests::standard_dtc_keeps_full_raw_frames_for_all_standard_responders_within_ipc_limit ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\wire.rs (target\debug\deps\wire-0331884f62010340.exe)
+
+running 6 tests
+test provider_discovery_round_trips_empty_list_with_diagnostics ... ok
+test malformed_unknown_and_incomplete_messages_are_rejected ... ok
+test request_variants_round_trip_and_keep_the_line_framing ... ok
+test response_variants_round_trip_with_provider_identity_and_raw_payload ... ok
+test progress_round_trips_and_rejects_oversized_details ... ok
+test oversized_request_and_response_lines_are_rejected ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src\main.rs (target\debug\deps\lognook_j2534_worker-ccfd8b20ef191374.exe)
+
+running 51 tests
+test j2534::tests::iso15765_filters_use_flow_control_and_cover_each_standard_ecu_route ... ok
+test j2534::tests::live_read_targets_only_a_discovered_standard_ecu_and_finishes_on_its_reply ... ok
+test j2534::tests::fatal_mode09_read_keeps_accumulated_frames_and_exposes_the_failure ... ok
+test j2534::tests::malformed_batch_diagnostic_includes_j2534_message_metadata ... ok
+test j2534::tests::ignores_tx_done_indications_and_rejects_nonstandard_address_flags ... ok
+test j2534::tests::flow_control_filters_use_tactrix_padded_iso15765_settings ... ok
+test j2534::tests::mode09_batch_keeps_valid_peers_and_full_malformed_frame_bytes_in_order ... ok
+test j2534::tests::mode09_api_error_ignores_an_untouched_buffer_but_keeps_a_real_partial_frame ... ok
+test j2534::tests::mode09_keeps_a_partial_response_returned_with_a_read_timeout ... ok
+test j2534::tests::mode09_malformed_can_frames_and_no_response_remain_typed ... ok
+test j2534::tests::j2534_message_matches_the_v0404_buffer_layout ... ok
+test j2534::tests::mode09_uses_functional_route_and_preserves_all_raw_identity_payloads ... ok
+test j2534::tests::no_response_diagnostic_names_the_pid_and_actual_wait ... ok
+test j2534::tests::oem_candidate_pending_is_retained_until_a_final_response_arrives ... ok
+test j2534::tests::oem_candidate_malformed_frame_retains_raw_j2534_bytes ... ok
+test j2534::tests::oem_candidate_request_is_one_padded_iso15765_payload ... ok
+test j2534::tests::oem_candidate_exchange_skips_stale_mode01_and_other_oem_identifier ... ok
+test j2534::tests::oem_candidate_routes_use_shared_standard_filters_or_one_padded_exact_filter ... ok
+test j2534::tests::oem_candidate_response_ignores_start_notification_and_wrong_responder ... ok
+test j2534::tests::opta_timeout_with_unchanged_count_does_not_fabricate_a_response ... ok
+test j2534::tests::read_timeout_keeps_partial_messages_and_only_empty_buffer_retries ... ok
+test j2534::tests::parses_iso15765_mode01_response_with_ecu_identity ... ok
+test j2534::tests::rejects_non_iso15765_messages ... ok
+test j2534::tests::rejects_responses_for_a_different_pid_and_aggregated_payloads ... ok
+test j2534::tests::rejects_unexpected_ecu_addresses ... ok
+test j2534::tests::standard_dtc_builder_emits_one_fixed_functional_request_for_each_allowlisted_service ... ok
+test j2534::tests::standard_dtc_preserves_positive_and_negative_responder_bytes ... ok
+test j2534::tests::standard_dtc_partial_read_errors_and_empty_timeout_remain_distinct ... ok
+test j2534::tests::standard_dtc_rejects_wrong_service_and_keeps_malformed_frames ... ok
+test j2534::tests::tactrix_start_notification_does_not_hide_the_completed_vin_reply ... ok
+test j2534::tests::tactrix_start_of_message_is_not_a_completed_obd_response ... ok
+test registry::tests::only_tactrix_openport_and_opta_names_are_eligible ... ok
+test registry::tests::unsupported_registered_provider_diagnostic_explains_the_filter ... ok
+test session::tests::channel_connect_failure_closes_the_provider ... ok
+test session::tests::channel_setup_failure_disconnects_then_closes_the_provider ... ok
+test session::tests::connect_progress_tracks_actual_calls_and_stops_at_failure ... ok
+test session::tests::functional_mode09_read_does_not_change_the_discovered_mode01_route ... ok
+test session::tests::invalid_oem_route_is_rejected_before_the_provider_call ... ok
+test registry::tests::resolves_registered_provider_ids_with_forward_slashes ... ok
+test session::tests::mode09_failure_does_not_block_the_next_identity_query_or_send_other_pids ... ok
+test session::tests::mode09_uses_the_functional_standard_route_and_keeps_all_responders ... ok
+test session::tests::multiple_responders_stop_supported_pid_discovery_at_the_first_page ... ok
+test session::tests::oem_mode21_and_mode22_are_single_typed_calls_with_exact_routes ... ok
+test registry::tests::windows_registry_listing_filters_names_and_rejects_unknown_provider_keys ... ok
+test session::tests::standard_dtc_requests_keep_each_responder_and_clear_is_one_typed_call ... ok
+test session::tests::physical_live_route_requires_a_unique_discovered_ecu ... ok
+test session::tests::supported_pid_discovery_follows_only_reported_continuation_pages ... ok
+test registry::tests::registry_environment_path_is_expanded_and_missing_dll_is_rejected ... ok
+test tests::reads_one_json_line_without_consuming_the_next ... ok
+test tests::emitted_progress_has_stage_and_elapsed_time_without_traffic ... ok
+test tests::oversized_line_is_discarded_before_the_next_message ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests lognook_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lognook_desktop_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lognook_j2534_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -31,6 +31,7 @@ impl HardwareAdapter for ProfileAdapter {
             },
             protocol: "ISO 15765-4 CAN (11 bit, 500 kbit/s)".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: standard_obd_signals()
                 .into_iter()
                 .filter(|signal| matches!(signal.id.as_str(), "engine_rpm" | "coolant_temp"))
@@ -87,6 +88,7 @@ impl HardwareAdapter for ProfileAdapter {
             adapter: self.connect()?.device,
             protocol: "ISO 15765-4 CAN (11 bit, 500 kbit/s)".into(),
             started_at_unix_ms: 10,
+            operation_kind: lognook_core::DiagnosticReportKind::Snapshot,
             request: DiagnosticRequest::default(),
             reads: vec![read],
             route_restore_error: None,
@@ -251,6 +253,30 @@ fn ordinary_connection_recognizes_through_same_owner_and_returns_to_normal_polli
     );
     assert!(!engine.is_obd_profile_standby());
     assert_eq!(engine.selected_signal_ids(), ["engine_rpm"]);
+    assert!(!overlap.load(Ordering::Acquire));
+    engine.disconnect().unwrap();
+}
+
+#[test]
+fn live_selection_switch_reuses_the_same_acquisition_owner() {
+    let (adapter, samples, _, overlap) = adapter_state();
+    let mut engine = LogNookEngine::new(|_| {});
+    let capabilities = engine.connect_adapter(Box::new(adapter), &["engine_rpm".into()]).unwrap();
+    let generation = engine.obd_connection_generation();
+    thread::sleep(Duration::from_millis(40));
+    let before = samples.load(Ordering::Acquire);
+    assert!(capabilities.supported_signals.iter().any(|signal| signal.id == "coolant_temp"));
+
+    engine.replace_live_selection_with_oem(
+        vec!["coolant_temp".into()], Vec::new(), Vec::new(), None, generation,
+    ).unwrap();
+    assert_eq!(engine.obd_connection_generation(), generation);
+    assert_eq!(engine.selected_signal_ids(), ["coolant_temp"]);
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while samples.load(Ordering::Acquire) <= before && std::time::Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(samples.load(Ordering::Acquire) > before);
     assert!(!overlap.load(Ordering::Acquire));
     engine.disconnect().unwrap();
 }

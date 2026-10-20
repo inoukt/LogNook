@@ -23,6 +23,7 @@ const SHORT_TIMEOUT: Duration = Duration::from_secs(1);
 const SETUP_TIMEOUT: Duration = Duration::from_secs(3);
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 const IDENTITY_TIMEOUT: Duration = Duration::from_secs(3);
+const SUBARU_SSM_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) struct WorkerClient {
     child: Option<Child>,
@@ -102,9 +103,34 @@ fn worker_timeout_message(request: &WorkerRequest, timeout: Duration) -> String 
         WorkerRequest::ListProviders => "provider discovery".to_owned(),
         WorkerRequest::Identify { .. } => "adapter identification".to_owned(),
         WorkerRequest::Connect { .. } => "J2534 channel setup".to_owned(),
+        WorkerRequest::ConnectSubaruSsm { .. } => "Subaru SSM K-Line setup".to_owned(),
         WorkerRequest::DiscoverMode01 => "Mode 01 PID discovery".to_owned(),
         WorkerRequest::ReadMode01 { pid } => format!("Mode 01 PID {pid:02X} read"),
         WorkerRequest::ReadMode09 { pid } => format!("Mode 09 PID {pid:02X} identity read"),
+        WorkerRequest::ReadMode06 { test_id } => format!("Mode 06 test {test_id:02X} read"),
+        WorkerRequest::ReadStandardDtc { service } => {
+            format!("standard Mode {:02X} DTC operation", service.request_byte())
+        }
+        WorkerRequest::ReadOemCandidate {
+            request,
+            request_id,
+            response_id,
+            ..
+        } => format!("source-backed OEM {request:?} read {request_id:03X}->{response_id:03X}"),
+        WorkerRequest::ReadSubaruCandidate {
+            request,
+            request_id,
+            response_id,
+            ..
+        } => format!("Subaru research {request:?} read {request_id:03X}->{response_id:03X}"),
+        WorkerRequest::ReadSubaruSsmAddresses {
+            ecu_address,
+            addresses,
+            ..
+        } => format!(
+            "Subaru SSM ECU {ecu_address:02X} read of {} addresses",
+            addresses.len()
+        ),
         WorkerRequest::Disconnect => "adapter disconnect".to_owned(),
     };
     format!(
@@ -124,8 +150,12 @@ impl WorkerSession for WorkerClient {
     ) -> Result<WorkerResponse, LogNookError> {
         let timeout = match &request {
             WorkerRequest::DiscoverMode01 => DISCOVERY_TIMEOUT,
-            WorkerRequest::Identify { .. } | WorkerRequest::Connect { .. } => SETUP_TIMEOUT,
-            WorkerRequest::ReadMode09 { .. } => IDENTITY_TIMEOUT,
+            WorkerRequest::Identify { .. }
+            | WorkerRequest::Connect { .. }
+            | WorkerRequest::ConnectSubaruSsm { .. } => SETUP_TIMEOUT,
+            WorkerRequest::ReadSubaruSsmAddresses { .. } => SUBARU_SSM_TIMEOUT,
+            WorkerRequest::ReadMode09 { .. } | WorkerRequest::ReadMode06 { .. } => IDENTITY_TIMEOUT,
+            WorkerRequest::ReadStandardDtc { .. } => IDENTITY_TIMEOUT,
             _ => SHORT_TIMEOUT,
         };
         self.request_with_timeout_and_progress(request, timeout, sink)
@@ -350,13 +380,18 @@ impl WorkerClient {
 
 fn worker_adapter_id(request: &WorkerRequest) -> String {
     match request {
-        WorkerRequest::Identify { provider_id } | WorkerRequest::Connect { provider_id } => {
-            provider_id.clone()
-        }
+        WorkerRequest::Identify { provider_id }
+        | WorkerRequest::Connect { provider_id }
+        | WorkerRequest::ConnectSubaruSsm { provider_id } => provider_id.clone(),
         WorkerRequest::ListProviders => "openport2:provider-discovery".into(),
         WorkerRequest::DiscoverMode01
         | WorkerRequest::ReadMode01 { .. }
         | WorkerRequest::ReadMode09 { .. }
+        | WorkerRequest::ReadMode06 { .. }
+        | WorkerRequest::ReadStandardDtc { .. }
+        | WorkerRequest::ReadOemCandidate { .. }
+        | WorkerRequest::ReadSubaruCandidate { .. }
+        | WorkerRequest::ReadSubaruSsmAddresses { .. }
         | WorkerRequest::Disconnect => "openport2".into(),
     }
 }
@@ -367,9 +402,39 @@ fn worker_route(request: &WorkerRequest) -> String {
         WorkerRequest::ReadMode09 { pid } => {
             format!("7DF functional Mode 09 PID {pid:02X}")
         }
-        WorkerRequest::Identify { provider_id } | WorkerRequest::Connect { provider_id } => {
-            provider_id.clone()
+        WorkerRequest::ReadMode06 { test_id } => {
+            format!("7DF functional Mode 06 test {test_id:02X}")
         }
+        WorkerRequest::ReadStandardDtc { service } => {
+            format!(
+                "7DF functional standard Mode {:02X}",
+                service.request_byte()
+            )
+        }
+        WorkerRequest::ReadOemCandidate {
+            request,
+            request_id,
+            response_id,
+            ..
+        } => format!("{request_id:03X}->{response_id:03X} {request:?}"),
+        WorkerRequest::ReadSubaruCandidate {
+            request,
+            request_id,
+            response_id,
+            ..
+        } => format!("Subaru {request_id:03X}->{response_id:03X} {request:?}"),
+        WorkerRequest::ReadSubaruSsmAddresses {
+            ecu_address,
+            tool_address,
+            addresses,
+            ..
+        } => format!(
+            "SSM2 {ecu_address:02X}>{tool_address:02X} {} memory addresses",
+            addresses.len()
+        ),
+        WorkerRequest::Identify { provider_id }
+        | WorkerRequest::Connect { provider_id }
+        | WorkerRequest::ConnectSubaruSsm { provider_id } => provider_id.clone(),
         WorkerRequest::ListProviders => "provider_discovery".into(),
         WorkerRequest::DiscoverMode01 => "Mode 01 supported-PID discovery".into(),
         WorkerRequest::Disconnect => "disconnect".into(),
@@ -497,6 +562,16 @@ mod tests {
             worker_route(&WorkerRequest::ReadMode09 { pid: 0x02 }),
             "7DF functional Mode 09 PID 02"
         );
+    }
+
+    #[test]
+    fn standard_dtc_worker_trace_is_typed_and_names_the_service() {
+        let request = WorkerRequest::ReadStandardDtc {
+            service: lognook_j2534_protocol::StandardDtcService::Clear,
+        };
+        assert_eq!(worker_route(&request), "7DF functional standard Mode 04");
+        let message = worker_timeout_message(&request, Duration::from_millis(2_500));
+        assert!(message.contains("standard Mode 04 DTC operation"));
     }
 
     #[cfg(windows)]
@@ -687,7 +762,7 @@ mod tests {
     #[test]
     fn oversized_progress_stops_worker() {
         let mut worker = scripted_worker(
-            r#"$null = [Console]::ReadLine(); [Console]::WriteLine('{"type":"progress","stage":"dll_loading","detail":"' + ('x' * 17000) + '","elapsed_ms":0}'); Start-Sleep -Seconds 10"#,
+            r#"$null = [Console]::ReadLine(); [Console]::WriteLine('{"type":"progress","stage":"dll_loading","detail":"' + ('x' * 140000) + '","elapsed_ms":0}'); Start-Sleep -Seconds 10"#,
         );
         let error = worker
             .request_with_timeout_and_progress(

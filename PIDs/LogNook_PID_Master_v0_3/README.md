@@ -4,7 +4,7 @@ LogNook's automotive signal catalog is not a flat PID list. It separates standar
 
 ## Current package
 
-- SQLite schema version: **3**
+- SQLite schema version: **3**, plus Subaru catalog extension **1**
 - Curated seed definitions: **296**
 - SHA-pinned OBDb source corpora: **58**
 - Indexed upstream commands: **20,590**
@@ -14,6 +14,7 @@ LogNook's automotive signal catalog is not a flat PID list. It separates standar
 - Imported read-only OEM candidates: **37,093** from **57** SHA-verified source corpora
 - canonical diagnostic concepts: **75**
 - physical POC vehicle profiles: 2014 Scion xB 2AZ-FE, 2011 Ford Flex 3.5 EcoBoost, Subaru workshop profile
+- Subaru OEM catalog research rows: **20,855** distinct definitions linked to **45,364** ECU-specific rows
 
 The source registry has 58 corpora; 57 Canada-core corpora are synced at their recorded blob SHAs, including the dedicated Ford Flex corpus which correctly yields zero definitions. The remaining Tesla source has no indexed commands/signals and is outside the Canada-core import. Imported candidates remain inert (`auto_request=0`, `vehicle_validation=not_tested`).
 
@@ -80,6 +81,23 @@ The related-model sources may be useful for discovering EcoBoost-era DIDs, but t
 - `vehicle_supported_commands` — separate user-reported vehicle/ECU command support. The Scion xB 2008–2014 report preserves its 2011 reported year, opaque command codes and subchannel names; it is unverified and disabled for automatic requests.
 - `validation_sessions` / `validation_results` — physical evidence.
 - `brand_families` / `source_family_aliases` — OEM-family research relationships without claiming cross-brand compatibility.
+- `subaru_catalog_search` — read-only searchable view over the separately normalized Subaru source tables.
+
+## Subaru OEM catalog
+
+The local Subaru source is indexed under the neutral display name **Subaru OEM catalog**. It contributes 20,855 source-table decoder rows, 45,364 ECU links, 98 vehicle records, 168 ECUs, and 10 unlinked table notices. Protocol families remain separate. Source revision and a SHA-256 of the local catalog export are retained for audit; this is not an upstream Git blob hash.
+
+The exported request hints are inferred and are not actual communication-support records. Every imported row is marked `mapping_state='inferred'`, `vehicle_validation='not_tested'`, `research_state='review_required'`, and `auto_request=0`. These rows are searchable research references; they do not enter `oem_candidates`, ordinary presets, or acquisition. Manual reads remain subject to the application’s explicit `can_manual_read` gate.
+
+The source package does not include a reuse license or source URL. Its database records `license_status='not_cleared'`; do not redistribute the source-derived rows until rights are reviewed. The importer preserves original package metadata internally while the UI uses the neutral display name.
+
+To import the local package without network access:
+
+```bash
+python tools/import_subaru.py --db data/lognook_pids.sqlite --source-dir ../CatalogV2/SubaruCatalog
+```
+
+The import is additive and idempotent. It reads only `catalog.json` data-monitor rows and the orphan-table inventory. Active tests, customization settings, internal information, and calibration packs are excluded.
 
 ## Safety and data-integrity rules
 

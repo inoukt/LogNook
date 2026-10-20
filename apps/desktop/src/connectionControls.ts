@@ -10,6 +10,7 @@ export type ConnectionControlInput = {
   sxIdentityMatches: boolean;
   openPortProvider: string;
   openPortIdentityMatches: boolean;
+  openPortMode?: "obd_can" | "subaru_ssm";
   bluetoothAddress: string;
   bluetoothIdentityMatches: boolean;
   canObdDevice?: string;
@@ -38,9 +39,12 @@ export function connectionControlState(adapter: AdapterKind, state: ConnectionCo
         : adapter === "candlelight_obd" ? state.canObdIdentityMatches
           : state.bluetoothIdentityMatches);
   const profileStandby = adapter !== "candlelight_obd" && state.profileStandby;
+  const hasSignals = state.hasSignals || (adapter === "openport2" && state.openPortMode === "subaru_ssm");
   return {
     identifyDisabled: !ready || adapter === "simulator" || !hasAdapter,
-    connectDisabled: !ready || (!state.hasSignals && !profileStandby) || !hasAdapter || !identified,
-    connectLabel: `Connect ${adapterLabel(adapter)}`,
+    connectDisabled: !ready || (!hasSignals && !profileStandby) || !hasAdapter || !identified,
+    connectLabel: adapter === "openport2" && state.openPortMode === "subaru_ssm"
+      ? "Connect Subaru SSM"
+      : `Connect ${adapterLabel(adapter)}`,
   };
 }

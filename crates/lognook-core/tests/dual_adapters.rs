@@ -128,6 +128,7 @@ impl HardwareAdapter for SwitchableAdapter {
             },
             protocol: "fixture OBD".into(),
             read_only: true,
+            diagnostics: Default::default(),
             supported_signals: standard_obd_signals()
                 .into_iter()
                 .filter(|signal| signal.id == "engine_rpm")

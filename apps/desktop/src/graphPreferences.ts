@@ -1,4 +1,5 @@
 export type GraphView = "line" | "scatter" | "bar" | "heatmap";
+export type GraphType = "time_series" | "xy_scatter";
 export type GraphLineStyle = "solid" | "dashed" | "dotted";
 export type GraphValueSample = { elapsed_ns: number; value: number };
 export type GraphSignalPreference = {
@@ -19,6 +20,9 @@ export type GraphPreferences = {
   signals: Record<string, GraphSignalPreference>;
   reference: { capturedAt: number; traces: GraphReferenceTrace[] } | null;
   liveWindowSeconds: number;
+  liveZoomFactor: number;
+  graphType: GraphType;
+  scatter: { xSignalId: string | null; ySignalId: string | null; colorSignalId: string | null };
 };
 export type GraphPreferencesStorage = Pick<Storage, "getItem" | "setItem">;
 
@@ -70,9 +74,70 @@ export function graphRangeSamples(
   return includeSource ? [...samples, ...sourceSamples] : samples;
 }
 
+export function zoomGraphRange(
+  range: { min: number; max: number },
+  direction: "in" | "out",
+): { min: number; max: number } {
+  const limit = 1e12;
+  let min = Number.isFinite(range.min) ? Math.min(Math.max(range.min, -limit), limit) : -1;
+  let max = Number.isFinite(range.max) ? Math.min(Math.max(range.max, -limit), limit) : 1;
+  if (min > max) [min, max] = [max, min];
+  const center = min + (max - min) / 2;
+  const span = max > min ? max - min : Math.max(2, Math.abs(center) * 0.02);
+  const minimumSpan = Math.max(2e-12, Math.abs(center) * Number.EPSILON * 8);
+  const nextSpan = Math.min(limit * 2, Math.max(minimumSpan, direction === "in" ? span / 1.25 : span * 1.25));
+  const nextMin = Math.min(Math.max(center - nextSpan / 2, -limit), limit - nextSpan);
+  return { min: nextMin, max: nextMin + nextSpan };
+}
+
+export function resolveFocusedGraphSignalId(signalIds: readonly string[], focusedSignalId: string | null): string | null {
+  return focusedSignalId && signalIds.includes(focusedSignalId) ? focusedSignalId : signalIds[0] ?? null;
+}
+
+export function graphZoomAvailability(input: {
+  graphType: GraphType;
+  hasScatterAxes: boolean;
+  hasScatterData: boolean;
+  hasLiveXData: boolean;
+  hasReplayWindow: boolean;
+  canZoomReplay: boolean;
+  canResetReplay: boolean;
+  canResetLive: boolean;
+  hasFocusedTraceData: boolean;
+  hasManualBounds: boolean;
+}): { x: boolean; y: boolean; auto: boolean } {
+  if (input.graphType === "xy_scatter") {
+    const hasAxes = input.hasScatterAxes;
+    const hasData = hasAxes && input.hasScatterData;
+    return { x: hasData, y: hasData, auto: hasAxes && (hasData || input.hasManualBounds) };
+  }
+  const canZoomReplay = input.hasReplayWindow && input.canZoomReplay;
+  return {
+    x: canZoomReplay || input.hasLiveXData,
+    y: input.hasFocusedTraceData,
+    auto: input.hasReplayWindow && input.canResetReplay
+      || input.canResetLive || input.hasManualBounds || input.hasFocusedTraceData,
+  };
+}
+
+export function zoomLiveWindowFactor(
+  baseSeconds: number,
+  factor: number,
+  direction: "in" | "out",
+): number {
+  const base = Math.min(Math.max(Number.isFinite(baseSeconds) ? baseSeconds : 18, MIN_LIVE_WINDOW_SECONDS), MAX_LIVE_WINDOW_SECONDS);
+  const minFactor = MIN_LIVE_WINDOW_SECONDS / base;
+  const maxFactor = MAX_LIVE_WINDOW_SECONDS / base;
+  const currentFactor = Math.min(Math.max(Number.isFinite(factor) && factor > 0 ? factor : 1, minFactor), maxFactor);
+  const currentSpan = base * currentFactor;
+  const nextSpan = Math.min(Math.max(currentSpan * (direction === "in" ? 1 / 1.25 : 1.25), MIN_LIVE_WINDOW_SECONDS), MAX_LIVE_WINDOW_SECONDS);
+  return nextSpan / base;
+}
+
 export function normalizeGraphPreferences(value: unknown): GraphPreferences {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { signals: {}, reference: null, liveWindowSeconds: LIVE_GRAPH_WINDOW_NS / 1_000_000_000 };
+    return { signals: {}, reference: null, liveWindowSeconds: LIVE_GRAPH_WINDOW_NS / 1_000_000_000,
+      liveZoomFactor: 1, graphType: "time_series", scatter: { xSignalId: null, ySignalId: null, colorSignalId: null } };
   }
   const saved = value as Record<string, unknown>;
   const signals: Record<string, GraphSignalPreference> = {};
@@ -99,7 +164,15 @@ export function normalizeGraphPreferences(value: unknown): GraphPreferences {
   const liveWindowSeconds = typeof saved.liveWindowSeconds === "number" && Number.isFinite(saved.liveWindowSeconds)
     ? Math.round(Math.min(Math.max(saved.liveWindowSeconds, MIN_LIVE_WINDOW_SECONDS), MAX_LIVE_WINDOW_SECONDS) * 2) / 2
     : LIVE_GRAPH_WINDOW_NS / 1_000_000_000;
-  return { signals, reference, liveWindowSeconds };
+  const liveZoomFactor = typeof saved.liveZoomFactor === "number" && Number.isFinite(saved.liveZoomFactor) && saved.liveZoomFactor > 0
+    ? Math.min(Math.max(saved.liveZoomFactor, MIN_LIVE_WINDOW_SECONDS / liveWindowSeconds), MAX_LIVE_WINDOW_SECONDS / liveWindowSeconds)
+    : 1;
+  const scatter = saved.scatter && typeof saved.scatter === "object" && !Array.isArray(saved.scatter)
+    ? saved.scatter as Record<string, unknown> : {};
+  const signalId = (id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 160 ? id : null;
+  return { signals, reference, liveWindowSeconds, liveZoomFactor,
+    graphType: saved.graphType === "xy_scatter" ? "xy_scatter" : "time_series",
+    scatter: { xSignalId: signalId(scatter.xSignalId), ySignalId: signalId(scatter.ySignalId), colorSignalId: signalId(scatter.colorSignalId) } };
 }
 
 export function loadGraphPreferences(storage?: GraphPreferencesStorage): GraphPreferences {
@@ -116,6 +189,7 @@ export function saveGraphPreferences(preferences: GraphPreferences, storage?: Gr
   try {
     const target = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
     target?.setItem(GRAPH_PREFERENCES_KEY, JSON.stringify(normalizeGraphPreferences(preferences)));
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("lognook-graph-preferences-changed"));
   } catch { /* Browser storage is optional. */ }
 }
 

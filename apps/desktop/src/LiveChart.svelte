@@ -33,6 +33,8 @@
     liveWindowSpanNs,
     signalPreferences = {},
     referenceTraces = [],
+    focusedSignalId,
+    onSelectFocusedTrace,
   }: {
     traces: ChartTrace[];
     showLegend: boolean;
@@ -45,6 +47,8 @@
     liveWindowSpanNs?: number;
     signalPreferences?: Record<string, GraphSignalPreference>;
     referenceTraces?: GraphReferenceTrace[];
+    focusedSignalId?: string | null;
+    onSelectFocusedTrace?: (signalId: string) => void;
   } = $props();
   const colors = ["#56c8bd", "#6ca8ff", "#ffb65c", "#d28bff", "#ff7f86", "#a8d878", "#f0d45c"];
   const defaultPreference: GraphSignalPreference = { min: null, max: null, view: "line", lineStyle: "solid", lineWidth: 2 };
@@ -255,12 +259,12 @@
 {#if showLegend}
   <div class="chart-legend" aria-label="Signal values">
     {#each plottedTraces as item (item.trace.signalId)}
-      <div class="legend-item">
+      <button class="legend-item" class:focused={item.trace.signalId === focusedSignalId} type="button" aria-label={`Focus Y range for ${item.trace.name}`} aria-pressed={item.trace.signalId === focusedSignalId} title={`Focus Y range for ${item.trace.name}`} onclick={() => onSelectFocusedTrace?.(item.trace.signalId)}>
         <span class="legend-swatch" style={`--trace-color: ${item.color}`}></span>
         <span class="legend-name">{item.trace.pid === undefined ? item.trace.name : `PID ${item.trace.pid.toString(16).toUpperCase().padStart(2, "0")} · ${item.trace.name}`}</span>
         <strong>{item.trace.current ? item.trace.current.value.toFixed(1) : "—"} {item.trace.unit}</strong>
         {#if item.trace.formula}<small class="legend-formula">{formatDerivedExpression(item.trace.formula)}</small>{/if}
-      </div>
+      </button>
     {/each}
     {#if plottedTraces.some((item) => item.referencePoints.length)}<div class="reference-legend"><span></span> dashed trace: saved reference</div>{/if}
   </div>
@@ -268,6 +272,9 @@
 
 <style>
   .chart-cursor-readout { height: 24px; min-width: 0; flex: 0 0 24px; display: flex; align-items: center; flex-wrap: nowrap; gap: 4px 12px; overflow-x: auto; overflow-y: hidden; padding: 2px; color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+  .legend-item { border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; background: transparent; text-align: left; cursor: pointer; }
+  .legend-item:hover, .legend-item.focused { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .legend-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .chart-cursor-readout strong { color: var(--text); }
   .trace-stale { color: var(--danger, #ff7f86); font-size: 10px; font-weight: 700; }
   .clear-cursor { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--surface-raised); color: var(--text-muted); cursor: pointer; }

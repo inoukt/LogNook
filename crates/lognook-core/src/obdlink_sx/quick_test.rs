@@ -565,5 +565,6 @@ fn a30_diagnostic_outcome(outcome: &DiagnosticOutcome) -> A30ReadOutcome {
         DiagnosticOutcome::MalformedResponse => A30ReadOutcome::MalformedResponse,
         DiagnosticOutcome::WrongResponder => A30ReadOutcome::WrongResponder,
         DiagnosticOutcome::TransportError => A30ReadOutcome::TemporarilyUnavailable,
+        DiagnosticOutcome::Unsupported => A30ReadOutcome::TemporarilyUnavailable,
     }
 }

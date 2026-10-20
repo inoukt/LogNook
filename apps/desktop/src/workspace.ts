@@ -30,6 +30,7 @@ function normalizeResearchSignalOption(value: unknown): SignalOption | undefined
   const item = value as Record<string, unknown>;
   const validId = typeof item.id === "string"
     && (/^oem:[A-Za-z0-9._:-]{1,192}$/i.test(item.id)
+      || /^subaru:[A-Za-z0-9._:-]{1,192}$/i.test(item.id)
       || item.id === "a30_mode02_engine_rpm"
       || /^a30_mode06_tid_[0-9a-f]{2}_mid_[0-9a-f]{2}$/i.test(item.id)
       || item.id === "obdlink_sx_mode02_engine_rpm"

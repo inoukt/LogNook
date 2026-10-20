@@ -6,6 +6,7 @@ use crate::{
     oem_catalog::{OemCandidateTrySpec, OemPollPlan},
     pipeline::SampleSender,
 };
+use crate::derived::CompiledDerivedSignal;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
@@ -37,6 +38,7 @@ enum WorkerCommand {
     ReplaceSignals(
         Vec<SignalDefinition>,
         Option<OemPollPlan>,
+        Vec<CompiledDerivedSignal>,
         mpsc::Sender<Result<(), LogNookError>>,
     ),
     ProfileIdentityReads(
@@ -48,6 +50,7 @@ enum WorkerCommand {
         Arc<AtomicBool>,
         mpsc::Sender<Result<Vec<DiagnosticRead>, LogNookError>>,
     ),
+    ClearVehicleDtcs(mpsc::Sender<Result<Vec<DiagnosticRead>, LogNookError>>),
 }
 
 pub(crate) struct AcquisitionHandle {
@@ -179,10 +182,11 @@ impl AcquisitionHandle {
         &self,
         signals: Vec<SignalDefinition>,
         oem_plan: Option<OemPollPlan>,
+        derived_signals: Vec<CompiledDerivedSignal>,
     ) -> Result<(), LogNookError> {
         let (reply, response) = mpsc::channel();
         self.commands
-            .send(WorkerCommand::ReplaceSignals(signals, oem_plan, reply))
+            .send(WorkerCommand::ReplaceSignals(signals, oem_plan, derived_signals, reply))
             .map_err(|_| LogNookError::new("Acquisition worker has stopped"))?;
         response
             .recv()
@@ -224,6 +228,21 @@ impl AcquisitionHandle {
         let (reply, response) = mpsc::channel();
         self.commands
             .try_send(WorkerCommand::ProfileIdentityQuery(query, cancelled, reply))
+            .map_err(|error| match error {
+                mpsc::TrySendError::Full(_) => LogNookError::new("Acquisition worker is busy"),
+                mpsc::TrySendError::Disconnected(_) => {
+                    LogNookError::new("Acquisition worker has stopped")
+                }
+            })?;
+        Ok(response)
+    }
+
+    pub(crate) fn queue_clear_vehicle_dtcs(
+        &self,
+    ) -> Result<mpsc::Receiver<Result<Vec<DiagnosticRead>, LogNookError>>, LogNookError> {
+        let (reply, response) = mpsc::channel();
+        self.commands
+            .try_send(WorkerCommand::ClearVehicleDtcs(reply))
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => LogNookError::new("Acquisition worker is busy"),
                 mpsc::TrySendError::Disconnected(_) => {
@@ -323,9 +342,9 @@ fn run(
         }
         if pending
             .as_ref()
-            .is_some_and(|command| matches!(command, WorkerCommand::ReplaceSignals(_, _, _)))
+            .is_some_and(|command| matches!(command, WorkerCommand::ReplaceSignals(_, _, _, _)))
         {
-            let Some(WorkerCommand::ReplaceSignals(replacement, replacement_oem_plan, reply)) =
+            let Some(WorkerCommand::ReplaceSignals(replacement, replacement_oem_plan, derived_signals, reply)) =
                 pending.take()
             else {
                 unreachable!("selection replacement command was checked above")
@@ -340,6 +359,10 @@ fn run(
                     let _ = reply.send(Err(error));
                     continue;
                 }
+            }
+            if let Err(error) = output.set_derived_signals(derived_signals) {
+                let _ = reply.send(Err(error));
+                continue;
             }
             signals = replacement;
             signal_ids = signals.iter().map(|signal| signal.id.clone()).collect();
@@ -517,6 +540,9 @@ fn run(
                     // Request errors belong to the caller. A subsequent poll detects link loss.
                     let _ = reply.send(adapter.execute_research_test(request));
                 }
+                WorkerCommand::ClearVehicleDtcs(reply) => {
+                    let _ = reply.send(adapter.clear_vehicle_dtcs());
+                }
                 WorkerCommand::RawCommand(request, reply) => {
                     let _ = reply.send(adapter.execute_raw_command(request));
                 }
@@ -527,7 +553,7 @@ fn run(
                 WorkerCommand::ProfileIdentityQuery(query, cancelled, reply) => {
                     let _ = reply.send(read_profile_identity_query(adapter, &query, &cancelled));
                 }
-                WorkerCommand::ReplaceSignals(_, _, _)
+                WorkerCommand::ReplaceSignals(_, _, _, _)
                 | WorkerCommand::ProfileIdentityReads(_, _) => {
                     unreachable!("profile worker commands are handled before adapter I/O")
                 }
@@ -601,12 +627,12 @@ fn poll_oem_group(
     status: &Mutex<OemPollingStatus>,
     last_success: &mut Option<Instant>,
 ) -> Option<bool> {
-    let Some(first) = group.first() else {
+    if group.is_empty() {
         return Some(true);
-    };
+    }
     let signal_ids = group
         .iter()
-        .map(|spec| format!("oem:{}", spec.candidate.candidate_id))
+        .map(oem_candidate_signal_id)
         .collect::<Vec<_>>();
     diagnostic_sink(DiagnosticProgress {
         adapter_id: adapter_id.map(str::to_owned),
@@ -620,16 +646,16 @@ fn poll_oem_group(
         consecutive_failures: None,
     });
     let started = Instant::now();
-    let result = adapter.execute_research_test(ResearchTestRequest::OemCandidate(first.clone()));
+    let result = adapter.execute_oem_poll_group(group);
     let mut request_succeeded = false;
     let mut samples_published = 0;
     let mut failed_signals = 0;
     let mut last_error = None;
     let mut out_of_range = false;
     let mut latency_ms = None;
-    let mut transient = None;
+    let transient;
     match result {
-        Ok(ResearchTestResult::OemCandidate(base)) => {
+        Ok(base) => {
             latency_ms = Some(base.latency_ms);
             for spec in group {
                 let mut candidate_result = base.clone();
@@ -669,22 +695,18 @@ fn poll_oem_group(
                         .as_nanos()
                         .min(i64::MAX as u128) as i64,
                     wall_time_unix_ns,
-                    source_id: format!(
-                        "oem:{}:{}:{}@{}:{}{}:{}>{}",
+                    source_id: oem_candidate_sample_source_id(
                         vehicle_id,
-                        base.adapter.stable_id,
-                        spec.candidate.source_id,
-                        spec.candidate.source_blob_sha,
-                        spec.candidate.service,
-                        spec.candidate.identifier,
-                        spec.candidate.request_header,
-                        spec.candidate.response_header,
+                        &base.adapter.stable_id,
+                        spec,
                     ),
                     ecu_id: candidate_result.responder_header.clone(),
-                    signal_id: format!("oem:{}", spec.candidate.candidate_id),
+                    signal_id: oem_candidate_signal_id(spec),
                     value,
                     unit: spec.candidate.unit.clone(),
-                    quality: if decoded.within_catalog_range == Some(false) {
+                    quality: if spec.local_subaru_catalog_sha256().is_some()
+                        || decoded.within_catalog_range == Some(false)
+                    {
                         SampleQuality::Suspect
                     } else {
                         SampleQuality::Valid
@@ -707,10 +729,6 @@ fn poll_oem_group(
             if !request_succeeded && last_error.is_none() {
                 last_error = Some(candidate_error(&base));
             }
-        }
-        Ok(_) => {
-            last_error = Some("Adapter returned an unexpected OEM result type".into());
-            failed_signals = group.len() as u64;
         }
         Err(error) => {
             transient = Some(error.is_transient());
@@ -761,6 +779,46 @@ fn poll_oem_group(
         consecutive_failures: None,
     });
     Some(healthy)
+}
+
+fn oem_candidate_signal_id(spec: &OemCandidateTrySpec) -> String {
+    if spec.local_subaru_catalog_sha256().is_some() {
+        format!("subaru:{}", spec.candidate.candidate_id)
+    } else {
+        format!("oem:{}", spec.candidate.candidate_id)
+    }
+}
+
+fn oem_candidate_sample_source_id(
+    vehicle_id: &str,
+    adapter_id: &str,
+    spec: &OemCandidateTrySpec,
+) -> String {
+    if let Some(catalog_sha256) = spec.local_subaru_catalog_sha256() {
+        format!(
+            "subaru:{}:{}:{}@{}:{}{}:{}>{}",
+            vehicle_id,
+            adapter_id,
+            spec.candidate.source_id,
+            catalog_sha256,
+            spec.candidate.service,
+            spec.candidate.identifier,
+            spec.candidate.request_header,
+            spec.candidate.response_header,
+        )
+    } else {
+        format!(
+            "oem:{}:{}:{}@{}:{}{}:{}>{}",
+            vehicle_id,
+            adapter_id,
+            spec.candidate.source_id,
+            spec.candidate.source_blob_sha,
+            spec.candidate.service,
+            spec.candidate.identifier,
+            spec.candidate.request_header,
+            spec.candidate.response_header,
+        )
+    }
 }
 
 fn next_oem_poll_interval(current: Duration, healthy: bool) -> Duration {
@@ -1066,6 +1124,7 @@ mod tests {
 
     fn polling_candidate(candidate_id: &str, bit_offset: u32) -> OemCandidateTrySpec {
         OemCandidateTrySpec {
+            source_policy: crate::OemCandidateSourcePolicy::IndexedPack,
             candidate: OemCandidate {
                 candidate_id: candidate_id.into(),
                 source_id: "fixture-source".into(),
@@ -1591,6 +1650,7 @@ mod tests {
                 },
                 protocol: "test".into(),
                 read_only: true,
+                diagnostics: Default::default(),
                 supported_signals: Vec::new(),
             })
         }

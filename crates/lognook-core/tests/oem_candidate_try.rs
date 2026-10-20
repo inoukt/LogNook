@@ -12,6 +12,7 @@ fn spec(
     decoder: &str,
 ) -> OemCandidateTrySpec {
     OemCandidateTrySpec {
+        source_policy: lognook_core::OemCandidateSourcePolicy::IndexedPack,
         candidate: OemCandidate {
             candidate_id: "candidate-1".into(),
             source_id: "SCION_SOURCE".into(),

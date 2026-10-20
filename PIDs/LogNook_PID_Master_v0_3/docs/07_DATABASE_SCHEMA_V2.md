@@ -97,3 +97,18 @@ Recommended validation states:
 - `ecu_variant_verified`
 
 Automatic presets should require the appropriate verified state for manufacturer-specific data.
+
+## Subaru catalog schema extension 1
+
+The Subaru source uses separate tables because its source rows include proprietary memory/protocol families and inferred request hints that do not fit a verified Mode 21/22 candidate. Importing it does not create rows in `oem_candidates`.
+
+- `subaru_source_releases` stores the neutral display name, source revision, local export SHA-256, licensing state, source URL when known, and original package metadata JSON. The local hash pins this export file; it is not an upstream Git blob SHA.
+- `subaru_vehicle_specs` and `subaru_ecu_definitions` preserve source vehicle/ECU metadata. Vehicle display labels omit source-tool suffixes; raw labels stay in the internal metadata JSON. Invalid year ranges are retained as raw JSON with `year_range_state='unresolved'` and no interpreted start/end year.
+- `subaru_vehicle_ecu_links` preserves source applicability and per-vehicle addressing metadata.
+- `subaru_signal_definitions` stores one canonical raw monitor row per `(source_table, source_row_ordinal)`: 20,855 rows in the current export.
+- `subaru_signal_ecu_links` preserves all 45,364 ECU-scoped rows, including aliases, table provenance, and source-row context without repeating the full decoder JSON.
+- `subaru_request_hints` keeps the service/identifier hint separate from decoded channels. Every mapping is `inferred`; the source export does not retain the underlying communication-support record needed to treat it as a verified request.
+- `subaru_orphan_tables` records the source table names/counts that have no vehicle link; it does not invent missing decoder contents.
+- `subaru_catalog_search` joins definitions to ECU, request-hint, source, and vehicle-scope metadata. Use `LIMIT`/`OFFSET` for paging and filter vehicle applicability through `EXISTS` on `subaru_vehicle_ecu_links` and `subaru_vehicle_specs` to avoid multiplying results.
+
+All rows return `auto_request=0`, `vehicle_validation='not_tested'`, and `research_state='review_required'`. Manual testing is controlled by the application gate and explicit operator action; the database import alone never authorizes a request. The source license is not cleared, no source URL is recorded, and these data are not approved for redistribution.
