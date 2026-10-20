@@ -103,10 +103,15 @@ export function compareCanEventSnapshots(
     return { ...summary, mode, knownObservations, exactRecurrencePercent: knownObservations ? (mode?.count ?? 0) * 100 / knownObservations : 0 };
   });
   const matching = candidates.filter((row) => matchesId(row.can_id, row.extended, idFilter));
-  matching.sort((a, b) => b.exactRecurrencePercent - a.exactRecurrencePercent
-    || b.totalFrames - a.totalFrames
-    || Number(a.extended) - Number(b.extended)
-    || a.can_id - b.can_id);
+  matching.sort((a, b) => {
+    const aHasRecurrenceEvidence = a.knownObservations >= 2;
+    const bHasRecurrenceEvidence = b.knownObservations >= 2;
+    return Number(bHasRecurrenceEvidence) - Number(aHasRecurrenceEvidence)
+      || (aHasRecurrenceEvidence ? b.exactRecurrencePercent - a.exactRecurrencePercent : 0)
+      || b.totalFrames - a.totalFrames
+      || Number(a.extended) - Number(b.extended)
+      || a.can_id - b.can_id;
+  });
 
   const messageMaps = windows.map((window) => new Map(window.messages.map((message) => [idKey(message.can_id, message.extended), message])));
   const rows = matching.slice(0, Math.max(0, rowLimit)).map((summary) => {

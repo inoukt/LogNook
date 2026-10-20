@@ -259,7 +259,7 @@ fn v2_migration_preserves_existing_profile_and_manual_transmission_actor() {
     }
     {
         let db = Connection::open(&path).unwrap();
-        db.execute_batch("DROP TABLE custom_signal_presets; DROP TABLE preset_picker_state; PRAGMA user_version=2;").unwrap();
+        db.execute_batch("DROP TABLE vehicle_project_registry; DROP TABLE vehicle_project_workspaces; DROP TABLE custom_signal_presets; DROP TABLE preset_picker_state; PRAGMA user_version=2;").unwrap();
     }
     let store = VehicleProfileStore::open(&path).unwrap();
     assert_eq!(store.get("flex-profile").unwrap().unwrap().name, "Flex");
@@ -283,7 +283,7 @@ fn v2_migration_preserves_existing_profile_and_manual_transmission_actor() {
     let version: i64 = db
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     drop(db);
     let _ = std::fs::remove_file(path);
 }

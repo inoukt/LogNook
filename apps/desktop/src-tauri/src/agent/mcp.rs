@@ -621,6 +621,7 @@ mod tests {
                 "try_mode06_test",
                 "try_oem_candidate",
                 "vehicle_profiles",
+                "vehicle_projects",
                 "workbench",
             ]
         );

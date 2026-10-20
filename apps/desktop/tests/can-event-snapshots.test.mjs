@@ -150,6 +150,17 @@ test("one known observation keeps payload visible but gates relation color and r
   assert.match(dialogSource, /Payload relation needs at least two known observations/);
 });
 
+test("one-observation rows do not outrank rows with recurrence evidence", () => {
+  const rows = rowsFor([
+    window(1, "complete", [[42, false, [0x2a], 100], [7, false, [0x07]]]),
+    window(2, "complete", [[7, false, [0x07]]], 1),
+  ]);
+  assert.equal(rows[0].can_id, 7);
+  assert.equal(rows[0].known_observations, 2);
+  assert.equal(rows[1].can_id, 42);
+  assert.equal(rows[1].known_observations, 1);
+});
+
 test("exact recurrence is graded, similar is amber, and different stays neutral", () => {
   assert.match(dialogSource, /\.cell-exact \{ background:color-mix\(in srgb,#164a3d var\(--exact-strength,0%\),var\(--surface\)\)/);
   assert.match(dialogSource, /\.legend-similar,\.cell-similar \{ background:#554318/);
@@ -167,6 +178,11 @@ test("ID-rate and ASCII help titles follow the help-bubble preference", () => {
   assert.match(panelSource, /<th title=\{\$canHelpBubblesEnabled \? "Average received frame rate for this CAN ID" : undefined\}>ID Hz<\/th>/);
   assert.match(panelSource, /<th title=\{\$canHelpBubblesEnabled \? "Printable characters are colored by category; dots represent nonprintable bytes" : undefined\}>ASCII<\/th>/);
   assert.doesNotMatch(panelSource, /<th title="(?:Average received frame rate|Printable characters are colored)/);
+});
+
+test("frame-byte tooltips follow the help-bubble preference", () => {
+  assert.match(panelSource, /can-hex-byte" style=\{`--byte-hue:\$\{byteHue\(byte\)\}deg`\} title=\{\$canHelpBubblesEnabled \? `Byte \$\{byteIndex\}: 0x/);
+  assert.match(panelSource, /can-ascii-\$\{asciiCategory\(byte\)\}`\} title=\{\$canHelpBubblesEnabled \? `Byte \$\{byteIndex\}: 0x/);
 });
 
 test("selected comparison invalidates when the live capture disappears or changes", () => {

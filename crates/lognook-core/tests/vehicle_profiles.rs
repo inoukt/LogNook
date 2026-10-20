@@ -372,7 +372,7 @@ fn v1_migration_preserves_all_profile_data_and_creates_hash_only_identity() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     assert_eq!(state, "legacy_hash_only");
     drop(db);
     std::fs::remove_file(path).unwrap();
