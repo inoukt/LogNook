@@ -16,6 +16,8 @@
   import { mergeDiagnostics, supportBundleArgs } from "./diagnostics";
   import SignalGraphs from "./SignalGraphs.svelte";
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
+  import CatalogSignalInspector from "./CatalogSignalInspector.svelte";
+  import type { CatalogInspection } from "./catalogInspection";
   import { prepareSubaruWorkbench, type SubaruWorkbenchCandidate, type SubaruWorkbenchSelection } from "./subaruWorkbench";
 import type { SubaruCatalogRow } from "./subaruCatalog";
   import ResearchRunResults from "./ResearchRunResults.svelte";
@@ -149,6 +151,12 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
   let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
   let pidPickerView: "signals" | "oem" | "can" = "signals";
+  let catalogInspection: CatalogInspection | null = null;
+  let catalogInspectorHidden = false;
+  function inspectCatalogSignal(next: CatalogInspection | null) {
+    if (next?.id !== catalogInspection?.id) catalogInspectorHidden = false;
+    catalogInspection = next;
+  }
   let subaruWorkbenchSelection: SubaruWorkbenchSelection | null = null;
   let subaruSelectionToken = 0;
 
@@ -2273,7 +2281,7 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
 <div class="app-shell" data-theme={theme} data-high-contrast={highContrast} style={`--status-height:${statusHeight}px;--ui-scale-factor:${uiScale / 100}`}>
   <header class="topbar">
     <a class="brand" href="/" aria-label="LogNook home"><span class="brand-mark">L</span><span>Log<span class="brand-accent">Nook</span></span></a>
-    <div class="connection-state" aria-label={status} title={status}><span class:online={connected} class:replay={replaying} class="state-dot"></span></div>
+    <div class="connection-state" aria-label={status} title={status}><span class:online={connected} class:replay={replaying} class="state-dot"></span><span class="connection-label">{replaying ? "Replay" : connected ? "Connected" : "Disconnected"}</span></div>
     <SettingsPanel
       bind:wheelScrubbing
       bind:theme
@@ -2290,12 +2298,15 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
       onAgentLock={lockAgentAccess}
       agentSetupJson={agentSetupJson}
     />
+    <div class="topbar-tool-group" role="group" aria-label="Vehicle tools">
     <button class="button secondary" title="Vehicle diagnostics: DTCs, identity and Mode 06" onclick={() => vehicleDiagnosticsOpen = true}>Diagnostics</button>
     <button class="button secondary" title="Saved vehicle and ECU signal selections" onclick={openVehicleProfiles}>Profiles</button>
     <button class="button secondary" title="Browse diagnostic signal recipes" onclick={openSignalPresets}>Presets</button>
-    <div class="session-tools">
+    </div>
+    <div class="session-tools" role="group" aria-label="Session tools">
+      <span class="toolbar-label">Sessions</span>
       <details class="session-browser-details topbar-session-browser" bind:open={sessionBrowserOpen}>
-        <summary aria-label="Browse saved sessions" title="Browse saved sessions">Browse saved sessions</summary>
+        <summary aria-label="Browse saved sessions" title="Browse saved sessions">Saved sessions</summary>
         <SessionBrowser open={sessionBrowserOpen} disabled={busy || recording || researchRunView.running} openDisabled={connected || recording || researchRunView.running} onOpen={openSavedRecording} onShare={shareRecording} onSaveAs={saveRecordingAs} />
       </details>
       {#if !session}
@@ -2404,27 +2415,18 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
     <section class="workspace-toolbar" aria-label="Acquisition controls">
       <div class="workspace-title"><p class="eyebrow">LIVE WORKSPACE</p><h1>Acquisition</h1></div>
       <div class="toolbar-groups">
-        <div class="toolbar-group utility-group" role="group" aria-label="Graph and data tools">
+        <div class="toolbar-group utility-group" role="group" aria-label="Graph display controls">
           <div class="mode-control">
-            <span class="toolbar-label">GRAPH VIEW</span>
+            <span class="toolbar-label">View</span>
             <div class="mode-switch" role="group" aria-label="Graph view">
               <button class:active={graphMode === "overlay"} aria-pressed={graphMode === "overlay"} onclick={() => graphMode = "overlay"}>Combined</button>
               <button class:active={graphMode === "separate"} aria-pressed={graphMode === "separate"} onclick={() => graphMode = "separate"}>Separate</button>
             </div>
           </div>
-          <div class="session-actions">
-            {#if recording}
-              <input class="text-input toolbar-input" bind:value={markerNote} placeholder="Marker note (optional)" aria-label="Marker note" disabled={busy} />
-              <button class="button secondary" onclick={insertLiveMarker} disabled={busy}>＋ Marker</button>
-            {:else if connected && !session}
-              <button class="button secondary" onclick={exportLiveCsv} disabled={busy || !hasLiveCsvSamples} title="Save the retained live samples for logged signals as CSV">Save CSV</button>
-            {:else}
-              <button class="button secondary" onclick={exportCsv} disabled={busy || (!recordingPath && !session)} title="Export recorded data as CSV" aria-label="Export CSV">Export</button>
-            {/if}
-          </div>
         </div>
         <span class="toolbar-divider" aria-hidden="true"></span>
-        <div class="toolbar-group connection-actions" role="group" aria-label="Connection and recording controls">
+        <div class="toolbar-group connection-actions" role="group" aria-label="Connection controls">
+          <span class="toolbar-label">Connection</span>
           {#if obdConnected}
             <button class="button secondary" onclick={disconnect} disabled={busy || researchRunView.running}>Disconnect OBD</button>
           {:else}
@@ -2477,12 +2479,25 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
             {/if}
             <button class="button primary" onclick={connectSelectedAdapter} disabled={connectionControls.connectDisabled} title={connectionControls.connectLabel} aria-label={connectionControls.connectLabel}>Connect</button>
           {/if}
+        </div>
+        <div class="toolbar-group acquisition-actions" role="group" aria-label="Acquisition and data controls">
+          <span class="toolbar-label">Acquisition</span>
           {#if recording}
             <button class="button danger" onclick={stopRecording} disabled={busy || researchRunView.running} title="Stop recording" aria-label="Stop recording">Stop</button>
           {:else}
             <button class="button record" onclick={startRecording} disabled={busy || !connected || replaying}>● Record</button>
             <button class="button record" onclick={recordFromConnect} disabled={busy || !connected || replaying} title="Record available decoded samples since connection, then continue live. Memory holds at most 100,000 samples; earlier data may be unavailable. Raw CAN frames need Capture.">Rec From Connect</button>
           {/if}
+          <div class="session-actions">
+            {#if recording}
+              <input class="text-input toolbar-input" bind:value={markerNote} placeholder="Marker note (optional)" aria-label="Marker note" disabled={busy} />
+              <button class="button secondary" onclick={insertLiveMarker} disabled={busy}>＋ Marker</button>
+            {:else if connected && !session}
+              <button class="button secondary" onclick={exportLiveCsv} disabled={busy || !hasLiveCsvSamples} title="Save the retained live samples for logged signals as CSV">Save CSV</button>
+            {:else}
+              <button class="button secondary" onclick={exportCsv} disabled={busy || (!recordingPath && !session)} title="Export recorded data as CSV" aria-label="Export CSV">Export</button>
+            {/if}
+          </div>
         </div>
       </div>
     </section>
@@ -2526,7 +2541,7 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
       />
     </dialog>
 
-    <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible}>
+    <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible} class:oem-companion={!session && pidPickerView === "oem"}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible} disabled={researchRunView.running}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
         <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><div style="display:flex; align-items:center; gap:6px;"><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2>{#if !session && pidPickerView === "can"}<CanHelp />{/if}</div></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
@@ -2568,6 +2583,7 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
         {:else if pidPickerView === "oem"}
         {#key vehicleWorkspaceRestoreToken}
         <OemCatalogPanel
+          onInspect={inspectCatalogSignal}
           savedWorkspaceFilters={vehicleCatalogFilters}
           onWorkspaceFiltersChange={updateVehicleProjectFilters}
           subaruDisabled={busy || replaying || session !== null || canScanRunning || canIdReplayActive || researchRunView.running}
@@ -2612,7 +2628,7 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
         />
       </aside>
 
-      <section class="measurements" class:can-split={!session && pidPickerView === "can"} style={`--can-monitor-height:${canMonitorHeight}px`} bind:this={measurementsElement} aria-label="Measurements">
+      <section class="measurements" class:can-split={!session && pidPickerView === "can"} class:oem-companion={!session && pidPickerView === "oem"} style={`--can-monitor-height:${canMonitorHeight}px`} bind:this={measurementsElement} aria-label="Measurements">
         {#if !session && pidPickerView === "can"}
           <CanTrafficPanel
             frames={canFrames}
@@ -2657,12 +2673,21 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
           </div>
         {/if}
         {#if !session && pidPickerView === "oem"}
+          {#if catalogInspection && !catalogInspectorHidden}
+            <CatalogSignalInspector inspection={catalogInspection} onClose={() => catalogInspectorHidden = true} />
+          {:else if catalogInspection}
+            <button class="catalog-inspector-reopen" type="button" onclick={() => catalogInspectorHidden = false}>Show details · {catalogInspection.name}</button>
+          {:else}
+            <p class="catalog-inspector-hint">Select a signal name to inspect its result, route and decoder beside the graph.</p>
+          {/if}
+          {#if researchRunView.totalCount > 0 || researchRunView.running}
           <ResearchRunResults
             state={researchRunView}
             exportDisabled={reportExporting}
             exportPath={researchReportExportPath}
             onExport={exportResearchRunReport}
           />
+          {/if}
         {/if}
       </section>
     </div>

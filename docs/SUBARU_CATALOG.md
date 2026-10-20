@@ -13,9 +13,10 @@ mapping confidence, decoder fields and physical vehicle validation are distinct.
    needed. This name is shared by the catalog, MCP and Live logging. Use the
    model/year and ECU filters to narrow applicability. Entries without a source
    name sort after named entries across all pages of the current filtered
-   results. Source/decoder details load
-   only when expanded. Cards show a compact vehicle preview; `+ N more` expands
-   the full applicability list. **Details** opens decoder and source metadata.
+   results. Source/decoder details load when a signal name is selected. Compact
+   rows show a vehicle preview; the inspector below the graph holds the full
+   applicability list, decoder and source metadata under **Decoder,
+   applicability and source**.
 3. Inspect the ECU route and request hint. An inferred hint is a research lead;
    the row's own DID is not necessarily the request identifier for that signal.
 4. For an FHI-CAN entry with a supported decoder, choose **Add to Live**. Connect an OBD

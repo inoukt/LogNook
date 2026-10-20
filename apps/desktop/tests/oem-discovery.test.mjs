@@ -18,6 +18,27 @@ test("discovery value sorting puts finite values first and keeps zero", () => {
   ]);
 });
 
+test("explicit OEM read presentation preserves zero and distinguishes raw replies and failed reads", () => {
+  const result = { candidate_id: "signal", outcome: "positive", decoded_value: { value: 0, unit: "kPa", enum_value: null }, error: null, decode_error: null, evidence_saved: true };
+  const value = discovery.oemReadDiscoveryResult(result, "source-revision");
+  assert.equal(value.state, "value");
+  assert.equal(value.value, 0);
+  assert.equal(value.source_blob_sha, "source-revision");
+  assert.equal(value.evidence_saved, true);
+  assert.equal(discovery.oemReadDiscoveryResult({ ...result, decoded_value: null }, "sha").state, "reply");
+  assert.equal(discovery.oemReadDiscoveryResult({ ...result, decoded_value: { ...result.decoded_value, value: Number.NaN } }, "sha").value, null);
+  for (const outcome of ["negative_response", "response_pending", "session_required", "security_required", "temporarily_unavailable"]) {
+    const response = discovery.oemReadDiscoveryResult({ ...result, outcome }, "sha");
+    assert.equal(response.state, "negative");
+    assert.equal(response.outcome, outcome);
+    assert.equal(response.value, null);
+  }
+  assert.equal(discovery.oemReadDiscoveryResult({ ...result, outcome: "no_response" }, "sha").state, "no_response");
+  const malformed = discovery.oemReadDiscoveryResult({ ...result, outcome: "malformed_response", decode_error: "short payload" }, "sha");
+  assert.equal(malformed.state, "error");
+  assert.equal(malformed.detail, "short payload");
+});
+
 test("discovery responses are current only for the same adapter connection generation", () => {
   assert.ok(discovery, "OEM discovery helpers are available");
   const status = { adapter_id: "simulator:1", connection_generation: 7 };

@@ -480,7 +480,7 @@ test("OEM catalog can launch a source-backed CAN candidate through the serialize
   assert.match(app, /canCandidateDisabled=\{!canTransmitEnabled\(canWorkbenchStatus, canCaptureOpen\)/, "the CAN action requires an active connection and open paired capture");
   assert.match(app, /const spec = await invoke<OemCandidateTrySpec>\("start_can_oem_candidate", \{ candidateId \}\);[\s\S]*?graphResearchCandidate\(spec\.candidate\)/, "CAN reads add the catalog-decoded signal to the live graph");
   assert.match(commands, /start_can_oem_candidate\(spec\.clone\(\)\)/, "the backend passes the exact catalog spec to the serialized CAN worker");
-  assert.match(oemPanel, /disabled=\{canCandidateDisabled\}/, "the OEM candidate action obeys the CAN transmit gate");
+  assert.match(oemPanel, /disabled:\s*canCandidateDisabled/, "the inspector CAN action obeys the CAN transmit gate");
 });
 
 test("saved capture reports expose timing hypotheses, comparisons, and unverified DBC export", async () => {

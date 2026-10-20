@@ -61,7 +61,7 @@ test("mixed_validity_queue_continues_past_local_rejections", async () => {
   includes(panel, /const candidateDeviceAtStart = currentCandidateDevice\(\)/, "candidate eligibility uses the device selected at run start");
   includes(panel, /const selectedAdapterAtStart = selectedAdapter/, "the target adapter remains stable for the whole run");
   includes(panel, /kind:\s*"ineligible"/, "a local eligibility rejection is a row outcome, not a transport failure");
-  includes(panel, /oem-disabled-reason[\s\S]*?tryState\.reason/, "disabled Try once controls explain their eligibility reason");
+  includes(panel, /disabled:\s*tryState\.disabled,[\s\S]*?title:\s*tryState\.reason/, "disabled inspector Try once controls retain their eligibility reason");
   includes(results, /if \(row\.error\) return row\.error/, "local rejection reasons are visible in the results table");
 });
 

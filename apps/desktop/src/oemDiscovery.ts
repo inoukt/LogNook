@@ -1,4 +1,4 @@
-import type { OemCatalogPage } from "./types";
+import type { OemCatalogPage, OemCandidateTryResult } from "./types";
 
 export type OemDiscoveryState = "queued" | "running" | "value" | "reply" | "no_response" | "negative" | "error" | "unsupported";
 
@@ -38,6 +38,25 @@ export type OemDiscoveryResponse = {
   page?: OemCatalogPage | null;
   results: OemDiscoveryResult[];
 };
+
+/** Present an explicit one-shot result alongside background discovery evidence. */
+export function oemReadDiscoveryResult(result: OemCandidateTryResult, sourceBlobSha: string): OemDiscoveryResult {
+  const numeric = result.outcome === "positive" && Number.isFinite(result.decoded_value?.value);
+  const state: OemDiscoveryState = numeric ? "value"
+    : result.outcome === "positive" ? "reply"
+      : result.outcome === "no_response" ? "no_response"
+        : ["negative_response", "response_pending", "temporarily_unavailable", "session_required", "security_required"].includes(result.outcome) ? "negative" : "error";
+  return {
+    candidate_id: result.candidate_id,
+    state,
+    outcome: result.outcome,
+    value: numeric ? result.decoded_value!.value : null,
+    unit: result.decoded_value?.unit ?? "",
+    detail: result.error ?? result.decode_error ?? result.decoded_value?.enum_value ?? null,
+    source_blob_sha: sourceBlobSha,
+    evidence_saved: result.evidence_saved,
+  };
+}
 
 export function oemDiscoveryFilter(query: string, brand: string, model: string, service: string): OemDiscoveryFilter {
   return {

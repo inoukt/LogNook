@@ -1,10 +1,28 @@
 # LogNook project status
 
-- 2026-10-19: Source snapshot for the current version excludes the owner-supplied
-  PIDs/CatalogV2 data pack and locally enriched PID SQLite database from Git
-  publication, per docs/SUBARU_CATALOG.md. The enriched authoritative file remains
-  intact on this PC; Git retains the previously published base catalog. Importer,
-  schema extension, application integration and documentation are included.
+- 2026-10-19: The OEM browser now uses a graph companion layout: compact
+  Community/Subaru rows, a wider result pane, counted optional filters and a
+  selected-signal inspector beneath the existing graph. Community With values
+  filters finite numeric results on the current page (including zero); Selected
+  retains the research queue across pages. Explicit one-shot outcomes update
+  row/inspector presentation for the current adapter connection. Connection,
+  Acquisition and Sessions actions are grouped and wrap on narrow windows.
+  This is presentation-only over existing typed MCP search/read/discovery/logging
+  operations; no additional MCP operation is needed. See docs/OEM_BROWSER.md.
+  UI tests: 253 passed. Svelte check: 0 errors / 0 warnings; Vite build passed
+  with the existing chunk-size advisory. Browser fixture checks covered row
+  switching, queue selection, filter badges, inspector hide/reopen, Subaru lazy
+  details and widths 1440/760/520 without horizontal page overflow or read/start
+  commands. Physical hardware was not exercised for this UI change.
+  Packaged-protocol release build passed and produced
+  target/release/lognook-desktop.exe (34,254,848 bytes). The temporary Vite server
+  was stopped before opening this executable for local review.
+
+- 2026-10-19: The enriched authoritative PID SQLite database is versioned through
+  Git LFS following owner authorization (PR #4). The PIDs/CatalogV2 source data
+  directory remains ignored. Imported provenance, licensing metadata and
+  validation states are preserved as supplied; inclusion does not promote rows
+  to verified vehicle compatibility. Fresh checkouts need Git LFS to hydrate it.
 
 - 2026-10-19: VIN vehicle projects reuse profiles.sqlite schema v4, with one
   canonical project per scope/VIN, a basic supported generic signal preset,

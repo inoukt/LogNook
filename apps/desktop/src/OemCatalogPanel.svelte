@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import type { CatalogInspection } from "./catalogInspection";
   import SubaruCatalogPanel from "./SubaruCatalogPanel.svelte";
   import type { SubaruCatalogRow } from "./subaruCatalog";
   import { oemCandidateTryState } from "./oemCandidateControls";
   import {
     isCurrentOemDiscoveryConnection, nextVisibleOemCandidateIds, oemDiscoveryFilter,
-    oemDiscoveryPresentation, sortOemDiscoveryResults, uniqueCandidateIds,
+    oemDiscoveryPresentation, oemReadDiscoveryResult, sortOemDiscoveryResults, uniqueCandidateIds,
     updateVisibleOemCandidateIds,
     type OemDiscoveryResponse, type OemDiscoveryResult, type OemDiscoveryStatus,
   } from "./oemDiscovery";
@@ -30,12 +31,21 @@
   export let onGraphCandidate: (candidate: OemCandidate) => void = () => {};
   export let onTryCanCandidate: (candidateId: string) => void = () => {};
   export let onGraphReadValue: (value: A30GraphValue) => void = () => {};
+  export let onInspect: (inspection: CatalogInspection | null) => void = () => {};
   export let onRunUpdate: (state: ResearchRunViewState) => void = () => {};
   export let onSubaruSelect: (row: SubaruCatalogRow) => void = () => {};
   export let onAddSubaruSignal: (row: SubaruCatalogRow) => void = () => {};
   export let savedWorkspaceFilters: Record<string, unknown> = {};
   export let onWorkspaceFiltersChange: (filters: Record<string, unknown>) => void = () => {};
   let catalogSource: "community" | "subaru" = "community";
+  let browseView: "all" | "values" | "selected" = "all";
+  let filtersOpen = false;
+  let inspectedCandidate: OemCandidate | null = null;
+  let selectedOffset = 0;
+  let selectedCandidates: OemCandidate[] = [];
+  let visibleCandidates: OemCandidate[] = [];
+  let valueCount = 0;
+  let activeFilterCount = 0;
   let filtersReady = false;
 
   const pageSize = 50;
@@ -116,6 +126,94 @@
   $: visibleDiscoveryResults = sortOemDiscoveryResults(
     page?.candidates.flatMap(({ candidate_id }) => discoveryResults[candidate_id] ? [discoveryResults[candidate_id]] : []) ?? [],
   );
+  $: selectedCandidates = selectedCandidateIds
+    .flatMap((id) => selectedCandidateMetadata[id] ? [selectedCandidateMetadata[id]] : []);
+  $: selectedOffset = Math.min(selectedOffset, Math.max(0, Math.floor(Math.max(0, selectedCandidates.length - 1) / pageSize) * pageSize));
+  $: valueCount = (page?.candidates ?? []).filter((candidate) => {
+    const result = discoveryResults[candidate.candidate_id];
+    return result?.state === "value" && Number.isFinite(result.value);
+  }).length;
+  $: activeFilterCount = [brand.trim(), model.trim(), service].filter(Boolean).length;
+  $: visibleCandidates = (browseView === "selected"
+    ? selectedCandidates.slice(selectedOffset, selectedOffset + pageSize)
+    : page?.candidates ?? []).filter((candidate) => {
+      if (browseView !== "values") return true;
+      const result = discoveryResults[candidate.candidate_id];
+      return result?.state === "value" && Number.isFinite(result.value);
+    });
+  $: if (catalogSource === "community") {
+    const inspectedId = inspectedCandidate?.candidate_id;
+    const candidate = inspectedId
+      ? page?.candidates.find((row) => row.candidate_id === inspectedId)
+        ?? selectedCandidateMetadata[inspectedId]
+        ?? inspectedCandidate
+      : null;
+    if (candidate) {
+      const result = discoveryResults[candidate.candidate_id] ?? null;
+      const presentation = oemDiscoveryPresentation(result);
+      const candidateDevice = selectedAdapter === "a30" || selectedAdapter === "elm327"
+        ? selectedBluetoothAddress
+        : selectedPort || activeAdapter?.path || activeAdapter?.stable_id || "";
+      const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || runInProgress, selectedAdapter);
+      const hasValue = result?.state === "value" && Number.isFinite(result.value);
+      const inspection: CatalogInspection = {
+        id: candidate.candidate_id,
+        name: candidate.name,
+        subtitle: `${candidate.brand} ${candidate.model_scope} · ${address(candidate)}`,
+        status: hasValue ? "Numeric response" : presentation.label,
+        tone: presentation.tone === "value" ? "value" : presentation.tone === "failure" ? "warning" : "neutral",
+        value: hasValue ? `${result?.value} ${displayUnit(result?.unit || candidate.unit)}`.trim() : undefined,
+        note: result?.detail ?? (candidate.vehicle_validation === "not_tested"
+          ? "One-shot research · not vehicle verified."
+          : `Validation: ${candidate.vehicle_validation.replaceAll("_", " ")}`),
+        fields: [
+          { label: "Vehicle validation", value: candidate.vehicle_validation.replaceAll("_", " ") },
+          { label: "Module / category", value: candidate.module_type || candidate.category },
+          { label: "Range / unit", value: `${candidate.min_value ?? "—"} to ${candidate.max_value ?? "—"} ${displayUnit(candidate.unit)}` },
+          { label: "Frequency", value: candidate.frequency_hz === null ? "Not supplied" : `${candidate.frequency_hz} Hz` },
+          { label: "Response / evidence", value: result ? `${result.outcome ?? result.state.replaceAll("_", " ")} · ${result.evidence_saved ? "raw saved" : "not saved"}` : "No response recorded" },
+        ],
+        blocks: [
+          { label: "Provenance and applicability", value: [
+            `Source ID: ${candidate.source_id}`,
+            `Source revision: ${candidate.source_blob_sha}`,
+            `License: ${candidate.license ?? "Not specified"}`,
+            `Research state: ${candidate.research_state.replaceAll("_", " ")}`,
+            `Auto-request: ${candidate.auto_request ? "enabled in source metadata" : "disabled"}`,
+            `ECU filter: ${candidate.ecu_filter || "Not specified"}`,
+            `Scope: ${candidate.source_scope || candidate.confidence}`,
+            `Signal source: ${candidate.signal_source_id || "Not specified"}`,
+            `Signal bits: ${candidate.bit_offset !== null && candidate.bit_length !== null ? `${candidate.bit_offset}–${candidate.bit_offset + candidate.bit_length - 1}` : "Not specified"}`,
+          ].join("\n") },
+          { label: "Formula", value: candidate.formula || "Not supplied" },
+          { label: "Decoder payload", value: candidate.decoder_json || "Not supplied" },
+          { label: "Year filter", value: candidate.year_filter_json || "Not supplied" },
+          ...(candidate.notes ? [{ label: "Source notes", value: candidate.notes }] : []),
+          ...(result ? [{ label: "Discovery result", value: JSON.stringify(result, null, 2) }] : []),
+        ],
+        links: [
+          ...(candidate.source_url ? [{ label: "Open source record", url: candidate.source_url }] : []),
+          ...(candidate.license_url ? [{ label: "Open source license", url: candidate.license_url }] : []),
+        ],
+        actions: [
+          { label: "Graph", run: () => onGraphCandidate(candidate), title: "Add this research signal to the graph without sending a request." },
+          {
+            label: runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once",
+            run: () => tryCandidate(candidate),
+            disabled: tryState.disabled,
+            title: tryState.reason || `Send one service ${candidate.service} read through ${adapterTryName()}`,
+          },
+          ...(canConnected ? [{
+            label: "CAN read",
+            run: () => onTryCanCandidate(candidate.candidate_id),
+            disabled: canCandidateDisabled,
+            title: canCandidateDisabled ? "Open an active CAN connection and paired capture, then finish other CAN operations." : "Read this source-backed candidate through the active Candlelight CAN route.",
+          }] : []),
+        ],
+      };
+      onInspect(inspection);
+    }
+  }
   $: syncDiscoveryContext(activeAdapter?.stable_id ?? null, connectionGeneration, disabled);
   $: if (catalogListElement && !candidateObserver) observeCatalogCandidates(catalogListElement);
 
@@ -147,6 +245,7 @@
     window.clearInterval(pollStatusTimer);
     window.clearTimeout(discoveryPollTimer);
     candidateObserver?.disconnect();
+    onInspect(null);
     void stopDiscoveryFor(currentDiscoveryAdapterId, currentDiscoveryGeneration);
   });
 
@@ -526,6 +625,29 @@
     void loadPage();
   }
 
+  function setSelectedPage(nextOffset: number) {
+    if (nextOffset < 0 || nextOffset >= selectedCandidates.length) return;
+    selectedOffset = nextOffset;
+  }
+
+  function setCatalogSource(source: "community" | "subaru") {
+    if (source === catalogSource || catalogSwitchBusy) return;
+    inspectedCandidate = null;
+    onInspect(null);
+    catalogSource = source;
+    browseView = "all";
+    selectedOffset = 0;
+  }
+
+  function inspectCandidate(candidate: OemCandidate) {
+    if (inspectedCandidate?.candidate_id === candidate.candidate_id) {
+      inspectedCandidate = null;
+      onInspect(null);
+    } else {
+      inspectedCandidate = candidate;
+    }
+  }
+
   function selectCandidate(candidate: OemCandidate, selected: boolean) {
     selectedCandidateIds = toggleCandidateSelection(selectedCandidateIds, candidate.candidate_id, selected);
     if (selected) {
@@ -568,6 +690,7 @@
     const adapterAtStart = activeAdapter;
     if (disabled || runInProgress || !items.length || !adapterAtStart) return;
     const adapterSnapshot = { ...adapterAtStart };
+    const connectionAtStart = connectionGeneration;
     const selectedAdapterAtStart = selectedAdapter;
     const candidateDeviceAtStart = currentCandidateDevice();
     const runId = crypto.randomUUID();
@@ -631,6 +754,13 @@
             : { ...row, status: "completed", result: result.result, error: null });
         if (!(result instanceof Error) && result.kind === "result") {
           const typedResult = result.result;
+          if (typedResult.type === "oemCandidate" && item.selection.type === "oemCandidate"
+            && activeAdapter?.stable_id === adapterSnapshot.stable_id && connectionGeneration === connectionAtStart) {
+            discoveryResults = {
+              ...discoveryResults,
+              [item.id]: oemReadDiscoveryResult(typedResult.payload, item.selection.payload.source_blob_sha),
+            };
+          }
           if (typedResult.type === "oemCandidate" && item.selection.type === "oemCandidate"
             && typedResult.payload.outcome === "positive" && Number.isFinite(typedResult.payload.decoded_value?.value)) {
             onGraphCandidate(item.selection.payload);
@@ -707,19 +837,24 @@
 
 <section class="oem-research" aria-label="OEM PID research catalog">
   <div class="catalog-source-tabs" role="group" aria-label="OEM catalog source">
-    <button class:active={catalogSource === "community"} aria-pressed={catalogSource === "community"} disabled={catalogSwitchBusy} title={catalogSwitchBusy ? "Stop discovery before switching catalogs" : undefined} onclick={() => catalogSource = "community"}>Community catalog</button>
-    <button class:active={catalogSource === "subaru"} aria-pressed={catalogSource === "subaru"} disabled={catalogSwitchBusy} title={catalogSwitchBusy ? "Stop discovery before switching catalogs" : undefined} onclick={() => catalogSource = "subaru"}>Subaru OEM catalog</button>
+    <button class:active={catalogSource === "community"} aria-pressed={catalogSource === "community"} disabled={catalogSwitchBusy} title={catalogSwitchBusy ? "Stop discovery before switching catalogs" : undefined} onclick={() => setCatalogSource("community")}>Community catalog</button>
+    <button class:active={catalogSource === "subaru"} aria-pressed={catalogSource === "subaru"} disabled={catalogSwitchBusy} title={catalogSwitchBusy ? "Stop discovery before switching catalogs" : undefined} onclick={() => setCatalogSource("subaru")}>Subaru OEM catalog</button>
   </div>
   {#if catalogSource === "subaru"}
-    <SubaruCatalogPanel disabled={subaruDisabled || runInProgress} savedFilters={savedWorkspaceFilters.subaru_catalog && typeof savedWorkspaceFilters.subaru_catalog === "object" ? savedWorkspaceFilters.subaru_catalog as Record<string, unknown> : {}} onFiltersChange={updateSubaruFilters} onSelect={onSubaruSelect} onAddToSignals={onAddSubaruSignal} />
+    <SubaruCatalogPanel disabled={subaruDisabled || runInProgress} savedFilters={savedWorkspaceFilters.subaru_catalog && typeof savedWorkspaceFilters.subaru_catalog === "object" ? savedWorkspaceFilters.subaru_catalog as Record<string, unknown> : {}} onFiltersChange={updateSubaruFilters} onSelect={onSubaruSelect} onAddToSignals={onAddSubaruSignal} onInspect={onInspect} />
   {:else}
   <div class="oem-research-heading">
     <span class="oem-catalog-note">Source-backed candidates · research only</span>
-    {#if page}<span class="oem-count">{page.total.toLocaleString()} results</span>{/if}
+    {#if page}<span class="oem-count">{browseView === "selected" ? `${selectedCandidateIds.length} selected` : `${page.total.toLocaleString()} results`}</span>{/if}
   </div>
 
-  <div class="oem-filters">
-    <input class="text-input" type="search" bind:value={query} oninput={scheduleSearch} placeholder="Search name, PID, unit…" aria-label="Search OEM catalog" />
+  <div class="oem-search-row">
+    <input class="text-input" type="search" bind:value={query} oninput={scheduleSearch} placeholder="Search name, PID/DID, unit…" aria-label="Search OEM catalog" />
+    <button class="button secondary filters-toggle" type="button" aria-expanded={filtersOpen} aria-controls="oem-optional-filters" onclick={() => filtersOpen = !filtersOpen}>
+      Filters{#if activeFilterCount}<span class="filter-count">{activeFilterCount}</span>{/if}
+    </button>
+  </div>
+  <div class="oem-filters" id="oem-optional-filters" hidden={!filtersOpen}>
     <div class="oem-filter-row">
       <input class="text-input" bind:value={brand} oninput={scheduleSearch} placeholder="Brand" aria-label="Filter brand" />
       <input class="text-input" bind:value={model} oninput={scheduleSearch} placeholder="Model" aria-label="Filter model" />
@@ -727,6 +862,12 @@
         <option value="">21 + 22</option><option value="21">Service 21</option><option value="22">Service 22</option>
       </select>
     </div>
+  </div>
+
+  <div class="oem-quick-views" role="group" aria-label="OEM candidate views">
+    <button type="button" class:active={browseView === "all"} aria-pressed={browseView === "all"} onclick={() => browseView = "all"}>All <span>{page?.total.toLocaleString() ?? "…"}</span></button>
+    <button type="button" class:active={browseView === "values"} aria-pressed={browseView === "values"} title="Candidates with a numeric value on this page" onclick={() => browseView = "values"}>With values <small>this page</small><span>{valueCount}</span></button>
+    <button type="button" class:active={browseView === "selected"} aria-pressed={browseView === "selected"} onclick={() => { browseView = "selected"; selectedOffset = 0; }}>Selected <span>{selectedCandidateIds.length}</span></button>
   </div>
 
   <div class="oem-discovery-controls">
@@ -757,7 +898,7 @@
       {:else if discoveryAutoTry}
         Watching visible rows · {discoveryStatus.completed} complete · {discoveryStatus.with_values} numeric
       {:else}
-        {discoveryStatus.with_values} numeric values found this connection
+        Discovery: {discoveryStatus.with_values} numeric values this connection
       {/if}
     </span>
     {#if discoveryError}<span class="oem-discovery-error" role="alert">{discoveryError}</span>{/if}
@@ -824,16 +965,19 @@
   </details>
 
   {#if selectedAdapter === "obdlink_sx" || selectedAdapter === "a30"}
-    <div class="obd-read-test">
-      <div class="obd-read-test-controls">
-        <select class="text-input" bind:value={selectedReadTest} aria-label="OBD read mode">
-          {#each A30_READ_TESTS as [value, label]}<option {value}>{label}</option>{/each}
-        </select>
-        <button class="button secondary" onclick={runObdReadTest} disabled={disabled || !activeAdapter || !currentCandidateDevice() || runInProgress}>
-          {runInProgress && currentQueueKey === selectedReadTest ? "Running…" : "Try once"}
-        </button>
+    <details class="oem-read-test">
+      <summary>{runInProgress && currentQueueKey === selectedReadTest ? "Adapter read test · running" : "Adapter read test"}</summary>
+      <div class="obd-read-test">
+        <div class="obd-read-test-controls">
+          <select class="text-input" bind:value={selectedReadTest} aria-label="OBD read mode">
+            {#each A30_READ_TESTS as [value, label]}<option {value}>{label}</option>{/each}
+          </select>
+          <button class="button secondary" onclick={runObdReadTest} disabled={disabled || !activeAdapter || !currentCandidateDevice() || runInProgress}>
+            {runInProgress && currentQueueKey === selectedReadTest ? "Running…" : "Try once"}
+          </button>
+        </div>
       </div>
-    </div>
+    </details>
   {/if}
 
   <div class="research-queue-controls">
@@ -855,147 +999,126 @@
 
   {#if error}<p class="oem-error" role="alert">Catalog unavailable: {error}</p>
   {:else if loading && !page}<p class="oem-empty">Loading the local PID catalog…</p>
-  {:else if page}
+  {:else if page || browseView === "selected"}
     <div class="oem-catalog-list" bind:this={catalogListElement} aria-busy={loading}>
-      {#each page.candidates as candidate (candidate.candidate_id)}
-        {@const candidateDevice = currentCandidateDevice()}
-        {@const tryState = oemCandidateTryState(candidate, candidateDevice, disabled || runInProgress, selectedAdapter)}
+      {#each visibleCandidates as candidate (candidate.candidate_id)}
         {@const result = discoveryResult(candidate.candidate_id)}
         {@const discoveryBadge = oemDiscoveryPresentation(result)}
-        <article class="oem-candidate" use:trackCandidateVisibility={candidate.candidate_id}>
-          <header>
-            <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name}`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
-            <strong title={candidate.name}>{candidate.name}</strong><span>{displayUnit(candidate.unit)}</span>
-            <button class="button secondary oem-try-button" onclick={() => onGraphCandidate(candidate)} title="Add this research signal to the graph. This does not send a request to the vehicle." aria-label={`Graph ${candidate.name}`}>Graph</button>
-            <button class="button secondary oem-try-button" onclick={() => tryCandidate(candidate)} disabled={tryState.disabled} title={tryState.reason || `Send one service ${candidate.service} read through ${adapterTryName()}`} aria-label={`Try ${candidate.name} once`}>{runInProgress && currentQueueKey === candidate.candidate_id ? "Running…" : "Try once"}</button>
-            {#if canConnected}
-              <button class="button secondary oem-try-button" onclick={() => onTryCanCandidate(candidate.candidate_id)} disabled={canCandidateDisabled} title="Read this source-backed service 21/22 candidate over the active Candlelight CAN route" aria-label={`Try ${candidate.name} over CAN`}>CAN read</button>
-            {/if}
-          </header>
-          <p class="oem-address" title={`${candidate.brand} ${candidate.model_scope} · ${address(candidate)}`}>{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
-          <details>
-            <summary>
-              <span class={"oem-discovery-badge tone-" + discoveryBadge.tone} title={result?.detail ?? result?.outcome ?? ""}>{discoveryBadge.label}</span>
-              <span class="oem-validation" title={candidate.auto_request ? "Auto-request allowed" : "Research · not auto-polled"}>{candidate.vehicle_validation.replaceAll("_", " ")}</span>
-              <span class="oem-details-label">Details</span>
-            </summary>
-            {#if tryState.disabled && !runInProgress}<small class="oem-disabled-reason">{tryState.reason}</small>{/if}
-            <p>{candidate.brand} {candidate.model_scope} · {address(candidate)}</p>
-            <p>{candidate.module_type || candidate.category}{candidate.signal_source_id ? ` · ${candidate.signal_source_id}` : ""}{candidate.frequency_hz === null ? "" : ` · ${candidate.frequency_hz} Hz`}
-              {#if candidate.bit_offset !== null && candidate.bit_length !== null} · bits {candidate.bit_offset}–{candidate.bit_offset + candidate.bit_length - 1}{/if}
-            </p>
-            <div class="oem-badges"><span>Research</span><span>{candidate.auto_request ? "Auto-request allowed" : "Not auto-polled"}</span></div>
-            <dl>
-              <dt>Formula</dt><dd>{candidate.formula || "Not supplied"}</dd>
-              <dt>Decoder</dt><dd><code>{candidate.decoder_json}</code></dd>
-              <dt>Range</dt><dd>{candidate.min_value ?? "—"} to {candidate.max_value ?? "—"} {displayUnit(candidate.unit)}</dd>
-              <dt>Year filter</dt><dd><code>{candidate.year_filter_json}</code></dd>
-              <dt>ECU filter</dt><dd>{candidate.ecu_filter || "Not specified"}</dd>
-              <dt>Scope</dt><dd>{candidate.source_scope || candidate.confidence}</dd>
-              <dt>Source revision</dt><dd>{candidate.source_blob_sha}</dd>
-              <dt>License</dt><dd>{candidate.license ?? "Not specified"}</dd>
-            </dl>
-            {#if candidate.notes}<p>{candidate.notes}</p>{/if}
-            {#if candidate.source_url}<a href={candidate.source_url} target="_blank" rel="noreferrer">Open source record</a>{/if}
-            {#if candidate.license_url}<a href={candidate.license_url} target="_blank" rel="noreferrer">Open source license</a>{/if}
-          </details>
+        <article class="oem-candidate-row" class:inspected={inspectedCandidate?.candidate_id === candidate.candidate_id} use:trackCandidateVisibility={candidate.candidate_id}>
+          <input class="candidate-select" type="checkbox" aria-label={`Select ${candidate.name} for the research queue`} checked={selectedCandidateIds.includes(candidate.candidate_id)} onchange={(event) => selectCandidate(candidate, event.currentTarget.checked)} disabled={runInProgress} />
+          <button class="candidate-inspect" type="button" aria-label={`Inspect ${candidate.name}`} aria-pressed={inspectedCandidate?.candidate_id === candidate.candidate_id} onclick={() => inspectCandidate(candidate)}>
+            <strong title={candidate.name}>{candidate.name} <span>{displayUnit(candidate.unit)}</span></strong>
+            <small title={`${candidate.brand} ${candidate.model_scope} · ${address(candidate)}`}>{candidate.brand} {candidate.model_scope} · {address(candidate)}</small>
+          </button>
+          <span class={"oem-discovery-badge tone-" + discoveryBadge.tone} title={result?.detail ?? result?.outcome ?? "No response recorded"}>{discoveryBadge.label}</span>
+          <button class="button secondary graph-candidate" type="button" onclick={() => onGraphCandidate(candidate)} title="Add this research signal to the graph. This does not send a request to the vehicle." aria-label={`Graph ${candidate.name}`}>Graph</button>
         </article>
       {:else}
-        <p class="oem-empty">No candidates match these filters.</p>
+        <p class="oem-empty">{browseView === "values" ? "No numeric values on this page. Try another page or wait for discovery." : browseView === "selected" ? "No candidates selected for the research queue." : "No candidates match these filters."}</p>
       {/each}
     </div>
     <footer class="oem-pagination">
-      <button class="button secondary" onclick={() => setPage(offset - pageSize)} disabled={offset === 0 || loading}>Previous</button>
-      <span>{page.total === 0 ? 0 : offset + 1}–{Math.min(offset + page.candidates.length, page.total)} of {page.total.toLocaleString()}</span>
-      <button class="button secondary" onclick={() => setPage(offset + pageSize)} disabled={offset + pageSize >= page.total || loading}>Next</button>
+      {#if browseView === "selected"}
+        <button class="button secondary" onclick={() => setSelectedPage(selectedOffset - pageSize)} disabled={selectedOffset === 0}>Previous</button>
+        <span>{selectedCandidates.length === 0 ? 0 : selectedOffset + 1}–{Math.min(selectedOffset + pageSize, selectedCandidates.length)} of {selectedCandidates.length} selected</span>
+        <button class="button secondary" onclick={() => setSelectedPage(selectedOffset + pageSize)} disabled={selectedOffset + pageSize >= selectedCandidates.length}>Next</button>
+      {:else}
+        <button class="button secondary" onclick={() => setPage(offset - pageSize)} disabled={offset === 0 || loading}>Previous</button>
+        <span>{browseView === "values" ? `${visibleCandidates.length} with values on this page · ` : ""}{page ? `${page.total === 0 ? 0 : offset + 1}–${Math.min(offset + page.candidates.length, page.total)} of ${page.total.toLocaleString()}` : "Loading catalog"}</span>
+        <button class="button secondary" onclick={() => setPage(offset + pageSize)} disabled={!page || offset + pageSize >= page.total || loading}>Next</button>
+      {/if}
     </footer>
   {/if}
-  <p class="oem-footnote">Candidate responses remain research evidence until validated on the exact vehicle. Numeric results use the shared graph and recording pipeline.</p>
+  <p class="oem-footnote">Select a row to inspect it; queue selection and vehicle reads remain separate actions. Candidate responses are research evidence until validated on the exact vehicle.</p>
   {/if}
 </section>
 
 <style>
-  .catalog-source-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-  .catalog-source-tabs button { flex: 1; min-width: 0; padding: 6px 4px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-deep); color: var(--text-muted); font-size: 10px; cursor: pointer; }
+  .catalog-source-tabs { display: flex; gap: 4px; margin-bottom: 5px; }
+  .catalog-source-tabs button { flex: 1; min-width: 0; min-height: 29px; padding: 5px 7px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-deep); color: var(--text-muted); font-size: 10px; cursor: pointer; }
   .catalog-source-tabs button.active { background: var(--surface-raised); border-color: var(--accent); color: var(--text); }
   .oem-research { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden; }
   .oem-research > :not(.oem-catalog-list) { flex: 0 0 auto; }
   .oem-research > :global(.subaru-catalog) { flex: 1 1 0; min-width: 0; min-height: 0; }
-  .oem-research-heading, .oem-candidate > header, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-  .oem-catalog-note { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-candidate p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.25; }
-  .oem-count, .oem-pagination span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+  .oem-research-heading, .oem-pagination { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .oem-catalog-note { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-count { flex: 0 0 auto; color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+  .oem-search-row { display: flex; min-width: 0; gap: 5px; }
+  .oem-search-row .text-input { flex: 1 1 auto; min-width: 0; min-height: 30px; height: 30px; padding: 4px 8px; font-size: 11px; }
+  .filters-toggle { flex: 0 0 auto; min-height: 30px; padding: 3px 8px; font-size: 10px; }
+  .filter-count { display: inline-grid; min-width: 16px; height: 16px; place-items: center; margin-left: 4px; border-radius: 50%; color: var(--accent-text); background: var(--accent); font-size: 9px; font-variant-numeric: tabular-nums; }
   .oem-filters { display: grid; gap: 3px; }
+  .oem-filters[hidden] { display: none; }
   .oem-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 78px; gap: 3px; }
-  .oem-filters .text-input { min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
-  .oem-discovery-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
-  .oem-auto-try { display: flex; flex: 1 1 145px; align-items: center; gap: 4px; min-width: 0; color: var(--text); font-size: 9px; }
+  .oem-filters .text-input { min-width: 0; min-height: 29px; height: 29px; padding: 4px 7px; font-size: 10px; }
+  .oem-quick-views { display: flex; min-width: 0; gap: 3px; padding: 2px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-deep); }
+  .oem-quick-views button { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 28px; padding: 4px 6px; border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; cursor: pointer; font: inherit; font-size: 10px; white-space: nowrap; }
+  .oem-quick-views button.active { color: var(--text); background: var(--surface-raised); }
+  .oem-quick-views button span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .oem-quick-views button small { overflow: hidden; color: var(--text-dim); font-size: 9px; text-overflow: ellipsis; }
+  .oem-quick-views button:focus-visible, .candidate-inspect:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .oem-discovery-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-top); }
+  .oem-auto-try { display: flex; flex: 1 1 145px; align-items: center; gap: 5px; min-width: 0; color: var(--text); font-size: 10px; }
   .oem-auto-try input { flex: 0 0 auto; accent-color: #60a5fa; }
-  .oem-discovery-controls > .button { min-height: 23px; padding: 2px 6px; font-size: 8px; }
-  .oem-discovery-progress, .oem-discovery-error { flex: 1 1 100%; min-width: 0; color: var(--text-muted); font-size: 8px; overflow-wrap: anywhere; }
+  .oem-discovery-controls > .button { min-height: 28px; padding: 3px 8px; font-size: 10px; }
+  .oem-discovery-progress, .oem-discovery-error { flex: 1 1 100%; min-width: 0; color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }
   .oem-discovery-error { color: #ffb8ae; }
-  .oem-simulator-label { flex: 1 1 100%; color: #fbbf24; font-size: 8px; letter-spacing: .04em; }
-  .oem-discovery-values { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 5px; background: #142029; }
-  .oem-discovery-values > strong { flex: 1 1 100%; color: var(--text-muted); font-size: 8px; }
-  .oem-discovery-badge { display: inline-block; max-width: 100%; overflow: hidden; padding: 1px 5px; border-radius: 8px; font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-simulator-label { flex: 1 1 100%; color: #fbbf24; font-size: 10px; letter-spacing: .04em; }
+  .oem-discovery-values { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-top); }
+  .oem-discovery-values > strong { flex: 1 1 100%; color: var(--text-muted); font-size: 10px; }
+  .oem-discovery-badge { display: inline-block; max-width: 100%; overflow: hidden; padding: 2px 6px; border-radius: 8px; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
   .oem-discovery-badge.tone-untested { color: #cbd5e1; background: #334155; }
   .oem-discovery-badge.tone-waiting, .oem-discovery-badge.tone-active { color: #bfdbfe; background: #1e3a5f; }
   .oem-discovery-badge.tone-value { color: #bbf7d0; background: #14532d; }
   .oem-discovery-badge.tone-reply { color: #fde68a; background: #713f12; }
   .oem-discovery-badge.tone-failure { color: #fecaca; background: #7f1d1d; }
-  .oem-polling { min-width: 0; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #142029; }
-  .oem-polling > summary { display: flex; align-items: center; justify-content: space-between; gap: 5px; cursor: pointer; color: var(--accent); font-size: 9px; }
-  .oem-polling > summary span { overflow: hidden; color: var(--text-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-polling, .oem-read-test { min-width: 0; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-top); }
+  .oem-polling > summary, .oem-read-test > summary { display: flex; align-items: center; justify-content: space-between; gap: 5px; cursor: pointer; color: var(--accent); font-size: 10px; }
+  .oem-polling > summary span { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
   .oem-polling-body { display: grid; gap: 4px; margin-top: 5px; }
   .oem-polling-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px; }
-  .oem-polling .text-input { min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
+  .oem-polling .text-input { min-width: 0; min-height: 29px; height: 29px; padding: 4px 7px; font-size: 10px; }
   .oem-poll-candidates { display: grid; gap: 2px; max-height: 112px; overflow: auto; overscroll-behavior: contain; padding-right: 3px; scrollbar-gutter: stable; }
   .oem-poll-candidates label { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px; border-radius: 4px; background: #19242e; cursor: pointer; }
   .oem-poll-candidates input { flex: 0 0 auto; accent-color: var(--accent); }
   .oem-poll-candidates span { display: grid; min-width: 0; }
   .oem-poll-candidates strong, .oem-poll-candidates small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-poll-candidates strong { color: var(--text); font-size: 9px; }
-  .oem-poll-candidates small, .oem-poll-footer span { color: var(--text-muted); font-size: 8px; }
+  .oem-poll-candidates strong { color: var(--text); font-size: 10px; }
+  .oem-poll-candidates small, .oem-poll-footer span { color: var(--text-muted); font-size: 9px; }
   .oem-poll-pages { display: flex; align-items: center; justify-content: center; gap: 4px; }
-  .oem-poll-pages span { color: var(--text-muted); font-size: 8px; }
-  .oem-poll-pages .button { min-height: 22px; padding: 2px 5px; font-size: 8px; }
+  .oem-poll-pages span { color: var(--text-muted); font-size: 9px; }
+  .oem-poll-pages .button { min-height: 25px; padding: 3px 7px; font-size: 9px; }
   .oem-poll-footer { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
   .oem-poll-footer span { min-width: 0; overflow-wrap: anywhere; }
-  .oem-poll-footer .button { flex: 0 0 auto; min-height: 24px; padding: 2px 6px; font-size: 9px; }
-  .obd-read-test { display: grid; gap: 3px; min-width: 0; }
+  .oem-poll-footer .button { flex: 0 0 auto; min-height: 27px; padding: 3px 8px; font-size: 10px; }
+  .obd-read-test { display: grid; gap: 5px; min-width: 0; margin-top: 6px; }
   .obd-read-test-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
-  .obd-read-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 25px; height: 25px; padding: 3px 5px; font-size: 9px; }
-  .obd-read-test-controls .button { flex: 0 0 auto; min-height: 25px; padding: 3px 6px; font-size: 9px; }
-  .research-queue-controls { display: flex; align-items: center; gap: 3px; }
+  .obd-read-test-controls select { flex: 1 1 auto; min-width: 0; min-height: 29px; height: 29px; padding: 4px 7px; font-size: 10px; }
+  .obd-read-test-controls .button { flex: 0 0 auto; min-height: 29px; padding: 3px 8px; font-size: 10px; }
+  .research-queue-controls { display: flex; align-items: center; gap: 5px; }
   .selected-candidate-count { flex: 1 1 auto; color: var(--text-muted); font-size: 10px; }
   .selected-candidate-count strong { color: var(--text); font-variant-numeric: tabular-nums; }
-  .research-queue-controls .button { min-height: 24px; padding: 2px 6px; font-size: 9px; }
-  .research-queue-progress { min-height: 0; margin: -2px 0 0 !important; color: var(--text-muted); font-size: 8px; line-height: 1.2; }
-  .candidate-select { flex: 0 0 auto; accent-color: var(--accent); }
-  .oem-catalog-list { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 0; align-content: start; gap: 3px; max-height: none; min-width: 0; min-height: 80px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-gutter: stable; }
-  .oem-candidate { min-width: 0; padding: 4px 5px; border: 1px solid var(--border); border-radius: 6px; background: #19242e; }
-  .oem-candidate > header { min-width: 0; gap: 4px; }
-  .oem-candidate > header strong { flex: 1 1 0; min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-candidate > header span { flex: 0 1 auto; min-width: 0; max-width: 20%; overflow: hidden; color: var(--text); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-try-button { flex: 0 0 auto; min-height: 22px; padding: 2px 5px; font-size: 8px; }
-  .oem-disabled-reason { display: block; margin: 2px 0; color: var(--text-muted); font-size: 8px; line-height: 1.2; }
-  .oem-address { overflow: hidden; color: #b8c9d3 !important; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-badges { display: flex; flex-wrap: nowrap; gap: 3px; margin-top: 3px; overflow: hidden; }
-  .oem-badges span { overflow: hidden; padding: 1px 4px; border-radius: 8px; color: #c3d2da; background: #263742; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-candidate details { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
-  .oem-candidate summary { display: flex; align-items: center; gap: 4px; min-width: 0; cursor: pointer; list-style: none; }
-  .oem-candidate summary::-webkit-details-marker { display: none; }
-  .oem-validation { min-width: 0; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-  .oem-details-label { margin-left: auto; color: var(--accent); font-size: 9px; white-space: nowrap; }
-  .oem-details-label::after { content: " ▸"; }
-  .oem-candidate details[open] .oem-details-label::after { content: " ▾"; }
-  .oem-candidate dl { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 3px 6px; margin: 6px 0; }
-  .oem-candidate dt { color: var(--text-muted); }
-  .oem-candidate dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text); }
-  .oem-candidate code { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .oem-candidate a { display: inline-block; margin: 3px 8px 0 0; color: var(--accent); font-size: 9px; }
+  .research-queue-controls .button { min-height: 28px; padding: 3px 8px; font-size: 10px; }
+  .research-queue-progress { min-height: 0; margin: 0 !important; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+  .candidate-select { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--accent); }
+  .oem-catalog-list { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 80px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; scrollbar-gutter: stable; }
+  .oem-candidate-row { display: grid; flex: 0 0 auto; grid-template-columns: 18px minmax(0, 1fr) max-content 48px; align-items: center; gap: 7px; min-width: 0; padding: 7px 4px; border-bottom: 1px solid var(--border-soft); }
+  .oem-candidate-row:hover { background: var(--surface-raised); }
+  .oem-candidate-row.inspected { box-shadow: inset 2px 0 var(--accent); background: var(--surface-raised); }
+  .candidate-inspect { display: grid; gap: 3px; min-width: 0; padding: 1px 0; border: 0; color: var(--text); background: transparent; text-align: left; cursor: pointer; }
+  .candidate-inspect strong { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; min-width: 0; font-size: 11px; font-weight: 650; line-height: 1.25; }
+  .candidate-inspect strong span { flex: 0 0 auto; color: var(--text-muted); font-size: 10px; font-weight: 500; }
+  .candidate-inspect small { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+  .oem-candidate-row .oem-discovery-badge { max-width: 112px; }
+  .graph-candidate { min-width: 0; min-height: 28px; padding: 3px 7px; font-size: 10px; }
   .oem-error { color: #ffb8ae; font-size: 10px; overflow-wrap: anywhere; }
-  .oem-empty, .oem-footnote { margin: 0; color: var(--text-muted); font-size: 9px; line-height: 1.4; }
-  .oem-pagination { justify-content: center; }
-  .oem-pagination .button { min-height: 26px; padding: 3px 7px; font-size: 9px; }
+  .oem-empty, .oem-footnote { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+  .oem-pagination { justify-content: space-between; }
+  .oem-pagination span { min-width: 0; color: var(--text-muted); font-size: 10px; text-align: center; white-space: normal; }
+  .oem-pagination .button { min-height: 28px; flex: 0 0 auto; padding: 3px 8px; font-size: 10px; }
+  @media (max-width: 350px) {
+    .oem-candidate-row { grid-template-columns: 18px minmax(0, 1fr) 42px; gap: 5px; }
+    .oem-candidate-row .oem-discovery-badge { grid-column: 2; grid-row: 2; max-width: 100%; justify-self: start; }
+    .graph-candidate { grid-column: 3; grid-row: 1 / span 2; }
+  }
 </style>

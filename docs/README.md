@@ -9,6 +9,7 @@ Use this page to find the current instructions and distinguish active guidance f
 - [AGENTS.md](../AGENTS.md): repository-wide engineering, safety, MCP parity, and data rules. More specific `AGENTS.md` files apply within their folders.
 - [PROJECT_STATUS.md](../PROJECT_STATUS.md): current implementation, recent verification, hardware evidence links, and next validation work.
 - [Agent Access / MCP](AGENT_ACCESS.md): setup, authorization, available tools, and current MCP behavior.
+- [OEM signal browser](OEM_BROWSER.md): compact results, numeric-value and queue views, graph companion inspector, and grouped controls.
 - [CAN discovery and diagnostics](DISCOVERY_DIAGNOSTICS.md): user-facing CAN and diagnostic workflows.
 - [Vehicle/ECU profiles and diagnostic history](VEHICLE_PROFILES.md): offline VIN decoding, provenance-aware identity, explicit Resume previews, verified/paged report history, resumable import, and matching MCP operations.
 - [Feature backlog](FEATURE_BACKLOG.md): deferred ideas only; not an active work assignment.

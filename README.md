@@ -25,11 +25,15 @@ This checkout currently has no repository-wide `LICENSE` file. GitHub's [licensi
 
 ## Build and run
 
-The optional owner-supplied [Subaru OEM catalog](docs/SUBARU_CATALOG.md) is searchable
+The owner-supplied [Subaru OEM catalog](docs/SUBARU_CATALOG.md) is searchable
 under OEM and through MCP. It uses a normalized extension of the existing SQLite
 catalog; explicit CAN Workbench preparation is separate from validated ordinary
 logging. Source datasets are local research inputs with their own provenance and
 distribution status.
+
+The authoritative SQLite catalog is stored with Git LFS. Install Git LFS and run
+`git lfs pull` after cloning to hydrate the database before building. See the
+[OEM browser guide](docs/OEM_BROWSER.md) for search, inspection and graph controls.
 
 Requires Rust, Node.js/npm, and the Windows MSVC build tools.
 

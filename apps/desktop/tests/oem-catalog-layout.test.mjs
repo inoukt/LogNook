@@ -5,11 +5,11 @@ import test from "node:test";
 const source = await readFile(new URL("../src/OemCatalogPanel.svelte", import.meta.url), "utf8");
 const rule = (selector) => source.match(new RegExp(`${selector}\\s*\\{([^}]+)\\}`))?.[1] ?? "";
 
-test("OEM search results stay in a vertical-only column without covering cards", () => {
+test("OEM search results stay in a vertical-only column without covering rows", () => {
   const list = rule("\\.oem-catalog-list");
-  const candidate = rule("\\.oem-candidate");
+  const candidate = rule("\\.oem-candidate-row");
 
-  assert.match(list, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(list, /flex-direction:\s*column/);
   assert.match(list, /min-width:\s*0/);
   assert.match(list, /overflow-x:\s*hidden/);
   assert.match(list, /overflow-y:\s*auto/);
@@ -17,13 +17,12 @@ test("OEM search results stay in a vertical-only column without covering cards",
   assert.match(candidate, /min-width:\s*0/);
 });
 
-test("OEM research uses the shared heading and compact, single-line candidate rows", () => {
-  const candidateTitle = rule("\\.oem-candidate > header strong");
-  const candidateHeader = rule("\\.oem-candidate > header");
+test("OEM research keeps request summaries clipped within compact rows", () => {
+  const candidateSummary = rule("\\.candidate-inspect small");
 
   assert.doesNotMatch(source, /<h3>OEM research catalog<\/h3>/);
   assert.match(source, /Source-backed candidates · research only/);
-  assert.match(candidateTitle, /white-space:\s*nowrap/);
-  assert.match(candidateHeader, /gap:\s*4px/);
+  assert.match(candidateSummary, /white-space:\s*nowrap/);
+  assert.match(candidateSummary, /text-overflow:\s*ellipsis/);
   assert.match(rule("\\.oem-research"), /gap:\s*4px/);
 });
