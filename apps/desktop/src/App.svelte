@@ -18,6 +18,7 @@
   import OemCatalogPanel from "./OemCatalogPanel.svelte";
   import CatalogSignalInspector from "./CatalogSignalInspector.svelte";
   import type { CatalogInspection } from "./catalogInspection";
+  import { clampSignalPanelWidth, DEFAULT_SIGNAL_PANEL_WIDTH, MIN_SIGNAL_PANEL_WIDTH, MAX_SIGNAL_PANEL_WIDTH } from "./signalPanelLayout";
   import { prepareSubaruWorkbench, type SubaruWorkbenchCandidate, type SubaruWorkbenchSelection } from "./subaruWorkbench";
 import type { SubaruCatalogRow } from "./subaruCatalog";
   import ResearchRunResults from "./ResearchRunResults.svelte";
@@ -150,6 +151,16 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
   let derivedSignalDialog: HTMLDialogElement | undefined;
   let derivedSignalSource: DerivedSignalSource | null = null;
   let signalPickerVisible = true;
+  const signalPanelWidthKey = "lognook.signal-panel-width.v1";
+  let preferredSignalPanelWidth = DEFAULT_SIGNAL_PANEL_WIDTH;
+  let workspaceWidth = 0;
+  let signalPanelWidthReady = false;
+  let signalPanelDrag: { x: number; width: number } | null = null;
+  $: signalPanelWidth = clampSignalPanelWidth(preferredSignalPanelWidth, workspaceWidth);
+  $: if (signalPanelWidthReady && !signalPanelDrag) {
+    try { localStorage.setItem(signalPanelWidthKey, String(preferredSignalPanelWidth)); }
+    catch { /* Layout preferences are optional. */ }
+  }
   let pidPickerView: "signals" | "oem" | "can" = "signals";
   let catalogInspection: CatalogInspection | null = null;
   let catalogInspectorHidden = false;
@@ -451,6 +462,11 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
   }
 
   onMount(() => {
+    try {
+      const savedWidth = localStorage.getItem(signalPanelWidthKey);
+      if (savedWidth !== null && savedWidth.trim()) preferredSignalPanelWidth = clampSignalPanelWidth(Number(savedWidth));
+    } catch { /* Layout preferences are optional. */ }
+    signalPanelWidthReady = true;
     let disposed = false;
     let agentStatusTimer: number | undefined;
     const graphPreferencesChanged = () => queueVehicleProjectSave();
@@ -2175,6 +2191,7 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
     else graphSignalIds = preferences.graphSignalIds;
     graphMode = preferences.graphMode;
     signalPickerVisible = preferences.signalPickerVisible;
+    preferredSignalPanelWidth = DEFAULT_SIGNAL_PANEL_WIDTH;
     statusHeight = preferences.statusHeight;
     theme = preferences.theme;
     highContrast = preferences.highContrast;
@@ -2209,6 +2226,28 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
   function resizeStatus(event: PointerEvent) {
     if (!statusResize) return;
     statusHeight = Math.max(36, Math.min(window.innerHeight * 0.3, statusResize.height + statusResize.y - event.clientY));
+  }
+
+  function startSignalPanelResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    signalPanelDrag = { x: event.clientX, width: signalPanelWidth };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function resizeSignalPanel(event: PointerEvent) {
+    if (!signalPanelDrag) return;
+    preferredSignalPanelWidth = clampSignalPanelWidth(signalPanelDrag.width + event.clientX - signalPanelDrag.x, workspaceWidth);
+  }
+
+  function resizeSignalPanelFromKeyboard(event: KeyboardEvent) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End", "Enter"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 50 : 10;
+    preferredSignalPanelWidth = clampSignalPanelWidth(event.key === "Home" ? MIN_SIGNAL_PANEL_WIDTH
+      : event.key === "End" ? MAX_SIGNAL_PANEL_WIDTH
+        : event.key === "Enter" ? DEFAULT_SIGNAL_PANEL_WIDTH
+          : signalPanelWidth + (event.key === "ArrowRight" ? step : -step), workspaceWidth);
   }
 
   function finishStatusResize() {
@@ -2541,10 +2580,10 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
       />
     </dialog>
 
-    <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible} class:oem-companion={!session && pidPickerView === "oem"}>
+    <div class="workspace-grid" class:pid-picker-hidden={!signalPickerVisible} class:oem-companion={!session && pidPickerView === "oem"} class:resizing-panel={signalPanelDrag !== null} bind:clientWidth={workspaceWidth} style={`--signal-panel-width:${signalPanelWidth}px`}>
       <button class="pid-list-toggle" aria-controls="signal-picker" aria-expanded={signalPickerVisible} onclick={() => signalPickerVisible = !signalPickerVisible} disabled={researchRunView.running}>{signalPickerVisible ? "Hide List" : "Show List"}</button>
       <aside id="signal-picker" class="panel signal-panel" hidden={!signalPickerVisible}>
-        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><div style="display:flex; align-items:center; gap:6px;"><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2>{#if !session && pidPickerView === "can"}<CanHelp />{/if}</div></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">{session || pidPickerView === "signals" ? "SIGNAL PICKER" : pidPickerView === "oem" ? "PID DATABASE" : "TEST WORKBENCH"}</p><div class="signal-panel-title"><h2>{session ? "Recorded signals" : pidPickerView === "signals" ? "Engine · Mode 01" : pidPickerView === "oem" ? "OEM research" : "CAN bus fields"}</h2>{#if !session && pidPickerView === "can"}<CanHelp />{/if}</div></div><span class="count-pill">{session ? `${graphSignalIds.length} graphed` : pidPickerView === "signals" ? `${logSignalIds.length} logging · ${graphSignalIds.length} graphed` : pidPickerView === "oem" ? "OEM catalog" : `${canSignalDefinitions.length} CAN fields`}</span></div>
         {#if !session}
           <div class="pid-picker-tabs three-tabs" role="group" aria-label="Signal source and workbench">
           <button class:active={pidPickerView === "signals"} aria-label="Live PIDs" aria-pressed={pidPickerView === "signals"} onclick={() => pidPickerView = "signals"} disabled={researchRunView.running}>Live</button>
@@ -2626,6 +2665,13 @@ import type { SubaruCatalogRow } from "./subaruCatalog";
           onFieldsChanged={updateCanSignalDefinitions}
           onClearTriggerCapture={clearCanTriggerCapture}
         />
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -- A focusable window separator exposes value and keyboard resizing. -->
+        <div class="signal-panel-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Left panel width" aria-controls="signal-picker"
+          aria-valuemin={MIN_SIGNAL_PANEL_WIDTH} aria-valuemax={clampSignalPanelWidth(MAX_SIGNAL_PANEL_WIDTH, workspaceWidth)} aria-valuenow={signalPanelWidth} aria-valuetext={`${signalPanelWidth} pixels`}
+          title="Drag to resize · arrow keys adjust · double-click or Enter resets"
+          onpointerdown={startSignalPanelResize} onpointermove={resizeSignalPanel}
+          onpointerup={() => signalPanelDrag = null} onpointercancel={() => signalPanelDrag = null} onlostpointercapture={() => signalPanelDrag = null}
+          onkeydown={resizeSignalPanelFromKeyboard} ondblclick={() => preferredSignalPanelWidth = DEFAULT_SIGNAL_PANEL_WIDTH}></div>
       </aside>
 
       <section class="measurements" class:can-split={!session && pidPickerView === "can"} class:oem-companion={!session && pidPickerView === "oem"} style={`--can-monitor-height:${canMonitorHeight}px`} bind:this={measurementsElement} aria-label="Measurements">

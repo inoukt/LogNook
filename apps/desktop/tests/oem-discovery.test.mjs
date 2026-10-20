@@ -110,7 +110,8 @@ test("the panel observes the scroll viewport and keeps discovery outside the gra
   assert.match(panel, /values_first: valuesFirst/);
   assert.match(panel, /adapterId !== currentDiscoveryAdapterId \|\| generation !== currentDiscoveryGeneration/);
   assert.match(panel, /destroyed = true;[\s\S]*?discoveryEpoch \+= 1/);
-  assert.match(panel, /SIMULATOR · NO VEHICLE TRANSMISSION/);
+  assert.match(panel, /Simulator · no TX/);
+  assert.match(panel, /title="Simulator · no vehicle transmission"/);
   assert.match(panel, /selectedAdapter === "obdlink_sx" \|\| selectedAdapter === "a30" \|\| selectedAdapter === "elm327"/);
   const apply = panel.match(/function applyDiscoveryResponse\([\s\S]*?\n  \}/)?.[0] ?? "";
   assert.doesNotMatch(apply, /onGraphCandidate|onGraphReadValue|startOemLogging/);

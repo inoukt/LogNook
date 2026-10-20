@@ -1,5 +1,38 @@
 # LogNook project status
 
+- 2026-10-20: Rebuilt and reopened the packaged-protocol release executable with
+  the shared 24px picker title row. The CAN help button no longer changes the
+  source-tab position; browser alignment assertions and the frontend/release
+  builds passed. The compact controls and adjustable shared width are included.
+
+- 2026-10-19: The left-panel title row reserves 24px across Live/OEM/CAN so
+  the CAN help button no longer shifts the source tabs. Browser fixtures assert
+  identical tab-row positions while switching all three views. Svelte check and
+  frontend build passed with zero Svelte errors/warnings.
+
+- 2026-10-19: Live/OEM/CAN/session pickers share a locally persisted panel width
+  instead of separate fixed widths. A focusable divider supports pointer dragging,
+  keyboard adjustment, limits and reset. The layout reserves graph space when
+  resized and preserves the user's preferred width for larger windows. The
+  existing stacked layout hides the divider at small widths. This is a local
+  presentation preference; existing MCP data/operations are unchanged. Browser
+  fixtures checked drag, keyboard, tab consistency, reload, reset and viewport
+  shrink/restore, along with the existing OEM browsing interaction checks.
+  UI tests: 254 passed. Svelte check: 0 errors / 0 warnings; frontend and
+  packaged-protocol release builds passed. The rebuilt app was reopened locally.
+
+- 2026-10-19: Compacted the OEM browser controls: a source dropdown shares a
+  row with the research/simulator label; duplicate totals and idle status text
+  are removed. Queue actions appear when there is a selection or run, and
+  continuous logging/adapter tests live under Read & logging tools with activity
+  and error indicators. The idle control area measures 158px in the 1440px-wide
+  browser fixture. UI tests: 253 passed; Svelte check: 0 errors / 0 warnings;
+  Vite build passed with its existing chunk-size advisory. Fixture interaction
+  checks passed at 1440/760/520px with no horizontal page overflow. This is a
+  presentation change over existing MCP operations; hardware was not exercised.
+  Packaged-protocol release build passed and the updated executable was reopened
+  locally after stopping the temporary preview server.
+
 - 2026-10-19: The OEM browser now uses a graph companion layout: compact
   Community/Subaru rows, a wider result pane, counted optional filters and a
   selected-signal inspector beneath the existing graph. Community With values
